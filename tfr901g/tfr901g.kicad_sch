@@ -3212,6 +3212,11 @@
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid d85b4782-391e-42b2-8704-defc04b53ab2)
   )
+  (text "Substituations:\nshould use 63C09E for CPU.\ncan use LS273.\ncan use HC138, HC04.\nBut 245s must be LVC.\n"
+    (at 177.546 25.654 0)
+    (effects (font (size 1.27 1.27) (thickness 0.254) bold) (justify left bottom))
+    (uuid df96b60a-3eab-4744-a63d-dac64e264d44)
+  )
 
   (label "G17" (at 233.68 90.17 0) (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
@@ -3980,7 +3985,7 @@
     (pin "1" (uuid 822560f5-3cda-445a-aeb3-66350687910f))
     (pin "2" (uuid 6cd80eb7-fd9f-44e1-987f-605c0894285c))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C40") (unit 1)
         )
@@ -4008,7 +4013,7 @@
     (pin "3" (uuid 94dfb779-25a5-409b-931c-8483fd8a9295))
     (pin "4" (uuid d21fb294-88fd-4b6b-a08c-bbd667ee5d30))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "P10") (unit 1)
         )
@@ -4033,7 +4038,7 @@
     )
     (pin "1" (uuid b1935229-9ccb-4d8a-983f-795202c0a521))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR0106") (unit 1)
         )
@@ -4058,7 +4063,7 @@
     )
     (pin "1" (uuid 44718a4f-dbba-4cfc-80f7-f02e48d49a76))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR0101") (unit 1)
         )
@@ -4083,7 +4088,7 @@
     )
     (pin "1" (uuid fc84af98-4f8b-417e-b147-02221ada0172))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR0103") (unit 1)
         )
@@ -4121,7 +4126,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c91))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a71))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 1)
         )
@@ -4146,7 +4151,7 @@
     )
     (pin "1" (uuid e53f6a0e-3f79-44f7-aa02-8442bf022ce2))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR055") (unit 1)
         )
@@ -4172,7 +4177,7 @@
     (pin "2" (uuid c458b0d0-50a4-412d-825c-dcde8334ee00))
     (pin "1" (uuid fb57bd22-1ac6-47c3-b8e9-2e0192345226))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C11") (unit 1)
         )
@@ -4197,7 +4202,7 @@
     )
     (pin "1" (uuid f917688d-f0c7-44cc-97f8-83719511c87d))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR042") (unit 1)
         )
@@ -4241,7 +4246,7 @@
     (pin "15" (uuid c3472a84-a597-4e00-ba35-0493a929ccdd))
     (pin "17" (uuid c235612f-776a-47a5-9bff-22d5757d045b))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U7") (unit 1)
         )
@@ -4267,7 +4272,7 @@
     (pin "2" (uuid ed36137e-caa4-4bce-b1f9-0b8e96b9b6b9))
     (pin "1" (uuid 620f3891-8b92-4318-a1ed-39271b7513cd))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C5") (unit 1)
         )
@@ -4299,7 +4304,7 @@
     (pin "6" (uuid cca280a2-f7c2-4a0d-854a-2949675d6c99))
     (pin "5" (uuid 1d0ffb31-6fa7-4fa9-b168-29b6e26854ca))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J2") (unit 1)
         )
@@ -4327,7 +4332,7 @@
     (pin "3" (uuid fbeb7732-33a4-42a1-9781-6449ed87f211))
     (pin "4" (uuid 46ada0c7-cf5a-4d4d-9c52-4f7cd35d022c))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "P1") (unit 1)
         )
@@ -4352,7 +4357,7 @@
     )
     (pin "1" (uuid 40d53e4a-4c96-4a47-9710-797eb707f977))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR057") (unit 1)
         )
@@ -4390,7 +4395,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c92))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a72))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 4)
         )
@@ -4415,7 +4420,7 @@
     )
     (pin "1" (uuid ffb42061-76e5-406d-9a20-48654cadbbc5))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR019") (unit 1)
         )
@@ -4440,7 +4445,7 @@
     )
     (pin "1" (uuid c5d08657-4836-4605-b607-16d2d5bf407a))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR043") (unit 1)
         )
@@ -4478,7 +4483,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c93))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a73))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 6)
         )
@@ -4503,7 +4508,7 @@
     )
     (pin "1" (uuid ae8150d6-0b13-45ef-aec4-d827598fad34))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR034") (unit 1)
         )
@@ -4528,7 +4533,7 @@
     )
     (pin "1" (uuid 4515af53-c52d-4214-8ca3-45765a54ada8))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR031") (unit 1)
         )
@@ -4566,7 +4571,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c94))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a74))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 7)
         )
@@ -4591,7 +4596,7 @@
     )
     (pin "1" (uuid 0d9c899d-e778-4492-aa1f-dcd7d8688804))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR035") (unit 1)
         )
@@ -4617,7 +4622,7 @@
     (pin "2" (uuid a89823aa-6254-4d26-a002-573b64e25dcf))
     (pin "1" (uuid 85056d2b-b540-46fd-9e32-f80875e623fc))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C10") (unit 1)
         )
@@ -4643,7 +4648,7 @@
     (pin "1" (uuid 7876f97b-7cf1-4deb-9e26-afd708531f03))
     (pin "2" (uuid b0c2d419-ac3f-4b2e-af2f-42cd0addbc22))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C13") (unit 1)
         )
@@ -4668,7 +4673,7 @@
     )
     (pin "1" (uuid 02194995-396c-4386-b341-efcb4c68f5cb))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR06") (unit 1)
         )
@@ -4693,7 +4698,7 @@
     )
     (pin "1" (uuid 4179696c-01a3-4c8a-b528-fad380f02de8))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR052") (unit 1)
         )
@@ -4718,7 +4723,7 @@
     )
     (pin "1" (uuid da02cf95-9f79-490b-b20c-2203360fd126))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR047") (unit 1)
         )
@@ -4743,7 +4748,7 @@
     )
     (pin "1" (uuid 109d937e-f593-4bc1-85c1-e16d555ea0d6))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR020") (unit 1)
         )
@@ -4769,7 +4774,7 @@
     (pin "2" (uuid 5bacaf8e-3d8c-4add-8175-88feaa8e7aac))
     (pin "1" (uuid c848f87e-2fc0-4c0e-983b-bb4c8e8552d2))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C4") (unit 1)
         )
@@ -4794,7 +4799,7 @@
     )
     (pin "1" (uuid f92b589d-429f-4fcf-90d5-0f80cf46e0c2))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR012") (unit 1)
         )
@@ -4819,7 +4824,7 @@
     )
     (pin "1" (uuid 8471e1e7-3833-48f4-80f8-db5d4ec90796))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR022") (unit 1)
         )
@@ -4844,7 +4849,7 @@
     )
     (pin "1" (uuid 39849760-a8b0-49c0-8af5-f2353e813c2d))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR04") (unit 1)
         )
@@ -4869,7 +4874,7 @@
     )
     (pin "1" (uuid 249aa032-c5b8-49db-b2af-6588821ba7e0))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR044") (unit 1)
         )
@@ -4894,7 +4899,7 @@
     )
     (pin "1" (uuid 86b519f9-aa0d-4b54-9a12-cbe178f7f9c7))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR041") (unit 1)
         )
@@ -4926,7 +4931,7 @@
     (pin "6" (uuid e7095eef-c36c-4768-88df-63ebcd2d3704))
     (pin "5" (uuid 9cf57434-413e-42ca-a859-a3efbb1c94b2))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J5") (unit 1)
         )
@@ -4958,7 +4963,7 @@
     (pin "6" (uuid b6c259ec-3a60-4338-8262-188f463a9161))
     (pin "5" (uuid aacf2b03-adb6-459d-98a6-e2fdb4a8882d))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J9") (unit 1)
         )
@@ -4983,7 +4988,7 @@
     )
     (pin "1" (uuid 7918de5f-a295-4779-8312-2b89240e2324))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR015") (unit 1)
         )
@@ -5008,7 +5013,7 @@
     )
     (pin "1" (uuid 22c20108-4040-4474-ade2-3f56a57cb853))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR040") (unit 1)
         )
@@ -5034,7 +5039,7 @@
     (pin "2" (uuid b0dd2e7a-fbd8-4969-84a8-b4133a282714))
     (pin "1" (uuid 17dd5f99-8ad6-4815-903c-3869bbd33ff2))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C12") (unit 1)
         )
@@ -5059,7 +5064,7 @@
     )
     (pin "1" (uuid 019993f2-c237-49c4-a460-646ab1326892))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR033") (unit 1)
         )
@@ -5084,7 +5089,7 @@
     )
     (pin "1" (uuid 87e64596-4791-4b9f-bff2-4199a3a17070))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR014") (unit 1)
         )
@@ -5124,7 +5129,7 @@
     (pin "3" (uuid c69d87ae-6c47-44a2-8c39-833a20ebcb35))
     (pin "15" (uuid 7091947a-a57b-416d-8d50-0456b8aa1471))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U10") (unit 1)
         )
@@ -5150,7 +5155,7 @@
     (pin "2" (uuid 5e59bd24-ba69-4dda-8001-bab2e24c016c))
     (pin "1" (uuid a9005f3c-03c0-41be-a75f-77f78fafcddc))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C9") (unit 1)
         )
@@ -5176,7 +5181,7 @@
     (pin "2" (uuid 23b408f9-c4c8-4873-bf97-886c75cf1821))
     (pin "1" (uuid 10befcdb-f642-43bd-b1da-37fb8bd2ec8f))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C6") (unit 1)
         )
@@ -5201,7 +5206,7 @@
     )
     (pin "1" (uuid c144ea9e-dc97-44fa-a403-676173c574a7))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR011") (unit 1)
         )
@@ -5226,7 +5231,7 @@
     )
     (pin "1" (uuid 2a776b4f-6059-4f25-82fe-10a54a276b79))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR051") (unit 1)
         )
@@ -5290,7 +5295,7 @@
     (pin "15" (uuid a75182a5-dec0-4d65-a41f-ac101c50dca0))
     (pin "13" (uuid cdb9ead1-c89e-4927-a656-a5ee700f21bd))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U1") (unit 1)
         )
@@ -5315,7 +5320,7 @@
     )
     (pin "1" (uuid fc2be7b5-a158-4377-86fb-02424f29ff8d))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR054") (unit 1)
         )
@@ -5341,7 +5346,7 @@
     (pin "2" (uuid 33a83377-38bd-4e9d-b366-8a506414f4bc))
     (pin "1" (uuid 266d0cbf-4b47-493d-8f46-0299a3caa0c3))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C1") (unit 1)
         )
@@ -5366,7 +5371,7 @@
     )
     (pin "1" (uuid 272d014e-76d7-4a83-8021-e38a4885bc17))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR09") (unit 1)
         )
@@ -5391,7 +5396,7 @@
     )
     (pin "1" (uuid f50420ed-e507-47f3-bbdf-31e4659319a1))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR028") (unit 1)
         )
@@ -5416,7 +5421,7 @@
     )
     (pin "1" (uuid 3b0ecf06-024c-4165-b120-0606a6a913c3))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR03") (unit 1)
         )
@@ -5442,7 +5447,7 @@
     (pin "2" (uuid 7ade21ac-3e93-4b83-abca-0d7e648e5ecc))
     (pin "1" (uuid 520dc743-0a88-467d-b2ad-5673875a2cb7))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C3") (unit 1)
         )
@@ -5467,7 +5472,7 @@
     )
     (pin "1" (uuid 2878dc52-8113-4f75-a33e-75a1e05b317f))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR025") (unit 1)
         )
@@ -5492,7 +5497,7 @@
     )
     (pin "1" (uuid b98b4a6f-9c73-4dd8-92f0-76dda0021b1e))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR023") (unit 1)
         )
@@ -5517,7 +5522,7 @@
     )
     (pin "1" (uuid 4c7f40ab-f785-41a1-9096-6a3996f8c67f))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR026") (unit 1)
         )
@@ -5542,7 +5547,7 @@
     )
     (pin "1" (uuid 14d705c4-ed72-42ac-b578-71929d6554da))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR045") (unit 1)
         )
@@ -5567,7 +5572,7 @@
     )
     (pin "1" (uuid 0afc6dab-d3b1-48bb-b781-78d384384362))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR030") (unit 1)
         )
@@ -5592,7 +5597,7 @@
     )
     (pin "1" (uuid ba3a77cc-8301-4ccb-98fd-4ae5093ec84d))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR059") (unit 1)
         )
@@ -5617,7 +5622,7 @@
     )
     (pin "1" (uuid 368bf257-effc-4397-a0fd-a2c148e943b8))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR029") (unit 1)
         )
@@ -5649,7 +5654,7 @@
     (pin "6" (uuid ecaf9a0e-ce8d-4178-8dc1-fb4e3a2e2073))
     (pin "5" (uuid 3b362378-8ed2-47ba-af18-09380f5da295))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J3") (unit 1)
         )
@@ -5674,7 +5679,7 @@
     )
     (pin "1" (uuid d0141334-6426-47a7-bcb0-468890acf471))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR017") (unit 1)
         )
@@ -5748,7 +5753,7 @@
     (pin "9" (uuid 6f160cf3-42e7-4b96-aa81-e34ed816e6c7))
     (pin "4" (uuid eabbda19-e7d4-4e4a-bc31-1d06ee629219))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U6") (unit 1)
         )
@@ -5774,7 +5779,7 @@
     (pin "2" (uuid fb9bbd34-0f3b-4be9-a1bf-55c7e84e66e0))
     (pin "1" (uuid b90efa4d-d56e-49a2-833d-15d6da48c9a5))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C8") (unit 1)
         )
@@ -5799,7 +5804,7 @@
     )
     (pin "1" (uuid c705f5fc-76b7-48bf-a7d7-47a5d7c28ddf))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR08") (unit 1)
         )
@@ -5825,7 +5830,7 @@
     (pin "2" (uuid e7d2a9ae-838d-4b7e-bcbe-ffc3f1fb41da))
     (pin "1" (uuid 3fab9426-f5a5-4140-88c0-c36e838da288))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C2") (unit 1)
         )
@@ -5850,7 +5855,7 @@
     )
     (pin "1" (uuid 583a8102-6ca9-4e07-91c6-18fc1334ca6a))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR027") (unit 1)
         )
@@ -5924,7 +5929,7 @@
     (pin "9" (uuid 74aae2cb-3536-468e-8d6b-3e78bc3795b6))
     (pin "4" (uuid aa572616-f9d8-418e-a5dd-4fd6133f6f14))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U8") (unit 1)
         )
@@ -5956,7 +5961,7 @@
     (pin "6" (uuid 2f849b99-0166-4cdf-a26a-921e947c2ffd))
     (pin "5" (uuid 6ebffa4b-a314-4ced-bc8a-93609094976b))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J7") (unit 1)
         )
@@ -5988,7 +5993,7 @@
     (pin "6" (uuid 9209157a-d250-4e7d-8fd9-03184af0c48a))
     (pin "5" (uuid 1ddb2f52-63d4-4445-92a1-c7c1d28f1bba))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J8") (unit 1)
         )
@@ -6013,7 +6018,7 @@
     )
     (pin "1" (uuid a6b39e34-a99e-4d15-8f7d-36713e61d459))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR037") (unit 1)
         )
@@ -6087,7 +6092,7 @@
     (pin "9" (uuid 22f84247-a98b-4fbc-9140-15ac818cdb82))
     (pin "4" (uuid b3fe2b3e-c325-452f-8df7-6004a342e8b4))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U2") (unit 1)
         )
@@ -6112,7 +6117,7 @@
     )
     (pin "1" (uuid fae3dc1f-c886-4376-9d60-1648282bf4fe))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR058") (unit 1)
         )
@@ -6138,7 +6143,7 @@
     (pin "2" (uuid 9bf63896-ca91-43a4-a229-c1c95f40ea94))
     (pin "1" (uuid 2bfa45e3-e82f-4603-9b62-810c4a904be7))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "C7") (unit 1)
         )
@@ -6163,7 +6168,7 @@
     )
     (pin "1" (uuid 4397911e-cb14-4aca-b821-cc19fe66eafd))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR01") (unit 1)
         )
@@ -6195,7 +6200,7 @@
     (pin "6" (uuid 52858f7c-b440-4eb7-8ae3-e652025235d9))
     (pin "5" (uuid 557bc932-7209-45d6-898c-1336bc59a78a))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J4") (unit 1)
         )
@@ -6269,7 +6274,7 @@
     (pin "9" (uuid fd9ad681-ad67-41a8-88ba-ba3dedd15457))
     (pin "4" (uuid 75fda166-7f0f-4757-b7df-eac25737a812))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U4") (unit 1)
         )
@@ -6294,7 +6299,7 @@
     )
     (pin "1" (uuid 7e4767fd-9267-4d98-96f3-8dc88479f5e8))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR056") (unit 1)
         )
@@ -6319,7 +6324,7 @@
     )
     (pin "1" (uuid bb36e00f-509f-4448-9c38-49cd7ddb8c63))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR018") (unit 1)
         )
@@ -6351,7 +6356,7 @@
     (pin "6" (uuid bf7d27e7-d1b5-4da0-8ecc-1e063f1e440b))
     (pin "5" (uuid a982c3a6-603d-49d3-b3bf-2752aa3336e9))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J1") (unit 1)
         )
@@ -6418,7 +6423,7 @@
     (pin "20" (uuid 6662b428-51a2-4054-9a09-04f70c32cdfb))
     (pin "14" (uuid 0dfe4cc1-078d-48f1-b684-57c64a14ebda))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U3") (unit 1)
         )
@@ -6443,7 +6448,7 @@
     )
     (pin "1" (uuid 2b5953c6-b7f1-4e29-8882-08482ec37bc5))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR053") (unit 1)
         )
@@ -6468,7 +6473,7 @@
     )
     (pin "1" (uuid d5398ccb-07a6-493e-906b-ccc243ceec24))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR010") (unit 1)
         )
@@ -6500,7 +6505,7 @@
     (pin "6" (uuid 23fd5bea-ba3f-4c1e-969a-1c83dc6484af))
     (pin "5" (uuid 1b1091ea-7762-4d27-91ac-911742f4ae30))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "J6") (unit 1)
         )
@@ -6525,7 +6530,7 @@
     )
     (pin "1" (uuid 9ec72e38-7eb4-43aa-839a-7c72e76f7fa8))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR024") (unit 1)
         )
@@ -6550,7 +6555,7 @@
     )
     (pin "1" (uuid bca82a5f-9ace-4e12-80d0-e07dd5456743))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR050") (unit 1)
         )
@@ -6575,7 +6580,7 @@
     )
     (pin "1" (uuid fdcd9bad-04ff-45c8-ab78-c9a6ea8f9dec))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR039") (unit 1)
         )
@@ -6600,7 +6605,7 @@
     )
     (pin "1" (uuid a1240ce1-b776-4ed5-ac41-150033164d1b))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR060") (unit 1)
         )
@@ -6625,7 +6630,7 @@
     )
     (pin "1" (uuid d27da360-5383-4a79-9a99-b0855472dc4f))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR048") (unit 1)
         )
@@ -6650,7 +6655,7 @@
     )
     (pin "1" (uuid f587302b-e34d-4066-ad6a-85b09add36a5))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR061") (unit 1)
         )
@@ -6688,7 +6693,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c95))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a75))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 2)
         )
@@ -6713,7 +6718,7 @@
     )
     (pin "1" (uuid 9bd905b6-c692-4624-86c2-93c98ae883ae))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR049") (unit 1)
         )
@@ -6738,7 +6743,7 @@
     )
     (pin "1" (uuid 5e928e56-2238-4340-b27e-60c734566b8c))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR07") (unit 1)
         )
@@ -6763,7 +6768,7 @@
     )
     (pin "1" (uuid 0f960e1a-319c-470c-adde-74b0567af149))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR013") (unit 1)
         )
@@ -6801,7 +6806,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c96))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a76))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 5)
         )
@@ -6839,7 +6844,7 @@
     (pin "6" (uuid f119bbdd-05f8-40c8-8f0d-c5af96e74c97))
     (pin "13" (uuid e8eeb5ec-0e75-4cfe-ba69-2c2b48ab1a77))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U11") (unit 3)
         )
@@ -6864,7 +6869,7 @@
     )
     (pin "1" (uuid 15cf6107-8f46-48a2-9b4c-2e6ea3549212))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR016") (unit 1)
         )
@@ -6889,7 +6894,7 @@
     )
     (pin "1" (uuid 5233b8e6-6d27-4f96-aa5a-48e5b50dc808))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR046") (unit 1)
         )
@@ -6914,7 +6919,7 @@
     )
     (pin "1" (uuid 16f51161-effc-421d-80a9-5950d9f7cc07))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR021") (unit 1)
         )
@@ -6939,7 +6944,7 @@
     )
     (pin "1" (uuid 5b7538c5-3ce3-4245-b4ba-639823f2e887))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR032") (unit 1)
         )
@@ -7013,7 +7018,7 @@
     (pin "9" (uuid 5fc66264-a979-49f9-9bf0-b5012972def0))
     (pin "4" (uuid 8109cf33-b875-43ff-b6e2-2222dd562b34))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "U5") (unit 1)
         )
@@ -7038,7 +7043,7 @@
     )
     (pin "1" (uuid fcac327e-506d-40b5-958b-b1b634b0d368))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR05") (unit 1)
         )
@@ -7063,7 +7068,7 @@
     )
     (pin "1" (uuid 4c0d067e-a7ef-462a-9e5e-f218a33ad9d2))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR038") (unit 1)
         )
@@ -7088,7 +7093,7 @@
     )
     (pin "1" (uuid 99d2c96f-b918-4f11-bf7b-e16ff44c445b))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR036") (unit 1)
         )
@@ -7113,7 +7118,7 @@
     )
     (pin "1" (uuid 89faa2a2-fec6-4344-81d5-abe04900c101))
     (instances
-      (project "tfr901d"
+      (project "tfr901g"
         (path "/50d84e83-af39-4327-b4b6-a5a8c6074de2"
           (reference "#PWR02") (unit 1)
         )
