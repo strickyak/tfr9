@@ -1,0 +1,33 @@
+ 2008  rm /tmp/mini
+ 2009  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2010  m /tmp/mini
+ 2011  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2012  m /tmp/mini
+ 2013  rm /tmp/mini
+ 2014  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2015  rm /tmp/mini
+ 2016  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2017  m /tmp/mini
+ 2018  history 55
+ 2019  history 55 > H.2minicom 
+ 2020  rm /tmp/mini ; minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini ; m /tmp/mini
+ 2021  m /tmp/mini
+ 2022  rm /tmp/mini ; minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini ; m /tmp/mini
+ 2023  cp /tmp/mini /sy/tfr9/firmware/c/tmp-works-more/minicom.log 
+ 2024  wc /sy/tfr9/firmware/c/tmp-works-more/minicom.log
+ 2025  cat /sy/tfr9/firmware/c/tmp-works-more/minicom.log
+ 2026  wc /sy/tfr9/firmware/c/tmp-works-more/minicom.log
+ 2027  cd /sy/tfr9/firmware/c/tmp-works-more/minicom.log
+ 2028  cd /sy/tfr9/firmware/c/tmp-works-more/
+ 2029  ll
+ 2030  sed -e 's/^,*//' < minicom.log > minicom.log2 
+ 2031  m minicom.log2
+ 2032  ls ..
+ 2033  ff /sy/tfr9/* | g grok
+ 2034  gop run /sy/tfr9/firmware/grok_output.py < ../../../nitros9/boot.rom --help
+ 2035  gop run ~/go/src/github.com/strickyak/tfr9/firmware/grok_output.py < ../../../nitros9/boot.rom --help
+ 2036  ff /sy/tfr9/* | g go$
+ 2037  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --help
+ 2038  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog *log2 
+ 2039  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog *log2  > join 
+ 2040  history 33 > ../H.3join 

@@ -1,0 +1,55 @@
+ 1965  m lsmod.go 
+ 1966  m listings.go 
+ 1967  ll
+ 1968  ff 
+ 1969  gop run join/join.go < ../nitros9/boot.rom 
+ 1970  g borges *
+ 1971  vi listings.go 
+ 1972  g borges *
+ 1973  gop run join/join.go < ../nitros9/boot.rom 
+ 1974  gop run join/join.go < ../nitros9/boot.rom --runlog ../firmware/_asm  
+ 1975  gop run join/join.go < ../nitros9/boot.rom --runlog ../firmware/_asm  | less 
+ 1976  history 30 > H.1 
+ 1977  gop run join/join.go < ../nitros9/boot.rom --runlog ../firmware/_asm  | less 
+ 1978  cd /gh/
+ 1979  ff | g [.]c$ 
+ 1980  ff | g [.]c$ | xargs grep -iw pio
+ 1981  cd ./raspberrypi/pico-sdk/src/rp2_common/pico_cyw43_driver/
+ 1982  ll
+ 1983  m *pio
+ 1984  cat CMakeLists.txt 
+ 1985  ff
+ 1986  m ./cyw43_bus_pio_spi.pio
+ 1987  m cyw43_driver.c 
+ 1988  m ./cybt_shared_bus/cybt_shared_bus.c
+ 1989  m ./cybt_shared_bus/cybt_shared_bus_driver.c
+ 1990  cd ..
+ 1991  ls
+ 1992  m pico_malloc/*.c
+ 1993  cd hardware_pio/
+ 1994  ll
+ 1995  m pio.c 
+ 1996  kicad
+ 1997  jobs
+ 1998  sudo reboot 
+ 1999  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2000  m /tmp/mini
+ 2001  kicad & 
+ 2002  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2003  tail -99 /tmp/mini 
+ 2004  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2005  man minicom 
+ 2006  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2007  m /tmp/mini
+ 2008  rm /tmp/mini
+ 2009  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2010  m /tmp/mini
+ 2011  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2012  m /tmp/mini
+ 2013  rm /tmp/mini
+ 2014  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2015  rm /tmp/mini
+ 2016  minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini
+ 2017  m /tmp/mini
+ 2018  history 55
+ 2019  history 55 > H.2minicom 
