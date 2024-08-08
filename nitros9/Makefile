@@ -1,4 +1,4 @@
-all: term_tfr901.os9 console_tfr901.os9 init_tfr901.os9
+all: term_tfr901.os9 console_tfr901.os9 init_tfr901.os9 boot.rom
 
 term_tfr901.os9: term_tfr901.asm
 	lwasm --6809 --format=os9 --includedir="$${HOME}/coco-shelf/nitros9/defs/" --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax  $< --output=$@ --list=$@.list --map=$@.map
