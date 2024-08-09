@@ -9,6 +9,8 @@
 #include "hardware/clocks.h"
 #include "yksi.pio.h"
 
+#define CONSOLE_PORT 0xFF10
+
 typedef unsigned char byte;
 
 const uint BootStart = 0xC000;
@@ -18,7 +20,7 @@ const byte Rom[] = {
 };
 
 byte Ram[0x10000];
-byte Seen[0x10000];
+// byte Seen[0x10000];
 
 uint Vectors[] = {
      0,  //  6309 TRAP
@@ -26,6 +28,14 @@ uint Vectors[] = {
      0x0100, 0x0103, 0x010f, 0x010c, 0x0106, 0x0109,
      0,  //  RESET
 };
+
+const char ConsoleCommands[] =
+    "   echo Hello World\r"
+    "   mdir\r"
+    "   procs\r"
+    "   free\r"
+    "   dir\r"
+    "   nando\r\0";
 
 #define PEEK2(addr) (((uint)Ram[0xFFFF&(addr)] << 8) | (uint)Ram[0xFFFF&((addr)+1)])
 
@@ -152,15 +162,29 @@ void StartYksi() {
     yksi_program_init(pio, sm, offset);
 }
 
+const char* DecodeCC(byte cc) {
+    static char buf[9];
+    buf[0] = 0x80 & cc ? 'E' : 'e';
+    buf[1] = 0x80 & cc ? 'F' : 'f';
+    buf[2] = 0x80 & cc ? 'H' : 'h';
+    buf[3] = 0x80 & cc ? 'I' : 'i';
+    buf[4] = 0x80 & cc ? 'N' : 'n';
+    buf[5] = 0x80 & cc ? 'Z' : 'z';
+    buf[6] = 0x80 & cc ? 'V' : 'v';
+    buf[7] = 0x80 & cc ? 'C' : 'c';
+    buf[8] = '\0';
+    return buf;
+}
+
 void HandleYksi(uint num_cycles, uint krn_entry) {
     const PIO pio = pio0;
     const uint sm = 0;
 
-    const uint FULL = 1000000;
+    const uint FULL = 1000 * 1000 * 1000;
 
+    byte data;
     uint vma = 0;
     uint start = 0;
-    uint trigger = 0;
     uint active = 0;
     uint tank = FULL;
     uint hidden = 0;
@@ -169,6 +193,10 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
     uint when = 0;
     uint arg = 0;
     uint prev = 0; // previous data byte
+    uint console_command_index = 0;
+
+    Ram[0xFF10] = ConsoleCommands[console_command_index++];
+    printf("= READY CHAR $%x\n", Ram[0xFF10]);
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -184,21 +212,25 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         uint addr = WAIT_GET();
         uint flags = WAIT_GET();
 
-        if (active && 0xFF04 <= addr && addr < 0xFFEC) {
-            trigger = 1;
-            printf("IOPAGE: addr %x flags %x -- Stopping.\n", addr, flags);
-            return;
-        }
-
         if ((i & 0xFFFF) == 0) {
             printf("--- cycle %d. ---\n", i);
         }
 
         bool reading = (flags & 0x100);
         if (reading) { // CPU reads, Pico Tx
-            byte data = Ram[addr];
+            if (addr == 0xFF10) {
+                data = ConsoleCommands[console_command_index++];
+                printf("= READY CHAR $%x\n", data);
+                if (!data) {
+                    printf("----- END OF CONSOLE COMMANDS.  Stopping.\n");
+                    return;
+                }
+            } else {
+                data = Ram[addr];
+            }
 
             if (start) {
+#if 0
                 if (!Seen[addr]) {
                     Seen[addr] = 1;
                     printf("---------- (%d. hidden)\n", hidden);
@@ -210,7 +242,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 } else {
                     ++hidden;
                 }
-
+#endif 
                 if (addr == krn_entry) {
                     num_resets++;
                     if (num_resets >= 2) {
@@ -222,7 +254,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 switch (data) {
                 case 0x10:
                 case 0x20:
-                case 0x2B:
+                case 0x3B:
                     event = data;
                     when = i;
                     break;
@@ -230,6 +262,9 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                     event = 0;
                     when = 0;
                 }
+            }
+            if (addr == 0xFF10) {
+                printf("NANDO %x %x %x", addr, data, Ram[data]);
             }
 
             PUT(0x00FF);  // pindirs: outputs
@@ -263,13 +298,13 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 switch (i - when) {
                 case 2:
                     arg = 0x80 & data;  // entire bit of condition codes
-                    printf("= CC %02x", data);
+                    printf("= CC: %02x (%s)\n", data, DecodeCC(data));
                     break;
                 case 3:
                     break;
                 case 4: ViewAt("D", prev, data);
                     break;
-                case 5: printf("= DP %02x", data);
+                case 5: printf("= DP: %02x\n", data);
                     break;
                 case 6:
                     break;
@@ -291,15 +326,14 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                     break;
                 }
             }
-            prev = data;
         } else {  // CPU writes, Pico Rx
-            byte data = WAIT_GET();
+            data = WAIT_GET();
             if (active) {
                 Ram[addr] = data;
                 if (tank) printf("w %x %x\n", addr, data);
 
                 switch (event) {
-                case 0x103f:  // RTI
+                case 0x103f:  // SWI2 (i.e. OS9 kernel call)
                     switch (i - when) {
                     case 5: ViewAt("PC", data, prev);
                         break;
@@ -313,18 +347,39 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                         break;
                     case 14: ViewAt("D", data, prev);
                         break;
-                    case 15: printf("= CC: %02x\n", data);
+                    case 15: printf("= CC: %02x (%s)\n", data, DecodeCC(data));
                             ViewAt("SP", addr>>8, addr);
                         break;
                     }
                     break;
                 }
-
-                prev = data;
             }
         }
+        prev = data;
 
-        // printf("##### tank %d. event $%x when %d.\n", tank, event, when);
+        if (active && 0xFF00 <= addr && addr < 0xFFEE) {  // two byte grace on each end.
+            switch (addr) {
+            case 0xFF00:
+            case 0xFF01:
+            case 0xFF02:
+            case 0xFF03:
+                printf("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
+                goto OKAY;
+
+            case CONSOLE_PORT:
+                if (reading) {
+                    printf("= GETCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                } else {
+                    printf("= PUTCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                }
+                goto OKAY;
+
+            default: {}
+            }
+            printf("IOPAGE: addr %x flags %x -- Stopping.\n", addr, flags);
+            return;
+        }
+OKAY:
 
         vma = flags & 0x200;   // AVMA bit means next cycle is Valid
         start = flags & 0x400; // LIC bit means next cycle is Start
@@ -382,7 +437,7 @@ int main() {
     printf("krn_entry on reset is %x", krn_entry);
 
     StartYksi();
-    HandleYksi(100 * 1000 * 1000, krn_entry);
+    HandleYksi(1000 * 1000 * 1000, krn_entry);
     sleep_ms(1000);
     printf("\nFinished.\n");
     sleep_ms(3000);
