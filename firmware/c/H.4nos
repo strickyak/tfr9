@@ -1,0 +1,3 @@
+ 2195  mv boot.rom.h  boot.rom.h-1
+ 2196  py generate-bootrom-header.py < /home/strick/NEW/nitros9/level1/tfr9/bootroms/nos96809l1.rom > boot.rom.h 
+ 2197  history 3 > H.4nos

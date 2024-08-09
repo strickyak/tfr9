@@ -1,0 +1,33 @@
+ 2067  ls
+ 2068  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog good2.log  > join
+ 2069  vi join
+ 2070  vi  /sy/tfr9/listings/join/join.go 
+ 2071  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog good2.log  > join
+ 2072  vi join
+ 2073  vi  /sy/tfr9/listings/join/join.go 
+ 2074  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog good2.log  > join
+ 2075  vi join
+ 2076  history
+ 2077  rm /tmp/mini ; minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini ; m /tmp/mini
+ 2078  history
+ 2079  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini | m
+ 2080  vi  /sy/tfr9/listings/join/join.go 
+ 2081  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini | m
+ 2082  rm /tmp/mini ; minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini ; m /tmp/mini
+ 2083  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini | m
+ 2084  vi  /sy/tfr9/listings/join/join.go 
+ 2085  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini 2>71 | m
+ 2086  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini 2>&1 | m
+ 2087  vi  /sy/tfr9/listings/join/join.go 
+ 2088  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini 2>&1 | m
+ 2089  fg
+ 2090  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini 2>&1 | m
+ 2091  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini 2>&1 | m -p MODULE:
+ 2092  rm /tmp/mini ; minicom -b 115200 -o -D /dev/ttyACM0 -C /tmp/mini ; m /tmp/mini
+ 2093  gop run /sy/tfr9/listings/join/join.go < ../../../nitros9/boot.rom --borges ~/borges/ --runlog /tmp/mini 2>&1 | m -p MODULE:
+ 2094  gop run /sy/tfr9/listings/join/join.go < /home/strick/NEW/nitros9/level1/tfr9/bootroms/nos96809l1.rom    --borges ~/borges/ --runlog /tmp/mini 2>&1 | m -p MODULE:
+ 2095  g borges ../H.*
+ 2096  gop run /sy/doing_os9/gomar/borges/borges.go -help
+ 2097  gop run /sy/doing_os9/gomar/borges/borges.go --outdir ~/borges/  ~/NEW/nitros9/
+ 2098  gop run /sy/tfr9/listings/join/join.go < /home/strick/NEW/nitros9/level1/tfr9/bootroms/nos96809l1.rom    --borges ~/borges/ --runlog /tmp/mini 2>&1 | m -p MODULE:
+ 2099  history 33 > ../H.5.borges.join 
