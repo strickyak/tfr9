@@ -39,6 +39,8 @@ const char ConsoleCommands[] =
     "   dir\r"
     "   nando\r\0";
 
+enum { C_PUTCHAR=161 };
+
 #define PEEK2(addr) (((uint)Ram[0xFFFF&(addr)] << 8) | (uint)Ram[0xFFFF&((addr)+1)])
 
 #define POKE2(addr,value) do { Ram[0xFFFF&(addr)] = ((value)>>8) ; Ram[0xFFFF&((addr)+1)] = (value) ; } while (0)
@@ -46,6 +48,8 @@ const char ConsoleCommands[] =
 #define DELAY sleep_us(1);
 
 #define IO_START 0xFF00
+
+#define GET_STUCK()   { while (1) {putchar(255);} }
 
 void DumpRamAndGetStuck() {
     printf("\n:DumpRam\n");
@@ -64,7 +68,7 @@ yes:
       printf("\n");
     }
     printf("\n:DumpRam\n");
-    while (1) {} // Stuck
+    GET_STUCK();
 }
 
 uint AddressOfRom() {
@@ -249,6 +253,13 @@ const char* DecodeCC(byte cc) {
     return buf;
 }
 
+byte GetCharFromConsole() {
+    static uint console_command_index = 0;
+    byte data = ConsoleCommands[console_command_index];
+    if (data) console_command_index++;  // only advance if not yet at '\0'
+    return data;
+}
+
 void HandleYksi(uint num_cycles, uint krn_entry) {
     const PIO pio = pio0;
     const uint sm = 0;
@@ -264,10 +275,9 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
     uint when = 0;
     uint arg = 0;
     uint prev = 0; // previous data byte
-    uint console_command_index = 0;
 
-    Ram[0xFF10] = ConsoleCommands[console_command_index++];
-    printf("= READY CHAR $%x\n", Ram[0xFF10]);
+    // Ram[CONSOLE_PORT] = ConsoleCommands[console_command_index++];
+    printf("= READY CHAR $%x\n", Ram[CONSOLE_PORT]);
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -291,8 +301,9 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         if (reading) { // CPU reads, Pico Tx
 
             switch (addr) {
-            case 0xFF10: // getchar from console
-                data = ConsoleCommands[console_command_index++];
+            case CONSOLE_PORT: // getchar from console
+                data = GetCharFromConsole();
+
                 printf("= READY CHAR $%x\n", data);
                 if (!data) {
                     printf("----- END OF CONSOLE COMMANDS.  Stopping.\n");
@@ -441,6 +452,8 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                     printf("= GETCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
                 } else {
                     printf("= PUTCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                    putchar(C_PUTCHAR);
+                    putchar(data);
                 }
                 goto OKAY;
 
@@ -459,14 +472,14 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             case 0x3C:
             case 0x3D:
             case 0x3E:
-                printf("-NANDO %x %x %x\n", addr, data, Ram[data]);
+                printf("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
                 goto OKAY;
 
             case 0x3F:
                 if (!reading) {
                     byte command = Ram[0xFF30];
 
-                    printf("-NANDO %x %x %x\n", addr, data, Ram[data]);
+                    printf("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
                     printf("- sector $%02x.%04x bufffer $%04x command %x\n",
                         Ram[0xFF31],
                         PEEK2(0xFF32),
@@ -561,5 +574,5 @@ int main() {
     sleep_ms(1000);
     printf("\nFinished.\n");
     sleep_ms(3000);
-    while (true) DELAY;
+    GET_STUCK();
 }
