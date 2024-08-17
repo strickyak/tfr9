@@ -78,15 +78,17 @@ Write
 
 
 GStt                
+                    pshs    a
+                    clra
                     clrb
-                    comb      ; error 255 and set Carry
-                    rts
+                    puls a,pc
 
 
 SStt                
+                    pshs    a
+                    clra
                     clrb
-                    comb      ; error 255 and set Carry
-                    rts
+                    puls a,pc
 
                     emod
 ModSize             equ       *

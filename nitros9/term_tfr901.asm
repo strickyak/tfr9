@@ -1,7 +1,7 @@
 ********************************************************************
 * Term_tfr901 Device Descriptor
 *
-* $Id: term_tfr901.asm,v 1.3 2024/07/29 08:07:58 strick Exp strick $
+* $Id: term_tfr901.asm,v 1.3 2024/07/29 08:07:58 strick Exp $
 *
 * Edt/Rev  YYYY/MM/DD  Modified by
 * Comment

@@ -1,4 +1,4 @@
-; github.com/strickyak/tfr9/nitros9/disker_tfr901.asm: block disk device for TFR/901
+; github.com/strickyak/tfr9/nitros9/tfrblock_tfr901.asm: block disk device for TFR/901
 ;
 ; assembled by Henry Strickland (github.com/strickyak).
 ; Original contributions by Henry Strickland are MIT license.
@@ -18,16 +18,17 @@
 *
 *  Comments: Ensure that device descriptors mark it as a hard drive
 
+;  (Is that comment referring to "fcb TYP.HARD ; IT.TYP: $15: hard drive" ?)
 
-         nam   disker_tfr901.asm
-         ttl   Disk Driver for tfr901
+         nam   tfrblock_tfr901.asm
+         ttl   Block Disk Driver for tfr901
 
          ifp1
          use   defsfile
          endc
 
-PORTAL   equ $FF10       ; data area for commands to Pico
-COMMAND  equ $FF1F       ; Command and Status byte to Pico
+PORTAL   equ $FF30       ; data area for commands to Pico
+COMMAND  equ $FF3F       ; Command and Status byte to Pico
 
 N.Drives equ 4
 
@@ -45,7 +46,7 @@ edition  set   $01
 
          mod   eom,name,tylg,atrv,start,static_storage_size
          fcb   DIR.+SHARE.+PEXEC.+PWRIT.+PREAD.+EXEC.+UPDAT.
-name     fcs   /RBLemma/
+name     fcs   /TfrBlock/
          fcb   edition
 
 **************************************************************************
@@ -209,7 +210,7 @@ TfrSector
         beq @busy            ; Zero means NotYet.
         puls cc,x,y,u        ; retain B!
 
-        tstb #1              ; One means OKAY.
+        cmpb #1              ; One means OKAY.
         beq @okay
 @bad
         coma                 ; Set carry.
