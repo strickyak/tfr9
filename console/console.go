@@ -45,51 +45,44 @@ func main() {
 		log.Printf("Wrote %d bytes.", n)
 	}
 
-	putchars := make(chan byte, 1024*1024)
+	putchars := make(chan byte, 1024)
 
 	go func() {
+		var bb bytes.Buffer
 		for {
-			v := make([]byte, 100)
-			n, err := port.Read(v)
-			if err != nil {
-				log.Fatalf("port.Read: %v", err)
+			x, ok := <-putchars
+			if !ok {
+				break
 			}
-			log.Printf("Read %d bytes: %q", n, v[:n])
-
-			for i := 0; i < n; i++ {
-				switch v[i] {
-				case C_PUTCHAR:
-					i++
-					ch := v[i]
-					switch {
-					case 32 <= ch && ch <= 126:
-						fmt.Printf("%c", ch)
-					case ch == 10 || ch == 13:
-						fmt.Println()
-					default:
-						fmt.Printf("{%d}", ch)
-					}
-
-				case 255:
-					log.Printf("go func: Received END MARK 255; exiting")
-					return
+			switch x {
+			case C_PUTCHAR:
+				ch := <-putchars
+				switch {
+				case 32 <= ch && ch <= 126:
+					fmt.Printf("%c", ch)
+				case ch == 10 || ch == 13:
+					fmt.Println()
 				default:
-				LOGGING:
-					for i+1 < n {
-						i++
-						ch := v[i]
-						var bb bytes.Buffer
-						switch {
-						case 32 <= ch && ch <= 126:
-							bb.WriteByte(ch)
-						case ch == 10 || ch == 13:
-							log.Printf("LOG %q", bb.String())
-							break LOGGING
-						default:
-							fmt.Fprintf(&bb, "{%d}", ch)
-						}
-					}
+					fmt.Printf("{%d}", ch)
 				}
+
+			case 255:
+				log.Printf("go func: Received END MARK 255; exiting")
+				close(putchars)
+				return
+			default:
+				switch {
+				case 32 <= x && x <= 126:
+					bb.WriteByte(x)
+				case x == 10:
+					bb.WriteByte(10)
+				default:
+					fmt.Fprintf(&bb, "{%d}", x)
+				}
+			}
+			if bb.Len() > 63 {
+				log.Printf("LOG %q", bb.String())
+				bb.Reset()
 			}
 		}
 	}()
@@ -100,18 +93,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("port.Read: %v", err)
 		}
-		log.Printf("Read %d bytes: %q", n, v[:n])
+		// log.Printf("Read %d bytes: %q", n, v[:n])
 
-		var p1, p2 byte
+		//var p1, p2 byte
 		for i := 0; i < n; i++ {
 			x := v[i]
-			if x == 255 && p1 == 255 && p2 == 255 {
-				log.Printf("main: Triple 255: exiting")
-				return
-			}
 			putchars <- x
-			p2 = p1
-			p1 = x
 		}
 	}
+	log.Printf("End LOOP.")
 }

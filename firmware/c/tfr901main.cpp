@@ -10,6 +10,7 @@
 #include "yksi.pio.h"
 
 #define CONSOLE_PORT 0xFF10
+#define P if(0)printf
 
 typedef unsigned char byte;
 
@@ -52,7 +53,7 @@ enum { C_PUTCHAR=161 };
 #define GET_STUCK()   { while (1) {putchar(255);} }
 
 void DumpRamAndGetStuck() {
-    printf("\n:DumpRam\n");
+    P("\n:DumpRam\n");
     for (uint i = 0; i < 0x10000; i += 16) {
       for (uint j = 0; j < 16; j++) {
         if (Ram[i+j]) goto yes;
@@ -60,14 +61,14 @@ void DumpRamAndGetStuck() {
       continue;
 
 yes:
-      printf(":%04x: ", i);
+      P(":%04x: ", i);
       for (uint j = 0; j < 16; j++) {
-        printf("%c%02x", (Seen[i+j]? '-' : ' '), Ram[i+j]);
-        if ((j&3)==3) putchar(' ');
+        P("%c%02x", (Seen[i+j]? '-' : ' '), Ram[i+j]);
+        if ((j&3)==3) P(" ");
       }
-      printf("\n");
+      P("\n");
     }
-    printf("\n:DumpRam\n");
+    P("\n:DumpRam\n");
     GET_STUCK();
 }
 
@@ -80,37 +81,37 @@ bool CheckHeader(uint p) {
     for (uint i = 0; i < 9; i++) {
         z ^= Rom[i+p];
     }
-    // printf("CheckHeader: %x\n", z);
+    // P("CheckHeader: %x\n", z);
     return (z == 255); // will be 255 if good.
 }
 
 void PrintName(uint p) {
-    putchar(' ');
-    putchar('"');
+    P(" ");
+    P("\"");
     while (1) {
         byte ch = Rom[p];
         if ((127 & ch) < 32) break;
-        putchar(127 & ch);
+        P("%c", 127 & ch);
         if (ch & 128) break;
         ++p;
     }
-    putchar('"');
-    putchar(' ');
+    P("\"");
+    P(" ");
 }
 
 void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
     for (uint i = 0; i + 10 < sizeof Rom; i++) {
         if (Rom[i]==0x87 && Rom[i+1]==0xCD) {
             if (!(CheckHeader(i))) {
-                printf("(Bad header at $%x)\n", i);
+                P("(Bad header at $%x)\n", i);
                 continue;
             }
             uint size = (((uint)Rom[i+2])<<8) | Rom[i+3];
             uint name = (((uint)Rom[i+4])<<8) | Rom[i+5];
             uint entry = (((uint)Rom[i+9])<<8) | Rom[i+10];
-            printf("Offset %x Addr %x Size %x Entry %x", i, i + AddressOfRom(), size, entry);
+            P("Offset %x Addr %x Size %x Entry %x", i, i + AddressOfRom(), size, entry);
             PrintName(i + name);
-            putchar('\n');
+            P("\n");
             if (Rom[i+name]=='K' && Rom[i+name+1]=='r' && Rom[i+name+2]==('n'|0x80)) {
                 *krn_start = i + AddressOfRom();
                 *krn_entry = i + entry + AddressOfRom();
@@ -132,23 +133,23 @@ void Delay(uint n) {
 
 void ViewAt(const char* label, uint hi, uint lo) {
     uint addr = (hi << 8) | lo;
-    printf("=== %s: @%04x: ", label, addr);
+    P("=== %s: @%04x: ", label, addr);
     for (uint i = 0; i < 8; i++) {
         uint x = PEEK2(addr+i+i);
-        printf("%04x ", x);
+        P("%04x ", x);
     }
-    printf("|");
+    P("|");
     for (uint i = 0; i < 16; i++) {
         byte ch = 0x7f & Ram[0xFFFF&(addr+i)];
-        if (32 <= ch && ch <= 127) printf("%c", ch);
-        else if (ch==0) printf("-");
-        else printf(".");
+        if (32 <= ch && ch <= 127) P("%c", ch);
+        else if (ch==0) P("-");
+        else P(".");
     }
-    printf("|\n");
+    P("|\n");
 }
 
 void SetMode(byte x) {
-    printf("mode %x\n", x);
+    P("mode %x\n", x);
     for (uint i = 18; i < 21; i++) {
         gpio_set_dir(i, true/*out*/);
         gpio_put(i, (1&x));
@@ -157,7 +158,7 @@ void SetMode(byte x) {
 }
 
 void OutLowDataByte(byte x) {
-    printf("out %x\n", x);
+    P("out %x\n", x);
     for (uint i = 0; i < 8; i++) {
         gpio_set_dir(i, true/*out*/);
         gpio_put(i, (1&x));
@@ -166,7 +167,7 @@ void OutLowDataByte(byte x) {
 }
 
 void SetLatch(byte x) {
-    printf("latch %x\n", x);
+    P("latch %x\n", x);
     SetMode(0);
     OutLowDataByte(x); DELAY;
     SetMode(4); DELAY;
@@ -182,7 +183,7 @@ void ResetCpu() {
     const uint PIN_EBAR = 16; // clock output pin
     const uint PIN_QBAR = 17; // clock output pin
 
-    printf("begin reset cpu ========\n");
+    P("begin reset cpu ========\n");
     SetLatch(0x1C); // Reset & Halt.
     for (uint i = 0; i < 1000; i++) {
         gpio_put(PIN_QBAR, 0); DELAY;
@@ -190,7 +191,7 @@ void ResetCpu() {
         gpio_put(PIN_QBAR, 1); DELAY;
         gpio_put(PIN_EBAR, 1); DELAY;
     }
-    printf("begin halt cpu ========\n");
+    P("begin halt cpu ========\n");
     SetLatch(0x1D); // Halt.
     for (uint i = 0; i < 1000; i++) {
         gpio_put(PIN_QBAR, 0); DELAY;
@@ -198,7 +199,7 @@ void ResetCpu() {
         gpio_put(PIN_QBAR, 1); DELAY;
         gpio_put(PIN_EBAR, 1); DELAY;
     }
-    printf("run ========\n");
+    P("run ========\n");
     SetLatch(0x1F); // Run.
 }
 
@@ -209,11 +210,11 @@ uint WAIT_GET() {
 
     // gpio_put(LED_PIN, 1);
     while (pio_sm_is_rx_fifo_empty(pio, sm)) {
-        // printf(",");
+        // P(",");
     }
     // DELAY;
     uint z = pio_sm_get(pio, sm);
-    if(0) printf("< %x\n", z);
+    if(0) P("< %x\n", z);
     // gpio_put(LED_PIN, 0);
     return z;
 }
@@ -223,11 +224,11 @@ void PUT(uint x) {
     const uint sm = 0;
 
     while (pio_sm_is_tx_fifo_full (pio, sm)) {
-        printf("ERROR: tx fifo full\n");
+        P("ERROR: tx fifo full\n");
         while (true) DELAY;
     }
     pio_sm_put(pio, sm, x);
-    if(0) printf("> %x\n", x);
+    if(0) P("> %x\n", x);
 }
 
 void StartYksi() {
@@ -277,7 +278,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
     uint prev = 0; // previous data byte
 
     // Ram[CONSOLE_PORT] = ConsoleCommands[console_command_index++];
-    printf("= READY CHAR $%x\n", Ram[CONSOLE_PORT]);
+    P("= READY CHAR $%x\n", Ram[CONSOLE_PORT]);
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -285,7 +286,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         uint twenty_three = WAIT_GET();
         if (twenty_three != 23) {
             sleep_ms(1000);
-            printf("ERROR: NOT twenty_three: %d.\n", twenty_three);
+            P("ERROR: NOT twenty_three: %d.\n", twenty_three);
             sleep_ms(3000);
             while (true) DELAY;
         }
@@ -294,7 +295,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         uint flags = WAIT_GET();
 
         if ((i & 0xFFFF) == 0) {
-            printf("--- cycle %d. ---\n", i);
+            P("--- cycle %d. ---\n", i);
         }
 
         bool reading = (flags & 0x100);
@@ -304,9 +305,9 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             case CONSOLE_PORT: // getchar from console
                 data = GetCharFromConsole();
 
-                printf("= READY CHAR $%x\n", data);
+                P("= READY CHAR $%x\n", data);
                 if (!data) {
-                    printf("----- END OF CONSOLE COMMANDS.  Stopping.\n");
+                    P("----- END OF CONSOLE COMMANDS.  Stopping.\n");
                     DumpRamAndGetStuck();
                     return;
                 }
@@ -325,7 +326,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 if (addr == krn_entry) {
                     num_resets++;
                     if (num_resets >= 2) {
-                        printf("---- Second Reset -- Stopping.\n");
+                        P("---- Second Reset -- Stopping.\n");
                         DumpRamAndGetStuck();
                         return;
                     }
@@ -347,7 +348,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             PUT(data);    // pins
             PUT(0x0000);  // pindirs
 
-            printf("%s %x %x   #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, i);
+            P("%s %x %x   #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, i);
 
             if (addr == 0xFFFE) active = 1;
 
@@ -368,7 +369,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 if (i - when == 1) {
                     switch (data) {
                     case 0xFE: // Infinite Loop
-                        printf("------- Infinite Loop.  Stopping.\n");
+                        P("------- Infinite Loop.  Stopping.\n");
                         DumpRamAndGetStuck();
                         return;
                         break;
@@ -379,13 +380,13 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 switch (i - when) {
                 case 2:
                     arg = 0x80 & data;  // entire bit of condition codes
-                    printf("= CC: %02x (%s)\n", data, DecodeCC(data));
+                    P("= CC: %02x (%s)\n", data, DecodeCC(data));
                     break;
                 case 3:
                     break;
                 case 4: ViewAt("D", prev, data);
                     break;
-                case 5: printf("= DP: %02x\n", data);
+                case 5: P("= DP: %02x\n", data);
                     break;
                 case 6:
                     break;
@@ -411,7 +412,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             data = WAIT_GET();
             if (active) {
                 Ram[addr] = data;
-                printf("w %x %x\n", addr, data);
+                P("w %x %x\n", addr, data);
 
                 switch (event) {
                 case 0x103f:  // SWI2 (i.e. OS9 kernel call)
@@ -424,11 +425,11 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                         break;
                     case 11: ViewAt("X", data, prev);
                         break;
-                    case 12: printf("= DP: %02x\n", data);
+                    case 12: P("= DP: %02x\n", data);
                         break;
                     case 14: ViewAt("D", data, prev);
                         break;
-                    case 15: printf("= CC: %02x (%s)\n", data, DecodeCC(data));
+                    case 15: P("= CC: %02x (%s)\n", data, DecodeCC(data));
                             ViewAt("SP", addr>>8, addr);
                         break;
                     }
@@ -444,14 +445,14 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             case 0x01:
             case 0x02:
             case 0x03:
-                printf("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
+                P("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
                 goto OKAY;
 
             case 255&CONSOLE_PORT:
                 if (reading) {
-                    printf("= GETCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                    P("= GETCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
                 } else {
-                    printf("= PUTCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                    P("= PUTCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
                     putchar(C_PUTCHAR);
                     putchar(data);
                 }
@@ -472,15 +473,15 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             case 0x3C:
             case 0x3D:
             case 0x3E:
-                printf("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
+                P("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
                 goto OKAY;
 
             case 0x3F:
                 if (!reading) {
                     byte command = Ram[0xFF30];
 
-                    printf("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
-                    printf("- sector $%02x.%04x bufffer $%04x command %x\n",
+                    P("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
+                    P("- sector $%02x.%04x bufffer $%04x command %x\n",
                         Ram[0xFF31],
                         PEEK2(0xFF32),
                         PEEK2(0xFF38),
@@ -508,7 +509,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
 
             default: {}
             }
-            printf("\n--- IOPAGE: addr %x flags %x data %x -- Stopping.\n", addr, flags, data);
+            P("\n--- IOPAGE: addr %x flags %x data %x -- Stopping.\n", addr, flags, data);
             DumpRamAndGetStuck();
             return;
         }
@@ -542,7 +543,7 @@ int main() {
         sleep_ms(300);
         gpio_put(LED_PIN, 0);
         sleep_ms(700);
-        printf("+%d.\n", i);
+        P("+%d.\n", i);
     }
 
     gpio_put(LED_PIN, 1);
@@ -552,10 +553,10 @@ int main() {
     InitRamFromRom();
 
     uint a = AddressOfRom();
-    printf("AddressOfRom = $%x\n", a);
+    P("AddressOfRom = $%x\n", a);
     uint krn_start, krn_entry, krn_end;
     FindKernelEntry(&krn_start, &krn_entry, &krn_end);
-    printf("KernelEntry = $%x\n", krn_entry);
+    P("KernelEntry = $%x\n", krn_entry);
 
 #if 1
     POKE2(0xFFFE, krn_entry);       // Reset Vector.
@@ -572,7 +573,7 @@ int main() {
     StartYksi();
     HandleYksi(1000 * 1000 * 1000, krn_entry);
     sleep_ms(1000);
-    printf("\nFinished.\n");
+    P("\nFinished.\n");
     sleep_ms(3000);
     GET_STUCK();
 }
