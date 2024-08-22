@@ -12,7 +12,9 @@
 #define CONSOLE_PORT 0xFF10
 #define D if(1)printf
 #define P if(0)printf
-#define Q if(i<100)printf
+#define Q if(i<VERBOSE_STEPS)printf
+
+#define VERBOSE_STEPS 20 // 999999999
 
 typedef unsigned char byte;
 
@@ -40,6 +42,7 @@ const char ConsoleCommands[] =
     "   procs\r"
     "   free\r"
     "   dir\r"
+    "   dir cmds\r"
     "   nando\r\0";
 
 enum { C_PUTCHAR=161 };
@@ -119,6 +122,7 @@ void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
                 *krn_entry = i + entry + AddressOfRom();
                 *krn_end = i + size + AddressOfRom();
             }
+            i += size; // Skip over the module.
         }
     }
 }
@@ -187,7 +191,7 @@ void ResetCpu() {
 
     D("begin reset cpu ========\n");
     SetLatch(0x1C); // Reset & Halt.
-    for (uint i = 0; i < 1000; i++) {
+    for (uint i = 0; i < 20; i++) {
         gpio_put(PIN_QBAR, 0); DELAY;
         gpio_put(PIN_EBAR, 0); DELAY;
         gpio_put(PIN_QBAR, 1); DELAY;
@@ -195,7 +199,7 @@ void ResetCpu() {
     }
     D("begin halt cpu ========\n");
     SetLatch(0x1D); // Halt.
-    for (uint i = 0; i < 1000; i++) {
+    for (uint i = 0; i < 10; i++) {
         gpio_put(PIN_QBAR, 0); DELAY;
         gpio_put(PIN_EBAR, 0); DELAY;
         gpio_put(PIN_QBAR, 1); DELAY;
@@ -279,7 +283,6 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
     uint arg = 0;
     uint prev = 0; // previous data byte
 
-    // Ram[CONSOLE_PORT] = ConsoleCommands[console_command_index++];
     P("= READY CHAR $%x\n", Ram[CONSOLE_PORT]);
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
@@ -287,9 +290,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
     for (uint i = 0; i < num_cycles; i++) {
         uint twenty_three = WAIT_GET();
         if (twenty_three != 23) {
-            sleep_ms(1000);
             D("ERROR: NOT twenty_three: %d.\n", twenty_three);
-            sleep_ms(3000);
             while (true) DELAY;
         }
 
