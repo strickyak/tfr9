@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/jacobsa/go-serial/serial"
@@ -12,13 +14,37 @@ import (
 
 var TTY = flag.String("tty", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
+var DISKS = flag.String("disks", "", "Comma-separated filepaths to disk files, in order of drive number")
 
 const (
 	C_PUTCHAR = 161
 )
 
-func Once() {
-	// Set up options.
+type DiskFiles []*os.File
+
+func OpenDisks(disks string) DiskFiles {
+	var z DiskFiles
+	for _, filename := range strings.Split(disks, ",") {
+		if filename == "" {
+			z = append(z, nil)
+            continue
+		}
+		f, err := os.OpenFile(filename, os.O_RDWR, 0)
+		if err != nil {
+			log.Fatalf("Cannot open file %q: %v", filename, err)
+		}
+		z = append(z, f)
+	}
+    return z
+}
+
+func Panicf(format string, args ...any) {
+	// fmt.Printf("\n[[[ "+format+" ]]]\n", args...)
+	log.Panicf("PANIC: "+format+"\n", args...)
+}
+
+func Once(files DiskFiles) {
+	// Set up options for Serial Port.
 	options := serial.OpenOptions{
 		PortName:        *TTY,
 		BaudRate:        *BAUD,
@@ -27,26 +53,14 @@ func Once() {
 		MinimumReadSize: 1,
 	}
 
-	// Open the port.
+	// Open the Serial Port.
 	port, err := serial.Open(options)
 	if err != nil {
-		fmt.Printf("\n[serial.Open: %q]\n", err)
-		log.Panicf("serial.Open: %v", err)
+		Panicf("serial.Open: %v", err)
 	}
 
 	// Make sure to close it later.
 	defer port.Close()
-
-	if false {
-		// Write 4 bytes to the port.
-		b := []byte("WXYZ")
-		n, err := port.Write(b)
-		if err != nil {
-			fmt.Printf("\n[port.Write: %q]\n", err)
-			log.Panicf("port.Write: %v", err)
-		}
-		log.Printf("Wrote %d bytes.", n)
-	}
 
 	putchars := make(chan byte, 1024)
 
@@ -115,8 +129,7 @@ func Once() {
 		v := make([]byte, 1024)
 		n, err := port.Read(v)
 		if err != nil {
-			fmt.Printf("\n[port.Read: %q]\n", err)
-			log.Panicf("port.Read: %v", err)
+			Panicf("port.Read: %v", err)
 		}
 
 		for i := 0; i < n; i++ {
@@ -125,19 +138,23 @@ func Once() {
 	}
 	log.Printf("End LOOP.")
 }
-func TryOnce() {
+func TryOnce(files DiskFiles) {
 	defer func() {
 		r := recover()
 		if r != nil {
 			fmt.Printf("[recover: %q]\n", r)
 		}
 	}()
-	Once()
+	Once(files)
 }
 func main() {
+    log.SetFlags(0)
+    log.SetPrefix("!")
 	flag.Parse()
+
+	files := OpenDisks(*DISKS)
 	for {
-		TryOnce()
+		TryOnce(files)
 		time.Sleep(1 * time.Second)
 	}
 }

@@ -14,7 +14,7 @@
 #define P if(0)printf
 #define Q if(i<VERBOSE_STEPS)printf
 
-#define VERBOSE_STEPS 20 // 999999999
+#define VERBOSE_STEPS 999999999
 
 typedef unsigned char byte;
 
@@ -294,35 +294,49 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             while (true) DELAY;
         }
 
-        uint addr = WAIT_GET();
-        uint flags = WAIT_GET();
+        const uint addr = WAIT_GET();
+        const uint flags = WAIT_GET();
 
-        if ((i & 0xFFFF) == 0) {
-            P("--- cycle %d. ---\n", i);
-        }
-
-        bool reading = (flags & 0x100);
+        const bool reading = (flags & 0x100);
         if (reading) { // CPU reads, Pico Tx
 
-            switch (addr) {
-            case CONSOLE_PORT: // getchar from console
-                data = GetCharFromConsole();
+            data = Ram[addr];  // default behavior
 
-                P("= READY CHAR $%x\n", data);
-                if (!data) {
-                    D("----- END OF CONSOLE COMMANDS.  Stopping.\n");
-                    DumpRamAndGetStuck();
-                    return;
+            if ((addr & 0xFF00) == 0xFF00) { // READ (GET) IO
+                if (start) {
+                        D("----- PC IN FFxx. Stopping.\n");
+                        DumpRamAndGetStuck();
+                        return;
                 }
-                break;
 
-            case 0xFF3F: // read disk status
-                data = 1;  // 1 is OKAY
-                break;
-            
-            default: // other reads from Ram.
-                data = Ram[addr];
-                break;
+                switch (0xFF & addr) {
+                case 0xFF & CONSOLE_PORT: // getchar from console
+                    data = GetCharFromConsole();
+
+                    P("= READY CHAR $%x\n", data);
+                    if (!data) {
+                        D("----- END OF CONSOLE COMMANDS.  Stopping.\n");
+                        DumpRamAndGetStuck();
+                        return;
+                    }
+                    break;
+
+                case 0xFF & 0xFF3F: // read disk status
+                    data = 1;  // 1 is OKAY
+                    break;
+
+                case 0xFF & 0xFFF0: // 6309 trap
+                case 0xFF & 0xFFF1: // 6309 trap
+                    D("----- 6309 ERROR TRAP.  Stopping.\n");
+                    //DumpRamAndGetStuck();
+                    //return;
+                    data = Ram[addr];
+                    break;
+
+                default: // other reads from Ram.
+                    data = Ram[addr];
+                    break;
+                }
             }
 
             if (start) {
@@ -411,7 +425,9 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                     break;
                 }
             }
+
         } else {  // CPU writes, Pico Rx
+
             data = WAIT_GET();
             if (active) {
                 Ram[addr] = data;
@@ -442,7 +458,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         }
         prev = data;
 
-        if (active && 0xFF00 <= addr && addr < 0xFFEE) {
+        if (active && 0xFF00 <= addr && addr < /*0xFFEE*/ 0xFFFF) {
             switch (255&addr) {
             case 0x00:
             case 0x01:
@@ -512,9 +528,9 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
 
             default: {}
             }
-            D("\n--- IOPAGE: addr %x flags %x data %x -- Stopping.\n", addr, flags, data);
-            DumpRamAndGetStuck();
-            return;
+            D("\n--- IOPAGE WRITE: addr %x flags %x data %x -- Stopping.\n", addr, flags, data);
+            // DumpRamAndGetStuck();
+            // return;
         }
 OKAY:
 
@@ -546,8 +562,18 @@ int main() {
         sleep_ms(300);
         gpio_put(LED_PIN, 0);
         sleep_ms(700);
-        D("+%d.\n", i);
+
+        char pbuf[10];
+        sprintf(pbuf, "+%d+ ", BLINKS - i);
+        printf("%s", pbuf);
+        for (const char*p = pbuf; *p; p++) {
+            putchar(C_PUTCHAR);
+            putchar(*p);
+        }
     }
+    printf("\n");
+    putchar(C_PUTCHAR);
+    putchar('\n');
 
     gpio_put(LED_PIN, 1);
     ResetCpu();
@@ -561,17 +587,10 @@ int main() {
     FindKernelEntry(&krn_start, &krn_entry, &krn_end);
     D("KernelEntry = $%x\n", krn_entry);
 
-#if 1
-    POKE2(0xFFFE, krn_entry);       // Reset Vector.
-#else
-    POKE2(0xFFFE, a);       // Reset Vector.
-    POKE2(a+5, krn_entry);  // into the JMP statement.
-#endif
-
     for (uint j = 1; j < 7; j++) {
-        //NO// POKE2(0xFFF0+j+j, krn_start + PEEK2(krn_end+j+j-2));  // Six interrupt Vectors.
         POKE2(0xFFF0+j+j, Vectors[j]);
     }
+    POKE2(0xFFFE, krn_entry);       // Reset Vector.
 
     StartYksi();
     HandleYksi(1000 * 1000 * 1000, krn_entry);
