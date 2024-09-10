@@ -1,3 +1,5 @@
+#define USE_BASIC 1
+
 // tfr901main.cpp -- for the TFR/901 -- strick
 //
 // SPDX-License-Identifier: MIT
@@ -18,6 +20,12 @@
 
 typedef unsigned char byte;
 
+#if USE_BASIC
+const byte BasicRom[] = {
+  #include "basic.rom.h"
+};
+
+#else
 const byte Rom[] = {
   #include "boot.rom.h"
 };
@@ -25,6 +33,7 @@ const byte Rom[] = {
 byte Disk[] = {
   #include "boot.disk.h"
 };
+#endif
 
 byte Ram[0x10000];
 byte Seen[0x10000];
@@ -45,7 +54,7 @@ const char ConsoleCommands[] =
     "   dir cmds\r"
     "   nando\r\0";
 
-enum { C_PUTCHAR=161 };
+enum { C_PUTCHAR=161, C_GETCHAR=162, C_STOP=163, C_ABORT=164 };
 
 #define PEEK2(addr) (((uint)Ram[0xFFFF&(addr)] << 8) | (uint)Ram[0xFFFF&((addr)+1)])
 
@@ -56,6 +65,28 @@ enum { C_PUTCHAR=161 };
 #define IO_START 0xFF00
 
 #define GET_STUCK()   { while (1) {putchar(255); sleep_ms(1000);} }
+
+#define F_READ 0x0100
+#define F_AVMA 0x0200
+#define F_LIC  0x0400
+#define F_BA   0x0800
+#define F_BS   0x1000
+#define F_BUSY 0x2000
+
+#define F_HIGH (F_BA|F_BS|F_BUSY)
+
+const char* HighFlags(uint high) {
+    if (!high) {
+        return "";
+    }
+    static char high_buf[8];
+    char* p = high_buf;
+    if (high & F_BA) *p++ = 'A';
+    if (high & F_BS) *p++ = 'S';
+    if (high & F_BUSY) *p++ = 'Y';
+    *p = '\0';
+    return high_buf;
+}
 
 void DumpRamAndGetStuck() {
     D("\n:DumpRam\n");
@@ -78,9 +109,15 @@ yes:
 }
 
 uint AddressOfRom() {
+#if USE_BASIC
+    return 0x8000;
+#else
     return IO_START - sizeof(Rom);
+#endif
 }
 
+#if USE_BASIC
+#else
 bool CheckHeader(uint p) {
     uint z = 0;
     for (uint i = 0; i < 9; i++) {
@@ -126,6 +163,7 @@ void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
         }
     }
 }
+#endif
 
 #if 0
 volatile uint delay_tactic;
@@ -261,10 +299,23 @@ const char* DecodeCC(byte cc) {
 }
 
 byte GetCharFromConsole() {
+#if 1
+    putchar(C_GETCHAR);
+    int x = getchar();
+    if (x != C_GETCHAR) {
+                        D("----- EXPECTED GETCHAR.  GOT %d.\n", x);
+                        DumpRamAndGetStuck();
+    }
+    x = getchar();
+    D(" (( GOT CHAR %d. ))\n");
+    if (x==10) x=13;
+    return (x==13 || (32<=x && x<=126)) ? x : 0;
+#else
     static uint console_command_index = 0;
     byte data = ConsoleCommands[console_command_index];
     if (data) console_command_index++;  // only advance if not yet at '\0'
-    return data;
+    return data ? data : C_STOP;
+#endif
 }
 
 void HandleYksi(uint num_cycles, uint krn_entry) {
@@ -296,15 +347,16 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
 
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
+        // printf("-- & %04x %04x & %s\n", addr, flags, start? "S" : "-");
 
-        const bool reading = (flags & 0x100);
+        const bool reading = (flags & F_READ);
         if (reading) { // CPU reads, Pico Tx
 
             data = Ram[addr];  // default behavior
 
             if ((addr & 0xFF00) == 0xFF00) { // READ (GET) IO
                 if (start) {
-                        D("----- PC IN FFxx. Stopping.\n");
+                        D("----- PC IN FFxx. Stopping addr=%x flags=%x\n", addr, flags);
                         DumpRamAndGetStuck();
                         return;
                 }
@@ -314,10 +366,17 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                     data = GetCharFromConsole();
 
                     P("= READY CHAR $%x\n", data);
-                    if (!data) {
-                        D("----- END OF CONSOLE COMMANDS.  Stopping.\n");
+                    switch (data) {
+                    case C_ABORT:
+                        D("----- GOT ABORT FROM CONSOLE.  Aborting.\n");
                         DumpRamAndGetStuck();
                         return;
+                    case C_STOP:
+                        D("----- GOT STOP FROM CONSOLE.  Stopping.\n");
+                        DumpRamAndGetStuck();
+                        return;
+                    default:
+                        break;
                     }
                     break;
 
@@ -365,7 +424,10 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             PUT(data);    // pins
             PUT(0x0000);  // pindirs
 
-            Q("%s %x %x   #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, i);
+            uint high = flags & F_HIGH;
+            if (vma || high) {
+                Q("%s %x %x  =%s #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), i);
+            }
 
             if (addr == 0xFFFE) active = 1;
 
@@ -458,7 +520,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         }
         prev = data;
 
-        if (active && 0xFF00 <= addr && addr < /*0xFFEE*/ 0xFFFF) {
+        if (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFF) {
             switch (255&addr) {
             case 0x00:
             case 0x01:
@@ -469,14 +531,24 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
 
             case 255&CONSOLE_PORT:
                 if (reading) {
-                    Q("= GETCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                    if (32 <= data && data <= 126) {
+                        Q("= GETCHAR: $%02x = < %c >\n", data, data);
+                    } else {
+                        Q("= GETCHAR: $%02x === %02x\n", data, data);
+                    }
                 } else {
-                    Q("= PUTCHAR: $%02x = < %c >\n", data, (32 <= data && data <= 126) ? data : '#');
+                    if (32 <= data && data <= 126) {
+                        Q("= PUTCHAR: $%02x = < %c >\n", data, data);
+                    } else {
+                        Q("= PUTCHAR: $%02x === %02x\n", data, data);
+                    }
                     putchar(C_PUTCHAR);
                     putchar(data);
                 }
                 goto OKAY;
 
+#if USE_BASIC
+#else
             case 0x30:
             case 0x31:
             case 0x32:
@@ -525,25 +597,33 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                     }
                 }
                 goto OKAY;
+#endif
 
             default: {}
             }
-            D("\n--- IOPAGE WRITE: addr %x flags %x data %x -- Stopping.\n", addr, flags, data);
+            D("--- IOPAGE %s: addr %x flags %x data %x\n", reading? "READ": "WRITE", addr, flags, data);
             // DumpRamAndGetStuck();
             // return;
         }
 OKAY:
 
-        vma = flags & 0x200;   // AVMA bit means next cycle is Valid
-        start = flags & 0x400; // LIC bit means next cycle is Start
+        vma = flags & F_AVMA;   // AVMA bit means next cycle is Valid
+        start = flags & F_LIC; // LIC bit means next cycle is Start
     }
 }
 
 void InitRamFromRom() {
+#if USE_BASIC
+    uint addr = 0x8000;
+    for (uint i = 0; i < sizeof BasicRom; i++) {
+        Ram[addr + i] = BasicRom[i];
+    }
+#else
     uint addr = AddressOfRom();
     for (uint i = 0; i < sizeof Rom; i++) {
         Ram[addr + i] = Rom[i];
     }
+#endif
 }
 
 int main() {
@@ -581,6 +661,11 @@ int main() {
     sleep_us(20);
     InitRamFromRom();
 
+#if USE_BASIC
+    for (uint j = 0; j < 8; j++) {
+        POKE2(0xFFF0+j+j, PEEK2(0xBFF0+j+j));
+    }
+#else
     uint a = AddressOfRom();
     D("AddressOfRom = $%x\n", a);
     uint krn_start, krn_entry, krn_end;
@@ -591,9 +676,14 @@ int main() {
         POKE2(0xFFF0+j+j, Vectors[j]);
     }
     POKE2(0xFFFE, krn_entry);       // Reset Vector.
+#endif
 
     StartYksi();
+#if USE_BASIC
+    HandleYksi(1000 * 1000 * 1000, 0);
+#else
     HandleYksi(1000 * 1000 * 1000, krn_entry);
+#endif
     sleep_ms(1000);
     D("\nFinished.\n");
     sleep_ms(3000);
