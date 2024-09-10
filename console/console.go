@@ -15,12 +15,38 @@ import (
 var TTY = flag.String("tty", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "", "Comma-separated filepaths to disk files, in order of drive number")
+var INPUT = flag.String("input", "", "force input text")
+
+var CannedInputs = map[string]string {
+    "1": `
+echo Hello World
+mdir
+procs
+free
+dir
+dir cmds
+nando
+`,
+}
 
 const (
 	C_PUTCHAR = 161
+	C_GETCHAR = 162
+	C_STOP = 163
+	C_ABORT = 164
 )
 
 type DiskFiles []*os.File
+
+var CannedInput string
+
+func InitInput(input string) {
+    if x, ok := CannedInputs[input]; ok {
+        CannedInput = x
+    } else {
+        CannedInput = input
+    }
+}
 
 func OpenDisks(disks string) DiskFiles {
 	var z DiskFiles
@@ -67,6 +93,7 @@ func Once(files DiskFiles) {
 	go func() {
 		var bb bytes.Buffer
 		cr := false
+        stop := false
 		for {
 			x, ok := <-putchars
 			if !ok {
@@ -98,6 +125,32 @@ func Once(files DiskFiles) {
 					}
 					fmt.Printf("[%d%s]", ch, token)
 				}
+
+			case C_GETCHAR:
+                if stop {
+                    port.Write([]byte{C_GETCHAR, C_STOP})
+                } else if len(CannedInput) > 0 {
+                    port.Write([]byte{C_GETCHAR, CannedInput[0]})
+                    CannedInput = CannedInput[1:]
+                    if len(CannedInput) == 0 {
+                        stop = true
+                    }
+                } else {
+                    b1 := make([]byte, 1)
+                    sz, err := os.Stdin.Read(b1)
+                    if err != nil {
+                        log.Panicf("cannot os.Stdin.Read: %v", err) 
+                    }
+                    if sz == 1 {
+                        x := b1[0]
+                        if x == 10 { // if LF
+                            x = 13   // use CR
+                        }
+                        port.Write([]byte{C_GETCHAR, x})
+                    } else {
+                        port.Write([]byte{C_GETCHAR, 0})
+                    }
+                }
 
 			case 255:
 				fmt.Printf("\n[255: finished]\n")
@@ -151,6 +204,7 @@ func main() {
     log.SetFlags(0)
     log.SetPrefix("!")
 	flag.Parse()
+    InitInput(*INPUT)
 
 	files := OpenDisks(*DISKS)
 	for {
