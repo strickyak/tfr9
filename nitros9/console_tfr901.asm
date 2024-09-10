@@ -28,8 +28,8 @@ ModName             fcs       "console"
 ModEntry            lbra      Init
                     lbra      Read
                     lbra      Write
-                    lbra      GStt
-                    lbra      SStt
+                    lbra      GetStt
+                    lbra      SetStt
                     lbra      Term
 
 * NOTE:  SCFMan has already cleared all device memory except for V.PAGE and
@@ -61,7 +61,7 @@ Term                clrb                          default to no error...
 
 Read
                     lda       >PORT
-                    beq       NotReady
+                    beq       Read          ;;; WAS ;;; NotReady
                     clrb
                     rts
 
@@ -77,18 +77,44 @@ Write
                     rts
 
 
-GStt                
-                    pshs    a
+GetStt                
+                    pshs    a       ; console:GetStt: show num on data bus
+                    puls    a
+
+                    ldb     #E$BTyp
+                    cmpa    #SS.DSize
+                    beq     Bad     ; not a disk.
+
+                    ldb     #E$Unit
+                    cmpa    #SS.KySns
+                    beq     Bad     ; not a disk.
+
+                    ldb     #E$SLF  ; Other GetStt are "Segment List Full" error.
+                    bra Bad
+
+SetStt                
+                    pshs    a       ; console:SetStt: show num on data bus
+                    puls    a
+
+                    cmpa    #SS.Open
+                    beq Okay
+                    cmpa    #SS.Close
+                    beq Okay
+                    cmpa    #SS.ComSt
+                    beq Okay
+
+                    ldb     #E$NES  ; other SetStt are "Non-Existing Segment"
+Bad
+                    coma
+                    rts
+
+Okay
                     clra
                     clrb
-                    puls a,pc
+                    rts
 
 
-SStt                
-                    pshs    a
-                    clra
-                    clrb
-                    puls a,pc
+
 
                     emod
 ModSize             equ       *
