@@ -1,0 +1,84 @@
+; tpio.pio -- for the TFR/901 -- strick
+; This is the King's PIO assembly language code.
+;
+; SPDX-License-Identifier: MIT
+
+.define public EBAR    1
+.define public QBAR    2
+.define public MODE0   0 ; (0 << 2)
+.define public MODE1   4 ; (1 << 2)
+.define public MODE2   8 ; (2 << 2)
+.define public MODE3  12 ; (3 << 2)
+.define public MODE4  16 ; (4 << 2)
+.define public MODE5  20 ; (5 << 2)
+.define public MODE6  24 ; (6 << 2)
+.define public MODE7  28 ; (7 << 2)
+
+.program tpio
+.side_set 5
+
+    pull block     side 3
+    out pindirs,21 side 3
+    pull block     side 3
+    out pins,21    side 3
+
+.wrap_target
+top:
+    set x, 23       side 3 ; (MODE0|EBAR|QBAR)
+    in  x, 16       side 7 ; (MODE1|EBAR|QBAR)
+    in  pins, 16    side 7 ; (MODE1|EBAR|QBAR)
+    nop             side 9 ; (MODE2|EBAR)
+    in  pins, 16    side 9 ; (MODE2|EBAR)
+    nop             side 8 ; (MODE2)
+    jmp pin, read   side 8 ; (MODE2)
+
+; CPU write PICO rx
+    nop             side 10 ; (MODE2|QBAR)
+    in pins, 16     side 10 ; (MODE2|QBAR)
+    jmp top         side 11 ; (MODE2|EBAR|QBAR)
+
+read:
+    pull block      side 10 ; (MODE2|QBAR)
+    out pindirs,16  side 10 ; (MODE2|QBAR)
+    pull block      side 14 ; (MODE3|QBAR)
+    out pins,16     side 14 ; (MODE3|QBAR)
+    pull block      side 15 ; (MODE3|EBAR|QBAR)
+    out pindirs,16  side 11 ; (MODE2|EBAR|QBAR)
+.wrap
+
+% c-sdk {
+void tpio_program_init(PIO pio, uint sm, uint offset) {
+   //
+   //  pico-examples/pio/hub75/hub75.pio shows order of inits.
+   //
+   pio_sm_set_consecutive_pindirs(pio, sm, 0, 16, false/*in*/);
+   pio_sm_set_consecutive_pindirs(pio, sm, 16, 5, true/*out*/);
+   for (uint i = 0; i < 21; i++) {
+       pio_gpio_init(pio, i);
+   }
+
+   pio_sm_config cf = tpio_program_get_default_config(offset);
+   sm_config_set_jmp_pin(&cf, 8);
+   sm_config_set_in_pins(&cf, 0);
+   sm_config_set_out_pins(&cf, 0, 16);
+   sm_config_set_sideset(&cf, 5, false, false);
+   sm_config_set_sideset_pins(&cf, 16);
+   sm_config_set_clkdiv(&cf, 16.0);  // also tried 64.0
+
+   // IN: Shift from left, do autopush
+   const bool IN_SHIFT_RIGHT = false;
+   const bool AUTOPUSH = true;
+   const uint PUSH_THRESHOLD = 16;
+   sm_config_set_in_shift(&cf, IN_SHIFT_RIGHT, AUTOPUSH, PUSH_THRESHOLD);
+
+   // OUT: Shift to right, don't autopull, threshold 29
+   const bool OUT_SHIFT_RIGHT = true;
+   const bool AUTOPULL = false;
+   const uint PULL_THRESHOLD = 29;
+   sm_config_set_out_shift(&cf, OUT_SHIFT_RIGHT, AUTOPULL, PULL_THRESHOLD);
+
+   pio_sm_init(pio, sm, offset, &cf);
+   pio_sm_exec(pio, sm, offset);
+   pio_sm_set_enabled(pio, sm, true);
+}
+%}
