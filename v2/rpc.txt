@@ -1,0 +1,23 @@
+rpc ConsolePutChar = 201
+  in ch : byte
+
+rpc ConsoleGetChar = 202
+  out ch : byte
+  err NoChar = 5
+
+rpc Stop = 203
+rpc Abort = 204
+
+rpc ScanKey = 205
+  out row : byte
+  out col : byte
+  out plane : byte
+  err NoKey = 6
+
+rpc DumpRamBegin = 206
+
+rpc DumpRamEnd = 207
+  in addr : word
+  in mem : 16
+
+rpc DumpRamLine = 208
