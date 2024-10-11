@@ -1,0 +1,99 @@
+ 2147  ls level1/tfr9/defs
+ 2148  ls level1/tfr9/defsfile 
+ 2149  cat level1/tfr9/defsfile
+ 2150  vi defs/tfr9.d 
+ 2151  cat level1/tfr9/defsfile
+ 2152  cd level1/tfr9/
+ 2153  ll
+ 2154  m makefile 
+ 2155  vi defsfile 
+ 2156  cd ../..
+ 2157  make clean 
+ 2158  make PORTS=tfr9 
+ 2159  make PORTS=tfr9 lib dsk 
+ 2160  - make PORTS=tfr9 lib dsk 
+ 2161  - lwasm
+ 2162  - lwasm --help
+ 2163  ls level1/tfr9/modules/kernel/krn.list
+ 2164  vi level1/tfr9/modules/kernel/krn.list
+ 2165  vi level1/modules/kernel/krn.asm 
+ 2166  make clean 
+ 2167  make lib 
+ 2168  make PORTS=tfr9 
+ 2169  - make PORTS=tfr9 
+ 2170  vi level1/tfr9/modules/kernel/krn.list
+ 2171  ff level1 | g tfr9
+ 2172  cd level1/tfr9
+ 2173  ls
+ 2174  make clean 
+ 2175  ls modules/kernel/krn* 
+ 2176  rm modules/kernel/krn* 
+ 2177  cd ../..
+ 2178  - make PORTS=tfr9 
+ 2179  vi level1/tfr9/modules/kernel/krn.list
+ 2180  - make PORTS=tfr9 
+ 2181  ff level1/ | g krn.asm
+ 2182  ci-l level1/modules/kernel/krn.asm
+ 2183  ff level1/tfr9/
+ 2184  ll level1/tfr9/modules/krn 
+ 2185  rm level1/tfr9/modules/krn 
+ 2186  - make PORTS=tfr9 
+ 2187  ll level1/tfr9/modules/krn*
+ 2188  ll level1/tfr9/modules/k*
+ 2189  m level1/tfr9/modules/kernel/makefile 
+ 2190  vi level1/tfr9/defsfile 
+ 2191  - make PORTS=tfr9 
+ 2192  ll /home/strick/NEW/nitros9/level1/tfr9/modules/kernel
+ 2193  vi /home/strick/NEW/nitros9/level1/tfr9/modules/kernel/krn.list 
+ 2194  python3 -c 'import struct;import sys; x=struct.pack(">B", 196); sys.stdout.Write(x)' | hd
+ 2195  python3 -c 'import struct;import sys; x=struct.pack(">B", 196); sys.stdout.write(x)' | hd
+ 2196  python3 -c 'import struct;import sys; x=struct.pack(">B", 196); sys.stdout.buffer.write(x)' | hd
+ 2197  python3 -c 'import struct;import sys; x=struct.pack(">B", 192); sys.stdout.buffer.write(x)' | hd
+ 2198  python3 -c 'import struct;import sys; x=struct.pack(">H", 0xFF00); sys.stdout.buffer.write(x)' | hd
+ 2199  python3 -c 'import struct;import sys; x=struct.pack(">H", 0xFF01); sys.stdout.buffer.write(x)' | hd
+ 2200  python3 -c 'import struct;import sys; x=struct.pack(">H", 0xFFEF); sys.stdout.buffer.write(x)' | hd
+ 2201  cat level1/tfr9/defsfile 
+ 2202  ff | g krn.list
+ 2203  vi ./level1/tfr9/modules/kernel/krn.list
+ 2204  - make PORTS=coco1 
+ 2205  new
+ 2206  cd ~/coco-shelf/tfr9/v2/n9drivers
+ 2207  ll
+ 2208  vi Makefile 
+ 2209  vi boot-rom-maker.sh 
+ 2210  - which gop
+ 2211  n /usr/local/bin/gop
+ 2212  cd ../tconsole/
+ 2213  ll
+ 2214  gop run tconsole.go  2>_2 | tee _1 
+ 2215  ll
+ 2216  vi _2 
+ 2217  gop run tconsole.go  2>_2 | tee _1 
+ 2218  vi _2 
+ 2219  ff ~/coco-shelf/tfr9/ | g join
+ 2220  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go --help
+ 2221  r tfr9/v2/listings ../..
+ 2222  vs ../../v2/listings/lsmod/lsmod.go ../../v2/listings/join/join.go 
+ 2223  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go --help
+ 2224  vs  ../../v2/listings/join/join.go 
+ 2225  ls ~/coco-shelf/gomar/gu/*
+ 2226  g Sorted ~/coco-shelf/gomar/gu/*go
+ 2227  g -w Sorted $( find ~/coco-shelf/ -name \*.go )
+ 2228  g -w 'func Sorted' $( find ~/coco-shelf/ -name \*.go )
+ 2229* g -w 'func Keys' $( find /sy/ -name \*.go )
+ 2230  g -w 'func Sorted' $( find /sy/ -name \*.go )
+ 2231  ls ~/coco-shelf/gomar/gu/*
+ 2232  vimdiff /home/strick/coco-shelf/gomar/gu/generics.go /sy/gomar/gu/generics.go 
+ 2233  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go --help
+ 2234  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go --help -runlog _2 > _9 
+ 2235  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go  -runlog _2 > _9 
+ 2236  m /home/strick/coco-shelf/tfr9/v2/listings/join/join.go
+ 2237  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go  -runlog _2 > _9 < ../n9drivers/level1.rom 
+ 2238  vi _9
+ 2239  gop run tconsole.go  2>_2 | tee _1 
+ 2240  ll
+ 2241  ci-l tconsole.go 
+ 2242  - go run /home/strick/coco-shelf/tfr9/v2/listings/join/join.go  -runlog _2 > _9 < ../n9drivers/level1.rom 
+ 2243  vimdiff _2 _9 
+ 2244  history 99
+ 2245  history 99 > H.1 
