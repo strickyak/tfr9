@@ -1,0 +1,7 @@
+Id,Designator,Footprint,Quantity,Designation,Supplier and ref,JLC,LCSC
+1,"C6,C9,C1,C17,C2,C4,C8,C3,C11,C7,C5,C16,C12,C10",C_0402_1005Metric,14,16V 100nF X7R ±10% 0402 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS,CL05B104KO5NNNC,402,C1525
+3,"RN2,RN3,RN1",R_Array_Concave_4x0603,3,"4 ±5% 10kΩ 62.5mW ±200ppm/℃ 0603x4 Resistor Networks, Arrays ROHS",4D03WGJ0103T5E,0603x4,C29718
+6,"U6,U5,U2,U4",TSSOP-20_4.4x6.5mm_P0.65mm,4,SN74LVC245A Logic Gate,C7494910,TSSOP-20,C7494910
+9,U1,DIP-40_W15.24mm,1,40P DIP 15.24mm 2.54mm DIP-40 IC / Transistor Socket ROHS,IC-40P,DIP-40,C2332
+41,PICO1,RPi_PicoW_SMD_TH,1,Raspberry Pi Pico W,Raspberry Pi,Pico W,C7203003
+42,"PICO3,PICO2",RPi_PicoW_SMD_TH,2,Raspberry Pi Pico,Raspberry Pi,Pico,C7203002
