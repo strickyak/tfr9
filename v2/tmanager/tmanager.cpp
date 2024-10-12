@@ -13,12 +13,13 @@
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
-#define INTEREST 250
+#define ATTENTION_SPAN 250
 #define POLL_MASK 0x3FFFF
 
 #define CONSOLE_PORT 0xFF50
 #define D if(1)printf
 #define P if(0)printf
+#define V if(interest)printf
 #define Q if(interest)printf
 
 typedef unsigned char byte;
@@ -96,6 +97,8 @@ enum {
 #define F_BUSY 0x2000
 
 #define F_HIGH (F_BA|F_BS|F_BUSY)
+
+uint interest;
 
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) {
@@ -204,17 +207,17 @@ bool CheckHeader(uint p) {
 }
 
 void PrintName(uint p) {
-    P(" ");
-    P("\"");
+    D(" ");
+    D("\"");
     while (1) {
         byte ch = Rom[p];
         if ((127 & ch) < 32) break;
-        P("%c", 127 & ch);
+        D("%c", 127 & ch);
         if (ch & 128) break;
         ++p;
     }
-    P("\"");
-    P(" ");
+    D("\"");
+    D(" ");
 }
 
 void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
@@ -253,19 +256,19 @@ void Delay(uint n) {
 
 void ViewAt(const char* label, uint hi, uint lo) {
     uint addr = (hi << 8) | lo;
-    P("=== %s: @%04x: ", label, addr);
+    V("=== %s: @%04x: ", label, addr);
     for (uint i = 0; i < 8; i++) {
         uint x = PEEK2(addr+i+i);
-        P("%04x ", x);
+        V("%04x ", x);
     }
-    P("|");
+    V("|");
     for (uint i = 0; i < 16; i++) {
         byte ch = 0x7f & Ram[0xFFFF&(addr+i)];
-        if (32 <= ch && ch <= 127) P("%c", ch);
-        else if (ch==0) P("-");
-        else P(".");
+        if (32 <= ch && ch <= 127) V("%c", ch);
+        else if (ch==0) V("-");
+        else V(".");
     }
-    P("|\n");
+    V("|\n");
 }
 
 void SetMode(byte x) {
@@ -413,9 +416,8 @@ byte GetCharFromConsole() {
                         DumpRamAndGetStuck();
     }
     x = getchar();
-    D(" (( GOT CHAR %d. ))\n");
-    if (x==10) x=13;
-    return (x==13 || (32<=x && x<=126)) ? x : 0;
+    D(" (( GOT CHAR %d. ))\n", x);
+    return (x==10) ? 13 : x;  // turn LF to CR
 }
 
 #endif
@@ -435,8 +437,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     uint when = 0;
     uint arg = 0;
     uint prev = 0; // previous data byte
-    uint interest = INTEREST;
-
+    interest = ATTENTION_SPAN;
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -459,10 +460,18 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
-        if (reading) { // CPU reads, Pico Tx
+
+        if (false && !active) { // CPU reads, Pico Tx
+            Q("||\n");
+        } else if (reading) { // CPU reads, Pico Tx
 
             data = Ram[addr];  // default behavior
 
+            if (start && addr<0x0080) {
+                    D("----- PC IN 00[0-7]x. Stopping addr=%x flags=%x\n", addr, flags);
+                    DumpRamAndGetStuck();
+                    return;
+            }
             if (0xFF00 <= addr && addr < 0xFFEE) { // READ (GET) IO
                 if (start) {
                         D("----- PC IN FFxx. Stopping addr=%x flags=%x\n", addr, flags);
@@ -569,7 +578,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
             if (start) {
                 if (!Seen[addr]) {
-                    interest = INTEREST;
+                    interest = ATTENTION_SPAN;  // Interesting when at a new PC value.
                     Seen[addr] = 1;
                 }
             }
@@ -661,12 +670,12 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     }
                     break;
                 }
-            }
+            } // end if active
         }
         prev = data;
 
         if (io) {
-            interest = INTEREST;
+            interest = ATTENTION_SPAN;  // Interesting when it is I/O.
             switch (255&addr) {
             case 0x00:
             case 0x01:
@@ -678,15 +687,15 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             case 255&CONSOLE_PORT:
                 if (reading) {
                     if (32 <= data && data <= 126) {
-                        Q("= GETCHAR: $%02x = < %c >\n", data, data);
+                        Q("= GETCHAR: $%02x = '%c'\n", data, data);
                     } else {
-                        Q("= GETCHAR: $%02x === %02x\n", data, data);
+                        Q("= GETCHAR: $%02x\n", data);
                     }
                 } else {
                     if (32 <= data && data <= 126) {
-                        Q("= PUTCHAR: $%02x = < %c >\n", data, data);
+                        Q("= PUTCHAR: $%02x = '%c'\n", data, data);
                     } else {
-                        Q("= PUTCHAR: $%02x === %02x\n", data, data);
+                        Q("= PUTCHAR: $%02x\n", data);
                     }
                     putchar(C_PUTCHAR);
                     putchar(data);
@@ -754,7 +763,14 @@ OKAY:
         vma = flags & F_AVMA;   // AVMA bit means next cycle is Valid
         start = flags & F_LIC; // LIC bit means next cycle is Start
 
-        if (interest > 0) interest--;
+        if (interest > 0) {
+            interest--;
+            if (!interest) {
+                D("...\n");
+                D("...\n");
+                D("...\n");
+            }
+        }
     }
 }
 

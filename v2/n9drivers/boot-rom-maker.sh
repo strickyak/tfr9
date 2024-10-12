@@ -49,4 +49,4 @@ python3 -c "import struct;import sys; x=struct.pack('>H', 0x6789); sys.stdout.bu
 ls -l $ROM
 wc -c $ROM
 
-gop run /sy/doing_os9/gomar/borges/borges.go  -outdir $HOME/borges/  /sy/tfr9/nitros9/  $HOME/NEW/nitros9/
+gop run /sy/doing_os9/gomar/borges/borges.go  -outdir $HOME/borges/  /sy/tfr9/nitros9/  $HOME/NEW/nitros9/  ./.
