@@ -27,7 +27,7 @@
          use   defsfile
          endc
 
-PORTAL   equ $FF51       ; data area for commands to Pico
+PORTAL   equ $FF58       ; data area for operation numbers to Pico
 COMMAND  equ $FF5F       ; Command and Status byte to Pico
 
 N.Drives equ 4
@@ -93,17 +93,27 @@ toWrite
          bra WRITE
          nop
 toGetStat
-         clrb
-         rts
+         bra UnkSvc
          nop
 toSetStat
-         clrb
-         rts
+         bra UnkSvc
          nop
 toTerm
          clrb
          rts
          nop
+
+UnkSvc
+        pshs D          ; Debugging: show the bytes
+        ldb #E$UnkSvc
+        coma            ; indicate error
+        puls X,PC       ; X is clobbered
+
+*okStat
+*        pshs D          ; Debugging: show the bytes
+*        clrb            ; say no error.
+*        puls X,PC       ; X is clobbered
+
 
 **************************************************************************
 * Read
@@ -125,12 +135,10 @@ toTerm
 
 
 READ     clra                 READ command value=0
-         bsr   TfrSector        Get the sector
-         bne   reterr         error return if not zero
-         tstb                 test msb of LSN
-         bne   noerr          if not sector 0, return
-         leax  ,x             sets CC.Z bit if lsw of LSN not $0000
-         bne   noerr          if not sector zero, return
+         bsr   TfrSector      Get the sector
+         bcs   RTS            return quickly if error.
+         bne   RTS            return if LSN non-zero.
+
 * Copy LSN0 data to the drive table each time LSN0 is read
          ldx   PD.BUF,y       get ptr to sector buffer
          leau  DRVBEG,u       point to first drive table
@@ -148,7 +156,7 @@ copy.1   lda   ,x+            grab from LSN0
          bne   copy.1
        ENDC
 noerr    clrb
-         rts
+RTS      rts
 
 **************************************************************************
 * Write
@@ -167,13 +175,15 @@ noerr    clrb
 
 WRITE    lda   #$01           WRITE command = 1
          bsr   TfrSector
-         bne   reterr
-         clrb
          rts
 
-reterr   tfr    a,b           Move error code to reg B
-         coma                 Set the carry flag
-         rts
+;         bne   reterr
+;         clrb
+;         rts
+;
+;reterr   tfr    a,b           Move error code to reg B
+;         coma                 Set the carry flag
+;         rts
 
 **************************************************************************
 * TfrSector
@@ -183,7 +193,8 @@ reterr   tfr    a,b           Move error code to reg B
 *        Y = path dsc. ptr
 *        U = Device static storage ptr
 *
-* Exit:  B = Error code, zero if none (also sets Carry)
+* Exit:  CC:C if error, and B = error code.
+*        else, CC:Z if LSN was zero.
 *        X,Y,U are preserved
 *
 **************************************************************************
@@ -194,15 +205,20 @@ TfrSector
 
         std PORTAL           ; command {r=0, w=1} and hi byte of Logical Sector Number
         stx PORTAL+2         ; low bytes of Logical Sector Number
-        sty PORTAL+4         ; Path Desc
-        stu PORTAL+6         ; Device Static Storage
         ldx PD.BUF,y
-        stx PORTAL+8         ; sector buffer address
-        ldx PD.DEV,y         ;
-        stx PORTAL+10        ; Device Table Entry
-        ldx V$DESC,x         ; device descriptor
-        ldx V.PORT,x         ;
-        stx PORTAL+12        ; "Port" number of the "Device"
+        stx PORTAL+4         ; sector buffer address
+        ; TODO: Store drive number to PORTAL+6
+
+        pshs y,u             ; For Debugging, push Device Static Storage (U) & Path Desc (Y)
+        leas 4,s
+
+*       ;sty PORTAL+4         ; Path Desc
+*       ;stu PORTAL+6         ; Device Static Storage
+*       ;ldx PD.DEV,y         ;
+*       ;stx PORTAL+10        ; Device Table Entry
+*       ;ldx V$DESC,x         ; device descriptor
+*       ;ldx V.PORT,x         ;
+*       ;stx PORTAL+12        ; "Port" number of the "Device"
 
         sta COMMAND          ; Tell Pico to do the command!
 @busy
@@ -211,12 +227,16 @@ TfrSector
         puls cc,x,y,u        ; retain B!
 
         cmpb #1              ; One means OKAY.
-        beq @okay
-@bad
-        coma                 ; Set carry.
+        bne errB             ; Otherwise, error B.
+
+        clrb                 ; no error
+        lda PORTAL+1         ; zero LSN?
+        ora PORTAL+2         ; zero LSN?
+        ora PORTAL+3         ; zero LSN?
         rts
-@okay        
-        clrb                 ; Clear B and carry.
+
+errB
+        coma                 ; Error case: Set carry.
         rts
 
         emod

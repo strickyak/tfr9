@@ -81,15 +81,14 @@ GetStt
                     pshs    a       ; console:GetStt: show num on data bus
                     puls    a
 
-                    ldb     #E$BTyp
-                    cmpa    #SS.DSize
-                    beq     Bad     ; not a disk.
+                    cmpa    #SS.ScSiz
+                    beq     ScreenSize
 
-                    ldb     #E$Unit
-                    cmpa    #SS.KySns
-                    beq     Bad     ; not a disk.
+                    * ldb     #E$Unit
+                    * cmpa    #SS.KySns
+                    * beq     Bad
 
-                    ldb     #E$SLF  ; Other GetStt are "Segment List Full" error.
+                    ldb     #E$UnkSvc   ; unknown code
                     bra Bad
 
 SetStt                
@@ -103,13 +102,17 @@ SetStt
                     cmpa    #SS.ComSt
                     beq Okay
 
-                    ldb     #E$NES  ; other SetStt are "Non-Existing Segment"
+                    ldb     #E$UnkSvc  ; unknown code
+                    * fall thru -> Bad
 Bad
                     coma
                     rts
 
+ScreenSize
+                    ldx #80   ; number of columns
+                    ldy #24   ; number of rows
+                    * fall thru -> Okay
 Okay
-                    clra
                     clrb
                     rts
 

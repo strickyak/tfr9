@@ -13,10 +13,11 @@
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
-#define ATTENTION_SPAN 250
+#define ATTENTION_SPAN 25000 // was 250
 #define POLL_MASK 0x3FFFF
 
 #define CONSOLE_PORT 0xFF50
+#define DISK_PORT 0xFF58
 #define D if(1)printf
 #define P if(0)printf
 #define V if(interest)printf
@@ -35,7 +36,7 @@ extern void SendIn_word(word x);
 extern void SendIn_16(byte* x);
 extern void RecvOut_byte(byte* x);
 
-#include "../generated/rpc.h"
+/////////// #include "../generated/rpc.h"
 
 #if FOR_BASIC
 const byte BasicRom[] = {
@@ -50,7 +51,7 @@ const byte Rom[] = {
 };
 
 byte Disk[] = {
-  #include "boot.disk.h"
+  #include "level1.disk.h"
 };
 #endif
 
@@ -238,7 +239,7 @@ void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
                 *krn_entry = i + entry + AddressOfRom();
                 *krn_end = i + size + AddressOfRom();
             }
-            i += size; // Skip over the module.
+            i += size - 1; // Skip over the module.  Less 1 because "i++" will still execute.
         }
     }
 }
@@ -461,7 +462,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
 
-        if (false && !active) { // CPU reads, Pico Tx
+        if (false && !active && addr == 0xFFFF) { // CPU reads, Pico Tx
             Q("||\n");
         } else if (reading) { // CPU reads, Pico Tx
 
@@ -524,7 +525,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     }
                     break;
 
-                case 0xFF & 0xFF5F: // read disk status
+                case 0xFF & (DISK_PORT+7): // read disk status
                     data = 1;  // 1 is OKAY
                     break;
 #endif
@@ -718,24 +719,26 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             case 0x5C:
             case 0x5D:
             case 0x5E:
-                Q("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
+                Q("-NANDO %x %x %x\n", addr, data, Ram[data]);
                 goto OKAY;
-
-            case 0x3F:
+            case 0x5F: // Run Disk Command
                 if (!reading) {
-                    byte command = Ram[0xFF30];
+                    byte command = Ram[0xFF58];
 
-                    Q("-NANDO %x %x %x 123\201\202456\203\204789\n", addr, data, Ram[data]);
-                    Q("- sector $%02x.%04x bufffer $%04x command %x\n",
-                        Ram[0xFF31],
-                        PEEK2(0xFF32),
-                        PEEK2(0xFF38),
+                    Q("-NANDO %x %x %x\n", addr, data, Ram[data]);
+                    Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
+                        Ram[0xFF59],
+                        PEEK2(0xFF5A),
+                        PEEK2(0xFF5C),
                         command);
 
-                    uint lsn = PEEK2(0xFF32);
+                    uint lsn = PEEK2(0xFF5A);
                     byte* dp = Disk + 256*lsn;
-                    uint buffer = PEEK2(0xFF38);
+                    uint buffer = PEEK2(0xFF5C);
                     byte* rp = Ram + buffer;
+
+                    Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer, command);
+
                     switch (command) {
                     case 0: // Read
                         for (uint k = 0; k < 256; k++) {
@@ -747,7 +750,10 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                             dp[k] = rp[k];
                         }
                         goto OKAY;
-                    default: {}
+                    default: {
+                        printf("\nwut command %d.\n", command);
+                        DumpRamAndGetStuck();
+                        }
                     }
                 }
                 goto OKAY;

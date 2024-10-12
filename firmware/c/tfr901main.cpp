@@ -1,4 +1,4 @@
-#define USE_BASIC 1
+#define FOR_BASIC 1
 
 // tfr901main.cpp -- for the TFR/901 -- strick
 //
@@ -11,19 +11,35 @@
 #include "hardware/clocks.h"
 #include "yksi.pio.h"
 
+#define INTEREST 250
+#define POLL_MASK 0x3FFFF
+
 #define CONSOLE_PORT 0xFF10
 #define D if(1)printf
 #define P if(0)printf
-#define Q if(i<VERBOSE_STEPS)printf
-
-#define VERBOSE_STEPS 999999999
+#define Q if(interest)printf
 
 typedef unsigned char byte;
+typedef unsigned int word;
+typedef unsigned char T_byte;
+typedef unsigned int T_word;
+typedef unsigned char T_16 [16];
 
-#if USE_BASIC
+extern byte getbyte();
+extern void putbyte(byte x);
+extern void SendIn_byte(byte x);
+extern void SendIn_word(word x);
+extern void SendIn_16(byte* x);
+extern void RecvOut_byte(byte* x);
+
+#include "usb.rpc.h"
+
+#if FOR_BASIC
 const byte BasicRom[] = {
   #include "basic.rom.h"
 };
+
+byte Keystrokes[300];
 
 #else
 const byte Rom[] = {
@@ -45,16 +61,17 @@ uint Vectors[] = {
      0,  //  RESET
 };
 
-const char ConsoleCommands[] =
-    "   echo Hello World\r"
-    "   mdir\r"
-    "   procs\r"
-    "   free\r"
-    "   dir\r"
-    "   dir cmds\r"
-    "   nando\r\0";
-
-enum { C_PUTCHAR=161, C_GETCHAR=162, C_STOP=163, C_ABORT=164 };
+enum {
+    C_PUTCHAR=161,
+    C_GETCHAR=162,
+    C_STOP=163,
+    C_ABORT=164,
+    C_KEY=165,
+    C_NOKEY=166,
+    C_DUMP_RAM=167,
+    C_DUMP_LINE=168,
+    C_DUMP_STOP=169,
+};
 
 #define PEEK2(addr) (((uint)Ram[0xFFFF&(addr)] << 8) | (uint)Ram[0xFFFF&((addr)+1)])
 
@@ -75,6 +92,21 @@ enum { C_PUTCHAR=161, C_GETCHAR=162, C_STOP=163, C_ABORT=164 };
 
 #define F_HIGH (F_BA|F_BS|F_BUSY)
 
+// putbyte does CR/LF escaping for Binary Data
+void putbyte(byte x) {
+    switch (x) {
+    case 0:  // NUL
+    case 1:  // the escape
+    case 10: // LF
+    case 13: // CR
+        putchar(1);  // 1 is the escape char
+        putchar(x | 32);
+        break;
+    default:
+        putchar(x);
+    }
+}
+
 const char* HighFlags(uint high) {
     if (!high) {
         return "";
@@ -88,7 +120,42 @@ const char* HighFlags(uint high) {
     return high_buf;
 }
 
-void DumpRamAndGetStuck() {
+void DumpRam() {
+#if 1
+    D("\n:DumpRamX\n");
+    for (uint i = 0; i < 0x10000; i += 16) {
+      for (uint j = 0; j < 16; j++) {
+        if (Ram[i+j]) goto yyes;
+      }
+      continue;
+
+yyes:
+      D(":%04x: ", i);
+      for (uint j = 0; j < 16; j++) {
+        D("%c%02x", (Seen[i+j]? '-' : ' '), Ram[i+j]);
+        if ((j&3)==3) D(" ");
+      }
+      D("\n");
+    }
+    D("\n:DumpRamX\n");
+
+
+    putchar(C_DUMP_RAM);
+    for (uint i = 0; i < 0x10000; i += 16) {
+        for (uint j = 0; j < 16; j++) {
+            if (Ram[i+j]) goto yes;
+        }
+        continue;
+yes:
+        putchar(C_DUMP_LINE);
+        putbyte(i>>8);
+        putbyte(i);
+        for (uint j = 0; j < 16; j++) {
+            putbyte(Ram[i+j]);
+        }
+    }
+    putchar(C_DUMP_STOP);
+#else
     D("\n:DumpRam\n");
     for (uint i = 0; i < 0x10000; i += 16) {
       for (uint j = 0; j < 16; j++) {
@@ -105,18 +172,22 @@ yes:
       D("\n");
     }
     D("\n:DumpRam\n");
+#endif
+}
+void DumpRamAndGetStuck() {
+    DumpRam();
     GET_STUCK();
 }
 
 uint AddressOfRom() {
-#if USE_BASIC
+#if FOR_BASIC
     return 0x8000;
 #else
     return IO_START - sizeof(Rom);
 #endif
 }
 
-#if USE_BASIC
+#if FOR_BASIC
 #else
 bool CheckHeader(uint p) {
     uint z = 0;
@@ -299,7 +370,6 @@ const char* DecodeCC(byte cc) {
 }
 
 byte GetCharFromConsole() {
-#if 1
     putchar(C_GETCHAR);
     int x = getchar();
     if (x != C_GETCHAR) {
@@ -310,12 +380,31 @@ byte GetCharFromConsole() {
     D(" (( GOT CHAR %d. ))\n");
     if (x==10) x=13;
     return (x==13 || (32<=x && x<=126)) ? x : 0;
-#else
-    static uint console_command_index = 0;
-    byte data = ConsoleCommands[console_command_index];
-    if (data) console_command_index++;  // only advance if not yet at '\0'
-    return data ? data : C_STOP;
-#endif
+}
+
+byte row, col, plane;
+bool GetKeysFromConsole() {
+    putchar(C_KEY);
+    byte x = getchar();
+    switch (x) {
+    case C_NOKEY:
+        printf("C_NOKEY\n");
+        row = 0;
+        col = 0;
+        plane = 0;
+        return false;
+    case C_KEY:
+        row = getchar();
+        col = getchar();
+        plane = getchar();
+        printf("C_KEY(%x, %x, %x)\n", row, col, plane);
+        return true;
+    default:
+        printf("C_ default %x\n", x);
+        D("----- EXPECTED C_KEY or C_NOKEY.  GOT %d.\n", x);
+        DumpRamAndGetStuck();
+        return false;
+    }
 }
 
 void HandleYksi(uint num_cycles, uint krn_entry) {
@@ -333,12 +422,18 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
     uint when = 0;
     uint arg = 0;
     uint prev = 0; // previous data byte
+    uint interest = INTEREST;
 
-    P("= READY CHAR $%x\n", Ram[CONSOLE_PORT]);
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
-    for (uint i = 0; i < num_cycles; i++) {
+
+    for (uint cy = 0; cy < num_cycles; cy++) {
+#if FOR_BASIC
+        if ((cy & POLL_MASK) == POLL_MASK) {
+            GetKeysFromConsole();
+        }
+#endif
         uint twenty_three = WAIT_GET();
         if (twenty_three != 23) {
             D("ERROR: NOT twenty_three: %d.\n", twenty_three);
@@ -349,6 +444,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         const uint flags = WAIT_GET();
         // printf("-- & %04x %04x & %s\n", addr, flags, start? "S" : "-");
 
+        bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
         if (reading) { // CPU reads, Pico Tx
 
@@ -361,7 +457,33 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                         return;
                 }
 
-                switch (0xFF & addr) {
+                uint maddr = (addr < 0xFF40) ? (addr & 0xFFE3) : addr;  // masked addr for two partially-decoded PIAs
+                if (maddr != addr) {
+                    data = Ram[maddr];  // default behavior but with maddr
+                }
+                switch (0xFF & maddr) {
+#if FOR_BASIC
+                case 0xFF & 0xFF00: // Keyboard PIA
+                  {
+                    data = 0xFF;
+                    Q("PIA0 reading: addr=%x maddr=%x\n", addr, maddr);
+                    uint query = ~Ram[0xFF02];
+                    if (col & query) {
+                        data = ~row;
+                        Q("PIA0 row=%x col=%x plane=%x query=%x col&query=%x data=%x\n", row, col, plane, query, col & query, data);
+                        DumpRam();
+                        data = 0xFF;
+                    }
+                    Ram[0xFF00] = data;
+                  }
+                    break;
+
+                case 0xFF & 0xFF20: // Second PIA
+                    Q("PIA1 reading: addr=%x maddr=%x data=%x", addr, maddr, data);
+                    data = Ram[0xFF20] = 0;
+                    break;
+
+#else
                 case 0xFF & CONSOLE_PORT: // getchar from console
                     data = GetCharFromConsole();
 
@@ -383,13 +505,14 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 case 0xFF & 0xFF3F: // read disk status
                     data = 1;  // 1 is OKAY
                     break;
+#endif
 
                 case 0xFF & 0xFFF0: // 6309 trap
                 case 0xFF & 0xFFF1: // 6309 trap
                     D("----- 6309 ERROR TRAP.  Stopping.\n");
-                    //DumpRamAndGetStuck();
+                    DumpRamAndGetStuck();
                     //return;
-                    data = Ram[addr];
+                    //data = Ram[addr];
                     break;
 
                 default: // other reads from Ram.
@@ -413,7 +536,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 case 0x20:
                 case 0x3B:
                     event = data;
-                    when = i;
+                    when = cy;
                     break;
                 default:
                     event = 0;
@@ -426,18 +549,21 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
 
             uint high = flags & F_HIGH;
             if (vma || high) {
-                Q("%s %x %x  =%s #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), i);
+                Q("%s %x %x  =%s #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
             }
 
             if (addr == 0xFFFE) active = 1;
 
             if (start) {
-                Seen[addr] = 1;
+                if (!Seen[addr]) {
+                    interest = INTEREST;
+                    Seen[addr] = 1;
+                }
             }
 
             switch (event) {
             case 0x10: // prefix $10
-                if (i - when == 1) {
+                if (cy - when == 1) {
                     switch (data) {
                     case 0x3f: // SWI2
                         event = (event << 8) | data;
@@ -445,7 +571,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 }
                 break;
             case 0x20:  // BRA: branch always
-                if (i - when == 1) {
+                if (cy - when == 1) {
                     switch (data) {
                     case 0xFE: // Infinite Loop
                         D("------- Infinite Loop.  Stopping.\n");
@@ -456,7 +582,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 }
                 break;
             case 0x3B:  // RTI
-                switch (i - when) {
+                switch (cy - when) {
                 case 2:
                     arg = 0x80 & data;  // entire bit of condition codes
                     Q("= CC: %02x (%s)\n", data, DecodeCC(data));
@@ -492,12 +618,18 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
 
             data = WAIT_GET();
             if (active) {
-                Ram[addr] = data;
-                Q("w %x %x\n", addr, data);
+                if (FOR_BASIC && (0x8000 <= addr && addr < 0xFF00)) {
+                    // Writing to ROM space
+                    Q("wROM %x %x\n", addr, data);
+                } else {
+                    // Writing to RAM or IO space
+                    Ram[addr] = data;
+                    Q("w %x %x\n", addr, data);
+                }
 
                 switch (event) {
                 case 0x103f:  // SWI2 (i.e. OS9 kernel call)
-                    switch (i - when) {
+                    switch (cy - when) {
                     case 5: ViewAt("PC", data, prev);
                         break;
                     case 7: ViewAt("U", data, prev);
@@ -520,7 +652,8 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
         }
         prev = data;
 
-        if (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFF) {
+        if (io) {
+            interest = INTEREST;
             switch (255&addr) {
             case 0x00:
             case 0x01:
@@ -547,7 +680,7 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
                 }
                 goto OKAY;
 
-#if USE_BASIC
+#if FOR_BASIC
 #else
             case 0x30:
             case 0x31:
@@ -603,17 +736,18 @@ void HandleYksi(uint num_cycles, uint krn_entry) {
             }
             D("--- IOPAGE %s: addr %x flags %x data %x\n", reading? "READ": "WRITE", addr, flags, data);
             // DumpRamAndGetStuck();
-            // return;
         }
 OKAY:
 
         vma = flags & F_AVMA;   // AVMA bit means next cycle is Valid
         start = flags & F_LIC; // LIC bit means next cycle is Start
+
+        if (interest > 0) interest--;
     }
 }
 
 void InitRamFromRom() {
-#if USE_BASIC
+#if FOR_BASIC
     uint addr = 0x8000;
     for (uint i = 0; i < sizeof BasicRom; i++) {
         Ram[addr + i] = BasicRom[i];
@@ -661,7 +795,7 @@ int main() {
     sleep_us(20);
     InitRamFromRom();
 
-#if USE_BASIC
+#if FOR_BASIC
     for (uint j = 0; j < 8; j++) {
         POKE2(0xFFF0+j+j, PEEK2(0xBFF0+j+j));
     }
@@ -679,7 +813,7 @@ int main() {
 #endif
 
     StartYksi();
-#if USE_BASIC
+#if FOR_BASIC
     HandleYksi(1000 * 1000 * 1000, 0);
 #else
     HandleYksi(1000 * 1000 * 1000, krn_entry);

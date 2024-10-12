@@ -7,6 +7,12 @@ RCS/
 *.s
 *.o
 *.os9
+*.raw
+*.rom
+*.rom.h
+*.disk.h
 _*
 .*.swp
 a.out
+build/
+generated/
