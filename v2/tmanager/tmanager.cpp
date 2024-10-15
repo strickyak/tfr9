@@ -13,15 +13,15 @@
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
-#define ATTENTION_SPAN 25000 // was 250
-#define POLL_MASK 0x3FFFF
+#define ATTENTION_SPAN 25 // was 250
+#define TICK_MASK 0xFF   // one less than a power of two
 
 #define CONSOLE_PORT 0xFF50
 #define DISK_PORT 0xFF58
-#define D if(1)printf
-#define P if(0)printf
-#define V if(interest)printf
-#define Q if(interest)printf
+#define D if(0) if(1)printf
+#define P if(0) if(0)printf
+#define V if(0) if(interest)printf
+#define Q if(0) if(interest)printf
 
 typedef unsigned char byte;
 typedef unsigned int word;
@@ -66,6 +66,7 @@ uint Vectors[] = {
 };
 
 enum {
+    C_NOCHAR=160,
     C_PUTCHAR=161,
     C_GETCHAR=162,
     C_STOP=163,
@@ -114,6 +115,10 @@ void putbyte(byte x) {
     default:
         putchar(x);
     }
+}
+byte getbyte() {
+    byte x = getchar();
+    return (x==10) ? 13 : x;
 }
 
 const char* HighFlags(uint high) {
@@ -265,9 +270,13 @@ void ViewAt(const char* label, uint hi, uint lo) {
     V("|");
     for (uint i = 0; i < 16; i++) {
         byte ch = 0x7f & Ram[0xFFFF&(addr+i)];
-        if (32 <= ch && ch <= 127) V("%c", ch);
-        else if (ch==0) V("-");
-        else V(".");
+        if (32 <= ch && ch <= 127) {
+            V("%c", ch);
+        } else if (ch==0) {
+            V("-");
+        } else {
+            V(".");
+        }
     }
     V("|\n");
 }
@@ -383,7 +392,7 @@ byte row, col, plane;
 bool GetKeysFromConsole() {
     putchar(C_KEY);
 
-    byte x = getchar();
+    byte x = xgetchar();
     switch (x) {
 
     case C_NOKEY:
@@ -394,9 +403,9 @@ bool GetKeysFromConsole() {
         return false;
 
     case C_KEY:
-        row = getchar();
-        col = getchar();
-        plane = getchar();
+        row = xgetchar();
+        col = xgetchar();
+        plane = xgetchar();
         printf("C_KEY(%x, %x, %x)\n", row, col, plane);
         return true;
 
@@ -409,25 +418,69 @@ bool GetKeysFromConsole() {
     }
 }
 #else
+
+#if 0
+#include "buffer.h"
+Buffer InBuf;
+
+byte XXXXXXXXXXXXXXXGetCharFromConsole() {
+printf("\n{frodo ");
+    InBuf.Dump();
+printf("}\n");
+
+    if (InBuf.Size() >= 2 && InBuf.Peek(0) == C_GETCHAR) {
+        InBuf.Take();
+        int x = InBuf.Take();
+        D(" (( GOT CHAR %d. ))\n", x);
+        return (x==10) ? 13 : x;  // turn LF to CR
+    }
+    return 0;
+}
+#endif
+
 byte GetCharFromConsole() {
+    putbyte(C_GETCHAR);
+    byte one = getbyte();
+    if (one == C_NOCHAR) {
+        return 0;
+    } else if (one == C_GETCHAR) {
+        byte two = getbyte();
+        return two;
+    } else {
+        printf("\nGetCharFromConsole did not expect %d\n", one);
+        DumpRamAndGetStuck();
+        return 0;
+    }
+}
+
+#if 0
+byte OldGetCharFromConsole() {
     putchar(C_GETCHAR);
-    int x = getchar();
+    int x = xgetchar();
     if (x != C_GETCHAR) {
                         D("----- EXPECTED GETCHAR.  GOT %d.\n", x);
                         DumpRamAndGetStuck();
     }
-    x = getchar();
+    x = xgetchar();
     D(" (( GOT CHAR %d. ))\n", x);
     return (x==10) ? 13 : x;  // turn LF to CR
 }
+#endif
 
 #endif
+
+int strikes;
+void Strike(const char* why) {
+    ++strikes;
+    if (strikes >= 3) {
+        D("------ Third Strike -------- %d\n", strikes);
+        DumpRamAndGetStuck();
+    }
+}
 
 void HandlePio(uint num_cycles, uint krn_entry) {
     const PIO pio = pio0;
     const uint sm = 0;
-
-    const uint FULL = 1000 * 1000 * 1000;
 
     byte data;
     uint vma = 0;
@@ -443,11 +496,16 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
 
-    for (uint cy = 0; cy < num_cycles; cy++) {
+    for (uint cy = 0; !num_cycles || cy < num_cycles; cy++) {
 #if FOR_BASIC
-        if ((cy & POLL_MASK) == POLL_MASK) {
+        if ((cy & TICK_MASK) == TICK_MASK) {
             GetKeysFromConsole();
         }
+#else
+        //if ((cy & TICK_MASK) == TICK_MASK) {
+            //putchar('$');
+            //InBuf.Tick();
+        //}
 #endif
         uint twenty_three = WAIT_GET();
         if (twenty_three != 23) {
@@ -510,7 +568,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 case 0xFF & CONSOLE_PORT: // getchar from console ($FF10)
                     data = GetCharFromConsole();
 
-                    P("= READY CHAR $%x\n", data);
+                    D("= READY CHAR $%x\n", data);
                     switch (data) {
                     case C_ABORT:
                         D("----- GOT ABORT FROM CONSOLE.  Aborting.\n");
@@ -571,8 +629,10 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             PUT(0x0000);  // pindirs
 
             uint high = flags & F_HIGH;
-            if (vma || high) {
+            if (true || vma || high) {
                 Q("%s %x %x  =%s #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+            } else {
+                Q("|\n");
             }
 
             if (addr == 0xFFFE) active = 1;
@@ -641,6 +701,10 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
             data = WAIT_GET();
             if (active) {
+                if (addr==0 && data==0) {
+                    Strike("writing 0 to 0");
+                }
+
                 if (FOR_BASIC && (0x8000 <= addr && addr < 0xFF00)) {
                     // Writing to ROM space
                     Q("wROM %x %x\n", addr, data);
@@ -766,8 +830,8 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         }
 OKAY:
 
-        vma = flags & F_AVMA;   // AVMA bit means next cycle is Valid
-        start = flags & F_LIC; // LIC bit means next cycle is Start
+        vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
+        start = 0 != (flags & F_LIC); // LIC bit means next cycle is Start
 
         if (interest > 0) {
             interest--;
@@ -793,6 +857,20 @@ void InitRamFromRom() {
     }
 #endif
 }
+
+#if 0
+int XXXmain() {
+    stdio_init_all();
+    while (true) {
+        int x = getchar_timeout_us(0);
+        if (x>0) {
+            printf("%d[%c] ", x, x);
+        } else {
+            putchar('~');
+        }
+    }
+}
+#endif
 
 int main() {
     stdio_init_all();
@@ -853,7 +931,8 @@ int main() {
 #if FOR_BASIC
     HandlePio(1000 * 1000 * 1000, 0);
 #else
-    HandlePio(1000 * 1000 * 1000, krn_entry);
+    // HandlePio(1000 * 1000 * 1000, krn_entry);
+    HandlePio(0, krn_entry);
 #endif
     sleep_ms(100);
     D("\nFinished.\n");

@@ -33,6 +33,7 @@ nando
 }
 
 const (
+	C_NOCHAR    = 160
 	C_PUTCHAR   = 161
 	C_GETCHAR   = 162
 	C_STOP      = 163
@@ -122,7 +123,9 @@ func WriteBytes(w io.Writer, vec ...byte) {
 	w.Write(vec)
 }
 
-func Once(files DiskFiles) {
+var cr bool
+
+func Once(files DiskFiles, inkey chan byte) {
 	// Set up options for Serial Port.
 	options := serial.OpenOptions{
 		PortName:        *TTY,
@@ -146,7 +149,6 @@ func Once(files DiskFiles) {
 
 	go func() {
 		var bb bytes.Buffer
-		cr := false
 		stop := false
 		gap := 1
 		for {
@@ -262,26 +264,20 @@ DUMPING:
 			case C_GETCHAR:
 				if stop {
 					WriteBytes(port, C_GETCHAR, C_STOP)
+                    /*
 				} else if len(CannedInput) > 0 {
 					WriteBytes(port, C_GETCHAR, CannedInput[0])
 					CannedInput = CannedInput[1:]
 					if len(CannedInput) == 0 {
 						stop = true
 					}
+                    */
 				} else {
-					b1 := make([]byte, 1)
-					sz, err := os.Stdin.Read(b1)
-					if err != nil {
-						log.Panicf("cannot os.Stdin.Read: %v", err)
-					}
-					if sz == 1 {
-						x := b1[0]
-						if x == 10 { // if LF
-							x = 13 // use CR
-						}
-						WriteBytes(port, C_GETCHAR, x)
+                    character, ok := TryInkey(inkey)
+                    if ok {
+						WriteBytes(port, C_GETCHAR, character)
 					} else {
-						WriteBytes(port, C_GETCHAR, 0)
+						WriteBytes(port, C_NOCHAR)
 					}
 				}
 
@@ -324,19 +320,22 @@ DUMPING:
 	}
 	log.Printf("End LOOP.")
 }
-func TryOnce(files DiskFiles) {
+func TryOnce(files DiskFiles, inkey chan byte) {
 	defer func() {
 		r := recover()
 		if r != nil {
 			fmt.Printf("[recover: %q]\n", r)
 		}
 	}()
-	Once(files)
+	Once(files, inkey)
 }
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("!")
 	flag.Parse()
+
+	inkey := make(chan byte, 1024)
+    go InkeyRoutine(inkey)
 
 	killed := make(chan os.Signal)
 	signal.Notify(killed, syscall.SIGINT)
@@ -350,7 +349,29 @@ func main() {
 
 	files := OpenDisks(*DISKS)
 	for {
-		TryOnce(files)
+		TryOnce(files, inkey)
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func InkeyRoutine(inkey chan byte) {
+    for {
+        bb := make([]byte, 1)
+        sz, err := os.Stdin.Read(bb)
+        if err != nil {
+            log.Panicf("cannot os.Stdin.Read: %v", err)
+        }
+        if sz == 1 {
+            inkey <- bb[0]
+        }
+    }
+}
+
+func TryInkey(inkey chan byte) (byte, bool) {
+    select {
+    case x := <- inkey:
+        return x, true
+    default:
+        return 0, false
+    }
 }

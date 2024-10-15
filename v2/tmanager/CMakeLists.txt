@@ -8,7 +8,7 @@ pico_sdk_init()
 add_executable(${PROJECT} tmanager.cpp)
 pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/tpio.pio)
 
-target_sources(${PROJECT} PRIVATE tmanager.cpp)
+target_sources(${PROJECT} PRIVATE tmanager.cpp buffer.h)
 target_link_libraries(${PROJECT} PRIVATE pico_stdlib hardware_pio)
 pico_add_extra_outputs(${PROJECT})
 
