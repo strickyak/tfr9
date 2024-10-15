@@ -25,12 +25,18 @@ ModName             fcs       "console"
                     fcb       edition
 
 
-ModEntry            lbra      Init
-                    lbra      Read
-                    lbra      Write
-                    lbra      GetStt
-                    lbra      SetStt
-                    lbra      Term
+ModEntry            bra      Init
+                    nop
+                    bra      Read
+                    nop
+                    bra      Write
+                    nop
+                    bra      GetStt
+                    nop
+                    bra      SetStt
+                    nop
+                    bra      Term
+                    nop
 
 * NOTE:  SCFMan has already cleared all device memory except for V.PAGE and
 *        V.PORT.  Zero-default variables are:  CDSigPID, CDSigSig, Wrk.XTyp.
@@ -61,15 +67,18 @@ Term                clrb                          default to no error...
 
 Read
                     lda       >PORT
+                    nop
+                    nop
+                    nop
                     beq       Read          ;;; WAS ;;; NotReady
                     clrb
                     rts
 
-NotReady             
-                    ldb       #E$NotRdy
-                    coma                         ; sets Carry
-                    coma
-                    rts
+*NotReady             
+*                    ldb       #E$NotRdy
+*                    coma                         ; sets Carry
+*                    coma
+*                    rts
 
 Write               
                     sta       >PORT
@@ -88,8 +97,7 @@ GetStt
                     * cmpa    #SS.KySns
                     * beq     Bad
 
-                    ldb     #E$UnkSvc   ; unknown code
-                    bra Bad
+                    bra UnkSvc
 
 SetStt                
                     pshs    a       ; console:SetStt: show num on data bus
@@ -100,8 +108,8 @@ SetStt
                     cmpa    #SS.Close
                     beq Okay
                     cmpa    #SS.ComSt
-                    beq Okay
-
+                    beq UnkSvc
+UnkSvc
                     ldb     #E$UnkSvc  ; unknown code
                     * fall thru -> Bad
 Bad
@@ -109,8 +117,14 @@ Bad
                     rts
 
 ScreenSize
-                    ldx #80   ; number of columns
-                    ldy #24   ; number of rows
+                    ldx       PD.RGS,y  ;  X points to stored regs
+
+                    ldd       #80   ; 80 columns -> R$X
+                    std       R$X,x
+
+                    ldd       #50   ; 50 rows -> R$X
+                    std       R$Y,x
+
                     * fall thru -> Okay
 Okay
                     clrb

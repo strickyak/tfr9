@@ -96,23 +96,32 @@ toGetStat
          bra UnkSvc
          nop
 toSetStat
-         bra UnkSvc
+         bra SetStat
          nop
 toTerm
          clrb
          rts
          nop
 
+SetStat
+       cmpa    #SS.Open
+       beq Okay
+       cmpa    #SS.Close
+       beq Okay
+       * fall thru -> UnkSvc *
+
 UnkSvc
-        pshs D          ; Debugging: show the bytes
+        pshs D,X,Y,U          ; Debugging: show the bytes
+        puls D,X,Y,U          ; Debugging: show the bytes
         ldb #E$UnkSvc
         coma            ; indicate error
-        puls X,PC       ; X is clobbered
+        rts
 
-*okStat
-*        pshs D          ; Debugging: show the bytes
-*        clrb            ; say no error.
-*        puls X,PC       ; X is clobbered
+Okay
+        pshs D          ; Debugging: show the bytes
+        puls D          ; Debugging: show the bytes
+        clrb            ; say no error.
+        rts
 
 
 **************************************************************************

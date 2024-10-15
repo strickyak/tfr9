@@ -11,14 +11,14 @@ NITROS9DIR=${NITROS9DIR:-$HOME/NEW/nitros9}
 (
   # Some coco1 commands.
   ( cd "$NITROS9DIR/level1/coco1/cmds" &&
-    cat shell_21 procs mdir echo dir
+    cat shell_21 procs mdir echo dir tmode basic09
   )
   # Local modules.
   cat term_tfr901.os9 console_tfr901.os9 init_tfr901.os9
   cat tfrblock_tfr901.os9 dd_tfrblock.os9
   # Modules from coco1.
   ( cd "$NITROS9DIR/level1/coco1/modules" &&
-    cat clock2_messemu
+    cat clock_60hz clock2_messemu
     cat sysgo_dd
     cat rbf.mn scf.mn ioman krnp2
   )
