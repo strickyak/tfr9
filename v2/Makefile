@@ -18,5 +18,5 @@ _n9drivers_:
 	make -C n9drivers
 	python3 binary-header-generator.py n9drivers/level1.rom > tmanager/level1.rom.h
 	mkdir -p build
-	cd build && cmake ../tmanager
+	cd build && cmake ../tmanager903
 	make -C build

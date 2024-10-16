@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 
+#include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
@@ -18,10 +19,15 @@
 
 #define CONSOLE_PORT 0xFF50
 #define DISK_PORT 0xFF58
-#define D if(1) if(1)printf
-#define P if(1) if(0)printf
-#define V if(1) if(1 || interest)printf
-#define Q if(1) if(1 || interest)printf
+//#define D if(1) if(1)printf
+//#define P if(1) if(1 || 0)printf
+//#define V if(1) if(1 || interest)printf
+//#define Q if(1) if(1 || interest)printf
+
+#define D if(0)printf
+#define P if(0)printf
+#define V if(0)printf
+#define Q if(0)printf
 
 typedef unsigned char byte;
 typedef unsigned int word;
@@ -281,6 +287,7 @@ void ViewAt(const char* label, uint hi, uint lo) {
     V("|\n");
 }
 
+#if 0
 void SetMode(byte x) {
     D("mode %x\n", x);
     for (uint i = 18; i < 21; i++) {
@@ -306,40 +313,41 @@ void SetLatch(byte x) {
     SetMode(4); DELAY;
     SetMode(0);
 }
+#endif
 
 void ResetCpu() {
     for (uint i = 0; i < 21; i++) {
         gpio_init(i);
         gpio_set_dir(i, GPIO_OUT);
     }
+    // 903:
+    uint pins[] = {21, 22, 26, 27, 28};
+    for (uint p : pins) {
+        gpio_init(p);
+        gpio_put(p, 1);
+        gpio_set_dir(p, GPIO_OUT);
+        gpio_put(p, 1);
+    }
 
     const uint PIN_EBAR = 16; // clock output pin
     const uint PIN_QBAR = 17; // clock output pin
 
     D("begin reset cpu ========\n");
-    SetLatch(0x1C); // Reset & Halt.
-    for (uint i = 0; i < 20; i++) {
-        gpio_put(PIN_QBAR, 0); DELAY;
-        gpio_put(PIN_EBAR, 0); DELAY;
-        gpio_put(PIN_QBAR, 1); DELAY;
-        gpio_put(PIN_EBAR, 1); DELAY;
-    }
-    D("begin halt cpu ========\n");
-    SetLatch(0x1D); // Halt.
-    for (uint i = 0; i < 10; i++) {
+    gpio_put(21, 0);
+    for (uint i = 0; i < 60; i++) {
         gpio_put(PIN_QBAR, 0); DELAY;
         gpio_put(PIN_EBAR, 0); DELAY;
         gpio_put(PIN_QBAR, 1); DELAY;
         gpio_put(PIN_EBAR, 1); DELAY;
     }
     D("run ========\n");
-    SetLatch(0x1F); // Run.
+    gpio_put(21, 1);
 }
 
 uint WAIT_GET() {
     const PIO pio = pio0;
     const uint sm = 0;
-    const uint LED_PIN = PICO_DEFAULT_LED_PIN;
+    // const uint LED_PIN = PICO_DEFAULT_LED_PIN;
 
     // gpio_put(LED_PIN, 1);
     while (pio_sm_is_rx_fifo_empty(pio, sm)) {
@@ -497,6 +505,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     PUT(0x000000);  // Data to put.
 
     for (uint cy = 0; !num_cycles || cy < num_cycles; cy++) {
+        // printf("cy=%d\n", cy);
 #if FOR_BASIC
         if ((cy & TICK_MASK) == TICK_MASK) {
             GetKeysFromConsole();
@@ -512,10 +521,11 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             D("ERROR: NOT twenty_three: %d.\n", twenty_three);
             while (true) DELAY;
         }
+        // printf("23\n");
 
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
-        // printf("-- & %04x %04x & %s\n", addr, flags, start? "S" : "-");
+        // printf("--frodo-- & %04x %04x & %s\n", addr, flags, start? "S" : "-");
 
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
@@ -833,6 +843,7 @@ OKAY:
         vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
         start = 0 != (flags & F_LIC); // LIC bit means next cycle is Start
 
+#if 0
         if (interest > 0) {
             interest--;
             if (!interest) {
@@ -841,6 +852,7 @@ OKAY:
                 D("...\n");
             }
         }
+#endif
     }
 }
 
@@ -872,21 +884,17 @@ int XXXmain() {
 }
 #endif
 
+#define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+
 int main() {
     stdio_init_all();
-
-#ifndef PICO_DEFAULT_LED_PIN
-#warning blink example requires a board with a regular LED
-#endif
-    const uint LED_PIN = PICO_DEFAULT_LED_PIN;
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
+    cyw43_arch_init();
 
     const uint BLINKS = 5;
     for (uint i = 0; i <= BLINKS; i++) {
-        gpio_put(LED_PIN, 1);
+        LED(1);
         sleep_ms(300);
-        gpio_put(LED_PIN, 0);
+        LED(0);
         sleep_ms(700);
 
         char pbuf[10];
@@ -901,11 +909,11 @@ int main() {
     putchar(C_PUTCHAR);
     putchar('\n');
 
-    gpio_put(LED_PIN, 1);
-    ResetCpu();
-    gpio_put(LED_PIN, 0);
-    sleep_us(20);
+    LED(1);
+    sleep_us(200);
     InitRamFromRom();
+    ResetCpu();
+    LED(0);
 
     // Set interrupt vectors
 #if FOR_BASIC
