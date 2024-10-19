@@ -25,6 +25,7 @@ level1prelude.raw: level1prelude.asm
 _ROM_: _FORCE_
 	sh boot-rom-maker.sh
 	python3 ../binary-header-generator.py level1.rom > ../tmanager/level1.rom.h
+	python3 ../binary-header-generator.py level1.rom > ../tmanager903/level1.rom.h
 
 clean:
 	rm -f *.raw *.os9 *.list *.map

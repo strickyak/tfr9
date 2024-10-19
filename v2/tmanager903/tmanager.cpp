@@ -14,20 +14,21 @@
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
-#define ATTENTION_SPAN 25 // was 250
-#define TICK_MASK 0xFF   // one less than a power of two
+// Port Assignments
+#include "tfr9ports.gen.h"
 
-#define CONSOLE_PORT 0xFF50
-#define DISK_PORT 0xFF58
+#define ATTENTION_SPAN 25 // was 250
+#define TICK_MASK 0xFFFF   // one less than a power of two
+
 //#define D if(1) if(1)printf
 //#define P if(1) if(1 || 0)printf
 //#define V if(1) if(1 || interest)printf
 //#define Q if(1) if(1 || interest)printf
 
-#define D if(0)printf
-#define P if(0)printf
-#define V if(0)printf
-#define Q if(0)printf
+#define D if(1)printf
+#define P if(1)printf
+#define V if(1)printf
+#define Q if(1)printf
 
 typedef unsigned char byte;
 typedef unsigned int word;
@@ -44,14 +45,6 @@ extern void RecvOut_byte(byte* x);
 
 /////////// #include "../generated/rpc.h"
 
-#if FOR_BASIC
-const byte BasicRom[] = {
-  #include "bas13.rom.h"
-};
-
-byte Keystrokes[300];
-
-#else
 const byte Rom[] = {
   #include "level1.rom.h"
 };
@@ -59,7 +52,6 @@ const byte Rom[] = {
 byte Disk[] = {
   #include "level1.disk.h"
 };
-#endif
 
 byte Ram[0x10000];
 byte Seen[0x10000];
@@ -106,6 +98,9 @@ enum {
 
 #define F_HIGH (F_BA|F_BS|F_BUSY)
 
+const byte RESET_BAR_PIN = 21;  // negative logic
+const byte IRQ_BAR_PIN = 22;    // negative logic
+
 uint interest;
 
 // putbyte does CR/LF escaping for Binary Data
@@ -115,16 +110,25 @@ void putbyte(byte x) {
     case 1:  // the escape
     case 10: // LF
     case 13: // CR
-        putchar(1);  // 1 is the escape char
-        putchar(x | 32);
+        putchar(1u);  // 1 is the escape char
+        putchar(x | 32u);
         break;
     default:
         putchar(x);
     }
 }
+
+// Does this need escaping yet?
 byte getbyte() {
     byte x = getchar();
-    return (x==10) ? 13 : x;
+    if (x == 1) {
+        // Escaped.
+        x = getchar();
+        return x - 32u;
+    } else {
+        // Not escaped.
+        return (x==10u) ? 13u : x;  // TODO
+    }
 }
 
 const char* HighFlags(uint high) {
@@ -141,25 +145,6 @@ const char* HighFlags(uint high) {
 }
 
 void DumpRam() {
-#if 1
-    D("\n:DumpRamX\n");
-    for (uint i = 0; i < 0x10000; i += 16) {
-      for (uint j = 0; j < 16; j++) {
-        if (Ram[i+j]) goto yyes;
-      }
-      continue;
-
-yyes:
-      D(":%04x: ", i);
-      for (uint j = 0; j < 16; j++) {
-        D("%c%02x", (Seen[i+j]? '-' : ' '), Ram[i+j]);
-        if ((j&3)==3) D(" ");
-      }
-      D("\n");
-    }
-    D("\n:DumpRamX\n");
-
-
     putchar(C_DUMP_RAM);
     for (uint i = 0; i < 0x10000; i += 16) {
         for (uint j = 0; j < 16; j++) {
@@ -175,24 +160,6 @@ yes:
         }
     }
     putchar(C_DUMP_STOP);
-#else
-    D("\n:DumpRam\n");
-    for (uint i = 0; i < 0x10000; i += 16) {
-      for (uint j = 0; j < 16; j++) {
-        if (Ram[i+j]) goto yes;
-      }
-      continue;
-
-yes:
-      D(":%04x: ", i);
-      for (uint j = 0; j < 16; j++) {
-        D("%c%02x", (Seen[i+j]? '-' : ' '), Ram[i+j]);
-        if ((j&3)==3) D(" ");
-      }
-      D("\n");
-    }
-    D("\n:DumpRam\n");
-#endif
 }
 void DumpRamAndGetStuck() {
     DumpRam();
@@ -200,15 +167,9 @@ void DumpRamAndGetStuck() {
 }
 
 uint AddressOfRom() {
-#if FOR_BASIC
-    return 0x8000;
-#else
     return IO_START - sizeof(Rom);
-#endif
 }
 
-#if FOR_BASIC
-#else
 bool CheckHeader(uint p) {
     uint z = 0;
     for (uint i = 0; i < 9; i++) {
@@ -254,17 +215,6 @@ void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
         }
     }
 }
-#endif
-
-#if 0
-volatile uint delay_tactic;
-
-void Delay(uint n) {
-    for (uint i = 0; i < n; i++) {
-        delay_tactic += i*i;
-    }
-}
-#endif
 
 void ViewAt(const char* label, uint hi, uint lo) {
     uint addr = (hi << 8) | lo;
@@ -287,36 +237,8 @@ void ViewAt(const char* label, uint hi, uint lo) {
     V("|\n");
 }
 
-#if 0
-void SetMode(byte x) {
-    D("mode %x\n", x);
-    for (uint i = 18; i < 21; i++) {
-        gpio_set_dir(i, true/*out*/);
-        gpio_put(i, (1&x));
-        x = x >> 1;
-    }
-}
-
-void OutLowDataByte(byte x) {
-    D("out %x\n", x);
-    for (uint i = 0; i < 8; i++) {
-        gpio_set_dir(i, true/*out*/);
-        gpio_put(i, (1&x));
-        x = x >> 1;
-    }
-}
-
-void SetLatch(byte x) {
-    D("latch %x\n", x);
-    SetMode(0);
-    OutLowDataByte(x); DELAY;
-    SetMode(4); DELAY;
-    SetMode(0);
-}
-#endif
-
 void ResetCpu() {
-    for (uint i = 0; i < 21; i++) {
+    for (uint i = 0; i <= 20; i++) {
         gpio_init(i);
         gpio_set_dir(i, GPIO_OUT);
     }
@@ -329,34 +251,28 @@ void ResetCpu() {
         gpio_put(p, 1);
     }
 
-    const uint PIN_EBAR = 16; // clock output pin
-    const uint PIN_QBAR = 17; // clock output pin
+    const uint PIN_E = 16; // clock output pin
+    const uint PIN_Q = 17; // clock output pin
 
     D("begin reset cpu ========\n");
-    gpio_put(21, 0);
+    gpio_put(RESET_BAR_PIN, not true);  // negative logic
     for (uint i = 0; i < 60; i++) {
-        gpio_put(PIN_QBAR, 0); DELAY;
-        gpio_put(PIN_EBAR, 0); DELAY;
-        gpio_put(PIN_QBAR, 1); DELAY;
-        gpio_put(PIN_EBAR, 1); DELAY;
+        gpio_put(PIN_Q, 0); DELAY;
+        gpio_put(PIN_E, 0); DELAY;
+        gpio_put(PIN_Q, 1); DELAY;
+        gpio_put(PIN_E, 1); DELAY;
     }
     D("run ========\n");
-    gpio_put(21, 1);
+    gpio_put(RESET_BAR_PIN, not false);  // negative logic
 }
 
 uint WAIT_GET() {
     const PIO pio = pio0;
     const uint sm = 0;
-    // const uint LED_PIN = PICO_DEFAULT_LED_PIN;
 
-    // gpio_put(LED_PIN, 1);
-    while (pio_sm_is_rx_fifo_empty(pio, sm)) {
-        // P(",");
-    }
-    // DELAY;
+    while (pio_sm_is_rx_fifo_empty(pio, sm)) continue;
+
     uint z = pio_sm_get(pio, sm);
-    if(0) P("< %x\n", z);
-    // gpio_put(LED_PIN, 0);
     return z;
 }
 
@@ -395,57 +311,6 @@ const char* DecodeCC(byte cc) {
     return buf;
 }
 
-#if FOR_BASIC
-byte row, col, plane;
-bool GetKeysFromConsole() {
-    putchar(C_KEY);
-
-    byte x = xgetchar();
-    switch (x) {
-
-    case C_NOKEY:
-        printf("C_NOKEY\n");
-        row = 0;
-        col = 0;
-        plane = 0;
-        return false;
-
-    case C_KEY:
-        row = xgetchar();
-        col = xgetchar();
-        plane = xgetchar();
-        printf("C_KEY(%x, %x, %x)\n", row, col, plane);
-        return true;
-
-    default:
-        printf("C_ default %x\n", x);
-        D("----- EXPECTED C_KEY or C_NOKEY.  GOT %d.\n", x);
-        DumpRamAndGetStuck();
-        return false;
-
-    }
-}
-#else
-
-#if 0
-#include "buffer.h"
-Buffer InBuf;
-
-byte XXXXXXXXXXXXXXXGetCharFromConsole() {
-printf("\n{frodo ");
-    InBuf.Dump();
-printf("}\n");
-
-    if (InBuf.Size() >= 2 && InBuf.Peek(0) == C_GETCHAR) {
-        InBuf.Take();
-        int x = InBuf.Take();
-        D(" (( GOT CHAR %d. ))\n", x);
-        return (x==10) ? 13 : x;  // turn LF to CR
-    }
-    return 0;
-}
-#endif
-
 byte GetCharFromConsole() {
     putbyte(C_GETCHAR);
     byte one = getbyte();
@@ -461,22 +326,6 @@ byte GetCharFromConsole() {
     }
 }
 
-#if 0
-byte OldGetCharFromConsole() {
-    putchar(C_GETCHAR);
-    int x = xgetchar();
-    if (x != C_GETCHAR) {
-                        D("----- EXPECTED GETCHAR.  GOT %d.\n", x);
-                        DumpRamAndGetStuck();
-    }
-    x = xgetchar();
-    D(" (( GOT CHAR %d. ))\n", x);
-    return (x==10) ? 13 : x;  // turn LF to CR
-}
-#endif
-
-#endif
-
 int strikes;
 void Strike(const char* why) {
     ++strikes;
@@ -486,13 +335,31 @@ void Strike(const char* why) {
     }
 }
 
+void ShowChar(byte ch) {
+    putchar(C_PUTCHAR);
+    putchar(ch);
+}
+
+bool vsync_irq_enabled;
+
+void EnableVSyncIrq(bool enable) {
+    vsync_irq_enabled = not not enable;
+}
+void VSyncIrq(bool activate) {
+    if (vsync_irq_enabled or not activate) {
+        gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
+        printf("\n<IRQ=%d>\n", activate);
+        ShowChar(activate ? '<' : '>');
+    }
+}
+
 void HandlePio(uint num_cycles, uint krn_entry) {
     const PIO pio = pio0;
     const uint sm = 0;
 
     byte data;
-    uint vma = 0;
-    uint start = 0;
+    uint vma = 0; // Valid Memory Address ( = delayed AVMA )
+    uint fic = 0; // First Instruction Cycle ( = delayed LIC )
     uint active = 0;
     uint num_resets = 0;
     uint event = 0;
@@ -500,82 +367,59 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     uint arg = 0;
     uint prev = 0; // previous data byte
     interest = ATTENTION_SPAN;
+    bool watch = 0; // May be useful again.
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
 
     for (uint cy = 0; !num_cycles || cy < num_cycles; cy++) {
-        // printf("cy=%d\n", cy);
-#if FOR_BASIC
         if ((cy & TICK_MASK) == TICK_MASK) {
-            GetKeysFromConsole();
+            ShowChar('`');
+            Ram[0xFF03] |= 0x80;  // Set the bit indicating VSYNC occurred.
+            if (vsync_irq_enabled) {
+                VSyncIrq(true);
+            }
         }
-#else
-        //if ((cy & TICK_MASK) == TICK_MASK) {
-            //putchar('$');
-            //InBuf.Tick();
-        //}
-#endif
+
         uint twenty_three = WAIT_GET();
         if (twenty_three != 23) {
             D("ERROR: NOT twenty_three: %d.\n", twenty_three);
             while (true) DELAY;
         }
-        // printf("23\n");
 
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
-        // printf("--frodo-- & %04x %04x & %s\n", addr, flags, start? "S" : "-");
+        // printf("--frodo-- & %04x %04x & %s\n", addr, flags, fic? "S" : "-");
 
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
 
-        if (false && !active && addr == 0xFFFF) { // CPU reads, Pico Tx
-            Q("||\n");
-        } else if (reading) { // CPU reads, Pico Tx
+        if (watch) {
+            // ...
+        }
+
+        if (reading) { // CPU reads, Pico Tx
+            // q1: Reading.
+            if (addr == 0x002E) {
+                watch = true;
+            }
 
             data = Ram[addr];  // default behavior
 
-            if (start && addr<0x0080) {
+            if (fic && addr<0x0080) {
                     D("----- PC IN 00[0-7]x. Stopping addr=%x flags=%x\n", addr, flags);
                     DumpRamAndGetStuck();
                     return;
             }
-            if (0xFF00 <= addr && addr < 0xFFEE) { // READ (GET) IO
-                if (start) {
+            if (0xFF00 <= addr && addr < 0xFFF0) { // READ (GET) IO
+                if (fic) {
                         D("----- PC IN FFxx. Stopping addr=%x flags=%x\n", addr, flags);
                         DumpRamAndGetStuck();
                         return;
                 }
 
-                uint maddr = (addr < 0xFF40) ? (addr & 0xFFE3) : addr;  // masked addr for two partially-decoded PIAs
-                if (maddr != addr) {
-                    data = Ram[maddr];  // default behavior but with maddr
-                }
-                switch (0xFF & maddr) {
-#if FOR_BASIC
-                case 0xFF & 0xFF00: // Keyboard PIA
-                  {
-                    data = 0xFF;
-                    Q("PIA0 reading: addr=%x maddr=%x\n", addr, maddr);
-                    uint query = ~Ram[0xFF02];
-                    if (col & query) {
-                        data = ~row;
-                        Q("PIA0 row=%x col=%x plane=%x query=%x col&query=%x data=%x\n", row, col, plane, query, col & query, data);
-                        DumpRam();
-                        data = 0xFF;
-                    }
-                    Ram[0xFF00] = data;
-                  }
-                    break;
-
-                case 0xFF & 0xFF20: // Second PIA
-                    Q("PIA1 reading: addr=%x maddr=%x data=%x", addr, maddr, data);
-                    data = Ram[0xFF20] = 0;
-                    break;
-
-#else
-                case 0xFF & CONSOLE_PORT: // getchar from console ($FF10)
+                switch (0xFF & addr) {
+                case 0xFF & CONSOLE_PORT: // getchar from console
                     data = GetCharFromConsole();
 
                     D("= READY CHAR $%x\n", data);
@@ -593,17 +437,29 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     }
                     break;
 
-                case 0xFF & (DISK_PORT+7): // read disk status
+                // Read PIA0
+                case 0x00:
+                case 0x01:
+                    D("----- PIA0 Read not Impl: %x\n", addr);
+                    DumpRamAndGetStuck();
+                    break;
+                case 0x02:
+                    Ram[0xFF03] &= 0x7F;  // Clear the bit indicating VSYNC occurred.
+                    VSyncIrq(false);  // Reading this register clears the vertical IRQ.
+                    data = 0xFF;
+                    break;
+                case 0x03:
+                    // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
+                    break;
+
+                case 0xFF & (BLOCK_PORT+7): // read disk status
                     data = 1;  // 1 is OKAY
                     break;
-#endif
 
                 case 0xFF & 0xFFF0: // 6309 trap
                 case 0xFF & 0xFFF1: // 6309 trap
                     D("----- 6309 ERROR TRAP.  Stopping.\n");
                     DumpRamAndGetStuck();
-                    //return;
-                    //data = Ram[addr];
                     break;
 
                 default: // other reads from Ram.
@@ -612,7 +468,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
             }
 
-            if (start) {
+            if (fic) {
                 if (addr == krn_entry) {
                     num_resets++;
                     if (num_resets >= 2) {
@@ -640,14 +496,14 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
             uint high = flags & F_HIGH;
             if (true || vma || high) {
-                Q("%s %x %x  =%s #%d\n", (start ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+                Q("%s %x %x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
             } else {
                 Q("|\n");
             }
 
             if (addr == 0xFFFE) active = 1;
 
-            if (start) {
+            if (fic) {
                 if (!Seen[addr]) {
                     interest = ATTENTION_SPAN;  // Interesting when at a new PC value.
                     Seen[addr] = 1;
@@ -708,7 +564,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             }
 
         } else {  // CPU writes, Pico Rx
-
+            // q2: Writing
             data = WAIT_GET();
             if (active) {
                 if (addr==0 && data==0) {
@@ -749,14 +605,19 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         }
         prev = data;
 
+        // q3: Side Effects after Reading or Writing.
         if (io) {
             interest = ATTENTION_SPAN;  // Interesting when it is I/O.
             switch (255&addr) {
             case 0x00:
             case 0x01:
             case 0x02:
-            case 0x03:
                 D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
+                goto OKAY;
+            case 0x03:
+                // Read PIA0
+                D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
+                EnableVSyncIrq(data&1); // Low bit is the IRQ enable on the PIA control.
                 goto OKAY;
 
             case 255&CONSOLE_PORT:
@@ -777,38 +638,29 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
                 goto OKAY;
 
-#if FOR_BASIC
-#else
-            case 0x51:
-            case 0x52:
-            case 0x53:
-            case 0x54:
-            case 0x55:
-            case 0x56:
-            case 0x57:
-            case 0x58:
-            case 0x59:
-            case 0x5A:
-            case 0x5B:
-            case 0x5C:
-            case 0x5D:
-            case 0x5E:
-                Q("-NANDO %x %x %x\n", addr, data, Ram[data]);
+            case 255&(BLOCK_PORT+0): // Save params for Disk.
+            case 255&(BLOCK_PORT+1):
+            case 255&(BLOCK_PORT+2):
+            case 255&(BLOCK_PORT+3):
+            case 255&(BLOCK_PORT+4):
+            case 255&(BLOCK_PORT+5):
+            case 255&(BLOCK_PORT+6):
+                Q("-BLOCK %x %x %x\n", addr, data, Ram[addr]);
                 goto OKAY;
-            case 0x5F: // Run Disk Command
+            case 255&(BLOCK_PORT+7): // Run Disk Command.
                 if (!reading) {
-                    byte command = Ram[0xFF58];
+                    byte command = Ram[BLOCK_PORT + 0];
 
                     Q("-NANDO %x %x %x\n", addr, data, Ram[data]);
                     Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
-                        Ram[0xFF59],
-                        PEEK2(0xFF5A),
-                        PEEK2(0xFF5C),
+                        Ram[BLOCK_PORT + 1],
+                        PEEK2(BLOCK_PORT + 2),
+                        PEEK2(BLOCK_PORT + 4),
                         command);
 
-                    uint lsn = PEEK2(0xFF5A);
+                    uint lsn = PEEK2(BLOCK_PORT + 2);
                     byte* dp = Disk + 256*lsn;
-                    uint buffer = PEEK2(0xFF5C);
+                    uint buffer = PEEK2(BLOCK_PORT + 4);
                     byte* rp = Ram + buffer;
 
                     Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer, command);
@@ -831,17 +683,15 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     }
                 }
                 goto OKAY;
-#endif
 
             default: {}
             }
             D("--- IOPAGE %s: addr %x flags %x data %x\n", reading? "READ": "WRITE", addr, flags, data);
-            // DumpRamAndGetStuck();
         }
 OKAY:
 
         vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
-        start = 0 != (flags & F_LIC); // LIC bit means next cycle is Start
+        fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
 
 #if 0
         if (interest > 0) {
@@ -857,33 +707,13 @@ OKAY:
 }
 
 void InitRamFromRom() {
-#if FOR_BASIC
-    uint rom_base = 0x8000;
-    for (uint i = 0; i < sizeof BasicRom; i++) {
-        Ram[rom_base + i] = BasicRom[i];
-    }
-#else
     uint addr = AddressOfRom();
     for (uint i = 0; i < sizeof Rom; i++) {
         Ram[addr + i] = Rom[i];
     }
-#endif
 }
 
-#if 0
-int XXXmain() {
-    stdio_init_all();
-    while (true) {
-        int x = getchar_timeout_us(0);
-        if (x>0) {
-            printf("%d[%c] ", x, x);
-        } else {
-            putchar('~');
-        }
-    }
-}
-#endif
-
+// LED for Pico W:   LED(1) for on, LED(0) for off.
 #define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 
 int main() {
@@ -915,32 +745,20 @@ int main() {
     ResetCpu();
     LED(0);
 
-    // Set interrupt vectors
-#if FOR_BASIC
-    for (uint j = 0; j < 16; j++) {
-        printf("  to:%04x peek:%04x\n", 0xFFF0+j, PEEK(0xBFF0+j));
-        POKE(0xFFF0+j, PEEK(0xBFF0+j));
-        printf("  at:%04x peek:%04x\n", 0xFFF0+j, PEEK(0xFFF0+j));
-    }
-#else
     uint a = AddressOfRom();
     D("AddressOfRom = $%x\n", a);
     uint krn_start, krn_entry, krn_end;
     FindKernelEntry(&krn_start, &krn_entry, &krn_end);
     D("KernelEntry = $%x\n", krn_entry);
 
+    // Set interrupt vectors
     for (uint j = 1; j < 7; j++) {
         POKE2(0xFFF0+j+j, Vectors[j]);
     }
     POKE2(0xFFFE, PRELUDE_START);       // Reset Vector.
-#endif
 
     StartPio();
-#if FOR_BASIC
-    HandlePio(1000 * 1000 * 1000, 0);
-#else
     HandlePio(0, krn_entry);
-#endif
     sleep_ms(100);
     D("\nFinished.\n");
     sleep_ms(100);

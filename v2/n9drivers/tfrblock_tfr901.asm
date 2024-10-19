@@ -23,12 +23,11 @@
          nam   tfrblock_tfr901.asm
          ttl   Block Disk Driver for tfr901
 
-         ifp1
          use   defsfile
-         endc
+         use   tfr9ports.gen.d
 
-PORTAL   equ $FF58       ; data area for operation numbers to Pico
-COMMAND  equ $FF5F       ; Command and Status byte to Pico
+PORTAL   equ BLOCK_PORT
+COMMAND  equ PORTAL+7
 
 N.Drives equ 4
 

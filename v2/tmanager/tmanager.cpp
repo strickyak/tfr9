@@ -13,6 +13,9 @@
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
+// Port Assignments
+#include "tfr9ports.gen.h"
+
 #define ATTENTION_SPAN 25 // was 250
 #define TICK_MASK 0xFF   // one less than a power of two
 

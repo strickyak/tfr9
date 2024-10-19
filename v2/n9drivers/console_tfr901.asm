@@ -6,8 +6,7 @@
                     ttl       console_tfr901 Driver
 
                     use       defsfile
-
-PORT                equ       $FF50
+                    use       tfr9ports.gen.d
 
 regWbuf             rmb       2                   substitute for regW
 RxBufDSz            equ       256-.               default Rx buffer gets remainder of page...
@@ -66,7 +65,7 @@ Term                clrb                          default to no error...
 *	B = error code if CC.C set.
 
 Read
-                    lda       >PORT
+                    lda       >CONSOLE_PORT
                     nop
                     nop
                     nop
@@ -81,7 +80,7 @@ Read
 *                    rts
 
 Write               
-                    sta       >PORT
+                    sta       >CONSOLE_PORT
                     clrb                          default to no error...
                     rts
 
