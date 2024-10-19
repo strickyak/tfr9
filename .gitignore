@@ -16,3 +16,5 @@ _*
 a.out
 build/
 generated/
+*.gen.d
+*.gen.h
