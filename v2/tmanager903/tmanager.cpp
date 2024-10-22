@@ -1,5 +1,5 @@
 #define FOR_BASIC 0
-#define TRACKING 0
+#define TRACKING 1
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -486,7 +486,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             }
         }
 
-#if 1
 
 #if USE_TIMER
         if (TimerFired)
@@ -500,30 +499,9 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 vsync_irq_firing = true;
             }
         }
-#else
-        if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK) {
-            Ram[0xFF03] |= 0x80;  // Set the bit indicating VSYNC occurred.
-            if (vsync_irq_enabled) {
-                vsync_irq_firing = true;
-                //ShowChar(';');
-            } else {
-                //ShowChar(':');
-            }
-            // printf("@%u\n", TimerTicks);
-        }
-#endif
-
-#if 0
-        uint twenty_three = WAIT_GET();
-        if (twenty_three != 23) {
-            D("ERROR: NOT twenty_three: %d.\n", twenty_three);
-            while (true) DELAY;
-        }
-#endif
 
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
-        // printf("--frodo-- & %04x %04x & %s\n", addr, flags, fic? "S" : "-");
 
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
@@ -545,23 +523,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
 
                 switch (0xFF & addr) {
-//                case 0xFF & CONSOLE_PORT: // getchar from console
-//                    data = GetCharFromConsole();
-//
-//                    D("= READY CHAR $%x\n", data);
-//                    switch (data) {
-//                    case C_ABORT:
-//                        D("----- GOT ABORT FROM CONSOLE.  Aborting.\n");
-//                        DumpRamAndGetStuck();
-//                        return;
-//                    case C_STOP:
-//                        D("----- GOT STOP FROM CONSOLE.  Stopping.\n");
-//                        DumpRamAndGetStuck();
-//                        return;
-//                    default:
-//                        break;
-//                    }
-//                    break;
 
                 // Read PIA0
                 case 0x00:
@@ -592,7 +553,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     if (acia_char_in_ready) {
                         data = acia_char;
                         acia_char_in_ready = false;
-                        // acia_irq_firing = false;
                     } else {
                         data = 0;
                     }
@@ -763,24 +723,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
                 vsync_irq_enabled = ((data&1) != 0);
                 goto OKAY;
-
-//            case 255&CONSOLE_PORT:
-//                if (reading) {
-//                    if (32 <= data && data <= 126) {
-//                        Q("= GETCHAR: $%02x = '%c'\n", data, data);
-//                    } else {
-//                        Q("= GETCHAR: $%02x\n", data);
-//                    }
-//                } else {
-//                    if (32 <= data && data <= 126) {
-//                        Q("= PUTCHAR: $%02x = '%c'\n", data, data);
-//                    } else {
-//                        Q("= PUTCHAR: $%02x\n", data);
-//                    }
-//                    putchar(C_PUTCHAR);
-//                    putchar(data);
-//                }
-//                goto OKAY;
 
             case 255&(ACIA_PORT+0): // control port
                 if (reading) {  // reading control prot
