@@ -3,50 +3,62 @@
 ;
 ; SPDX-License-Identifier: MIT
 
-.define public EBAR    1
-.define public QBAR    2
-.define public MODE0   0 ; (0 << 2)
-.define public MODE1   4 ; (1 << 2)
-.define public MODE2   8 ; (2 << 2)
-.define public MODE3  12 ; (3 << 2)
-.define public MODE4  16 ; (4 << 2)
-.define public MODE5  20 ; (5 << 2)
-.define public MODE6  24 ; (6 << 2)
-.define public MODE7  28 ; (7 << 2)
+;#########################.define public EBAR    1
+;#########################.define public QBAR    2
+;#########################.define public MODE0   0 ; (0 << 2)
+;#########################.define public MODE1   4 ; (1 << 2)
+;#########################.define public MODE2   8 ; (2 << 2)
+;#########################.define public MODE3  12 ; (3 << 2)
+;#########################.define public MODE4  16 ; (4 << 2)
+;#########################.define public MODE5  20 ; (5 << 2)
+;#########################.define public MODE6  24 ; (6 << 2)
+;#########################.define public MODE7  28 ; (7 << 2)
+
+; E = 1
+; Q = 2
+; Not RecvAddress = 4
+; Not RecvData = 8
+; Not SendData = 16 + 8
+
+; Phase1 : 0
+; Phase2 : 2
+; Phase3 : 3
+; Phase4 : 1
+
+;   None = 28
+;   ReceiveAddress = None - 4 = 24
+;   ReceiveData = None - 8 = 20
+;   SendData = ReceiveData - 16 = 4
 
 .program tpio
 .side_set 5
+                                             ; ENTRY
+    pull block     side 28 ; P1 + None
+    out pindirs,21 side 28 ; P1 + None       ; initialize Pin Dirs
 
-    pull block     side 28 ;;; 3
-    out pindirs,21 side 28 ;;; 3
-    pull block     side 28 ;;; 3
-    out pins,21    side 28 ;;; 3
+    pull block     side 24 ; P1 + RecvAddr
+    out pins,21    side 24 ; P1 + RecvAddr   ; initialize Pins
 
-.wrap_target
+.wrap_target                                 ; BEGIN LOOP
 top:
-    ;;;;set x, 23       side 28 ;;; 3 ; (MODE0|EBAR|QBAR)
-    ;;;;in  x, 16       side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
-    nop             side 28 ;;; 3 ; (MODE0|EBAR|QBAR)
-    nop             side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
-    in  pins, 16    side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
-    nop             side 22 ;;; 9 ; (MODE2|EBAR)
-    in  pins, 16    side 22 ;;; 9 ; (MODE2|EBAR)
-    nop             side 23 ;;; 8 ; (MODE2)
-    jmp pin, read   side 23 ;;; 8 ; (MODE2)
+    nop             side 24 ; P1 + RecvAddr
+    in  pins, 16    side 24 ; P1 + RecvAddr  ; Read Address
+    nop             side 22 ; P2 + RecvData
+    in  pins, 16    side 22 ; P2 + RecvData  ; Read Data
+    jmp pin, read   side 23 ; P3 + RecvData
 
-; CPU write PICO rx
-    nop             side 21 ;;; 10 ; (MODE2|QBAR)
-    in pins, 16     side 21 ;;; 10 ; (MODE2|QBAR)
-    jmp top         side 20 ;;; 11 ; (MODE2|EBAR|QBAR)
+; CPU write PICO rx                          ; IF WRITE CYCLE (Receiving from CPU)
+    in pins, 16     side 21 ; P4 + RecvData    ; Receive accurate data.
+    jmp top         side 24 ; P1 + RecvAddr
 
-read:
-    pull block      side 21 ;;; 10 ; (MODE2|QBAR)
-    out pindirs,16  side 21 ;;; 10 ; (MODE2|QBAR)
-    pull block      side 5 ;;; 14 ; (MODE3|QBAR)
-    out pins,16     side 5 ;;; 14 ; (MODE3|QBAR)
-    pull block      side 4 ;;; 15 ; (MODE3|EBAR|QBAR)
-    out pindirs,16  side 4 ;;; 11 ; (MODE2|EBAR|QBAR)
-.wrap
+read:                                        ; ELSE READ CYCLE (Sending to CPU)
+    pull block      side 21 ; P4 + RecvData
+    out pindirs,16  side 21 ; P4 + RecvData  ; change Data Pins to output
+    pull block      side 5 ;  P4 + SendData
+    out pins,16     side 5 ;  P4 + SendData  ; output the data.
+    pull block      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.
+    out pindirs,16  side 24 ; P1 + RecvAddr  ; change Data Pins to inputs
+.wrap                                        ; REPEAT LOOP
 
 % c-sdk {
 

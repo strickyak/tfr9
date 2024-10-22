@@ -413,7 +413,7 @@ class CircBuf {
 
 
 void PutIrq(bool activate) {
-    LED(activate);
+    // LED(activate);
     gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
 }
 

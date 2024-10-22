@@ -11,59 +11,27 @@ rm -f "$D"
 os9 format -l99 -e -n'TFR9-DISK' "$D"
 os9 makdir "$D",CMDS
 
-#cat >/tmp/tfr.how <<~~~~
-#load count.bas
-#run
-#~~~~
-#
-#cat >/tmp/tfr.count.in <<~~~~
-#e
-#10 FOR I=0 to 10000
-#20 PRINT I;
-#30 NEXT I
-#40 END
-#q
-#list
-#run
-#~~~~
-
 cat >/tmp/tfr.startup <<~~~~
-tmode .1 pau=0
+dir
 mdir -e
+free
+mfree
 basic09
 e
 10 FOR I=0 to 1000
-20 PRINT I;
-30 NEXT I
-210 FOR I=0 to 1000
-220 SHELL "dir -e -x"
-230 NEXT I
-901 PRINT CHR$(255);
-902 PRINT CHR$(255);
-903 PRINT CHR$(255);
-999 END
+20 FOR J=0 to 100
+30 PRINT I*1000 + J;
+40 NEXT J
+50 PRINT
+100 SHELL "DATE -T"
+999 NEXT I
 q
 list
 run
 ~~~~
-# t
-# dir
-# dump how
-# tmode .1 pau=0
-# basic09 < how
-# echo Hello World
-# mdir -e
-# dir -e cmds
-# dir -x
-# dump startup
-# tmode pau=0
-# mfree
-# free
 
-# os9 copy -l -r /tmp/tfr.how  "$D",how
-# os9 copy -l -r /tmp/tfr.count.in  "$D",count.in
 os9 copy -l -r /tmp/tfr.startup  "$D",startup
-os9 del "$D",startup
+# os9 del "$D",startup
 
 os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/date   "$D",CMDS/date
 os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/list   "$D",CMDS/list
