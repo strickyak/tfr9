@@ -16,9 +16,8 @@
                     nam       sc6850
                     ttl       Motorola 6850 UART Driver
 
-                    ifp1
                     use       defsfile
-                    endc
+                    use       tfr9ports.gen.d
 
 * miscellaneous definitions
 DCDStBit            equ       %00100000           DCD status bit for SS.CDSta call

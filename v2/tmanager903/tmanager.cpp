@@ -11,24 +11,41 @@
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 
+
+#include <pico/time.h>
+#include <hardware/timer.h>
+#include <hardware/clocks.h>
+#include <hardware/pio.h>
+#include <hardware/structs/systick.h>
+#include <hardware/exception.h>
+volatile uint TimerTicks;
+volatile bool TimerFired;
+
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
 // Port Assignments
 #include "tfr9ports.gen.h"
 
+// LED for Pico W:   LED(1) for on, LED(0) for off.
+#define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+
 #define ATTENTION_SPAN 25 // was 250
-#define TICK_MASK 0xFFFF   // one less than a power of two
+#define VSYNC_TICK_MASK 0xFFFF   // one less than a power of two
+#define ACIA_TICK_MASK 0xFFF     // one less than a power of two
 
 //#define D if(1) if(1)printf
 //#define P if(1) if(1 || 0)printf
 //#define V if(1) if(1 || interest)printf
 //#define Q if(1) if(1 || interest)printf
 
-#define D if(1)printf
-#define P if(1)printf
-#define V if(1)printf
-#define Q if(1)printf
+#define USE_TIMER 1
+#define D if(0)printf
+#define P if(0)printf
+#define V if(0)printf
+#define Q if(0)printf
+
+#define getchar(X) DoNotUseGetChar
 
 typedef unsigned char byte;
 typedef unsigned int word;
@@ -36,7 +53,7 @@ typedef unsigned char T_byte;
 typedef unsigned int T_word;
 typedef unsigned char T_16 [16];
 
-extern byte getbyte();
+// extern byte getbyte();
 extern void putbyte(byte x);
 extern void SendIn_byte(byte x);
 extern void SendIn_word(word x);
@@ -64,9 +81,9 @@ uint Vectors[] = {
 };
 
 enum {
-    C_NOCHAR=160,
+    // C_NOCHAR=160,
     C_PUTCHAR=161,
-    C_GETCHAR=162,
+    // C_GETCHAR=162,
     C_STOP=163,
     C_ABORT=164,
     C_KEY=165,
@@ -105,20 +122,26 @@ uint interest;
 
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) {
+#if 1
+    putchar_raw(x);
+#else
     switch (x) {
     case 0:  // NUL
     case 1:  // the escape
     case 10: // LF
     case 13: // CR
         putchar(1u);  // 1 is the escape char
-        putchar(x | 32u);
+        putchar(x + 32);
         break;
     default:
         putchar(x);
+        break;
     }
+#endif
 }
 
 // Does this need escaping yet?
+#if 0
 byte getbyte() {
     byte x = getchar();
     if (x == 1) {
@@ -130,6 +153,7 @@ byte getbyte() {
         return (x==10u) ? 13u : x;  // TODO
     }
 }
+#endif
 
 const char* HighFlags(uint high) {
     if (!high) {
@@ -145,6 +169,7 @@ const char* HighFlags(uint high) {
 }
 
 void DumpRam() {
+#if 0
     putchar(C_DUMP_RAM);
     for (uint i = 0; i < 0x10000; i += 16) {
         for (uint j = 0; j < 16; j++) {
@@ -160,6 +185,7 @@ yes:
         }
     }
     putchar(C_DUMP_STOP);
+#endif
 }
 void DumpRamAndGetStuck() {
     DumpRam();
@@ -311,6 +337,7 @@ const char* DecodeCC(byte cc) {
     return buf;
 }
 
+#if 0
 byte GetCharFromConsole() {
     putbyte(C_GETCHAR);
     byte one = getbyte();
@@ -325,6 +352,7 @@ byte GetCharFromConsole() {
         return 0;
     }
 }
+#endif
 
 int strikes;
 void Strike(const char* why) {
@@ -341,21 +369,63 @@ void ShowChar(byte ch) {
 }
 
 bool vsync_irq_enabled;
+bool vsync_irq_firing;
 
-void EnableVSyncIrq(bool enable) {
-    vsync_irq_enabled = not not enable;
+bool acia_irq_enabled;
+bool acia_irq_firing;
+bool acia_char_in_ready;
+int acia_char;
+
+class CircBuf {
+    private:
+        const static uint N = 1234;
+        byte buf[N];
+        uint nextIn, nextOut;
+    public:
+        CircBuf() : nextIn(0), nextOut(0) {}
+
+        uint BytesAvailable() {
+            if (nextOut <= nextIn) return nextIn - nextOut;
+            else return nextIn + N - nextOut;
+        }
+        bool Has(uint n) {
+            uint ba = BytesAvailable();
+            // printf("%u", ba);
+            return ba >= n;
+        }
+        byte Peek() {
+            return buf[nextOut];
+        }
+        byte Take() {
+            //ShowChar('~');
+            byte z = buf[nextOut];
+            ++nextOut;
+            if (nextOut >= N) nextOut = 0;
+            return z;
+        }
+        void Put(byte x) {
+            //ShowChar('`');
+            buf[nextIn] = x;
+            ++nextIn;
+            if (nextIn >= N) nextOut = 0;
+        }
+};
+
+
+void PutIrq(bool activate) {
+    LED(activate);
+    gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
 }
-void VSyncIrq(bool activate) {
-    if (vsync_irq_enabled or not activate) {
-        gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
-        printf("\n<IRQ=%d>\n", activate);
-        ShowChar(activate ? '<' : '>');
-    }
+
+extern "C" {
+            extern int stdio_usb_in_chars(char *buf, int length);
 }
 
 void HandlePio(uint num_cycles, uint krn_entry) {
     const PIO pio = pio0;
     const uint sm = 0;
+
+    CircBuf usb_input;
 
     byte data;
     uint vma = 0; // Valid Memory Address ( = delayed AVMA )
@@ -373,19 +443,104 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     PUT(0x000000);  // Data to put.
 
     for (uint cy = 0; !num_cycles || cy < num_cycles; cy++) {
-        if ((cy & TICK_MASK) == TICK_MASK) {
-            ShowChar('`');
-            Ram[0xFF03] |= 0x80;  // Set the bit indicating VSYNC occurred.
-            if (vsync_irq_enabled) {
-                VSyncIrq(true);
+        if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
+            //ShowChar('[');
+#if 1
+#if 1
+            char just_one[1] = {0};
+            int rc = stdio_usb_in_chars(just_one, sizeof just_one);
+
+            // printf("xxx rc %d\n", rc);
+            // if (rc == 1) 
+
+            // printf("xxx rc %d\n", just_one[0]);
+            if (just_one[0]) {
+
+                // printf("xxx usb_input Put %d\n", just_one[0]);
+                usb_input.Put((byte)just_one[0]);
             }
+#else
+            int gc = getchar_timeout_us(1);
+            printf("xxx gc %d\n", gc);
+            if (gc >= 0) {
+                printf("xxx usb_input Put %d\n", gc);
+                usb_input.Put((byte)gc);
+            }
+#endif
+
+            if (not acia_char_in_ready) {
+                        int next = usb_input.Has(1) ? (int)usb_input.Peek() : -1;
+                        // printf("xxx next %d\n", next);
+                        if (1 <= next && next <= 126) {
+                                acia_char = usb_input.Take();
+                                if (acia_char == 10) {
+                                    acia_char = 13;
+                                    //ShowChar('$');
+                                }
+                                acia_char_in_ready = true;
+                                acia_irq_firing = true;
+                                //ShowChar('+');
+                                //ShowChar(acia_char);
+                        } else {
+                                acia_char = 0;
+                                acia_char_in_ready = false;
+                                acia_irq_firing = false;
+                                //ShowChar('-');
+                        }
+            }
+            //ShowChar(']');
+
+
+#else
+            if (acia_irq_enabled && not acia_char_in_ready) {
+//ShowChar('=');
+                acia_char = GetCharFromConsole();
+                if (acia_char >= 0) {
+//ShowChar('#');
+                    acia_char_in_ready = true;
+                    acia_irq_firing = true;
+                    gpio_put(IRQ_BAR_PIN, not true);  // negative logic
+                } else {
+//ShowChar('-');
+                }
+            }
+#endif
         }
 
+#if 1
+
+#if USE_TIMER
+        if (TimerFired)
+#else
+        if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
+#endif
+        {
+            TimerFired = false;
+            Ram[0xFF03] |= 0x80;  // Set the bit indicating VSYNC occurred.
+            if (vsync_irq_enabled) {
+                vsync_irq_firing = true;
+            }
+        }
+#else
+        if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK) {
+            Ram[0xFF03] |= 0x80;  // Set the bit indicating VSYNC occurred.
+            if (vsync_irq_enabled) {
+                vsync_irq_firing = true;
+                //ShowChar(';');
+            } else {
+                //ShowChar(':');
+            }
+            // printf("@%u\n", TimerTicks);
+        }
+#endif
+
+#if 0
         uint twenty_three = WAIT_GET();
         if (twenty_three != 23) {
             D("ERROR: NOT twenty_three: %d.\n", twenty_three);
             while (true) DELAY;
         }
+#endif
 
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
@@ -419,23 +574,23 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
 
                 switch (0xFF & addr) {
-                case 0xFF & CONSOLE_PORT: // getchar from console
-                    data = GetCharFromConsole();
-
-                    D("= READY CHAR $%x\n", data);
-                    switch (data) {
-                    case C_ABORT:
-                        D("----- GOT ABORT FROM CONSOLE.  Aborting.\n");
-                        DumpRamAndGetStuck();
-                        return;
-                    case C_STOP:
-                        D("----- GOT STOP FROM CONSOLE.  Stopping.\n");
-                        DumpRamAndGetStuck();
-                        return;
-                    default:
-                        break;
-                    }
-                    break;
+//                case 0xFF & CONSOLE_PORT: // getchar from console
+//                    data = GetCharFromConsole();
+//
+//                    D("= READY CHAR $%x\n", data);
+//                    switch (data) {
+//                    case C_ABORT:
+//                        D("----- GOT ABORT FROM CONSOLE.  Aborting.\n");
+//                        DumpRamAndGetStuck();
+//                        return;
+//                    case C_STOP:
+//                        D("----- GOT STOP FROM CONSOLE.  Stopping.\n");
+//                        DumpRamAndGetStuck();
+//                        return;
+//                    default:
+//                        break;
+//                    }
+//                    break;
 
                 // Read PIA0
                 case 0x00:
@@ -445,11 +600,31 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     break;
                 case 0x02:
                     Ram[0xFF03] &= 0x7F;  // Clear the bit indicating VSYNC occurred.
-                    VSyncIrq(false);  // Reading this register clears the vertical IRQ.
+                    vsync_irq_firing = false;
                     data = 0xFF;
                     break;
                 case 0x03:
                     // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
+                    break;
+
+                case 255&(ACIA_PORT+0): // read ACIA control/status port
+                    {
+                        data = 0x02;  // Transmit buffer always considered empty.
+                        data |= (acia_irq_firing) ? 0x80 : 0x00;
+                        data |= (acia_char_in_ready) ? 0x01 : 0x00;
+
+                        acia_irq_firing = false;  // Side effect of reading status.
+                    }
+                    break;
+
+                case 255&(ACIA_PORT+1): // read ACIA data port
+                    if (acia_char_in_ready) {
+                        data = acia_char;
+                        acia_char_in_ready = false;
+                        // acia_irq_firing = false;
+                    } else {
+                        data = 0;
+                    }
                     break;
 
                 case 0xFF & (BLOCK_PORT+7): // read disk status
@@ -617,24 +792,47 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             case 0x03:
                 // Read PIA0
                 D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
-                EnableVSyncIrq(data&1); // Low bit is the IRQ enable on the PIA control.
+                vsync_irq_enabled = ((data&1) != 0);
                 goto OKAY;
 
-            case 255&CONSOLE_PORT:
-                if (reading) {
-                    if (32 <= data && data <= 126) {
-                        Q("= GETCHAR: $%02x = '%c'\n", data, data);
-                    } else {
-                        Q("= GETCHAR: $%02x\n", data);
+//            case 255&CONSOLE_PORT:
+//                if (reading) {
+//                    if (32 <= data && data <= 126) {
+//                        Q("= GETCHAR: $%02x = '%c'\n", data, data);
+//                    } else {
+//                        Q("= GETCHAR: $%02x\n", data);
+//                    }
+//                } else {
+//                    if (32 <= data && data <= 126) {
+//                        Q("= PUTCHAR: $%02x = '%c'\n", data, data);
+//                    } else {
+//                        Q("= PUTCHAR: $%02x\n", data);
+//                    }
+//                    putchar(C_PUTCHAR);
+//                    putchar(data);
+//                }
+//                goto OKAY;
+
+            case 255&(ACIA_PORT+0): // control port
+                if (reading) {  // reading control prot
+                } else { // writing control port:
+                    if ((data & 0x03) != 0) {
+                      acia_irq_enabled = false;
                     }
-                } else {
-                    if (32 <= data && data <= 126) {
-                        Q("= PUTCHAR: $%02x = '%c'\n", data, data);
+
+                    if ((data & 0x80) != 0) {
+                      acia_irq_enabled = true;
                     } else {
-                        Q("= PUTCHAR: $%02x\n", data);
+                      acia_irq_enabled = false;
                     }
-                    putchar(C_PUTCHAR);
-                    putchar(data);
+                }
+                goto OKAY;
+
+            case 255&(ACIA_PORT+1): // data port
+                if (reading) {  // reading data prot
+                } else { // writing data port:
+                    putbyte(C_PUTCHAR);
+                    putbyte(data);
                 }
                 goto OKAY;
 
@@ -703,6 +901,16 @@ OKAY:
             }
         }
 #endif
+        {
+            static bool prev;
+            bool vsync_needed = ((vsync_irq_enabled && vsync_irq_firing) || (acia_irq_enabled && acia_irq_firing));
+            if (vsync_needed != prev) {
+                PutIrq(vsync_needed);
+                // printf("IRQ %d\n", vsync_needed);
+                prev = vsync_needed;
+            }
+        }
+
     }
 }
 
@@ -713,19 +921,25 @@ void InitRamFromRom() {
     }
 }
 
-// LED for Pico W:   LED(1) for on, LED(0) for off.
-#define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+struct repeating_timer TimerData;
+
+bool TimerCallback(repeating_timer_t *rt) {
+    TimerTicks++;
+    TimerFired = true;
+    return true;
+}
 
 int main() {
-    stdio_init_all();
+    stdio_usb_init();
+    // stdio_init_all();
     cyw43_arch_init();
 
-    const uint BLINKS = 5;
+    const uint BLINKS = 1;
     for (uint i = 0; i <= BLINKS; i++) {
         LED(1);
-        sleep_ms(300);
+        sleep_ms(500);
         LED(0);
-        sleep_ms(700);
+        sleep_ms(500);
 
         char pbuf[10];
         sprintf(pbuf, "+%d+ ", BLINKS - i);
@@ -758,6 +972,19 @@ int main() {
     POKE2(0xFFFE, PRELUDE_START);       // Reset Vector.
 
     StartPio();
+
+    //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
+    //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
+    //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when the timer reach 0, it's set to this value)
+    //-- exception_set_exclusive_handler(SYSTICK_EXCEPTION, SysTickINT);	//Interrupt
+
+    // ( pico-sdk/src/common/pico_time/include/pico/time.h )
+    // Note: typedef bool (*repeating_timer_callback_t)(repeating_timer_t *rt);
+    // Note: static inline bool add_repeating_timer_ms(int32_t delay_ms, repeating_timer_callback_t callback, void *user_data, repeating_timer_t *out)
+    alarm_pool_init_default();
+    // add_repeating_timer_ms(20 /* 50 Hz */, TimerCallback, nullptr, &TimerData);
+    add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
+
     HandlePio(0, krn_entry);
     sleep_ms(100);
     D("\nFinished.\n");

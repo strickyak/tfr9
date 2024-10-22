@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"os/exec"
 	"strings"
 	"syscall"
 	"time"
@@ -114,13 +115,22 @@ func getByte(fromUSB <-chan byte) byte {
 	a := <-fromUSB
 	if a == 1 { // 1 is the escape char
 		b := <-fromUSB
-		return b & 31
+		return b - 32
 	}
 	return a
 }
 
-func WriteBytes(w io.Writer, vec ...byte) {
-	w.Write(vec)
+func WriteBytes(usbout chan []byte, vec ...byte) {
+    usbout <- vec
+}
+func XXXXXXXXXXXXXXXWriteBytes(w io.Writer, vec ...byte) {
+    bb := make([]byte, 1)
+    for _, x := range vec {
+        bb[0] = x
+	    w.Write(bb)
+        time.Sleep(1 * time.Millisecond)
+    }
+	//w.Write(vec)
 }
 
 var cr bool
@@ -144,6 +154,10 @@ func Once(files DiskFiles, inkey chan byte) {
 	// Make sure to close it later.
 	defer port.Close()
 
+    usbout := make(chan []byte, 1024)
+
+    go ToUsbRoutine(port, usbout)
+
 	viaUSB := make(chan byte, 1024)
 	var fromUSB <-chan byte = viaUSB
 
@@ -151,12 +165,37 @@ func Once(files DiskFiles, inkey chan byte) {
 		var bb bytes.Buffer
 		stop := false
 		gap := 1
+FOR:
 		for {
-			x, ok := <-fromUSB
-			if !ok {
-				break
+
+
+            inchar, incharOK := TryInkey(inkey)
+            if incharOK {
+			    // WriteBytes(port, inchar)
+			    WriteBytes(usbout, inchar)
+		        // time.Sleep(100 * time.Millisecond)
 			}
-			switch x {
+
+
+            var cmd byte
+            select {
+            case usb, ok := <- fromUSB:
+                if !ok {
+                    break FOR
+                }
+                cmd = usb
+            default:
+                continue FOR
+            }
+
+
+			//cmd, ok := <-fromUSB
+			//if !ok {
+				//break
+			//}
+
+
+			switch cmd {
 			case C_DUMP_RAM:
 				log.Printf("{{{ RamDump")
 DUMPING:
@@ -208,7 +247,7 @@ DUMPING:
 				log.Printf("}}} RamDump")
 
 			case C_PUTCHAR:
-				ch := <-fromUSB
+				ch := getByte(fromUSB)
 				switch {
 				case 32 <= ch && ch <= 126:
 					fmt.Printf("%c", ch)
@@ -221,6 +260,8 @@ DUMPING:
 						fmt.Println() // lf skips Println after cr does Println
 					}
 					cr = false
+				case ch == 255:
+					log.Fatalf("FATAL BECAUSE PUTCHAR 255")
 				default:
 					fmt.Printf("{%d}", ch)
 					cr = false
@@ -235,11 +276,11 @@ DUMPING:
 
 			case C_KEY:
 				if stop {
-					WriteBytes(port, C_STOP)
+					WriteBytes(usbout, C_STOP)
 				} else {
 					if gap > 0 {
 						gap--
-						WriteBytes(port, C_NOKEY)
+						WriteBytes(usbout, C_NOKEY)
 					} else {
 						b1 := make([]byte, 1)
 						sz, err := os.Stdin.Read(b1)
@@ -254,50 +295,55 @@ DUMPING:
 
 							row, col, plane := LookupCocoKey(x)
 
-							WriteBytes(port, C_KEY, row, col, plane)
+							WriteBytes(usbout, C_KEY, row, col, plane)
 						} else {
-							WriteBytes(port, C_NOKEY)
+							WriteBytes(usbout, C_NOKEY)
 						}
 					}
 				}
 
 			case C_GETCHAR:
-				if stop {
-					WriteBytes(port, C_GETCHAR, C_STOP)
-                    /*
-				} else if len(CannedInput) > 0 {
-					WriteBytes(port, C_GETCHAR, CannedInput[0])
-					CannedInput = CannedInput[1:]
-					if len(CannedInput) == 0 {
-						stop = true
-					}
-                    */
-				} else {
-                    character, ok := TryInkey(inkey)
-                    if ok {
-						WriteBytes(port, C_GETCHAR, character)
-					} else {
-						WriteBytes(port, C_NOCHAR)
-					}
-				}
+                log.Fatalf("NO MORE GETCHAR")
+//				if stop {
+//					WriteBytes(port, C_GETCHAR, C_STOP)
+//                    log.Fatalf("STOPPING")
+//                    /*
+//				} else if len(CannedInput) > 0 {
+//					WriteBytes(port, C_GETCHAR, CannedInput[0])
+//					CannedInput = CannedInput[1:]
+//					if len(CannedInput) == 0 {
+//						stop = true
+//					}
+//                    */
+//				} else {
+//                    character, ok := TryInkey(inkey)
+//                    if ok {
+//						WriteBytes(port, C_GETCHAR, character)
+//					} else {
+//						WriteBytes(port, C_NOCHAR)
+//					}
+//				}
 
 			case 255:
 				fmt.Printf("\n[255: finished]\n")
 				log.Printf("go func: Received END MARK 255; exiting")
 				close(viaUSB)
+				log.Fatalf("go func: Received END MARK 255; exiting")
 				return
 
 			default:
 				switch {
-				case 32 <= x && x <= 126:
-					bb.WriteByte(x)
-				case x == 13:
+				case 32 <= cmd && cmd <= 126:
+					bb.WriteByte(cmd)
+				case cmd == 13:
 					// do nothing
-				case x == 10:
+					bb.WriteByte(cmd)
 					log.Printf("# %s", bb.String())
 					bb.Reset()
+				case cmd == 10:
+					// fmt.Fprintf(&bb, "{%d}", cmd)
 				default:
-					fmt.Fprintf(&bb, "{%d}", x)
+					fmt.Fprintf(&bb, "{%d}", cmd)
 				}
 			}
 			if bb.Len() > 250 {
@@ -333,6 +379,18 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("!")
 	flag.Parse()
+
+    if false { // Why doesnt this seem to have the effect
+        sttyErr := exec.Command("stty", "cbreak", "min", "1").Run()
+        if sttyErr != nil {
+            log.Printf("stty failed: %v", sttyErr)
+        }
+
+        // HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
+	    // exec.Command("stty", "cbreak", "min", "1").Run()
+	    // exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
+	    // exec.Command("stty", "-echo").Run()
+    }
 
 	inkey := make(chan byte, 1024)
     go InkeyRoutine(inkey)
@@ -373,5 +431,18 @@ func TryInkey(inkey chan byte) (byte, bool) {
         return x, true
     default:
         return 0, false
+    }
+}
+
+func ToUsbRoutine(w io.Writer, usbout chan []byte) {
+    for bb := range usbout {
+           _, err := w.Write(bb)
+           if err != nil {
+                log.Printf("ToUsb: %v", err)
+           }
+        // for i:=0; i < len(bb); i++ {
+           // w.Write(bb[i:i+1])
+           // // time.Sleep(1 * time.Millisecond)  // was 50ms
+        // }
     }
 }

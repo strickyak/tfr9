@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eux
 
+. ./tfr9ports.gen.sh  ;# source definitions
+
 ROM=level1.rom
 
 # If NITROS9DIR is not set in environment,
@@ -14,7 +16,13 @@ NITROS9DIR=${NITROS9DIR:-$HOME/NEW/nitros9}
     cat shell_21 procs mdir echo dir tmode basic09
   )
   # Local modules.
-  cat term_tfr901.os9 console_tfr901.os9 init_tfr901.os9
+  if [ $USE_ACIA -ne 0 ]
+  then
+    cat term_sc6850.os9 sc6850.os9 init_tfr901.os9
+  else
+    cat term_tfr901.os9 console_tfr901.os9 init_tfr901.os9
+  fi
+
   cat tfrblock_tfr901.os9 dd_tfrblock.os9
   # Modules from coco1.
   ( cd "$NITROS9DIR/level1/coco1/modules" &&
@@ -49,4 +57,4 @@ python3 -c "import struct;import sys; x=struct.pack('>H', 0x6789); sys.stdout.bu
 ls -l $ROM
 wc -c $ROM
 
-gop run /sy/doing_os9/gomar/borges/borges.go  -outdir $HOME/borges/  /sy/tfr9/nitros9/  $HOME/NEW/nitros9/  ./.
+go run /sy/doing_os9/gomar/borges/borges.go  -outdir $HOME/borges/  /sy/tfr9/nitros9/  $HOME/NEW/nitros9/  ./.

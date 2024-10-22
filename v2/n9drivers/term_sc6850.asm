@@ -12,9 +12,8 @@
 
 * Disassembled 98/08/23 21:16:50 by Disasm v1.6 (C) 1988 by RML
 
-                    ifp1
                     use       defsfile
-                    endc
+                    use       tfr9ports.gen.d
 
 tylg                set       Devic+Objct
 atrv                set       ReEnt+rev
@@ -23,9 +22,8 @@ rev                 set       $00
                     mod       eom,name,tylg,atrv,mgrnam,drvnam
 
                     fcb       UPDAT.              mode byte
-                    fcb       HW.Page             extended controller address
-
-                    fdb       HwBASE              physical controller address
+                    fcb       0                   extended controller address
+                    fdb       ACIA_PORT           physical controller address
 
                     fcb       initsize-*-1        initialization table size
                     fcb       DT.SCF              IT.DVC device type:0=scf,1=rbf,2=pipe,3=scf
@@ -35,7 +33,7 @@ rev                 set       $00
                     fcb       $01                 IT.EKO echo:0=no echo
                     fcb       $01                 IT.ALF auto line feed:0=off
                     fcb       $00                 IT.NUL end of line null count
-                    fcb       $01                 IT.PAU pause:0=no end of page pause
+                    fcb       $00                 IT.PAU pause:0=no end of page pause ;; was $01
 * IT.PAG and IT.ROW are set to 25 to match the Multicomp6809 hardware
 * terminal. Applications (eg scred) inspect this value and need it to be
 * correct. In the case of a "glass teletype" (aka terminal emulator)

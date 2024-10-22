@@ -24,8 +24,10 @@
 
 .wrap_target
 top:
-    set x, 23       side 28 ;;; 3 ; (MODE0|EBAR|QBAR)
-    in  x, 16       side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
+    ;;;;set x, 23       side 28 ;;; 3 ; (MODE0|EBAR|QBAR)
+    ;;;;in  x, 16       side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
+    nop             side 28 ;;; 3 ; (MODE0|EBAR|QBAR)
+    nop             side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
     in  pins, 16    side 24 ;;; 7 ; (MODE1|EBAR|QBAR)
     nop             side 22 ;;; 9 ; (MODE2|EBAR)
     in  pins, 16    side 22 ;;; 9 ; (MODE2|EBAR)
@@ -47,6 +49,13 @@ read:
 .wrap
 
 % c-sdk {
+
+// CLOCK DIVISOR: 16.0 was very reliable.  Stops getting faster at 8.  Breaks at 4.
+// 16 -> 30.5; 14 -> 28.2; 12 -> 26.2; 10 -> 24.2; 8,6,5 -> 22.5; 4 -> Broke.
+//        ( constant pre-roll overhead about 6 sec )
+
+#define CLOCK_DIVISOR 6.0
+
 void tpio_program_init(PIO pio, uint sm, uint offset) {
    //
    //  pico-examples/pio/hub75/hub75.pio shows order of inits.
@@ -63,7 +72,7 @@ void tpio_program_init(PIO pio, uint sm, uint offset) {
    sm_config_set_out_pins(&cf, 0, 16);
    sm_config_set_sideset(&cf, 5, false, false);
    sm_config_set_sideset_pins(&cf, 16);
-   sm_config_set_clkdiv(&cf, 16.0);  // also tried 64.0
+   sm_config_set_clkdiv(&cf, CLOCK_DIVISOR);
 
    // IN: Shift from left, do autopush
    const bool IN_SHIFT_RIGHT = false;

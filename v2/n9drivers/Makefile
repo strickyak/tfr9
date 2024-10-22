@@ -2,7 +2,13 @@ INCL=--includedir="$${HOME}/NEW/nitros9/defs/" \
      --includedir="$${HOME}/NEW/nitros9/level1/tfr9/" 
 PRAG=--pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax  
 
-all: term_tfr901.os9 console_tfr901.os9 init_tfr901.os9 tfrblock_tfr901.os9 dd_tfrblock.os9 level1prelude.raw _ROM_
+all: sc6850.os9 term_sc6850.os9 term_tfr901.os9 console_tfr901.os9 init_tfr901.os9 tfrblock_tfr901.os9 dd_tfrblock.os9 level1prelude.raw _ROM_
+
+sc6850.os9: sc6850.asm
+	lwasm --6809 --format=os9 $(INCL) $(PRAG)  $< --output=$@ --list=$@.list --map=$@.map
+
+term_sc6850.os9: term_sc6850.asm
+	lwasm --6809 --format=os9 $(INCL) $(PRAG)  $< --output=$@ --list=$@.list --map=$@.map
 
 dd_tfrblock.os9: dd_tfrblock.asm
 	lwasm --6809 --format=os9 $(INCL) $(PRAG)  $< --output=$@ --list=$@.list --map=$@.map
