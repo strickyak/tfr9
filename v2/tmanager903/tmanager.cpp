@@ -1,4 +1,5 @@
 #define FOR_BASIC 0
+#define TRACKING 0
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -21,6 +22,18 @@
 volatile uint TimerTicks;
 volatile bool TimerFired;
 
+typedef unsigned char byte;
+typedef unsigned int word;
+typedef unsigned char T_byte;
+typedef unsigned int T_word;
+typedef unsigned char T_16 [16];
+
+extern void putbyte(byte x);
+extern void SendIn_byte(byte x);
+extern void SendIn_word(word x);
+extern void SendIn_16(byte* x);
+extern void RecvOut_byte(byte* x);
+
 // PIO code for the primary pico
 #include "tpio.pio.h"
 
@@ -34,10 +47,15 @@ volatile bool TimerFired;
 #define VSYNC_TICK_MASK 0xFFFF   // one less than a power of two
 #define ACIA_TICK_MASK 0xFFF     // one less than a power of two
 
-//#define D if(1) if(1)printf
-//#define P if(1) if(1 || 0)printf
-//#define V if(1) if(1 || interest)printf
-//#define Q if(1) if(1 || interest)printf
+#if TRACKING
+
+#define USE_TIMER 0
+#define D if(1)printf
+#define P if(1)printf
+#define V if(1)printf
+#define Q if(1)printf
+
+#else
 
 #define USE_TIMER 1
 #define D if(0)printf
@@ -45,20 +63,14 @@ volatile bool TimerFired;
 #define V if(0)printf
 #define Q if(0)printf
 
-#define getchar(X) DoNotUseGetChar
+#endif
 
-typedef unsigned char byte;
-typedef unsigned int word;
-typedef unsigned char T_byte;
-typedef unsigned int T_word;
-typedef unsigned char T_16 [16];
+//#define D if(1) if(1)printf
+//#define P if(1) if(1 || 0)printf
+//#define V if(1) if(1 || interest)printf
+//#define Q if(1) if(1 || interest)printf
 
-// extern byte getbyte();
-extern void putbyte(byte x);
-extern void SendIn_byte(byte x);
-extern void SendIn_word(word x);
-extern void SendIn_16(byte* x);
-extern void RecvOut_byte(byte* x);
+#define getchar(X) NeverUseGetChar
 
 /////////// #include "../generated/rpc.h"
 
@@ -117,8 +129,6 @@ enum {
 
 const byte RESET_BAR_PIN = 21;  // negative logic
 const byte IRQ_BAR_PIN = 22;    // negative logic
-
-uint interest;
 
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) {
@@ -436,8 +446,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     uint when = 0;
     uint arg = 0;
     uint prev = 0; // previous data byte
-    interest = ATTENTION_SPAN;
-    bool watch = 0; // May be useful again.
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -445,28 +453,16 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     for (uint cy = 0; !num_cycles || cy < num_cycles; cy++) {
         if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
             //ShowChar('[');
-#if 1
-#if 1
-            char just_one[1] = {0};
-            int rc = stdio_usb_in_chars(just_one, sizeof just_one);
 
-            // printf("xxx rc %d\n", rc);
-            // if (rc == 1) 
+            {
+                char just_one[1] = {0};
+                int rc = stdio_usb_in_chars(just_one, sizeof just_one);
+                    (void)rc;
 
-            // printf("xxx rc %d\n", just_one[0]);
-            if (just_one[0]) {
-
-                // printf("xxx usb_input Put %d\n", just_one[0]);
-                usb_input.Put((byte)just_one[0]);
+                if (just_one[0]) {
+                    usb_input.Put((byte)just_one[0]);
+                }
             }
-#else
-            int gc = getchar_timeout_us(1);
-            printf("xxx gc %d\n", gc);
-            if (gc >= 0) {
-                printf("xxx usb_input Put %d\n", gc);
-                usb_input.Put((byte)gc);
-            }
-#endif
 
             if (not acia_char_in_ready) {
                         int next = usb_input.Has(1) ? (int)usb_input.Peek() : -1;
@@ -488,23 +484,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                                 //ShowChar('-');
                         }
             }
-            //ShowChar(']');
-
-
-#else
-            if (acia_irq_enabled && not acia_char_in_ready) {
-//ShowChar('=');
-                acia_char = GetCharFromConsole();
-                if (acia_char >= 0) {
-//ShowChar('#');
-                    acia_char_in_ready = true;
-                    acia_irq_firing = true;
-                    gpio_put(IRQ_BAR_PIN, not true);  // negative logic
-                } else {
-//ShowChar('-');
-                }
-            }
-#endif
         }
 
 #if 1
@@ -549,16 +528,8 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
 
-        if (watch) {
-            // ...
-        }
-
         if (reading) { // CPU reads, Pico Tx
             // q1: Reading.
-            if (addr == 0x002E) {
-                watch = true;
-            }
-
             data = Ram[addr];  // default behavior
 
             if (fic && addr<0x0080) {
@@ -680,7 +651,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
             if (fic) {
                 if (!Seen[addr]) {
-                    interest = ATTENTION_SPAN;  // Interesting when at a new PC value.
                     Seen[addr] = 1;
                 }
             }
@@ -782,7 +752,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
         // q3: Side Effects after Reading or Writing.
         if (io) {
-            interest = ATTENTION_SPAN;  // Interesting when it is I/O.
             switch (255&addr) {
             case 0x00:
             case 0x01:
@@ -891,16 +860,6 @@ OKAY:
         vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
         fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
 
-#if 0
-        if (interest > 0) {
-            interest--;
-            if (!interest) {
-                D("...\n");
-                D("...\n");
-                D("...\n");
-            }
-        }
-#endif
         {
             static bool prev;
             bool vsync_needed = ((vsync_irq_enabled && vsync_irq_firing) || (acia_irq_enabled && acia_irq_firing));
