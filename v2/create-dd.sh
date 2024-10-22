@@ -28,6 +28,10 @@ e
 q
 list
 run
+q
+q
+bye
+bye
 ~~~~
 
 os9 copy -l -r /tmp/tfr.startup  "$D",startup
