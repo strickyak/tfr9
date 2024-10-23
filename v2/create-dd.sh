@@ -20,7 +20,7 @@ basic09
 e
 10 FOR I=0 to 1000
 20 FOR J=0 to 100
-30 PRINT I*1000 + J;
+30 PRINT I*100 + J;
 40 NEXT J
 50 PRINT
 100 SHELL "DATE -T"
@@ -32,6 +32,15 @@ q
 q
 bye
 bye
+~~~~
+cat >/tmp/tfr.startup <<~~~~
+basic09
+e
+10 FOR I=0 to 999999
+20 shell "date -t"
+30 next i
+q
+run
 ~~~~
 
 os9 copy -l -r /tmp/tfr.startup  "$D",startup

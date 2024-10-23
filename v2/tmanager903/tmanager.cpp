@@ -1,5 +1,5 @@
 #define FOR_BASIC 0
-#define TRACKING 1
+#define TRACKING 0
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -44,8 +44,10 @@ extern void RecvOut_byte(byte* x);
 #define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 
 #define ATTENTION_SPAN 25 // was 250
-#define VSYNC_TICK_MASK 0xFFFF   // one less than a power of two
-#define ACIA_TICK_MASK 0xFFF     // one less than a power of two
+#define VSYNC_TICK_MASK 0x3FF // 0xFFFF   // one less than a power of two
+#define ACIA_TICK_MASK 0xFFF // 0xFFF     // one less than a power of two
+
+#define TFR_RTC_BASE 0xFF50
 
 #if TRACKING
 
@@ -410,6 +412,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     CircBuf usb_input;
 
     byte data;
+    byte rtc_value;
     uint vma = 0; // Valid Memory Address ( = delayed AVMA )
     uint fic = 0; // First Instruction Cycle ( = delayed LIC )
     uint active = 0;
@@ -534,10 +537,8 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     data = 1;  // 1 is OKAY
                     break;
 
-                case 0xFF & 0xFFF0: // 6309 trap
-                case 0xFF & 0xFFF1: // 6309 trap
-                    D("----- 6309 ERROR TRAP.  Stopping.\n");
-                    DumpRamAndGetStuck();
+                case 0xFF & (TFR_RTC_BASE+0):
+                    data = rtc_value;
                     break;
 
                 default: // other reads from Ram.
@@ -765,6 +766,30 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
                 goto OKAY;
 
+            case 0xFF & (TFR_RTC_BASE+1):
+                switch (data) {
+                  case 0: rtc_value = 0; break; // Sec
+                  case 1: rtc_value = 3; break; // Sec (10)
+                  case 2: rtc_value = 5; break; // Min
+                  case 3: rtc_value = 1; break; // Min (10)
+
+                  case 4: rtc_value = 2; break; // Hour
+                  case 5: rtc_value = 1; break; // Hour (10)
+
+                  case 6: rtc_value = 5; break; // Day of month
+                  case 7: rtc_value = 2; break; // Day of month (10)
+
+                  case 8: rtc_value = 2; break; // Month 1-12
+                  case 9: rtc_value = 1; break; // Month (10)
+
+                  case 10: rtc_value = 4; break;  // Year - 1900
+                  case 11: rtc_value = 2; break;  // (10)
+                  case 12: rtc_value = 1; break;  // (100)
+
+                  default: rtc_value = data; break;
+                }
+                goto OKAY;
+                
             default: {}
             }
             D("--- IOPAGE %s: addr %x flags %x data %x\n", reading? "READ": "WRITE", addr, flags, data);
