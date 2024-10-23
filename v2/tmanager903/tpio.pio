@@ -42,8 +42,10 @@
 .wrap_target                                 ; BEGIN LOOP
 top:
     nop             side 24 ; P1 + RecvAddr
+    nop             side 24 ; P1 + RecvAddr        ; NEEDED?
     in  pins, 16    side 24 ; P1 + RecvAddr  ; Read Address
     nop             side 22 ; P2 + RecvData
+    nop             side 22 ; P2 + RecvData        ; NEEDED?
     in  pins, 16    side 22 ; P2 + RecvData  ; Read Data
     jmp pin, read   side 23 ; P3 + RecvData
 

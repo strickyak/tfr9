@@ -132,38 +132,8 @@ const byte IRQ_BAR_PIN = 22;    // negative logic
 
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) {
-#if 1
     putchar_raw(x);
-#else
-    switch (x) {
-    case 0:  // NUL
-    case 1:  // the escape
-    case 10: // LF
-    case 13: // CR
-        putchar(1u);  // 1 is the escape char
-        putchar(x + 32);
-        break;
-    default:
-        putchar(x);
-        break;
-    }
-#endif
 }
-
-// Does this need escaping yet?
-#if 0
-byte getbyte() {
-    byte x = getchar();
-    if (x == 1) {
-        // Escaped.
-        x = getchar();
-        return x - 32u;
-    } else {
-        // Not escaped.
-        return (x==10u) ? 13u : x;  // TODO
-    }
-}
-#endif
 
 const char* HighFlags(uint high) {
     if (!high) {
@@ -211,7 +181,6 @@ bool CheckHeader(uint p) {
     for (uint i = 0; i < 9; i++) {
         z ^= Rom[i+p];
     }
-    // P("CheckHeader: %x\n", z);
     return (z == 255); // will be 255 if good.
 }
 
@@ -253,6 +222,7 @@ void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
 }
 
 void ViewAt(const char* label, uint hi, uint lo) {
+#if 0
     uint addr = (hi << 8) | lo;
     V("=== %s: @%04x: ", label, addr);
     for (uint i = 0; i < 8; i++) {
@@ -271,6 +241,7 @@ void ViewAt(const char* label, uint hi, uint lo) {
         }
     }
     V("|\n");
+#endif
 }
 
 void ResetCpu() {
@@ -364,11 +335,12 @@ byte GetCharFromConsole() {
 }
 #endif
 
-int strikes;
 void Strike(const char* why) {
+    static int strikes;
     ++strikes;
+    D("------ Strike %d -------- %s\n", strikes, why);
     if (strikes >= 3) {
-        D("------ Third Strike -------- %d\n", strikes);
+        D("------ Third Strike -------- %s\n", why);
         DumpRamAndGetStuck();
     }
 }
@@ -450,7 +422,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
 
-    for (uint cy = 0; !num_cycles || cy < num_cycles; cy++) {
+    for (uint cy = 0; true; cy++) {
         if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
             //ShowChar('[');
 
@@ -883,7 +855,6 @@ int main() {
     // Note: typedef bool (*repeating_timer_callback_t)(repeating_timer_t *rt);
     // Note: static inline bool add_repeating_timer_ms(int32_t delay_ms, repeating_timer_callback_t callback, void *user_data, repeating_timer_t *out)
     alarm_pool_init_default();
-    // add_repeating_timer_ms(20 /* 50 Hz */, TimerCallback, nullptr, &TimerData);
     add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
 
     HandlePio(0, krn_entry);
