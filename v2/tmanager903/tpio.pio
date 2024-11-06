@@ -68,7 +68,7 @@ read:                                        ; ELSE READ CYCLE (Sending to CPU)
 // 16 -> 30.5; 14 -> 28.2; 12 -> 26.2; 10 -> 24.2; 8,6,5 -> 22.5; 4 -> Broke.
 //        ( constant pre-roll overhead about 6 sec )
 
-#define CLOCK_DIVISOR 6.0
+#define CLOCK_DIVISOR 16.0 // 6.0
 
 void tpio_program_init(PIO pio, uint sm, uint offset) {
    //

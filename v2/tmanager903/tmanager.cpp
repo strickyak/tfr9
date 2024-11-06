@@ -1,5 +1,7 @@
 #define FOR_BASIC 0
-#define TRACKING 0
+#define TRACKING 1
+#define ALL_POKES 1
+#define  BORING_SWI2S  160
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -34,11 +36,11 @@ extern void SendIn_word(word x);
 extern void SendIn_16(byte* x);
 extern void RecvOut_byte(byte* x);
 
+// Configuration
+#include "tfr9ports.gen.h"
+
 // PIO code for the primary pico
 #include "tpio.pio.h"
-
-// Port Assignments
-#include "tfr9ports.gen.h"
 
 // LED for Pico W:   LED(1) for on, LED(0) for off.
 #define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
@@ -51,47 +53,70 @@ extern void RecvOut_byte(byte* x);
 
 #if TRACKING
 
-#define USE_TIMER 0
-#define D if(1)printf
-#define P if(1)printf
-#define V if(1)printf
-#define Q if(1)printf
+    #define USE_TIMER 0
+    #define D if(interest)printf
+    #define P if(interest)printf
+    #define V if(interest)printf
+    #define Q if(interest)printf
 
 #else
 
-#define USE_TIMER 1
-#define D if(0)printf
-#define P if(0)printf
-#define V if(0)printf
-#define Q if(0)printf
+    #define USE_TIMER 1
+    #define D if(0)printf
+    #define P if(0)printf
+    #define V if(0)printf
+    #define Q if(0)printf
 
 #endif
 
-//#define D if(1) if(1)printf
-//#define P if(1) if(1 || 0)printf
-//#define V if(1) if(1 || interest)printf
-//#define Q if(1) if(1 || interest)printf
+uint interest;
+uint btbug;
 
+#define MAX_INTEREST 999999999
 #define getchar(X) NeverUseGetChar
 
 /////////// #include "../generated/rpc.h"
 
 const byte Rom[] = {
+#if N9_LEVEL == 1
   #include "level1.rom.h"
+#endif
+#if N9_LEVEL == 2
+  #include "level2.rom.h"
+#endif
 };
 
 byte Disk[] = {
+#if N9_LEVEL == 1
   #include "level1.disk.h"
+#endif
+#if N9_LEVEL == 2
+  #include "level2.disk.h"
+#endif
 };
 
-byte Ram[0x10000];
 byte Seen[0x10000];
 
-uint Vectors[] = {
+#define LEVEL1_PRELUDE_START (0xFF00 - 32)
+
+uint FFFxVectors[] = {
+#if N9_LEVEL == 1
      0,  //  6309 TRAP
      // From ~/coco-shelf/toolshed/cocoroms/bas13.rom :
      0x0100, 0x0103, 0x010f, 0x010c, 0x0106, 0x0109,
-     0,  //  RESET
+     LEVEL1_PRELUDE_START ,  //  RESET
+#endif
+#if N9_LEVEL == 2
+     // From ~/coco-shelf/toolshed/cocoroms/coco3.rom :
+0x0000, // 6309 traps
+0xFEEE,
+0xFEF1,
+0xFEF4,
+0xFEF7,
+0xFEFA,
+0xFEFD,
+0x2602,
+#endif
 };
 
 enum {
@@ -105,20 +130,23 @@ enum {
     C_DUMP_RAM=167,
     C_DUMP_LINE=168,
     C_DUMP_STOP=169,
+    C_DUMP_PHYS=170,
+    C_POKE=171,
+    C_EVENT=172,
+    EVENT_GIME=239,
+    EVENT_RTI=240,
+    EVENT_SWI2=241,
+    EVENT_CC=242,
+    EVENT_D=243,
+    EVENT_DP=244,
+    EVENT_X=245,
+    EVENT_Y=246,
+    EVENT_U=247,
+    EVENT_PC=248,
+    EVENT_SP=249,
 };
 
-#define PEEK(addr) (Ram[0xFFFF&(addr)])
-#define PEEK2(addr) (((uint)Ram[0xFFFF&(addr)] << 8) | (uint)Ram[0xFFFF&((addr)+1)])
-
-#define POKE(addr,value) do { Ram[0xFFFF&(addr)] = (byte)(value); } while (0)
-#define POKE2(addr,value) do { Ram[0xFFFF&(addr)] = (byte)((value)>>8) ; Ram[0xFFFF&((addr)+1)] = (byte)(value) ; } while (0)
-
 #define DELAY sleep_us(1);
-
-#define IO_START 0xFF00
-#define PRELUDE_START (IO_START - 32)
-
-#define GET_STUCK()   { while (1) {putchar(255); sleep_ms(1000);} }
 
 #define F_READ 0x0100
 #define F_AVMA 0x0200
@@ -131,6 +159,8 @@ enum {
 
 const byte RESET_BAR_PIN = 21;  // negative logic
 const byte IRQ_BAR_PIN = 22;    // negative logic
+
+#include "ram.inc.h"
 
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) {
@@ -150,32 +180,139 @@ const char* HighFlags(uint high) {
     return high_buf;
 }
 
-void DumpRam() {
+constexpr uint TRACE_SIZE = 1024;
+constexpr uint TRACE_MASK = TRACE_SIZE - 1;
+
+struct TraceRec {
+    word addr;
+    byte block;
+    byte flags;
+    byte data;
+} Trace[TRACE_SIZE];
+
+uint NextTraceIndex;
+void Record(word addr, byte flags, byte data) {
+    auto* p = Trace + NextTraceIndex;
+    p->addr = addr;
+    p->block = the_ram.Block(addr);
+    p->flags = flags;
+    p->data = data;
+    ++NextTraceIndex;
+    NextTraceIndex &= TRACE_MASK;
+}
+void DumpTrace() {
+    bool vma = false; // Valid Memory Address ( = delayed AVMA )
+    bool fic = false; // First Instruction Cycle ( = delayed LIC )
+
+    printf("\nDumpTrace(((((\n");
+    for (uint i = 0; i < TRACE_SIZE; i++) {
+        auto* p = Trace + ((i + NextTraceIndex) & TRACE_MASK);
+        if (p->addr || p->flags || p->data) {
+            // printf("[%4d] %04d %02d %02d\n", TRACE_SIZE-i, p->addr, p->flags, p->data);
+            const char* rw = (p->flags & (F_READ>>8)) ? "r" : "w";
+            printf("%s %04x %02x  #T:%d\n", (fic ? "@" : vma ? rw : "-"), p->addr, p->data, i);
+        }
+
+        vma = 0 != (p->flags & (F_AVMA>>8));   // AVMA bit means next cycle is Valid
+        fic = 0 != (p->flags & (F_LIC>>8)); // LIC bit means next cycle is First Instruction Cycle
+    }
+    printf("DumpTrace)))))\n");
+}
+
+void DumpRamText() {
 #if 0
-    putchar(C_DUMP_RAM);
+    Quiet();
+    printf("DumpRamText(((\n");
     for (uint i = 0; i < 0x10000; i += 16) {
         for (uint j = 0; j < 16; j++) {
-            if (Ram[i+j]) goto yes;
+            if (Peek(i+j)) goto yes;
         }
         continue;
 yes:
-        putchar(C_DUMP_LINE);
+        printf(" %06x:", i);
+        for (uint j = 0; j < 16; j++) {
+            printf(" %02x", Peek(i+j));
+        }
+        printf("\n");
+    }
+    printf("DumpRamText)))\n");
+    Noisy();
+#endif
+}
+
+void DumpPhys() {
+#if 1
+    Quiet();
+    putbyte(C_DUMP_PHYS);
+    uint sz = the_ram.PhysSize();
+    for (uint i = 0; i < sz; i += 16) {
+        for (uint j = 0; j < 16; j++) {
+            if (the_ram.ReadPhys(i+j)) goto yes;
+        }
+        continue;
+yes:
+        putbyte(C_DUMP_LINE);
+        putbyte(i>>16);
         putbyte(i>>8);
         putbyte(i);
         for (uint j = 0; j < 16; j++) {
-            putbyte(Ram[i+j]);
+            putbyte(the_ram.ReadPhys(i+j));
         }
     }
-    putchar(C_DUMP_STOP);
+    putbyte(C_DUMP_STOP);
+    Noisy();
 #endif
 }
-void DumpRamAndGetStuck() {
+
+void DumpRam() {
+#if 1
+    Quiet();
+    putbyte(C_DUMP_RAM);
+    for (uint i = 0; i < 0x10000; i += 16) {
+        for (uint j = 0; j < 16; j++) {
+            if (Peek(i+j)) goto yes;
+        }
+        continue;
+yes:
+        putbyte(C_DUMP_LINE);
+        putbyte(i>>16);
+        putbyte(i>>8);
+        putbyte(i);
+        for (uint j = 0; j < 16; j++) {
+            putbyte(Peek(i+j));
+        }
+    }
+    putbyte(C_DUMP_STOP);
+    Noisy();
+#endif
+}
+
+void GET_STUCK() {
+    while (1) {
+        putbyte(255);
+        sleep_ms(1000);
+    }
+}
+
+void DumpRamAndGetStuck(const char* why) {
+    interest = MAX_INTEREST;
+    printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
+    printf("DumpRamAndGetStuck: %s\n", why);
+    DumpTrace();
+    DumpRamText();
+    DumpPhys();
     DumpRam();
+    printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
     GET_STUCK();
 }
 
 uint AddressOfRom() {
-    return IO_START - sizeof(Rom);
+#if N9_LEVEL == 1
+  return 0xFF00 - sizeof(Rom);
+#endif
+#if N9_LEVEL == 2
+  return 0x2600;
+#endif
 }
 
 bool CheckHeader(uint p) {
@@ -200,7 +337,7 @@ void PrintName(uint p) {
     D(" ");
 }
 
-void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
+void Level1FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
     for (uint i = 0; i + 10 < sizeof Rom; i++) {
         if (Rom[i]==0x87 && Rom[i+1]==0xCD) {
             if (!(CheckHeader(i))) {
@@ -225,16 +362,18 @@ void FindKernelEntry(uint *krn_start, uint *krn_entry, uint *krn_end) {
 
 void ViewAt(const char* label, uint hi, uint lo) {
 #if 0
+#if TRACKING
+    Quiet();
     uint addr = (hi << 8) | lo;
     V("=== %s: @%04x: ", label, addr);
     for (uint i = 0; i < 8; i++) {
-        uint x = PEEK2(addr+i+i);
+        uint x = Peek2(addr+i+i);
         V("%04x ", x);
     }
     V("|");
     for (uint i = 0; i < 16; i++) {
-        byte ch = 0x7f & Ram[0xFFFF&(addr+i)];
-        if (32 <= ch && ch <= 127) {
+        byte ch = 0x7f & Peek(addr+i);
+        if (32 <= ch && ch <= 126) {
             V("%c", ch);
         } else if (ch==0) {
             V("-");
@@ -243,6 +382,8 @@ void ViewAt(const char* label, uint hi, uint lo) {
         }
     }
     V("|\n");
+    Noisy();
+#endif
 #endif
 }
 
@@ -252,8 +393,8 @@ void ResetCpu() {
         gpio_set_dir(i, GPIO_OUT);
     }
     // 903:
-    uint pins[] = {21, 22, 26, 27, 28};
-    for (uint p : pins) {
+    constexpr uint control_pins[] = {21, 22, 26, 27, 28};
+    for (uint p : control_pins) {
         gpio_init(p);
         gpio_put(p, 1);
         gpio_set_dir(p, GPIO_OUT);
@@ -265,7 +406,8 @@ void ResetCpu() {
 
     D("begin reset cpu ========\n");
     gpio_put(RESET_BAR_PIN, not true);  // negative logic
-    for (uint i = 0; i < 60; i++) {
+    const uint EnoughCyclesToReset = 60;
+    for (uint i = 0; i < EnoughCyclesToReset; i++) {
         gpio_put(PIN_Q, 0); DELAY;
         gpio_put(PIN_E, 0); DELAY;
         gpio_put(PIN_Q, 1); DELAY;
@@ -289,6 +431,7 @@ void PUT(uint x) {
     const PIO pio = pio0;
     const uint sm = 0;
 
+    // TODO: waiting should not be needed.
     while (pio_sm_is_tx_fifo_full (pio, sm)) {
         P("ERROR: tx fifo full\n");
         while (true) DELAY;
@@ -338,12 +481,13 @@ byte GetCharFromConsole() {
 #endif
 
 void Strike(const char* why) {
+    interest += 100;
     static int strikes;
     ++strikes;
     D("------ Strike %d -------- %s\n", strikes, why);
-    if (strikes >= 3) {
-        D("------ Third Strike -------- %s\n", why);
-        DumpRamAndGetStuck();
+    if (strikes >= 5) {
+        D("------ Fifth Strike -------- %s\n", why);
+        DumpRamAndGetStuck("five strikes");
     }
 }
 
@@ -401,11 +545,27 @@ void PutIrq(bool activate) {
     gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
 }
 
+void SendEventRam(byte event, byte sz, word base_addr) {
+    Quiet();
+    putbyte(C_EVENT);
+    putbyte(event);
+    putbyte(sz);
+    putbyte(base_addr >> 8);
+    putbyte(base_addr);
+    for (byte i=0; i < sz; i++) {
+        putbyte(Peek(base_addr+i));
+    }
+    Noisy();
+}
+
 extern "C" {
-            extern int stdio_usb_in_chars(char *buf, int length);
+    extern int stdio_usb_in_chars(char *buf, int length);
 }
 
 void HandlePio(uint num_cycles, uint krn_entry) {
+    interest += 100;
+    interest = MAX_INTEREST; /// XXX
+
     const PIO pio = pio0;
     const uint sm = 0;
 
@@ -413,14 +573,15 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
     byte data;
     byte rtc_value;
-    uint vma = 0; // Valid Memory Address ( = delayed AVMA )
-    uint fic = 0; // First Instruction Cycle ( = delayed LIC )
+    bool vma = false; // Valid Memory Address ( = delayed AVMA )
+    bool fic = false; // First Instruction Cycle ( = delayed LIC )
     uint active = 0;
     uint num_resets = 0;
     uint event = 0;
     uint when = 0;
     uint arg = 0;
     uint prev = 0; // previous data byte
+    uint num_swi2s = 0;
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -469,7 +630,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 #endif
         {
             TimerFired = false;
-            Ram[0xFF03] |= 0x80;  // Set the bit indicating VSYNC occurred.
+            Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
             if (vsync_irq_enabled) {
                 vsync_irq_firing = true;
             }
@@ -481,19 +642,25 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
 
+        if (not reading && 0xFF00 <= addr && addr < 0xFFF0) { // IO is interesting.
+                    interest += 10;
+        }
+
         if (reading) { // CPU reads, Pico Tx
             // q1: Reading.
-            data = Ram[addr];  // default behavior
+            data = Peek(addr);  // default behavior
 
-            if (fic && addr<0x0080) {
-                    D("----- PC IN 00[0-7]x. Stopping addr=%x flags=%x\n", addr, flags);
-                    DumpRamAndGetStuck();
+            if (active && fic && addr<0x0050) {
+                    interest += 100;
+                    D("----- PC IN 00[0-4]x. Stopping addr=%x flags=%x\n", addr, flags);
+                    DumpRamAndGetStuck("pc");
                     return;
             }
             if (0xFF00 <= addr && addr < 0xFFF0) { // READ (GET) IO
-                if (fic) {
+                if (active && fic) {
+                    interest += 100;
                         D("----- PC IN FFxx. Stopping addr=%x flags=%x\n", addr, flags);
-                        DumpRamAndGetStuck();
+                        DumpRamAndGetStuck("pc");
                         return;
                 }
 
@@ -501,12 +668,15 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
                 // Read PIA0
                 case 0x00:
+                    D("----- PIA0 Read not Impl: %x\n", addr);
+                    data = 0xFF;  // say like, no key pressed
+                    break;
                 case 0x01:
                     D("----- PIA0 Read not Impl: %x\n", addr);
-                    DumpRamAndGetStuck();
+                    DumpRamAndGetStuck("pia0");
                     break;
                 case 0x02:
-                    Ram[0xFF03] &= 0x7F;  // Clear the bit indicating VSYNC occurred.
+                    Poke(0xFF03, Peek(0xFF03) & 0x7F);  // Clear the bit indicating VSYNC occurred.
                     vsync_irq_firing = false;
                     data = 0xFF;
                     break;
@@ -537,12 +707,16 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     data = 1;  // 1 is OKAY
                     break;
 
+                case 0xFF & (EMUDSK_PORT+3): // read disk status
+                    data = 0;  // 0 is OKAY
+                    break;
+
                 case 0xFF & (TFR_RTC_BASE+0):
                     data = rtc_value;
                     break;
 
-                default: // other reads from Ram.
-                    data = Ram[addr];
+                default:
+                    data = Peek(addr);
                     break;
                 }
             }
@@ -552,15 +726,28 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     num_resets++;
                     if (num_resets >= 2) {
                         D("---- Second Reset -- Stopping.\n");
-                        DumpRamAndGetStuck();
+                        DumpRamAndGetStuck("resets");
                         return;
                     }
                 }
 
                 switch (data) {
+                case 0x00:
+                    Strike("suspicious opcode 0");
+                    break;
+                case 0x01:
+                    DumpRamAndGetStuck("illegal opcode 1");
+                    return;
+                case 0x02:
+                    DumpRamAndGetStuck("illegal opcode 2");
+                    return;
                 case 0x10:
                 case 0x20:
                 case 0x3B:
+                    event = data;
+                    when = cy;
+                    break;
+                case 0x9D:
                     event = data;
                     when = cy;
                     break;
@@ -575,25 +762,44 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
             uint high = flags & F_HIGH;
             if (true || vma || high) {
-                Q("%s %x %x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#if 0
+                Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#else
+                Q("%s %04x %02x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#endif
             } else {
                 Q("|\n");
             }
 
-            if (addr == 0xFFFE) active = 1;
-
+            if (addr == 0xFFFE) {
+                active = 1;
+            }
+#if 1
             if (fic) {
                 if (!Seen[addr]) {
                     Seen[addr] = 1;
                 }
             }
-
+#endif
             switch (event) {
+            case 0x103f:
+                if (cy - when == 2) {
+                    printf("--- OS9 $%02x =%d. ---\n", data, data);
+                }
+
             case 0x10: // prefix $10
                 if (cy - when == 1) {
                     switch (data) {
                     case 0x3f: // SWI2
                         event = (event << 8) | data;
+                        interest += 50;
+                        printf("--- SWI2 ---\n");
+
+                        ++num_swi2s;
+                        if (num_swi2s > BORING_SWI2S) {
+                            interest = MAX_INTEREST;
+                            printf("--- MAX_INTEREST ---\n");
+                        }
                     }
                 }
                 break;
@@ -602,90 +808,203 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     switch (data) {
                     case 0xFE: // Infinite Loop
                         D("------- Infinite Loop.  Stopping.\n");
-                        DumpRamAndGetStuck();
+                        DumpRamAndGetStuck("infinite");
                         return;
                         break;
                     }
                 }
                 break;
+            case 0x9D:  // JMP Direct
+                if (cy - when == 1) {
+                    switch (data) {
+                    case 0x5E: // jsr <D.BtBug
+                        interest += 50;
+                        ++btbug;
+                        D("------- jsr D.BtBug %d.\n", btbug);
+                        break;
+                    }
+                }
+                break;
             case 0x3B:  // RTI
-                switch (cy - when) {
-                case 2:
-                    arg = 0x80 & data;  // entire bit of condition codes
-                    Q("= CC: %02x (%s)\n", data, DecodeCC(data));
-                    break;
-                case 3:
-                    break;
-                case 4: ViewAt("D", prev, data);
-                    break;
-                case 5: P("= DP: %02x\n", data);
-                    break;
-                case 6:
-                    break;
-                case 7: ViewAt("X", prev, data);
-                    break;
-                case 8:
-                    break;
-                case 9: ViewAt("Y", prev, data);
-                    break;
-                case 10:
-                    break;
-                case 11: ViewAt("U", prev, data);
-                    break;
-                case 12:
-                    break;
-                case 13: ViewAt("PC", prev, data);
-                    break;
-                case 14: ViewAt("SP", addr>>8, addr);
-                    break;
+                {
+                    constexpr uint SZ = 20;
+                    static byte hist[SZ];
+                    interest += 50;
+                    uint age = cy - when;
+                    if (age < SZ) {
+                        hist[age] = data;
+                    }
+                    switch (age) {
+                    case 2:
+                        arg = 0x80 & data;  // "entire" bit of condition codes
+                        Q("= CC: %02x (%s)\n", data, DecodeCC(data));
+                        break;
+                    case 3:
+                        break;
+                    case 4: ViewAt("D", prev, data);
+                        break;
+                    case 5: P("= DP: %02x\n", data);
+                        break;
+                    case 6:
+                        break;
+                    case 7: ViewAt("X", prev, data);
+                        break;
+                    case 8:
+                        break;
+                    case 9: ViewAt("Y", prev, data);
+                        break;
+                    case 10:
+                        break;
+                    case 11: ViewAt("U", prev, data);
+                        break;
+                    case 12:
+                        break;
+                    case 13: ViewAt("PC", prev, data);
+                        break;
+                    case 14: ViewAt("SP", addr>>8, addr);
+                        SendEventRam(EVENT_D, 16, Peek2(addr-14+3));
+                        SendEventRam(EVENT_X, 16, Peek2(addr-14+6));
+                        SendEventRam(EVENT_Y, 16, Peek2(addr-14+8));
+                        SendEventRam(EVENT_U, 16, Peek2(addr-14+10));
+                        SendEventRam(EVENT_PC, 16, Peek2(addr-14+12));
+                        SendEventRam(EVENT_GIME, 32, 0xFF90);
+                        SendEventRam(EVENT_RTI, 12, addr-12);
+                        break;
+                    }
                 }
             }
 
         } else {  // CPU writes, Pico Rx
+
             // q2: Writing
             data = WAIT_GET();
             if (active) {
+#if 0
+                putbyte(C_POKE);
+                putbyte(the_ram.Block(addr));
+                putbyte(addr >> 8);
+                putbyte(addr);
+                putbyte(data);
+#endif
+
+#if 0
                 if (addr==0 && data==0) {
                     Strike("writing 0 to 0");
                 }
-
+#endif
                 if (FOR_BASIC && (0x8000 <= addr && addr < 0xFF00)) {
                     // Writing to ROM space
-                    Q("wROM %x %x\n", addr, data);
+                    Q("wROM %04x %02x\n", addr, data);
                 } else {
                     // Writing to RAM or IO space
-                    Ram[addr] = data;
-                    Q("w %x %x\n", addr, data);
+                    Poke(addr, data);
+                    Q("w %04x %02x\n", addr, data);
                 }
 
                 switch (event) {
                 case 0x103f:  // SWI2 (i.e. OS9 kernel call)
-                    switch (cy - when) {
-                    case 5: ViewAt("PC", data, prev);
-                        break;
-                    case 7: ViewAt("U", data, prev);
-                        break;
-                    case 9: ViewAt("Y", data, prev);
-                        break;
-                    case 11: ViewAt("X", data, prev);
-                        break;
-                    case 12: P("= DP: %02x\n", data);
-                        break;
-                    case 14: ViewAt("D", data, prev);
-                        break;
-                    case 15: P("= CC: %02x (%s)\n", data, DecodeCC(data));
-                            ViewAt("SP", addr>>8, addr);
-                        break;
-                    }
+                    {
+                        constexpr uint SZ = 20;
+                        static byte hist[SZ];
+
+                        uint age = cy - when;
+                        if (age < SZ) {
+                            hist[age] = data;
+                        }
+
+                        switch (age) {
+                        case 5: ViewAt("PC", data, prev);
+                            break;
+                        case 7: ViewAt("U", data, prev);
+                            break;
+                        case 9: ViewAt("Y", data, prev);
+                            break;
+                        case 11: ViewAt("X", data, prev);
+                            break;
+                        case 12: P("= DP: %02x\n", data);
+                            break;
+                        case 14: ViewAt("D", data, prev);
+                            break;
+                        case 15: P("= CC: %02x (%s)\n", data, DecodeCC(data));
+                            {
+
+                                ViewAt("SP", addr>>8, addr);
+
+                        SendEventRam(EVENT_D, 16, Peek2(addr+15-14));
+                        SendEventRam(EVENT_X, 16, Peek2(addr+15-11));
+                        SendEventRam(EVENT_Y, 16, Peek2(addr+15-9));
+                        SendEventRam(EVENT_U, 16, Peek2(addr+15-7));
+                        SendEventRam(EVENT_PC, 16, Peek2(addr+15-5));
+                        SendEventRam(EVENT_GIME, 32, 0xFF90);
+                        SendEventRam(EVENT_SWI2, 12, addr);
+                                //putbyte(C_EVENT);
+                                //putbyte(EVENT_SWI2);
+                                //putbyte(SZ);
+                                //for (uint i=0; i < SZ; i++) putbyte(hist[i]);
+                            }
+                            break;
+                        }
+                    } // end 0x103f SWI2
                     break;
-                }
+                } // end switch (event)
             } // end if active
-        }
+        }  // end if read / write
         prev = data;
+
+        if (vma || addr != 0xFFFF) {
+            Record(addr, (byte)(flags>>8), data);
+        }
+
+        switch (event) {
+/*
+        case 0x103f:  // SWI2 (i.e. OS9 kernel call)
+            DumpRamAndGetStuck("SWI2 event");
+            break;
+*/
+        }
 
         // q3: Side Effects after Reading or Writing.
         if (io) {
+#if 0
+            if (not reading) {
+                putbyte(C_POKE);
+                putbyte(addr >> 8);
+                putbyte(addr);
+                putbyte(data);
+            }
+#endif
+
             switch (255&addr) {
+#if 0 // N9_LEVEL == 2
+            case 0x90: // Init 0
+                the_ram.SetEnableMmu(data & 0x40);
+                goto OKAY;
+            case 0x91: // Init 1
+                the_ram.SetCurrentTask(data & 0x01);
+                goto OKAY;
+            case 0xA0:
+            case 0xA1:
+            case 0xA2:
+            case 0xA3:
+            case 0xA4:
+            case 0xA5:
+            case 0xA6:
+            case 0xA7:
+            case 0xA8:
+            case 0xA9:
+            case 0xAA:
+            case 0xAB:
+            case 0xAC:
+            case 0xAD:
+            case 0xAE:
+            case 0xAF:
+                {
+                    byte task = (addr >> 3) & 1;
+                    byte slot = addr & 7;
+                    the_ram.WriteMmu(task, slot, data);
+                }
+                goto OKAY;
+#endif
             case 0x00:
             case 0x01:
             case 0x02:
@@ -699,6 +1018,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
             case 255&(ACIA_PORT+0): // control port
                 if (reading) {  // reading control prot
+                    {}
                 } else { // writing control port:
                     if ((data & 0x03) != 0) {
                       acia_irq_enabled = false;
@@ -727,41 +1047,83 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             case 255&(BLOCK_PORT+4):
             case 255&(BLOCK_PORT+5):
             case 255&(BLOCK_PORT+6):
-                Q("-BLOCK %x %x %x\n", addr, data, Ram[addr]);
+                Q("-BLOCK %x %x %x\n", addr, data, Peek(addr));
                 goto OKAY;
             case 255&(BLOCK_PORT+7): // Run Disk Command.
                 if (!reading) {
-                    byte command = Ram[BLOCK_PORT + 0];
+                    byte command = Peek(BLOCK_PORT + 0);
 
-                    Q("-NANDO %x %x %x\n", addr, data, Ram[data]);
+                    Q("-NANDO %x %x %x\n", addr, data, Peek(data));
                     Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
-                        Ram[BLOCK_PORT + 1],
-                        PEEK2(BLOCK_PORT + 2),
-                        PEEK2(BLOCK_PORT + 4),
+                        Peek(BLOCK_PORT + 1),
+                        Peek2(BLOCK_PORT + 2),
+                        Peek2(BLOCK_PORT + 4),
                         command);
 
-                    uint lsn = PEEK2(BLOCK_PORT + 2);
+                    uint lsn = Peek2(BLOCK_PORT + 2);
                     byte* dp = Disk + 256*lsn;
-                    uint buffer = PEEK2(BLOCK_PORT + 4);
-                    byte* rp = Ram + buffer;
+                    uint buffer = Peek2(BLOCK_PORT + 4);
 
                     Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer, command);
 
                     switch (command) {
-                    case 0: // Read
+                    case 0: // Disk Read
                         for (uint k = 0; k < 256; k++) {
-                            rp[k] = dp[k];
+                            Poke(buffer+k, dp[k]);
                         }
                         goto OKAY;
-                    case 1: // Write
+                    case 1: // Disk Write
                         for (uint k = 0; k < 256; k++) {
-                            dp[k] = rp[k];
+                            dp[k] = Peek(buffer+k);
                         }
                         goto OKAY;
                     default: {
                         printf("\nwut command %d.\n", command);
-                        DumpRamAndGetStuck();
+                        DumpRamAndGetStuck("wut");
                         }
+                    }
+                }
+                goto OKAY;
+
+            case 255&(EMUDSK_PORT+0): // LSN(hi)
+            case 255&(EMUDSK_PORT+1): // LSN(mid)
+            case 255&(EMUDSK_PORT+2): // LSN(lo)
+            case 255&(EMUDSK_PORT+4): // buffer addr
+            case 255&(EMUDSK_PORT+5):
+            case 255&(EMUDSK_PORT+6): // drive number
+                Q("-EMUDSK %x %x %x\n", addr, data, Peek(addr));
+                goto OKAY;
+            case 255&(EMUDSK_PORT+3): // Run EMUDSK Command.
+                if (!reading) {
+                    byte command = data;
+
+                    Q("-NANDO %x %x %x\n", addr, data, Peek(data));
+                    Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
+                        Peek(EMUDSK_PORT + 0),
+                        Peek2(EMUDSK_PORT + 1),
+                        Peek2(EMUDSK_PORT + 4),
+                        command);
+
+                    uint lsn = Peek2(EMUDSK_PORT + 1);
+                    byte* dp = Disk + 256*lsn;
+                    uint buffer = Peek2(EMUDSK_PORT + 4);
+
+                    Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer, command);
+
+                    switch (command) {
+                    case 0: // Disk Read
+                        for (uint k = 0; k < 256; k++) {
+                            Poke(buffer+k, dp[k]);
+                        }
+                        goto OKAY;
+                    case 1: // Disk Write
+                        for (uint k = 0; k < 256; k++) {
+                            dp[k] = Peek(buffer+k);
+                        }
+                        goto OKAY;
+                    default:
+                        printf("\nwut emudsk command %d.\n", command);
+                        DumpRamAndGetStuck("wut emudsk");
                     }
                 }
                 goto OKAY;
@@ -800,23 +1162,40 @@ OKAY:
         fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
 
         {
-            static bool prev;
+            static bool prev_vsn;
             bool vsync_needed = ((vsync_irq_enabled && vsync_irq_firing) || (acia_irq_enabled && acia_irq_firing));
-            if (vsync_needed != prev) {
+            if (vsync_needed != prev_vsn) {
                 PutIrq(vsync_needed);
                 // printf("IRQ %d\n", vsync_needed);
-                prev = vsync_needed;
+                prev_vsn = vsync_needed;
             }
         }
 
-    }
+        if (interest && interest < MAX_INTEREST) {
+            --interest;
+            if (not interest) {
+                printf("\n\n...\n... SKIPPING\n...\n\n");
+            }
+        }
+    } // next cy
 }
 
 void InitRamFromRom() {
-    uint addr = AddressOfRom();
+    Quiet();
+    uint start = AddressOfRom();
     for (uint i = 0; i < sizeof Rom; i++) {
-        Ram[addr + i] = Rom[i];
+        uint addr = start + i;
+        Poke(addr, Rom[i]);
+
+#if 0
+        putbyte(C_POKE);
+        putbyte(the_ram.Block(addr));
+        putbyte(addr >> 8);
+        putbyte(addr);
+        putbyte(Rom[i]);
+#endif
     }
+    Noisy();
 }
 
 struct repeating_timer TimerData;
@@ -828,16 +1207,20 @@ bool TimerCallback(repeating_timer_t *rt) {
 }
 
 int main() {
+    interest = MAX_INTEREST; /// XXX
     stdio_usb_init();
     // stdio_init_all();
     cyw43_arch_init();
 
-    const uint BLINKS = 1;
-    for (uint i = 0; i <= BLINKS; i++) {
+    quiet_ram = 888;
+
+    const uint BLINKS = 3; // Initial LED blink countdown.
+    for (uint i = BLINKS; i > 0; i--) {
         LED(1);
         sleep_ms(500);
         LED(0);
         sleep_ms(500);
+        printf("+%d+ ", i);
 
         char pbuf[10];
         sprintf(pbuf, "+%d+ ", BLINKS - i);
@@ -847,28 +1230,48 @@ int main() {
             putchar(*p);
         }
     }
-    printf("\n");
-    putchar(C_PUTCHAR);
-    putchar('\n');
+    ShowChar('+');
 
     LED(1);
-    sleep_us(200);
-    InitRamFromRom();
-    ResetCpu();
-    LED(0);
 
+    the_ram.Reset();
+#if N9_LEVEL == 2
+    printf("COCO3: Prepare for Level 2\n");
+#if 0
+    //the_ram.SetEnableMmu(true);
+    //the_ram.SetCurrentTask(1);
+    //Poke(0xFF90, 0x40);
+    //Poke(0xFF91, 0x01);
+#endif
+    Poke(0x5E, 0x39); // RTS for D.BtBug // TODO
+#endif
+
+    ShowChar('X');
+    printf("stage-X\n");
+    InitRamFromRom();
+    ShowChar('Y');
+    printf("stage-Y\n");
+    ResetCpu();
+    ShowChar('Z');
+    printf("stage-Z\n");
+
+#if N9_LEVEL == 1
     uint a = AddressOfRom();
     D("AddressOfRom = $%x\n", a);
     uint krn_start, krn_entry, krn_end;
-    FindKernelEntry(&krn_start, &krn_entry, &krn_end);
-    D("KernelEntry = $%x\n", krn_entry);
+    Level1FindKernelEntry(&krn_start, &krn_entry, &krn_end);
+    D("Level1KernelEntry = $%x\n", krn_entry);
+#endif
 
     // Set interrupt vectors
-    for (uint j = 1; j < 7; j++) {
-        POKE2(0xFFF0+j+j, Vectors[j]);
+    for (uint j = 0; j < 8; j++) {
+        Poke2(0xFFF0+j+j, FFFxVectors[j]);
     }
-    POKE2(0xFFFE, PRELUDE_START);       // Reset Vector.
 
+    ShowChar('+');
+    ShowChar('\n');
+    LED(0);
+    printf("\nStartPio()\n");
     StartPio();
 
     //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
@@ -882,7 +1285,12 @@ int main() {
     alarm_pool_init_default();
     add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
 
+#if N9_LEVEL == 1
     HandlePio(0, krn_entry);
+#endif
+#if N9_LEVEL == 2
+    HandlePio(0, 0);
+#endif
     sleep_ms(100);
     D("\nFinished.\n");
     sleep_ms(100);

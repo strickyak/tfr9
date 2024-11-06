@@ -1,7 +1,7 @@
 ********************************************************************
 * Term - sc6850 Device Descriptor
 *
-* $Id$
+* $Id: term_sc6850.asm,v 1.1 2024/10/30 06:37:22 strick Exp $
 *
 * Edt/Rev  YYYY/MM/DD  Modified by
 * Comment

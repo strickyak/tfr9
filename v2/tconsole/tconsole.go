@@ -7,11 +7,18 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/signal"
 	"os/exec"
+	"os/signal"
+	"regexp"
+    "strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/strickyak/gomar/sym"
+
+	"github.com/strickyak/tfr9/v2/os9api"
+    "github.com/strickyak/tfr9/v2/listings"
 
 	"github.com/jacobsa/go-serial/serial"
 )
@@ -44,10 +51,55 @@ const (
 	C_DUMP_RAM  = 167
 	C_DUMP_LINE = 168
 	C_DUMP_STOP = 169
+	C_DUMP_PHYS = 170
+	C_POKE      = 171
+	C_EVENT     = 172
+	EVENT_GIME  = 239
+	EVENT_RTI   = 240
+	EVENT_SWI2  = 241
+	EVENT_CC    = 242
+	EVENT_D     = 243
+	EVENT_DP    = 244
+	EVENT_X     = 245
+	EVENT_Y     = 246
+	EVENT_U     = 247
+	EVENT_PC    = 248
+	EVENT_SP    = 249
 )
+
+var CommandStrings = map[byte]string{
+	160: "C_NOCHAR",
+	161: "C_PUTCHAR",
+	162: "C_GETCHAR",
+	163: "C_STOP",
+	164: "C_ABORT",
+	165: "C_KEY",
+	166: "C_NOKEY",
+	167: "C_DUMP_RAM",
+	168: "C_DUMP_LINE",
+	169: "C_DUMP_STOP",
+	170: "C_DUMP_PHYS",
+	171: "C_POKE",
+	172: "C_EVENT",
+	239: "EVENT_GIME",
+	240: "EVENT_RTI",
+	241: "EVENT_SWI2",
+	242: "EVENT_CC",
+	243: "EVENT_D",
+	244: "EVENT_DP",
+	245: "EVENT_X",
+	246: "EVENT_Y",
+	247: "EVENT_U",
+	248: "EVENT_PC",
+	249: "EVENT_SP",
+}
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
 var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\"#$%&'" + "()*+<=>?" + "\r\014\003"
+
+
+// MatchFIC DEMO: @ fe9a 6e  =
+var MatchFIC = regexp.MustCompile("^@@? ([0-9a-f]{4}) ([0-9a-f]{2})  =.*")
 
 // plane: 0=no key 1=normal 2=shifted
 func LookupCocoKey(ascii byte) (row, col, plane byte) {
@@ -105,6 +157,66 @@ func OpenDisks(disks string) DiskFiles {
 	return z
 }
 
+func FormatOs9Chars(vec []byte) string {
+	var buf bytes.Buffer
+	buf.WriteByte('|')
+	for _, x := range vec {
+		ch := 127 & x
+		if ch < 32 || ch > 126 {
+			ch = '.'
+		}
+		if ch == 0 {
+			ch = '-'
+		}
+		buf.WriteByte(ch)
+		if (128 & x) != 0 {
+			buf.WriteByte('~')
+		}
+	}
+	buf.WriteByte('|')
+	return buf.String()
+}
+
+func FormatCall(call *os9api.Call, latest map[byte]*EventRec) string {
+    var buf bytes.Buffer
+    fmt.Fprintf(&buf, "%s(", call.Name)
+    if call.A != "" {
+        fmt.Fprintf(&buf, "A=%s=%02x, ", call.A, latest[EVENT_SWI2].Peeks[1])
+    }
+    if call.B != "" {
+        fmt.Fprintf(&buf, "B=%s=%02x, ", call.B, latest[EVENT_SWI2].Peeks[2])
+    }
+    if call.D != "" {
+        fmt.Fprintf(&buf, "D=%s=%02x, ", call.D, latest[EVENT_SWI2].Peeks[1:3])
+    }
+    if call.X != "" {
+        if call.X[0] == '$' {
+          fmt.Fprintf(&buf, "X=%s=%02x=%q, ", call.X, latest[EVENT_SWI2].Peeks[4:6], FormatOs9Chars(latest[EVENT_X].Peeks))
+        } else {
+          fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, latest[EVENT_SWI2].Peeks[4:6])
+        }
+    }
+    if call.Y != "" {
+        fmt.Fprintf(&buf, "Y=%s=%02x, ", call.Y, latest[EVENT_SWI2].Peeks[6:8])
+    }
+    if call.U != "" {
+        fmt.Fprintf(&buf, "U=%s=%02x, ", call.U, latest[EVENT_SWI2].Peeks[8:10])
+    }
+
+
+    mmap := "No"
+    gime := latest[EVENT_GIME].Peeks
+    if (gime[0] & 0x40) != 0 {
+        if (gime[1] & 1) != 0 {
+            mmap = fmt.Sprintf("T1: % 3x", gime[0x18:0x20])
+        } else {
+            mmap = fmt.Sprintf("T0: % 3x", gime[0x10:0x18])
+        }
+    }
+    fmt.Fprintf(&buf, ") %s", mmap)
+    return buf.String()
+}
+
 func Panicf(format string, args ...any) {
 	// fmt.Printf("\n[[[ "+format+" ]]]\n", args...)
 	log.Panicf("PANIC: "+format+"\n", args...)
@@ -113,27 +225,35 @@ func Panicf(format string, args ...any) {
 // getByte from USB channel, for Binary Data
 func getByte(fromUSB <-chan byte) byte {
 	a := <-fromUSB
-	if a == 1 { // 1 is the escape char
-		b := <-fromUSB
-		return b - 32
-	}
 	return a
 }
 
 func WriteBytes(usbout chan []byte, vec ...byte) {
-    usbout <- vec
-}
-func XXXXXXXXXXXXXXXWriteBytes(w io.Writer, vec ...byte) {
-    bb := make([]byte, 1)
-    for _, x := range vec {
-        bb[0] = x
-	    w.Write(bb)
-        time.Sleep(1 * time.Millisecond)
-    }
-	//w.Write(vec)
+	usbout <- vec
 }
 
 var cr bool
+
+const RAM_SIZE = 128 * 1024  // 128K
+const RAM_MASK = RAM_SIZE - 1
+
+var trackRam [RAM_SIZE]byte
+
+type EventRec struct {
+	Number byte
+	Value  uint
+	Peeks  []byte
+}
+
+// PPeek1: Physical Memory Peek
+func PPeek1(addr uint) byte {
+    return trackRam[addr & RAM_MASK]
+}
+func PPeek2(addr uint) uint {
+    hi := PPeek1(addr)
+    lo := PPeek1(addr+1)
+    return (uint(hi) << 8) | uint(lo)
+}
 
 func Once(files DiskFiles, inkey chan byte) {
 	// Set up options for Serial Port.
@@ -145,6 +265,8 @@ func Once(files DiskFiles, inkey chan byte) {
 		MinimumReadSize: 1,
 	}
 
+	latestEvent := make(map[byte]*EventRec)
+
 	// Open the Serial Port.
 	port, err := serial.Open(options)
 	if err != nil {
@@ -154,64 +276,137 @@ func Once(files DiskFiles, inkey chan byte) {
 	// Make sure to close it later.
 	defer port.Close()
 
-    usbout := make(chan []byte, 1024)
+	usbout := make(chan []byte, 1024)
 
-    go ToUsbRoutine(port, usbout)
+	go ToUsbRoutine(port, usbout)
 
 	viaUSB := make(chan byte, 1024)
 	var fromUSB <-chan byte = viaUSB
 
 	go func() {
 		var bb bytes.Buffer
+
+        pushBB := func() { // Flush the bytes.Buffer to log.Printf
+            // DEMO: @ fe9a 6e  =
+                s := bb.String()
+                if strings.HasSuffix(s, "\r") {
+                    s = s[:len(s)-1]
+                }
+                m := MatchFIC.FindStringSubmatch(s)
+                if m != nil {
+                    addr, _ := strconv.ParseUint(m[1], 16, 64)
+                    // data, _ := strconv.ParseUint(m[2], 16, 64)
+                    phys := Physical(uint(addr))
+                    modName, modOffset := MemoryModuleOf(phys)
+                    s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", MMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+                }
+
+				log.Printf("# %s", s)
+				bb.Reset()
+        }
+
 		stop := false
 		gap := 1
-FOR:
+		//FOR:
 		for {
 
-
-            inchar, incharOK := TryInkey(inkey)
-            if incharOK {
-			    // WriteBytes(port, inchar)
-			    WriteBytes(usbout, inchar)
-		        // time.Sleep(100 * time.Millisecond)
+			inchar, incharOK := TryInkey(inkey)
+			if incharOK {
+				// WriteBytes(port, inchar)
+				WriteBytes(usbout, inchar)
+				// time.Sleep(100 * time.Millisecond)
 			}
 
-
-            var cmd byte
-            select {
-            case usb, ok := <- fromUSB:
-                if !ok {
-                    break FOR
-                }
-                cmd = usb
-            default:
-                continue FOR
-            }
-
-
-			//cmd, ok := <-fromUSB
-			//if !ok {
-				//break
-			//}
-
+			var cmd byte = getByte(fromUSB)
+			bogus := 0
 
 			switch cmd {
-			case C_DUMP_RAM:
-				log.Printf("{{{ RamDump")
-DUMPING:
+			case C_EVENT:
+				event := getByte(fromUSB)
+				sz := getByte(fromUSB)
+				hi := getByte(fromUSB)
+				lo := getByte(fromUSB)
+				value := (uint(hi) << 8) | uint(lo)
+				vec := make([]byte, sz)
+				for i := byte(0); i < sz; i++ {
+					vec[i] = getByte(fromUSB)
+				}
+				eventName, ok := CommandStrings[event]
+				if !ok {
+					log.Fatalf("Unknown event number: %d.", event)
+				}
+				log.Printf("C_EVENT %q $%04x: % 3x %q", eventName, value, vec, FormatOs9Chars(vec))
+
+				for i := byte(0); i < sz; i++ {
+					x := Peek1(uint(i)+value)
+					if vec[i] != x {
+					  log.Printf("C_EVENT BAD VEC @ %x: %x vs %x", i, vec[i], x)
+                    }
+				}
+
+				latestEvent[event] = &EventRec{
+					Number: event,
+					Value:  value,
+					Peeks:  vec,
+				}
+
+				if event == EVENT_SWI2 {
+                    latestPC, ok := latestEvent[EVENT_PC]
+                    if ok && len(latestPC.Peeks) > 1 {
+					os9num := latestPC.Peeks[0]
+					call, _ := os9api.CallOf[os9num]
+					if call != nil {
+                        s := FormatCall(call, latestEvent)
+						log.Printf("--- OS9CALL %s", s)
+					} else {
+						log.Printf("--- OS9CALL %d UNKNOWN", os9num)
+					}
+	                latestEvent = make(map[byte]*EventRec)
+                    } else {
+                        log.Printf("--- BAD latestPC in SWi2 ---")
+                    }
+				}
+				if event == EVENT_RTI {
+	                latestEvent = make(map[byte]*EventRec)
+                }
+
+			case C_POKE:
+				hi := getByte(fromUSB)
+				mid := getByte(fromUSB)
+				lo := getByte(fromUSB)
+				data := getByte(fromUSB)
+				longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
+				longaddr &= RAM_MASK
+
+				log.Printf("C_POKE %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
+				trackRam[longaddr] = data
+
+			case C_DUMP_RAM, C_DUMP_PHYS:
+				log.Printf("{{{ %s", CommandStrings[cmd])
+			DUMPING:
 				for {
 					what := getByte(fromUSB)
 					switch what {
 					case C_DUMP_LINE:
 						a := getByte(fromUSB)
 						b := getByte(fromUSB)
+						c := getByte(fromUSB)
 						var d [16]byte
-						for j := 0; j < 16; j++ {
+						for j := uint(0); j < 16; j++ {
 							d[j] = getByte(fromUSB)
 						}
 
+						if cmd == C_DUMP_PHYS {
+							for j := uint(0); j < 16; j++ {
+								longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+								if d[j] != trackRam[longaddr] {
+									log.Printf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
+								}
+							}
+						}
+
 						var buf bytes.Buffer
-						fmt.Fprintf(&buf, ":%04x: ", (uint(a)<<8 | uint(b)))
+						fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
 						for j := 0; j < 16; j++ {
 							fmt.Fprintf(&buf, "%02x ", d[j])
 							if j == 7 {
@@ -241,10 +436,15 @@ DUMPING:
 					case C_DUMP_STOP:
 						break DUMPING
 					default:
-						panic(what)
+						log.Printf("FUNNY CHAR: %d.", what)
+						bogus++
+						if bogus > 10 {
+							bogus = 0
+							break DUMPING
+						}
 					}
 				}
-				log.Printf("}}} RamDump")
+				log.Printf("}}} %s", CommandStrings[cmd])
 
 			case C_PUTCHAR:
 				ch := getByte(fromUSB)
@@ -303,26 +503,26 @@ DUMPING:
 				}
 
 			case C_GETCHAR:
-                log.Fatalf("NO MORE GETCHAR")
-//				if stop {
-//					WriteBytes(port, C_GETCHAR, C_STOP)
-//                    log.Fatalf("STOPPING")
-//                    /*
-//				} else if len(CannedInput) > 0 {
-//					WriteBytes(port, C_GETCHAR, CannedInput[0])
-//					CannedInput = CannedInput[1:]
-//					if len(CannedInput) == 0 {
-//						stop = true
-//					}
-//                    */
-//				} else {
-//                    character, ok := TryInkey(inkey)
-//                    if ok {
-//						WriteBytes(port, C_GETCHAR, character)
-//					} else {
-//						WriteBytes(port, C_NOCHAR)
-//					}
-//				}
+				log.Fatalf("NO MORE GETCHAR")
+				//				if stop {
+				//					WriteBytes(port, C_GETCHAR, C_STOP)
+				//                    log.Fatalf("STOPPING")
+				//                    /*
+				//				} else if len(CannedInput) > 0 {
+				//					WriteBytes(port, C_GETCHAR, CannedInput[0])
+				//					CannedInput = CannedInput[1:]
+				//					if len(CannedInput) == 0 {
+				//						stop = true
+				//					}
+				//                    */
+				//				} else {
+				//                    character, ok := TryInkey(inkey)
+				//                    if ok {
+				//						WriteBytes(port, C_GETCHAR, character)
+				//					} else {
+				//						WriteBytes(port, C_NOCHAR)
+				//					}
+				//				}
 
 			case 255:
 				fmt.Printf("\n[255: finished]\n")
@@ -338,8 +538,9 @@ DUMPING:
 				case cmd == 13:
 					// do nothing
 					bb.WriteByte(cmd)
-					log.Printf("# %s", bb.String())
-					bb.Reset()
+					//> log.Printf("# %s", bb.String())
+					//> bb.Reset()
+                    pushBB()
 				case cmd == 10:
 					// fmt.Fprintf(&bb, "{%d}", cmd)
 				default:
@@ -347,8 +548,9 @@ DUMPING:
 				}
 			}
 			if bb.Len() > 250 {
-				log.Printf("# %q\\", bb.String())
-				bb.Reset()
+				//> log.Printf("# %q\\", bb.String())
+				//> bb.Reset()
+                pushBB()
 			}
 		}
 	}()
@@ -377,23 +579,23 @@ func TryOnce(files DiskFiles, inkey chan byte) {
 }
 func main() {
 	log.SetFlags(0)
-	log.SetPrefix("!")
+	// log.SetPrefix("!")
 	flag.Parse()
 
-    if false { // Why doesnt this seem to have the effect
-        sttyErr := exec.Command("stty", "cbreak", "min", "1").Run()
-        if sttyErr != nil {
-            log.Printf("stty failed: %v", sttyErr)
-        }
+	if false { // Why doesnt this seem to have the effect
+		sttyErr := exec.Command("stty", "cbreak", "min", "1").Run()
+		if sttyErr != nil {
+			log.Printf("stty failed: %v", sttyErr)
+		}
 
-        // HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
-	    // exec.Command("stty", "cbreak", "min", "1").Run()
-	    // exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
-	    // exec.Command("stty", "-echo").Run()
-    }
+		// HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
+		// exec.Command("stty", "cbreak", "min", "1").Run()
+		// exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
+		// exec.Command("stty", "-echo").Run()
+	}
 
 	inkey := make(chan byte, 1024)
-    go InkeyRoutine(inkey)
+	go InkeyRoutine(inkey)
 
 	killed := make(chan os.Signal)
 	signal.Notify(killed, syscall.SIGINT)
@@ -413,36 +615,331 @@ func main() {
 }
 
 func InkeyRoutine(inkey chan byte) {
-    for {
-        bb := make([]byte, 1)
-        sz, err := os.Stdin.Read(bb)
-        if err != nil {
-            log.Panicf("cannot os.Stdin.Read: %v", err)
-        }
-        if sz == 1 {
-            inkey <- bb[0]
-        }
-    }
+	for {
+		bb := make([]byte, 1)
+		sz, err := os.Stdin.Read(bb)
+		if err != nil {
+			log.Panicf("cannot os.Stdin.Read: %v", err)
+		}
+		if sz == 1 {
+			inkey <- bb[0]
+		}
+	}
 }
 
 func TryInkey(inkey chan byte) (byte, bool) {
-    select {
-    case x := <- inkey:
-        return x, true
-    default:
-        return 0, false
-    }
+	select {
+	case x := <-inkey:
+		return x, true
+	default:
+		return 0, false
+	}
 }
 
 func ToUsbRoutine(w io.Writer, usbout chan []byte) {
-    for bb := range usbout {
-           _, err := w.Write(bb)
-           if err != nil {
-                log.Printf("ToUsb: %v", err)
-           }
-        // for i:=0; i < len(bb); i++ {
-           // w.Write(bb[i:i+1])
-           // // time.Sleep(1 * time.Millisecond)  // was 50ms
-        // }
+	for bb := range usbout {
+		_, err := w.Write(bb)
+		if err != nil {
+			log.Printf("ToUsb: %v", err)
+		}
+		// for i:=0; i < len(bb); i++ {
+		// w.Write(bb[i:i+1])
+		// // time.Sleep(1 * time.Millisecond)  // was 50ms
+		// }
+	}
+}
+
+type Mapping [8]uint
+
+func GetMappingFromTable(addr uint) Mapping {
+    // Mappings are always in block 0?
+    return Mapping{
+        // TODO: drop the "0x3F &".
+        0x3F & PPeek2(addr),
+        0x3F & PPeek2(addr+2),
+        0x3F & PPeek2(addr+4),
+        0x3F & PPeek2(addr+6),
+        0x3F & PPeek2(addr+8),
+        0x3F & PPeek2(addr+10),
+        0x3F & PPeek2(addr+12),
+        0x3F & PPeek2(addr+14),
     }
+}
+
+func Peek1(addr uint) byte {
+    phys := Physical(addr)
+    return trackRam[phys & RAM_MASK]
+}
+func Peek2(addr uint) uint {
+    hi := Peek1(addr)
+    lo := Peek1(addr+1)
+    return (uint(hi) << 8) | uint(lo)
+}
+
+func Physical(logical uint) uint {
+    block := byte(0x3F) // tentative
+    low13 := uint(logical & 0x1FFF)
+
+    if (logical < 0xFFE0) { // must compute block
+        mapHW := uint(0x3FFA0) // Task 0 map hardware
+        if (PPeek1(0x3FF91) & 1) != 0 {
+            mapHW += 8; // task 1 map hardware
+        }
+        //log.Printf("mapHW: %x %x %x %x %x %x %x %x",
+            //PPeek1(mapHW+0),
+            //PPeek1(mapHW+1),
+            //PPeek1(mapHW+2),
+            //PPeek1(mapHW+3),
+            //PPeek1(mapHW+4),
+            //PPeek1(mapHW+5),
+            //PPeek1(mapHW+6),
+            //PPeek1(mapHW+7))
+
+        slot := 7 & (logical >> 13)
+        block = PPeek1(mapHW+slot)
+        //log.Printf("Physical: a=%x b=%x p=%x", logical, block, (uint(block) << 13) | low13)
+    }
+
+	return (uint(block) << 13) | low13
+}
+
+func MapAddrWithMapping(logical uint, m Mapping) uint {
+	slot := 7 & (logical >> 13)
+	low13 := uint(logical & 0x1FFF)
+	physicalPage := m[slot]
+	return (uint(physicalPage) << 13) | low13
+}
+
+func TaskNumberToMapping(task byte) Mapping {
+    dope := PPeek2(sym.D_TskIPt/*=0x00A1*/)
+    dat := PPeek2(dope + 2*uint(task))
+    var m Mapping
+    for i := uint(0); i < 8; i++ {
+        m[i] = PPeek2(dat + 2*i)
+    }
+    return m
+}
+func Peek1WithTask(addr uint, task byte) byte {
+    m := TaskNumberToMapping(task)
+    return Peek1WithMapping(addr, m)
+}
+func Peek2WithTask(addr uint, task byte) uint {
+    m := TaskNumberToMapping(task)
+    return Peek2WithMapping(addr, m)
+}
+func Peek1WithMapping(addr uint, m Mapping) byte {
+    logBlock := (addr >> 13) & 7
+    physBlock := m[logBlock]
+    if addr >= 0xFF00 {
+        physBlock = 0x3F
+    } else if addr >= 0xFE00 { // TODO: check FExx bit.
+        physBlock = 0x3F
+    }
+    ptr := (addr&0x1FFF) | (uint(physBlock) << 13)
+    return PPeek1(ptr)
+}
+func Peek2WithMapping(addr uint, m Mapping) uint {
+    hi := Peek1WithMapping(addr, m)
+    lo := Peek1WithMapping(addr+1, m)
+    return (uint(hi) << 8) | uint(lo)
+}
+func MemoryModuleOf(addrPhys uint) (name string, offset uint) {
+    beginDir, endDir := PPeek2(sym.D_ModDir), PPeek2(sym.D_ModEnd)
+
+    datPtr0 := PPeek2(beginDir)
+    if datPtr0 == 0 {
+        var p uint
+        var z uint
+
+        ppeek1 := func(a uint) byte {
+            z := PPeek1(a)
+            log.Printf("ppeek1: %x -> %x", a, z)
+            return z
+        }
+
+        ppeek2 := func(a uint) uint {
+            z := PPeek2(a)
+            log.Printf("ppeek2: %x -> %x", a, z)
+            return z
+        }
+
+        if 0x072600 <= addrPhys && addrPhys <= 0x074000 {
+            p = addrPhys - 0x072600 + 0x0D00
+            z = 0x072600 - 0x0D00
+        } else if true {
+            p = addrPhys
+            z = 0
+        }
+
+        p = (p & 0x1fff)
+
+        if 0X0D06 <= p && p < 0X0E30 {
+            sz := ppeek2(z+0x0D06+2)
+            a, b, c := ppeek1(z+0X0D06+sz-3), ppeek1(z+0X0D06+sz-2), ppeek1(z+0X0D06+sz-1)
+log.Printf("MMOf/rel: %x -> %x", addrPhys, p)
+            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0X0D06
+        } else if 0X0E30 <= p && p < 0X1000 {
+            sz := ppeek2(z+0x0E30+2)
+            a, b, c := ppeek1(z+0X0E30+sz-3), ppeek1(z+0X0E30+sz-2), ppeek1(z+0X0E30+sz-1)
+log.Printf("MMOf/boot: %x -> %x", addrPhys, p)
+            return fmt.Sprintf("boot.%04x%02x%02x%02x", sz, a, b, c), p - 0X0E30
+        } else if 0X1000 <= p && p < 0X1F00 {
+            sz := ppeek2(z+0X1000+2)
+            a, b, c := ppeek1(z+0X1000+sz-3), ppeek1(z+0X1000+sz-2), ppeek1(z+0X1000+sz-1)
+log.Printf("MMOf/krn: %x -> %x", addrPhys, p)
+            return fmt.Sprintf("krn.%04x%02x%02x%02x", sz, a, b, c), p - 0X1000
+        } else {
+            return "=0=", p
+        }
+
+/*
+        if 0xED06 <= p && p < 0xEE30 {
+            sz := PPeek2(0xED08)
+            a, b, c := PPeek1(0xED06+sz-3), PPeek1(0xED06+sz-2), PPeek1(0xED06+sz-1)
+            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xED06
+        } else if 0xEE30 <= p && p < 0xF000 {
+            sz := PPeek2(0xEE32)
+            a, b, c := PPeek1(0xEE30+sz-3), PPeek1(0xEE30+sz-2), PPeek1(0xEE30+sz-1)
+            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xEE30
+        } else if 0xF000 <= p && p < 0xFF00 {
+            sz := PPeek2(0xF002)
+            a, b, c := PPeek1(0xF000+sz-3), PPeek1(0xF000+sz-2), PPeek1(0xF000+sz-1)
+            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xF000
+        } else {
+            return "=0=", addrPhys & 0x1fff
+        }
+*/
+        // NOT REACHED
+    }
+
+    if beginDir != 0 && endDir != 0 {
+        for i := beginDir; i < endDir; i += 8 {
+            datPtr := PPeek2(i)
+            if datPtr == 0 {
+                continue
+            }
+            mapping := GetMappingFromTable(datPtr)
+
+            begin := PPeek2(i+4)
+            //if begin == 0 {
+                //continue
+            //}
+
+            magic := Peek2WithMapping(begin, mapping)
+            if magic != 0x87CD {
+                return "=m=", addrPhys
+            }
+            // log.Printf("DDT: magic i=%x datPtr=%x begin=%x mapping=% 03x", i, datPtr, begin, mapping)
+
+            modSize := Peek2WithMapping(begin+2, mapping)
+            //modNamePtr := Peek2WithMapping(begin+4, mapping)
+            //_ = modNamePtr
+            //links := Peek2WithMapping(begin+6, mapping)
+
+            remaining := modSize
+            region := begin
+            offset := uint(0)
+            for remaining > 0 {
+                // If module crosses paged blocks, it has more than one region.
+                regionP := MapAddrWithMapping(region, mapping)
+                endOfRegionBlockP := 1 + (regionP | 0x1FFF)
+                regionSize := remaining
+                if regionSize > endOfRegionBlockP-regionP {
+                    // A smaller region of the module.
+                    regionSize = endOfRegionBlockP - regionP
+                }
+
+                // log.Printf("DDT: try regionP=%x (phys=%x) regionEnds=%x remain=%x", regionP, addrPhys, regionP+regionSize, remaining)
+                if regionP <= addrPhys && addrPhys < regionP+regionSize {
+                    //if links == 0 {
+                        // return "unlinkedMod", addrPhys
+                        // log.Panicf("in unlinked module: i=%x addrPhys=%x", i, addrPhys)
+                    //}
+                    id := ModuleId(begin, mapping)
+                    delta := offset + (addrPhys-regionP)
+                    // log.Printf("DDT: [links=%x] FOUND %q+%x", links, id, delta)
+                    return id, delta
+                }
+                remaining -= regionSize
+                regionP += regionSize
+                region += uint(regionSize)
+                offset += uint(regionSize)
+                // log.Printf("DDT: advanced remaining=%x regionSize=%x", remaining, regionSize)
+            }
+
+
+        }
+    }
+    return "==", addrPhys
+}
+func ModuleId(begin uint, m Mapping) string {
+	namePtr := begin + Peek2WithMapping(begin+4, m)
+	modname := strings.ToLower(Os9StringWithMapping(namePtr, m))
+	sz := Peek2WithMapping(begin+2, m)
+	crc1 := Peek1WithMapping(begin+sz-3, m)
+	crc2 := Peek1WithMapping(begin+sz-2, m)
+	crc3 := Peek1WithMapping(begin+sz-1, m)
+	return fmt.Sprintf("%s.%04x%02x%02x%02x", modname, sz, crc1, crc2, crc3)
+}
+
+func Os9StringWithMapping(addr uint, m Mapping) string {
+	var buf bytes.Buffer
+	for {
+		var b byte = Peek1WithMapping(addr, m)
+		var ch byte = 0x7F & b
+		if '!' <= ch && ch <= '~' {
+			buf.WriteByte(ch)
+		} else {
+			break
+		}
+		if (b & 128) != 0 {
+			break
+		}
+		addr++
+	}
+	return buf.String()
+}
+
+func MMap() string {
+    init0, init1 := PPeek1(0x3ff90), PPeek1(0x3ff91)
+    mmuEnable := (init0 & 0x40) != 0
+    if !mmuEnable {
+        return "No"
+    }
+    mmuTask := init1 & 1
+
+        mapHW := uint(0x3FFA0) // Task 0 map hardware
+        if mmuTask != 0 {
+            mapHW += 8; // task 1 map hardware
+        }
+
+        return fmt.Sprintf("T%x(%x %x %x %x  %x %x %x %x)",
+            mmuTask,
+            PPeek1(mapHW+0),
+            PPeek1(mapHW+1),
+            PPeek1(mapHW+2),
+            PPeek1(mapHW+3),
+            PPeek1(mapHW+4),
+            PPeek1(mapHW+5),
+            PPeek1(mapHW+6),
+            PPeek1(mapHW+7))
+}
+
+var Sources = make(map[string]*listings.ModSrc)
+
+func AsmSourceLine(modName string, offset uint) string {
+    modsrc, ok := Sources[modName]
+    if !ok {
+        modsrc = listings.LoadFile(*listings.Borges + "/" + modName)
+        Sources[modName] = modsrc
+    }
+    if modsrc == nil {
+        Sources[modName] = &listings.ModSrc{
+            Src: make(map[uint]string),
+            Filename: modName,
+        }
+        return ""
+    }
+    srcLine, _ := modsrc.Src[offset]
+    return srcLine
 }

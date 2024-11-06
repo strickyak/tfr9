@@ -16,10 +16,22 @@ import (
 )
 
 // var BORGES = flag.String("borges", "/home/strick/borges/", "where to find listing files")
-// var ADDR = flag.Uint("addr", 0xC000, "rom address")
+var LEVEL = flag.Uint("level", 2, "which level of NitrOS-9")
 var RUNLOG = flag.String("runlog", "/dev/null", "output of grok")
 
 var ALIST = flag.String("alist", "", "absolute listing")
+var TRACK35 = flag.String("track35", "", "level2 track 35")
+
+/*
+func ExamineLevel2Track35(filename string) []listings.ModOff {
+    bb, err := ioutil.ReadFile(filename)
+    if err != nil {
+        log.Fatalf("ExamineLevel2Track35: cannot ReadFile %q: %v", filename, err)
+    }
+    modOffs := listing.LsMod(bb)
+    for 
+}
+*/
 
 func main() {
 	flag.Parse()
@@ -32,7 +44,8 @@ func main() {
     } else {
 
         a := Value(ioutil.ReadAll(os.Stdin))
-        romStart := uint(0xFF00 - len(a))
+        romEnd := 0xFF00
+        romStart := uint(romEnd - len(a))
         modnames := listings.LsMod(a)
 
         big = &listings.ModSrc{
