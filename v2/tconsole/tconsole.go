@@ -10,15 +10,15 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
-    "strconv"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/strickyak/gomar/sym"
 
+	"github.com/strickyak/tfr9/v2/listings"
 	"github.com/strickyak/tfr9/v2/os9api"
-    "github.com/strickyak/tfr9/v2/listings"
 
 	"github.com/jacobsa/go-serial/serial"
 )
@@ -54,6 +54,7 @@ const (
 	C_DUMP_PHYS = 170
 	C_POKE      = 171
 	C_EVENT     = 172
+	EVENT_PC_M8 = 238
 	EVENT_GIME  = 239
 	EVENT_RTI   = 240
 	EVENT_SWI2  = 241
@@ -81,6 +82,7 @@ var CommandStrings = map[byte]string{
 	170: "C_DUMP_PHYS",
 	171: "C_POKE",
 	172: "C_EVENT",
+	238: "EVENT_PC_M8",
 	239: "EVENT_GIME",
 	240: "EVENT_RTI",
 	241: "EVENT_SWI2",
@@ -96,7 +98,6 @@ var CommandStrings = map[byte]string{
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
 var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\"#$%&'" + "()*+<=>?" + "\r\014\003"
-
 
 // MatchFIC DEMO: @ fe9a 6e  =
 var MatchFIC = regexp.MustCompile("^@@? ([0-9a-f]{4}) ([0-9a-f]{2})  =.*")
@@ -178,43 +179,42 @@ func FormatOs9Chars(vec []byte) string {
 }
 
 func FormatCall(call *os9api.Call, latest map[byte]*EventRec) string {
-    var buf bytes.Buffer
-    fmt.Fprintf(&buf, "%s(", call.Name)
-    if call.A != "" {
-        fmt.Fprintf(&buf, "A=%s=%02x, ", call.A, latest[EVENT_SWI2].Peeks[1])
-    }
-    if call.B != "" {
-        fmt.Fprintf(&buf, "B=%s=%02x, ", call.B, latest[EVENT_SWI2].Peeks[2])
-    }
-    if call.D != "" {
-        fmt.Fprintf(&buf, "D=%s=%02x, ", call.D, latest[EVENT_SWI2].Peeks[1:3])
-    }
-    if call.X != "" {
-        if call.X[0] == '$' {
-          fmt.Fprintf(&buf, "X=%s=%02x=%q, ", call.X, latest[EVENT_SWI2].Peeks[4:6], FormatOs9Chars(latest[EVENT_X].Peeks))
-        } else {
-          fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, latest[EVENT_SWI2].Peeks[4:6])
-        }
-    }
-    if call.Y != "" {
-        fmt.Fprintf(&buf, "Y=%s=%02x, ", call.Y, latest[EVENT_SWI2].Peeks[6:8])
-    }
-    if call.U != "" {
-        fmt.Fprintf(&buf, "U=%s=%02x, ", call.U, latest[EVENT_SWI2].Peeks[8:10])
-    }
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "%s(", call.Name)
+	if call.A != "" {
+		fmt.Fprintf(&buf, "A=%s=%02x, ", call.A, latest[EVENT_SWI2].Peeks[1])
+	}
+	if call.B != "" {
+		fmt.Fprintf(&buf, "B=%s=%02x, ", call.B, latest[EVENT_SWI2].Peeks[2])
+	}
+	if call.D != "" {
+		fmt.Fprintf(&buf, "D=%s=%02x, ", call.D, latest[EVENT_SWI2].Peeks[1:3])
+	}
+	if call.X != "" {
+		if call.X[0] == '$' {
+			fmt.Fprintf(&buf, "X=%s=%02x=%q, ", call.X, latest[EVENT_SWI2].Peeks[4:6], FormatOs9Chars(latest[EVENT_X].Peeks))
+		} else {
+			fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, latest[EVENT_SWI2].Peeks[4:6])
+		}
+	}
+	if call.Y != "" {
+		fmt.Fprintf(&buf, "Y=%s=%02x, ", call.Y, latest[EVENT_SWI2].Peeks[6:8])
+	}
+	if call.U != "" {
+		fmt.Fprintf(&buf, "U=%s=%02x, ", call.U, latest[EVENT_SWI2].Peeks[8:10])
+	}
 
-
-    mmap := "No"
-    gime := latest[EVENT_GIME].Peeks
-    if (gime[0] & 0x40) != 0 {
-        if (gime[1] & 1) != 0 {
-            mmap = fmt.Sprintf("T1: % 3x", gime[0x18:0x20])
-        } else {
-            mmap = fmt.Sprintf("T0: % 3x", gime[0x10:0x18])
-        }
-    }
-    fmt.Fprintf(&buf, ") %s", mmap)
-    return buf.String()
+	mmap := "No"
+	gime := latest[EVENT_GIME].Peeks
+	if (gime[0] & 0x40) != 0 {
+		if (gime[1] & 1) != 0 {
+			mmap = fmt.Sprintf("T1: % 3x", gime[0x18:0x20])
+		} else {
+			mmap = fmt.Sprintf("T0: % 3x", gime[0x10:0x18])
+		}
+	}
+	fmt.Fprintf(&buf, ") %s", mmap)
+	return buf.String()
 }
 
 func Panicf(format string, args ...any) {
@@ -234,7 +234,7 @@ func WriteBytes(usbout chan []byte, vec ...byte) {
 
 var cr bool
 
-const RAM_SIZE = 128 * 1024  // 128K
+const RAM_SIZE = 128 * 1024 // 128K
 const RAM_MASK = RAM_SIZE - 1
 
 var trackRam [RAM_SIZE]byte
@@ -247,12 +247,12 @@ type EventRec struct {
 
 // PPeek1: Physical Memory Peek
 func PPeek1(addr uint) byte {
-    return trackRam[addr & RAM_MASK]
+	return trackRam[addr&RAM_MASK]
 }
 func PPeek2(addr uint) uint {
-    hi := PPeek1(addr)
-    lo := PPeek1(addr+1)
-    return (uint(hi) << 8) | uint(lo)
+	hi := PPeek1(addr)
+	lo := PPeek1(addr + 1)
+	return (uint(hi) << 8) | uint(lo)
 }
 
 func Once(files DiskFiles, inkey chan byte) {
@@ -265,7 +265,8 @@ func Once(files DiskFiles, inkey chan byte) {
 		MinimumReadSize: 1,
 	}
 
-	latestEvent := make(map[byte]*EventRec)
+	pendingKeyedEvents := make(map[string]map[byte]*EventRec)
+	latestEventOfType := make(map[byte]*EventRec)
 
 	// Open the Serial Port.
 	port, err := serial.Open(options)
@@ -286,24 +287,24 @@ func Once(files DiskFiles, inkey chan byte) {
 	go func() {
 		var bb bytes.Buffer
 
-        pushBB := func() { // Flush the bytes.Buffer to log.Printf
-            // DEMO: @ fe9a 6e  =
-                s := bb.String()
-                if strings.HasSuffix(s, "\r") {
-                    s = s[:len(s)-1]
-                }
-                m := MatchFIC.FindStringSubmatch(s)
-                if m != nil {
-                    addr, _ := strconv.ParseUint(m[1], 16, 64)
-                    // data, _ := strconv.ParseUint(m[2], 16, 64)
-                    phys := Physical(uint(addr))
-                    modName, modOffset := MemoryModuleOf(phys)
-                    s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", MMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-                }
+		pushBB := func() { // Flush the bytes.Buffer to log.Printf
+			// DEMO: @ fe9a 6e  =
+			s := bb.String()
+			if strings.HasSuffix(s, "\r") {
+				s = s[:len(s)-1]
+			}
+			m := MatchFIC.FindStringSubmatch(s)
+			if m != nil {
+				addr, _ := strconv.ParseUint(m[1], 16, 64)
+				// data, _ := strconv.ParseUint(m[2], 16, 64)
+				phys := Physical(uint(addr))
+				modName, modOffset := MemoryModuleOf(phys)
+				s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+			}
 
-				log.Printf("# %s", s)
-				bb.Reset()
-        }
+			log.Printf("# %s", s)
+			bb.Reset()
+		}
 
 		stop := false
 		gap := 1
@@ -338,37 +339,69 @@ func Once(files DiskFiles, inkey chan byte) {
 				log.Printf("C_EVENT %q $%04x: % 3x %q", eventName, value, vec, FormatOs9Chars(vec))
 
 				for i := byte(0); i < sz; i++ {
-					x := Peek1(uint(i)+value)
+					x := Peek1(uint(i) + value)
 					if vec[i] != x {
-					  log.Printf("C_EVENT BAD VEC @ %x: %x vs %x", i, vec[i], x)
-                    }
+						log.Printf("C_EVENT BAD VEC @ %x: %x vs %x", i, vec[i], x)
+					}
 				}
 
-				latestEvent[event] = &EventRec{
+				latestEventOfType[event] = &EventRec{
 					Number: event,
 					Value:  value,
 					Peeks:  vec,
 				}
 
 				if event == EVENT_SWI2 {
-                    latestPC, ok := latestEvent[EVENT_PC]
-                    if ok && len(latestPC.Peeks) > 1 {
-					os9num := latestPC.Peeks[0]
-					call, _ := os9api.CallOf[os9num]
-					if call != nil {
-                        s := FormatCall(call, latestEvent)
-						log.Printf("--- OS9CALL %s", s)
+					latestPC, ok := latestEventOfType[EVENT_PC]
+					if ok && len(latestPC.Peeks) > 1 {
+						os9num := latestPC.Peeks[0]
+						call, _ := os9api.CallOf[os9num]
+						if call != nil {
+							s := FormatCall(call, latestEventOfType)
+							log.Printf("--- OS9CALL $%02x=%s", os9num, s)
+						} else {
+							log.Printf("--- OS9CALL $%02x=%d. UNKNOWN", os9num, os9num)
+						}
+						lastPC := latestPC.Value
+						key := Format("os9(%02x,%04x,%04x,%s)", os9num, lastPC, value, CurrentHardwareMMap())
+						pendingKeyedEvents[key] = latestEventOfType
+						Log("added pending keyed event: key=%q", key)
+						latestEventOfType = make(map[byte]*EventRec) // clear before next big event
 					} else {
-						log.Printf("--- OS9CALL %d UNKNOWN", os9num)
+						log.Printf("--- BAD latestPC in SWi2 ---")
 					}
-	                latestEvent = make(map[byte]*EventRec)
-                    } else {
-                        log.Printf("--- BAD latestPC in SWi2 ---")
-                    }
 				}
 				if event == EVENT_RTI {
-	                latestEvent = make(map[byte]*EventRec)
-                }
+					if latestPC_M8, ok := latestEventOfType[EVENT_PC_M8]; ok {
+						if p := latestPC_M8.Peeks; len(p) >= 8 {
+							os9num := byte(255) // tentatively, a non-existant number.
+							Log("PC_M8.Value=%x", latestPC_M8.Value)
+							lastPC := 8 + latestPC_M8.Value
+							Log("lastPC=%04x , p = % 3x ; latestPC_M8=%#v", lastPC, p, latestPC_M8)
+							key := ""
+							if p[8-3] == 0x10 && p[8-2] == 0x3F {
+								// Previous instruction appears to have been a SWI2 and a system call number.
+								os9num = p[8-1]
+								// The matching SWI2 event would have the PC at the system call number.
+								lastPC -= 1
+								key = Format("os9(%02x,%04x,%04x,%s)", os9num, lastPC, value, CurrentHardwareMMap())
+							}
+							if pending, ok := pendingKeyedEvents[key]; ok {
+								Log("Found pending keyed event %q: %#v", key, pending)
+								delete(pendingKeyedEvents, key)
+							} else {
+								Log("NOT FOUND: pending keyed event %q", key)
+							}
+
+						} else {
+							Log("len(p) FAILS")
+						}
+					} else {
+						Log("PC_M8 FAILS")
+					}
+
+					latestEventOfType = make(map[byte]*EventRec) // clear before next big event
+				}
 
 			case C_POKE:
 				hi := getByte(fromUSB)
@@ -540,7 +573,7 @@ func Once(files DiskFiles, inkey chan byte) {
 					bb.WriteByte(cmd)
 					//> log.Printf("# %s", bb.String())
 					//> bb.Reset()
-                    pushBB()
+					pushBB()
 				case cmd == 10:
 					// fmt.Fprintf(&bb, "{%d}", cmd)
 				default:
@@ -550,7 +583,7 @@ func Once(files DiskFiles, inkey chan byte) {
 			if bb.Len() > 250 {
 				//> log.Printf("# %q\\", bb.String())
 				//> bb.Reset()
-                pushBB()
+				pushBB()
 			}
 		}
 	}()
@@ -652,53 +685,53 @@ func ToUsbRoutine(w io.Writer, usbout chan []byte) {
 type Mapping [8]uint
 
 func GetMappingFromTable(addr uint) Mapping {
-    // Mappings are always in block 0?
-    return Mapping{
-        // TODO: drop the "0x3F &".
-        0x3F & PPeek2(addr),
-        0x3F & PPeek2(addr+2),
-        0x3F & PPeek2(addr+4),
-        0x3F & PPeek2(addr+6),
-        0x3F & PPeek2(addr+8),
-        0x3F & PPeek2(addr+10),
-        0x3F & PPeek2(addr+12),
-        0x3F & PPeek2(addr+14),
-    }
+	// Mappings are always in block 0?
+	return Mapping{
+		// TODO: drop the "0x3F &".
+		0x3F & PPeek2(addr),
+		0x3F & PPeek2(addr+2),
+		0x3F & PPeek2(addr+4),
+		0x3F & PPeek2(addr+6),
+		0x3F & PPeek2(addr+8),
+		0x3F & PPeek2(addr+10),
+		0x3F & PPeek2(addr+12),
+		0x3F & PPeek2(addr+14),
+	}
 }
 
 func Peek1(addr uint) byte {
-    phys := Physical(addr)
-    return trackRam[phys & RAM_MASK]
+	phys := Physical(addr)
+	return trackRam[phys&RAM_MASK]
 }
 func Peek2(addr uint) uint {
-    hi := Peek1(addr)
-    lo := Peek1(addr+1)
-    return (uint(hi) << 8) | uint(lo)
+	hi := Peek1(addr)
+	lo := Peek1(addr + 1)
+	return (uint(hi) << 8) | uint(lo)
 }
 
 func Physical(logical uint) uint {
-    block := byte(0x3F) // tentative
-    low13 := uint(logical & 0x1FFF)
+	block := byte(0x3F) // tentative
+	low13 := uint(logical & 0x1FFF)
 
-    if (logical < 0xFFE0) { // must compute block
-        mapHW := uint(0x3FFA0) // Task 0 map hardware
-        if (PPeek1(0x3FF91) & 1) != 0 {
-            mapHW += 8; // task 1 map hardware
-        }
-        //log.Printf("mapHW: %x %x %x %x %x %x %x %x",
-            //PPeek1(mapHW+0),
-            //PPeek1(mapHW+1),
-            //PPeek1(mapHW+2),
-            //PPeek1(mapHW+3),
-            //PPeek1(mapHW+4),
-            //PPeek1(mapHW+5),
-            //PPeek1(mapHW+6),
-            //PPeek1(mapHW+7))
+	if logical < 0xFFE0 { // must compute block
+		mapHW := uint(0x3FFA0) // Task 0 map hardware
+		if (PPeek1(0x3FF91) & 1) != 0 {
+			mapHW += 8 // task 1 map hardware
+		}
+		//log.Printf("mapHW: %x %x %x %x %x %x %x %x",
+		//PPeek1(mapHW+0),
+		//PPeek1(mapHW+1),
+		//PPeek1(mapHW+2),
+		//PPeek1(mapHW+3),
+		//PPeek1(mapHW+4),
+		//PPeek1(mapHW+5),
+		//PPeek1(mapHW+6),
+		//PPeek1(mapHW+7))
 
-        slot := 7 & (logical >> 13)
-        block = PPeek1(mapHW+slot)
-        //log.Printf("Physical: a=%x b=%x p=%x", logical, block, (uint(block) << 13) | low13)
-    }
+		slot := 7 & (logical >> 13)
+		block = PPeek1(mapHW + slot)
+		//log.Printf("Physical: a=%x b=%x p=%x", logical, block, (uint(block) << 13) | low13)
+	}
 
 	return (uint(block) << 13) | low13
 }
@@ -711,166 +744,165 @@ func MapAddrWithMapping(logical uint, m Mapping) uint {
 }
 
 func TaskNumberToMapping(task byte) Mapping {
-    dope := PPeek2(sym.D_TskIPt/*=0x00A1*/)
-    dat := PPeek2(dope + 2*uint(task))
-    var m Mapping
-    for i := uint(0); i < 8; i++ {
-        m[i] = PPeek2(dat + 2*i)
-    }
-    return m
+	dope := PPeek2(sym.D_TskIPt /*=0x00A1*/)
+	dat := PPeek2(dope + 2*uint(task))
+	var m Mapping
+	for i := uint(0); i < 8; i++ {
+		m[i] = PPeek2(dat + 2*i)
+	}
+	return m
 }
 func Peek1WithTask(addr uint, task byte) byte {
-    m := TaskNumberToMapping(task)
-    return Peek1WithMapping(addr, m)
+	m := TaskNumberToMapping(task)
+	return Peek1WithMapping(addr, m)
 }
 func Peek2WithTask(addr uint, task byte) uint {
-    m := TaskNumberToMapping(task)
-    return Peek2WithMapping(addr, m)
+	m := TaskNumberToMapping(task)
+	return Peek2WithMapping(addr, m)
 }
 func Peek1WithMapping(addr uint, m Mapping) byte {
-    logBlock := (addr >> 13) & 7
-    physBlock := m[logBlock]
-    if addr >= 0xFF00 {
-        physBlock = 0x3F
-    } else if addr >= 0xFE00 { // TODO: check FExx bit.
-        physBlock = 0x3F
-    }
-    ptr := (addr&0x1FFF) | (uint(physBlock) << 13)
-    return PPeek1(ptr)
+	logBlock := (addr >> 13) & 7
+	physBlock := m[logBlock]
+	if addr >= 0xFF00 {
+		physBlock = 0x3F
+	} else if addr >= 0xFE00 { // TODO: check FExx bit.
+		physBlock = 0x3F
+	}
+	ptr := (addr & 0x1FFF) | (uint(physBlock) << 13)
+	return PPeek1(ptr)
 }
 func Peek2WithMapping(addr uint, m Mapping) uint {
-    hi := Peek1WithMapping(addr, m)
-    lo := Peek1WithMapping(addr+1, m)
-    return (uint(hi) << 8) | uint(lo)
+	hi := Peek1WithMapping(addr, m)
+	lo := Peek1WithMapping(addr+1, m)
+	return (uint(hi) << 8) | uint(lo)
 }
 func MemoryModuleOf(addrPhys uint) (name string, offset uint) {
-    beginDir, endDir := PPeek2(sym.D_ModDir), PPeek2(sym.D_ModEnd)
+	beginDir, endDir := PPeek2(sym.D_ModDir), PPeek2(sym.D_ModEnd)
 
-    datPtr0 := PPeek2(beginDir)
-    if datPtr0 == 0 {
-        var p uint
-        var z uint
+	datPtr0 := PPeek2(beginDir)
+	if datPtr0 == 0 {
+		var p uint
+		var z uint
 
-        ppeek1 := func(a uint) byte {
-            z := PPeek1(a)
-            log.Printf("ppeek1: %x -> %x", a, z)
-            return z
-        }
+		ppeek1 := func(a uint) byte {
+			z := PPeek1(a)
+			// log.Printf("ppeek1: %x -> %x", a, z)
+			return z
+		}
 
-        ppeek2 := func(a uint) uint {
-            z := PPeek2(a)
-            log.Printf("ppeek2: %x -> %x", a, z)
-            return z
-        }
+		ppeek2 := func(a uint) uint {
+			z := PPeek2(a)
+			// log.Printf("ppeek2: %x -> %x", a, z)
+			return z
+		}
 
-        if 0x072600 <= addrPhys && addrPhys <= 0x074000 {
-            p = addrPhys - 0x072600 + 0x0D00
-            z = 0x072600 - 0x0D00
-        } else if true {
-            p = addrPhys
-            z = 0
-        }
+		if 0x072600 <= addrPhys && addrPhys <= 0x074000 {
+			p = addrPhys - 0x072600 + 0x0D00
+			z = 0x072600 - 0x0D00
+		} else if true {
+			p = addrPhys
+			z = 0
+		}
 
-        p = (p & 0x1fff)
+		p = (p & 0x1fff)
 
-        if 0X0D06 <= p && p < 0X0E30 {
-            sz := ppeek2(z+0x0D06+2)
-            a, b, c := ppeek1(z+0X0D06+sz-3), ppeek1(z+0X0D06+sz-2), ppeek1(z+0X0D06+sz-1)
-log.Printf("MMOf/rel: %x -> %x", addrPhys, p)
-            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0X0D06
-        } else if 0X0E30 <= p && p < 0X1000 {
-            sz := ppeek2(z+0x0E30+2)
-            a, b, c := ppeek1(z+0X0E30+sz-3), ppeek1(z+0X0E30+sz-2), ppeek1(z+0X0E30+sz-1)
-log.Printf("MMOf/boot: %x -> %x", addrPhys, p)
-            return fmt.Sprintf("boot.%04x%02x%02x%02x", sz, a, b, c), p - 0X0E30
-        } else if 0X1000 <= p && p < 0X1F00 {
-            sz := ppeek2(z+0X1000+2)
-            a, b, c := ppeek1(z+0X1000+sz-3), ppeek1(z+0X1000+sz-2), ppeek1(z+0X1000+sz-1)
-log.Printf("MMOf/krn: %x -> %x", addrPhys, p)
-            return fmt.Sprintf("krn.%04x%02x%02x%02x", sz, a, b, c), p - 0X1000
-        } else {
-            return "=0=", p
-        }
+		if 0x0D06 <= p && p < 0x0E30 {
+			sz := ppeek2(z + 0x0D06 + 2)
+			a, b, c := ppeek1(z+0x0D06+sz-3), ppeek1(z+0x0D06+sz-2), ppeek1(z+0x0D06+sz-1)
+			log.Printf("MMOf/rel: %x -> %x", addrPhys, p)
+			return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0x0D06
+		} else if 0x0E30 <= p && p < 0x1000 {
+			sz := ppeek2(z + 0x0E30 + 2)
+			a, b, c := ppeek1(z+0x0E30+sz-3), ppeek1(z+0x0E30+sz-2), ppeek1(z+0x0E30+sz-1)
+			log.Printf("MMOf/boot: %x -> %x", addrPhys, p)
+			return fmt.Sprintf("boot.%04x%02x%02x%02x", sz, a, b, c), p - 0x0E30
+		} else if 0x1000 <= p && p < 0x1F00 {
+			sz := ppeek2(z + 0x1000 + 2)
+			a, b, c := ppeek1(z+0x1000+sz-3), ppeek1(z+0x1000+sz-2), ppeek1(z+0x1000+sz-1)
+			log.Printf("MMOf/krn: %x -> %x", addrPhys, p)
+			return fmt.Sprintf("krn.%04x%02x%02x%02x", sz, a, b, c), p - 0x1000
+		} else {
+			return "=0=", p
+		}
 
-/*
-        if 0xED06 <= p && p < 0xEE30 {
-            sz := PPeek2(0xED08)
-            a, b, c := PPeek1(0xED06+sz-3), PPeek1(0xED06+sz-2), PPeek1(0xED06+sz-1)
-            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xED06
-        } else if 0xEE30 <= p && p < 0xF000 {
-            sz := PPeek2(0xEE32)
-            a, b, c := PPeek1(0xEE30+sz-3), PPeek1(0xEE30+sz-2), PPeek1(0xEE30+sz-1)
-            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xEE30
-        } else if 0xF000 <= p && p < 0xFF00 {
-            sz := PPeek2(0xF002)
-            a, b, c := PPeek1(0xF000+sz-3), PPeek1(0xF000+sz-2), PPeek1(0xF000+sz-1)
-            return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xF000
-        } else {
-            return "=0=", addrPhys & 0x1fff
-        }
-*/
-        // NOT REACHED
-    }
+		/*
+		   if 0xED06 <= p && p < 0xEE30 {
+		       sz := PPeek2(0xED08)
+		       a, b, c := PPeek1(0xED06+sz-3), PPeek1(0xED06+sz-2), PPeek1(0xED06+sz-1)
+		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xED06
+		   } else if 0xEE30 <= p && p < 0xF000 {
+		       sz := PPeek2(0xEE32)
+		       a, b, c := PPeek1(0xEE30+sz-3), PPeek1(0xEE30+sz-2), PPeek1(0xEE30+sz-1)
+		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xEE30
+		   } else if 0xF000 <= p && p < 0xFF00 {
+		       sz := PPeek2(0xF002)
+		       a, b, c := PPeek1(0xF000+sz-3), PPeek1(0xF000+sz-2), PPeek1(0xF000+sz-1)
+		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xF000
+		   } else {
+		       return "=0=", addrPhys & 0x1fff
+		   }
+		*/
+		// NOT REACHED
+	}
 
-    if beginDir != 0 && endDir != 0 {
-        for i := beginDir; i < endDir; i += 8 {
-            datPtr := PPeek2(i)
-            if datPtr == 0 {
-                continue
-            }
-            mapping := GetMappingFromTable(datPtr)
+	if beginDir != 0 && endDir != 0 {
+		for i := beginDir; i < endDir; i += 8 {
+			datPtr := PPeek2(i)
+			if datPtr == 0 {
+				continue
+			}
+			mapping := GetMappingFromTable(datPtr)
 
-            begin := PPeek2(i+4)
-            //if begin == 0 {
-                //continue
-            //}
+			begin := PPeek2(i + 4)
+			//if begin == 0 {
+			//continue
+			//}
 
-            magic := Peek2WithMapping(begin, mapping)
-            if magic != 0x87CD {
-                return "=m=", addrPhys
-            }
-            // log.Printf("DDT: magic i=%x datPtr=%x begin=%x mapping=% 03x", i, datPtr, begin, mapping)
+			magic := Peek2WithMapping(begin, mapping)
+			if magic != 0x87CD {
+				return "=m=", addrPhys
+			}
+			// log.Printf("DDT: magic i=%x datPtr=%x begin=%x mapping=% 03x", i, datPtr, begin, mapping)
 
-            modSize := Peek2WithMapping(begin+2, mapping)
-            //modNamePtr := Peek2WithMapping(begin+4, mapping)
-            //_ = modNamePtr
-            //links := Peek2WithMapping(begin+6, mapping)
+			modSize := Peek2WithMapping(begin+2, mapping)
+			//modNamePtr := Peek2WithMapping(begin+4, mapping)
+			//_ = modNamePtr
+			//links := Peek2WithMapping(begin+6, mapping)
 
-            remaining := modSize
-            region := begin
-            offset := uint(0)
-            for remaining > 0 {
-                // If module crosses paged blocks, it has more than one region.
-                regionP := MapAddrWithMapping(region, mapping)
-                endOfRegionBlockP := 1 + (regionP | 0x1FFF)
-                regionSize := remaining
-                if regionSize > endOfRegionBlockP-regionP {
-                    // A smaller region of the module.
-                    regionSize = endOfRegionBlockP - regionP
-                }
+			remaining := modSize
+			region := begin
+			offset := uint(0)
+			for remaining > 0 {
+				// If module crosses paged blocks, it has more than one region.
+				regionP := MapAddrWithMapping(region, mapping)
+				endOfRegionBlockP := 1 + (regionP | 0x1FFF)
+				regionSize := remaining
+				if regionSize > endOfRegionBlockP-regionP {
+					// A smaller region of the module.
+					regionSize = endOfRegionBlockP - regionP
+				}
 
-                // log.Printf("DDT: try regionP=%x (phys=%x) regionEnds=%x remain=%x", regionP, addrPhys, regionP+regionSize, remaining)
-                if regionP <= addrPhys && addrPhys < regionP+regionSize {
-                    //if links == 0 {
-                        // return "unlinkedMod", addrPhys
-                        // log.Panicf("in unlinked module: i=%x addrPhys=%x", i, addrPhys)
-                    //}
-                    id := ModuleId(begin, mapping)
-                    delta := offset + (addrPhys-regionP)
-                    // log.Printf("DDT: [links=%x] FOUND %q+%x", links, id, delta)
-                    return id, delta
-                }
-                remaining -= regionSize
-                regionP += regionSize
-                region += uint(regionSize)
-                offset += uint(regionSize)
-                // log.Printf("DDT: advanced remaining=%x regionSize=%x", remaining, regionSize)
-            }
+				// log.Printf("DDT: try regionP=%x (phys=%x) regionEnds=%x remain=%x", regionP, addrPhys, regionP+regionSize, remaining)
+				if regionP <= addrPhys && addrPhys < regionP+regionSize {
+					//if links == 0 {
+					// return "unlinkedMod", addrPhys
+					// log.Panicf("in unlinked module: i=%x addrPhys=%x", i, addrPhys)
+					//}
+					id := ModuleId(begin, mapping)
+					delta := offset + (addrPhys - regionP)
+					// log.Printf("DDT: [links=%x] FOUND %q+%x", links, id, delta)
+					return id, delta
+				}
+				remaining -= regionSize
+				regionP += regionSize
+				region += uint(regionSize)
+				offset += uint(regionSize)
+				// log.Printf("DDT: advanced remaining=%x regionSize=%x", remaining, regionSize)
+			}
 
-
-        }
-    }
-    return "==", addrPhys
+		}
+	}
+	return "==", addrPhys
 }
 func ModuleId(begin uint, m Mapping) string {
 	namePtr := begin + Peek2WithMapping(begin+4, m)
@@ -900,46 +932,49 @@ func Os9StringWithMapping(addr uint, m Mapping) string {
 	return buf.String()
 }
 
-func MMap() string {
-    init0, init1 := PPeek1(0x3ff90), PPeek1(0x3ff91)
-    mmuEnable := (init0 & 0x40) != 0
-    if !mmuEnable {
-        return "No"
-    }
-    mmuTask := init1 & 1
+func CurrentHardwareMMap() string {
+	init0, init1 := PPeek1(0x3ff90), PPeek1(0x3ff91)
+	mmuEnable := (init0 & 0x40) != 0
+	if !mmuEnable {
+		return "No"
+	}
+	mmuTask := init1 & 1
 
-        mapHW := uint(0x3FFA0) // Task 0 map hardware
-        if mmuTask != 0 {
-            mapHW += 8; // task 1 map hardware
-        }
+	mapHW := uint(0x3FFA0) // Task 0 map hardware
+	if mmuTask != 0 {
+		mapHW += 8 // task 1 map hardware
+	}
 
-        return fmt.Sprintf("T%x(%x %x %x %x  %x %x %x %x)",
-            mmuTask,
-            PPeek1(mapHW+0),
-            PPeek1(mapHW+1),
-            PPeek1(mapHW+2),
-            PPeek1(mapHW+3),
-            PPeek1(mapHW+4),
-            PPeek1(mapHW+5),
-            PPeek1(mapHW+6),
-            PPeek1(mapHW+7))
+	return fmt.Sprintf("T%x(%x %x %x %x  %x %x %x %x)",
+		mmuTask,
+		PPeek1(mapHW+0),
+		PPeek1(mapHW+1),
+		PPeek1(mapHW+2),
+		PPeek1(mapHW+3),
+		PPeek1(mapHW+4),
+		PPeek1(mapHW+5),
+		PPeek1(mapHW+6),
+		PPeek1(mapHW+7))
 }
 
 var Sources = make(map[string]*listings.ModSrc)
 
 func AsmSourceLine(modName string, offset uint) string {
-    modsrc, ok := Sources[modName]
-    if !ok {
-        modsrc = listings.LoadFile(*listings.Borges + "/" + modName)
-        Sources[modName] = modsrc
-    }
-    if modsrc == nil {
-        Sources[modName] = &listings.ModSrc{
-            Src: make(map[uint]string),
-            Filename: modName,
-        }
-        return ""
-    }
-    srcLine, _ := modsrc.Src[offset]
-    return srcLine
+	modsrc, ok := Sources[modName]
+	if !ok {
+		modsrc = listings.LoadFile(*listings.Borges + "/" + modName)
+		Sources[modName] = modsrc
+	}
+	if modsrc == nil {
+		Sources[modName] = &listings.ModSrc{
+			Src:      make(map[uint]string),
+			Filename: modName,
+		}
+		return ""
+	}
+	srcLine, _ := modsrc.Src[offset]
+	return srcLine
 }
+
+var Format = fmt.Sprintf
+var Log = log.Printf

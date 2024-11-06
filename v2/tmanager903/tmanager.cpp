@@ -46,8 +46,8 @@ extern void RecvOut_byte(byte* x);
 #define LED(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 
 #define ATTENTION_SPAN 25 // was 250
-#define VSYNC_TICK_MASK 0x3FF // 0xFFFF   // one less than a power of two
-#define ACIA_TICK_MASK 0xFFF // 0xFFF     // one less than a power of two
+#define VSYNC_TICK_MASK 0x3FFF // 0xFFFF   // one less than a power of two
+#define ACIA_TICK_MASK 0x3FFF // 0xFFF     // one less than a power of two
 
 #define TFR_RTC_BASE 0xFF50
 
@@ -133,6 +133,8 @@ enum {
     C_DUMP_PHYS=170,
     C_POKE=171,
     C_EVENT=172,
+    //
+    EVENT_PC_M8=238,
     EVENT_GIME=239,
     EVENT_RTI=240,
     EVENT_SWI2=241,
@@ -210,7 +212,7 @@ void DumpTrace() {
         if (p->addr || p->flags || p->data) {
             // printf("[%4d] %04d %02d %02d\n", TRACE_SIZE-i, p->addr, p->flags, p->data);
             const char* rw = (p->flags & (F_READ>>8)) ? "r" : "w";
-            printf("%s %04x %02x  #T:%d\n", (fic ? "@" : vma ? rw : "-"), p->addr, p->data, i);
+            printf("%s %04x %02x ^%02x #T:%d\n", (fic ? "@" : vma ? rw : "-"), p->addr, p->data, p->flags, i);
         }
 
         vma = 0 != (p->flags & (F_AVMA>>8));   // AVMA bit means next cycle is Valid
@@ -485,9 +487,9 @@ void Strike(const char* why) {
     static int strikes;
     ++strikes;
     D("------ Strike %d -------- %s\n", strikes, why);
-    if (strikes >= 5) {
-        D("------ Fifth Strike -------- %s\n", why);
-        DumpRamAndGetStuck("five strikes");
+    if (strikes >= 20) {
+        D("------ 20th Strike -------- %s\n", why);
+        DumpRamAndGetStuck("20th strike");
     }
 }
 
@@ -495,6 +497,10 @@ void ShowChar(byte ch) {
     putchar(C_PUTCHAR);
     putchar(ch);
 }
+
+bool gime_irq_enabled;
+bool gime_vsync_irq_enabled;
+bool gime_vsync_irq_firing;
 
 bool vsync_irq_enabled;
 bool vsync_irq_firing;
@@ -611,7 +617,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                                 }
                                 acia_char_in_ready = true;
                                 acia_irq_firing = true;
-                                //ShowChar('+');
+                                ShowChar('+');
                                 //ShowChar(acia_char);
                         } else {
                                 acia_char = 0;
@@ -629,11 +635,32 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
 #endif
         {
+            ShowChar('`');
+
             TimerFired = false;
             Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
             if (vsync_irq_enabled) {
                 vsync_irq_firing = true;
             }
+            if (gime_irq_enabled && gime_vsync_irq_enabled) {
+                gime_vsync_irq_firing = true;
+            }
+
+            // GIME Interrupts:
+
+            // INIT0 = $ff90
+            //    Bit 5 of FF90 must be set to enable GIME IRQs.
+            //    Bit 4 of FF90 must be set to enable GIME FIRQs.
+            // Our clock writes 6C to INIT0 (sets bit 5, not bit 4).
+
+            // IRQEN = $ff92
+            //    Bit 5 of FF92 enables TIMER irq.
+            //    Bit 3 of FF92 enables VSYNC irq.
+            //    Bit 1 of FF92 enables KBD/JOY irq.
+            //    Bit 0 of FF92 enables CART irq.
+            //    Reading FF92 clears the IRQs.
+            // Our clock writes 00, 08, and 09 to IRQEN.
+            //    (uses only VSYNC and CART irqs)
         }
 
         const uint addr = WAIT_GET();
@@ -682,6 +709,17 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     break;
                 case 0x03:
                     // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
+                    break;
+
+                case 0x92: // GIME IRQEN register
+                    {
+                        if (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing) {
+                            data = 0x08;
+                            gime_vsync_irq_firing = false; // Reading this register clears the IRQ.
+                        } else {
+                            data = 0;
+                        }
+                    }
                     break;
 
                 case 255&(ACIA_PORT+0): // read ACIA control/status port
@@ -736,11 +774,53 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     Strike("suspicious opcode 0");
                     break;
                 case 0x01:
-                    DumpRamAndGetStuck("illegal opcode 1");
-                    return;
+                    Strike("illegal opcode 1");
+                    break;
                 case 0x02:
-                    DumpRamAndGetStuck("illegal opcode 2");
-                    return;
+                    // Disable case 0x02 because IRQ causes reads to FFFF which is 02
+                    // to be confused as executing opcode 2.
+                    // Strike("illegal opcode 2");
+                    break;
+                case 0x05:
+                case 0x0B:
+                case 0x14:
+                case 0x15:
+                case 0x18:
+                case 0x1B:
+                case 0x38:
+                case 0x3E:
+
+                case 0x41:
+                case 0x42:
+                case 0x45:
+                case 0x4B:
+                case 0x4E:
+
+                case 0x51:
+                case 0x52:
+                case 0x55:
+                case 0x5B:
+                case 0x5E:
+
+                case 0x61:
+                case 0x62:
+                case 0x65:
+                case 0x6B:
+
+                case 0x71:
+                case 0x72:
+                case 0x75:
+                case 0x7B:
+
+                case 0x87:
+                case 0x8F:
+
+                case 0xC7:
+                case 0xCD:
+                case 0xCF:
+                    Strike("illegal opcode");
+                    break;
+
                 case 0x10:
                 case 0x20:
                 case 0x3B:
@@ -867,6 +947,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                         SendEventRam(EVENT_Y, 16, Peek2(addr-14+8));
                         SendEventRam(EVENT_U, 16, Peek2(addr-14+10));
                         SendEventRam(EVENT_PC, 16, Peek2(addr-14+12));
+                        SendEventRam(EVENT_PC_M8, 16, Peek2(addr-14+12)-8);
                         SendEventRam(EVENT_GIME, 32, 0xFF90);
                         SendEventRam(EVENT_RTI, 12, addr-12);
                         break;
@@ -965,46 +1046,8 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
         // q3: Side Effects after Reading or Writing.
         if (io) {
-#if 0
-            if (not reading) {
-                putbyte(C_POKE);
-                putbyte(addr >> 8);
-                putbyte(addr);
-                putbyte(data);
-            }
-#endif
 
             switch (255&addr) {
-#if 0 // N9_LEVEL == 2
-            case 0x90: // Init 0
-                the_ram.SetEnableMmu(data & 0x40);
-                goto OKAY;
-            case 0x91: // Init 1
-                the_ram.SetCurrentTask(data & 0x01);
-                goto OKAY;
-            case 0xA0:
-            case 0xA1:
-            case 0xA2:
-            case 0xA3:
-            case 0xA4:
-            case 0xA5:
-            case 0xA6:
-            case 0xA7:
-            case 0xA8:
-            case 0xA9:
-            case 0xAA:
-            case 0xAB:
-            case 0xAC:
-            case 0xAD:
-            case 0xAE:
-            case 0xAF:
-                {
-                    byte task = (addr >> 3) & 1;
-                    byte slot = addr & 7;
-                    the_ram.WriteMmu(task, slot, data);
-                }
-                goto OKAY;
-#endif
             case 0x00:
             case 0x01:
             case 0x02:
@@ -1013,7 +1056,21 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             case 0x03:
                 // Read PIA0
                 D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
-                vsync_irq_enabled = ((data&1) != 0);
+                if (not reading) {
+                    vsync_irq_enabled = bool ((data&1) != 0);
+                }
+                goto OKAY;
+
+            case 0x90: // GIME INIT0
+                if (not reading) {
+                    gime_irq_enabled = bool((data & 0x20) != 0);
+                }
+                goto OKAY;
+
+            case 0x92: // GIME IRQEN
+                if (not reading) {
+                    gime_vsync_irq_enabled = bool((data & 0x08) != 0);
+                }
                 goto OKAY;
 
             case 255&(ACIA_PORT+0): // control port
@@ -1162,12 +1219,19 @@ OKAY:
         fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
 
         {
-            static bool prev_vsn;
-            bool vsync_needed = ((vsync_irq_enabled && vsync_irq_firing) || (acia_irq_enabled && acia_irq_firing));
-            if (vsync_needed != prev_vsn) {
-                PutIrq(vsync_needed);
-                // printf("IRQ %d\n", vsync_needed);
-                prev_vsn = vsync_needed;
+            static bool prev_irq_needed;
+            bool irq_needed =
+                (vsync_irq_enabled && vsync_irq_firing)
+                || (acia_irq_enabled && acia_irq_firing)
+                || (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing)
+                ;
+
+            if (irq_needed != prev_irq_needed) {
+                PutIrq(irq_needed);
+#if TRACKING
+                printf("irq_needed=%d\n", irq_needed);
+#endif
+                prev_irq_needed = irq_needed;
             }
         }
 

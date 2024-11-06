@@ -40,13 +40,14 @@ NITROS9DIR=${NITROS9DIR:-$HOME/NEW/nitros9}
 ls -l $BOOTFILE
 wc -c $BOOTFILE
 
-lwasm --6809 --format=os9 --includedir="${HOME}/NEW/nitros9/defs/" --includedir="${HOME}/NEW/nitros9/level1/modules/"  --includedir="${HOME}/NEW/nitros9/level1/tfr9/"  --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax  "$NITROS9DIR/level1/coco1/modules/boot_emu.asm"  -"oboot_emu.os9" --list="boot_emu.list"
+##################### lwasm --6809 --format=os9 --includedir="${HOME}/NEW/nitros9/defs/" --includedir="${HOME}/NEW/nitros9/level1/modules/"  --includedir="${HOME}/NEW/nitros9/level1/tfr9/"  --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax  "$NITROS9DIR/level1/coco1/modules/boot_emu.asm"  -"oboot_emu.os9" --list="boot_emu.list"
 
 cat \
   "$NITROS9DIR/level2/coco3/modules/rel_40" \
-  "boot_emu.os9" \
+  "/home/strick/coco-shelf/nitros9/level2/coco3/modules/boot_emu" \
   "$NITROS9DIR/level2/coco3/modules/krn" \
   > _level2.track35
+  #################### "boot_emu.os9" \
 
 python3 ../binary-header-generator.py _level2.track35 > ../tmanager903/level2.rom.h
 
