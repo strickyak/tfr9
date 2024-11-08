@@ -180,6 +180,9 @@ class BigRam {
     byte ReadPhys(uint addr) {
         return ram[addr];
     }
+    void WritePhys(uint addr, byte data) {
+        ram[addr] = data;
+    }
     uint PhysSize() { return sizeof ram; }
 };
 

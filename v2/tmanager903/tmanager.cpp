@@ -1,7 +1,7 @@
 #define FOR_BASIC 0
-#define TRACKING 1
-#define ALL_POKES 1
-#define  BORING_SWI2S  160
+#define TRACKING 0
+#define ALL_POKES 0
+#define  BORING_SWI2S  9999999 // 200 // 160
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -53,6 +53,7 @@ extern void RecvOut_byte(byte* x);
 
 #if TRACKING
 
+    #define SHOW_TICKS 1
     #define USE_TIMER 0
     #define D if(interest)printf
     #define P if(interest)printf
@@ -61,6 +62,7 @@ extern void RecvOut_byte(byte* x);
 
 #else
 
+    #define SHOW_TICKS 0
     #define USE_TIMER 1
     #define D if(0)printf
     #define P if(0)printf
@@ -570,7 +572,7 @@ extern "C" {
 
 void HandlePio(uint num_cycles, uint krn_entry) {
     interest += 100;
-    interest = MAX_INTEREST; /// XXX
+    // interest = MAX_INTEREST; /// XXX
 
     const PIO pio = pio0;
     const uint sm = 0;
@@ -617,7 +619,9 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                                 }
                                 acia_char_in_ready = true;
                                 acia_irq_firing = true;
+#if SHOW_TICKS
                                 ShowChar('+');
+#endif
                                 //ShowChar(acia_char);
                         } else {
                                 acia_char = 0;
@@ -635,8 +639,9 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
 #endif
         {
+#if SHOW_TICKS
             ShowChar('`');
-
+#endif
             TimerFired = false;
             Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
             if (vsync_irq_enabled) {
@@ -845,7 +850,11 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 #if 0
                 Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
 #else
-                Q("%s %04x %02x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+                if (active and not vma and (addr == 0xFFFF)) {
+                    Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
+                } else {
+                    Q("%s %04x %02x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+                }
 #endif
             } else {
                 Q("|\n");
@@ -865,6 +874,13 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             case 0x103f:
                 if (cy - when == 2) {
                     printf("--- OS9 $%02x =%d. ---\n", data, data);
+                    if (data == 0x28) {
+                        // On F$SRqMem, block out $A000 and up.
+                        printf("--- BLOCKING OUT $A000 and up ---");
+                        for (uint i = 0x09A0; i < 0x09F0; i++) {
+                            the_ram.WritePhys(i, 15); // Artificial marker 15.
+                        }
+                    }
                 }
 
             case 0x10: // prefix $10
@@ -1271,7 +1287,7 @@ bool TimerCallback(repeating_timer_t *rt) {
 }
 
 int main() {
-    interest = MAX_INTEREST; /// XXX
+    // interest = MAX_INTEREST; /// XXX
     stdio_usb_init();
     // stdio_init_all();
     cyw43_arch_init();

@@ -10,12 +10,13 @@ BOOTFILE=_level2.os9boot
 # If NITROS9DIR is not set in environment,
 # assume it is under the coco-shelf under the HOME dir.
 NITROS9DIR=${NITROS9DIR:-$HOME/NEW/nitros9}
+SHELF_NITROS9DIR=${NITROS9DIR:-$HOME/coco-shelf/nitros9}
 
 # Cat everything but the kernel.
 (
   # Some commands.
   ( cd "$NITROS9DIR/$LEVEL/$MACH/cmds" &&
-    cat shell_21 echo
+    cat shell_21 echo mdir dir smap mmap pmap
   )
   # Local modules.
   if [ $USE_ACIA -ne 0 ]
@@ -25,8 +26,11 @@ NITROS9DIR=${NITROS9DIR:-$HOME/NEW/nitros9}
     cat term_tfr901.os9 console_tfr901.os9 init_tfr901.os9
   fi
 
-  cat $NITROS9DIR/level1/coco1/modules/emudsk.dr
-  cat $NITROS9DIR/level1/coco1/modules/ddh0_emudsk.dd
+  #L1# cat $NITROS9DIR/level1/coco1/modules/emudsk.dr
+  #L1# cat $NITROS9DIR/level1/coco1/modules/ddh0_emudsk.dd
+
+  cat $SHELF_NITROS9DIR/level2/coco3/modules/emudsk.dr
+  cat $SHELF_NITROS9DIR/level2/coco3/modules/ddh0_emudsk.dd
 
   : : : cat tfrblock_tfr901.os9 dd_tfrblock.os9
   # Modules.
