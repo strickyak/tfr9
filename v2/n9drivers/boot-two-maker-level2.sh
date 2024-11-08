@@ -55,4 +55,4 @@ cat \
 
 python3 ../binary-header-generator.py _level2.track35 > ../tmanager903/level2.rom.h
 
-go run /sy/doing_os9/gomar/borges/borges.go  -outdir $HOME/borges/  /sy/tfr9/nitros9/  $HOME/NEW/nitros9/  ./.
+go run /sy/doing_os9/gomar/borges/borges.go  -outdir $HOME/borges/  /sy/tfr9/nitros9/  $HOME/NEW/nitros9/  $HOME/coco-shelf/nitros9/  ./. 2>&1 | tail

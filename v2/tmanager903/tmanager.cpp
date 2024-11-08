@@ -1,5 +1,6 @@
 #define FOR_BASIC 0
 #define TRACKING 0
+#define SEEN 0
 #define ALL_POKES 0
 #define  BORING_SWI2S  9999999 // 200 // 160
 
@@ -97,7 +98,9 @@ byte Disk[] = {
 #endif
 };
 
+#if SEEN
 byte Seen[0x10000];
+#endif
 
 #define LEVEL1_PRELUDE_START (0xFF00 - 32)
 
@@ -681,13 +684,14 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         if (reading) { // CPU reads, Pico Tx
             // q1: Reading.
             data = Peek(addr);  // default behavior
-
+#if 0
             if (active && fic && addr<0x0050) {
                     interest += 100;
                     D("----- PC IN 00[0-4]x. Stopping addr=%x flags=%x\n", addr, flags);
                     DumpRamAndGetStuck("pc");
                     return;
             }
+#endif
             if (0xFF00 <= addr && addr < 0xFFF0) { // READ (GET) IO
                 if (active && fic) {
                     interest += 100;
@@ -853,7 +857,11 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 if (active and not vma and (addr == 0xFFFF)) {
                     Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
                 } else {
+#if SEEN
                     Q("%s %04x %02x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#else
+                    Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#endif
                 }
 #endif
             } else {
@@ -863,7 +871,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
             if (addr == 0xFFFE) {
                 active = 1;
             }
-#if 1
+#if SEEN
             if (fic) {
                 if (!Seen[addr]) {
                     Seen[addr] = 1;
@@ -1254,7 +1262,9 @@ OKAY:
         if (interest && interest < MAX_INTEREST) {
             --interest;
             if (not interest) {
+#if TRACKING
                 printf("\n\n...\n... SKIPPING\n...\n\n");
+#endif
             }
         }
     } // next cy
