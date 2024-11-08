@@ -345,6 +345,10 @@ func Who() string {
 }
 
 func Run(files DiskFiles, inkey chan byte) {
+    var remember int64
+    var timer_sum int64
+    var timer_count int64
+
 	// Set up options for Serial Port.
 	options := serial.OpenOptions{
 		PortName:        *TTY,
@@ -591,6 +595,17 @@ func Run(files DiskFiles, inkey chan byte) {
 				case 32 <= ch && ch <= 126:
 					fmt.Printf("%c", ch)
 					cr = false
+                    if (ch == '{') {
+                        remember = time.Now().UnixMicro()
+                    }
+                    if (ch == '}') {
+                        now := time.Now().UnixMicro()
+                        micros := now - remember
+                        fmt.Printf("[%.6f : ", float64(micros) / 1000000.0 )
+                        timer_sum += micros
+                        timer_count++
+                        fmt.Printf(" %.6f]", float64(timer_sum) / 1000000.0 / float64(timer_count) )
+                    }
 				case ch == 13:
 					fmt.Println()
 					cr = true

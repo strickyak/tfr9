@@ -43,15 +43,20 @@ bye
 cat >/tmp/tfr.startup <<~~~~
 basic09
 e
-10 FOR I=0 to 999999
-20 shell "date -t"
-30 next i
+10 x = 0
+20 for j=1 to 20
+50 print "{";
+110 FOR I=0 to 100
+120 x = x + i
+130 next i
+140 print "}"
+900 next j
 q
 run
 ~~~~
-cat >/tmp/tfr.startup <<~~~~
-echo One Two Three
-~~~~
+# cat >/tmp/tfr.startup <<~~~~
+# echo One Two Three
+# ~~~~
 
 os9 copy -l -r /tmp/tfr.startup  "$D",startup
 # os9 del "$D",startup

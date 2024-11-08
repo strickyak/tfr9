@@ -1,8 +1,11 @@
 #define FOR_BASIC 0
 #define TRACKING 0
 #define SEEN 0
+// #define EVENT 0
 #define ALL_POKES 0
 #define  BORING_SWI2S  9999999 // 200 // 160
+
+#define REQUIRED 1
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -557,6 +560,7 @@ void PutIrq(bool activate) {
 }
 
 void SendEventRam(byte event, byte sz, word base_addr) {
+#if REQUIRED
     Quiet();
     putbyte(C_EVENT);
     putbyte(event);
@@ -567,6 +571,7 @@ void SendEventRam(byte event, byte sz, word base_addr) {
         putbyte(Peek(base_addr+i));
     }
     Noisy();
+#endif // REQUIRED
 }
 
 extern "C" {
@@ -574,6 +579,7 @@ extern "C" {
 }
 
 void HandlePio(uint num_cycles, uint krn_entry) {
+    // TOP
     interest += 100;
     // interest = MAX_INTEREST; /// XXX
 
@@ -768,6 +774,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
             }
 
+#if REQUIRED
             if (fic) {
                 if (addr == krn_entry) {
                     num_resets++;
@@ -845,6 +852,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     when = 0;
                 }
             }
+#endif // REQUIRED
             PUT(0x00FF);  // pindirs: outputs
             PUT(data);    // pins
             PUT(0x0000);  // pindirs
@@ -878,11 +886,13 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 }
             }
 #endif
+
+#if REQUIRED
             switch (event) {
             case 0x103f:
                 if (cy - when == 2) {
                     printf("--- OS9 $%02x =%d. ---\n", data, data);
-                    if (data == 0x28) {
+                    if (false && data == 0x28) {
                         // On F$SRqMem, block out $A000 and up.
                         printf("--- BLOCKING OUT $A000 and up ---");
                         for (uint i = 0x09A0; i < 0x09F0; i++) {
@@ -978,25 +988,14 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     }
                 }
             }
+#endif // REQUIRED
 
-        } else {  // CPU writes, Pico Rx
+        } else {
+            // CPU writes, Pico Rx
 
             // q2: Writing
             data = WAIT_GET();
             if (active) {
-#if 0
-                putbyte(C_POKE);
-                putbyte(the_ram.Block(addr));
-                putbyte(addr >> 8);
-                putbyte(addr);
-                putbyte(data);
-#endif
-
-#if 0
-                if (addr==0 && data==0) {
-                    Strike("writing 0 to 0");
-                }
-#endif
                 if (FOR_BASIC && (0x8000 <= addr && addr < 0xFF00)) {
                     // Writing to ROM space
                     Q("wROM %04x %02x\n", addr, data);
@@ -1268,6 +1267,8 @@ OKAY:
             }
         }
     } // next cy
+
+    // BOTTOM
 }
 
 void InitRamFromRom() {

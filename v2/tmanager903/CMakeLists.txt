@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.12)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 project(${PROJECT} C CXX ASM)
 
+########### set(CMAKE_C_FLAGS_RELEASE     "-O2")
+
 set(PICO_BOARD pico_w)
 pico_sdk_init()
 
