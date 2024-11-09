@@ -1387,10 +1387,10 @@ int main() {
     HandlePio(0, krn_entry);
 #endif
 #if N9_LEVEL == 2
-    HandlePio(0, 0);
+    // HandlePio(0, 0);
     {
         extern void HandleTwo();
-        // HandleTwo();
+        HandleTwo();
     }
 #endif
     sleep_ms(100);
