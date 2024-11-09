@@ -1412,6 +1412,19 @@ void HandleTwo() {
 
     for (uint cy = 0; true; cy++) {
         if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
+            {
+                static bool prev_irq_needed;
+                bool irq_needed =
+                    (vsync_irq_enabled && vsync_irq_firing)
+                    || (acia_irq_enabled && acia_irq_firing)
+                    || (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing)
+                    ;
+
+                if (irq_needed != prev_irq_needed) {
+                    PutIrq(irq_needed);
+                    prev_irq_needed = irq_needed;
+                }
+            }
 
             {
                 char just_one[1] = {0};
@@ -1841,19 +1854,6 @@ OKAY:
         vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
         fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
 
-        {
-            static bool prev_irq_needed;
-            bool irq_needed =
-                (vsync_irq_enabled && vsync_irq_firing)
-                || (acia_irq_enabled && acia_irq_firing)
-                || (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing)
-                ;
-
-            if (irq_needed != prev_irq_needed) {
-                PutIrq(irq_needed);
-                prev_irq_needed = irq_needed;
-            }
-        }
     } // next cy
 
     // BOTTOM
