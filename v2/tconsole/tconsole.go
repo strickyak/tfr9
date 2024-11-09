@@ -345,9 +345,9 @@ func Who() string {
 }
 
 func Run(files DiskFiles, inkey chan byte) {
-    var remember int64
-    var timer_sum int64
-    var timer_count int64
+	var remember int64
+	var timer_sum int64
+	var timer_count int64
 
 	// Set up options for Serial Port.
 	options := serial.OpenOptions{
@@ -408,305 +408,303 @@ func Run(files DiskFiles, inkey chan byte) {
 		gap := 1
 		//FOR:
 		for {
-
-			inchar, incharOK := TryInkey(inkey)
-			if incharOK {
-				// WriteBytes(port, inchar)
+			select {
+			case inchar := <-inkey:
 				WriteBytes(usbout, inchar)
-				// time.Sleep(100 * time.Millisecond)
-			}
 
-			var cmd byte = getByte(fromUSB)
-			bogus := 0
+			case cmd := <-fromUSB:
 
-			switch cmd {
-			case C_EVENT:
-				event := getByte(fromUSB)
-				sz := getByte(fromUSB)
-				hi := getByte(fromUSB)
-				lo := getByte(fromUSB)
-				value := (uint(hi) << 8) | uint(lo)
-				vec := make([]byte, sz)
-				for i := byte(0); i < sz; i++ {
-					vec[i] = getByte(fromUSB)
-				}
-				eventName, ok := CommandStrings[event]
-				if !ok {
-					log.Fatalf("Unknown event number: %d.", event)
-				}
-				log.Printf("C_EVENT %q $%04x: % 3x %q", eventName, value, vec, FormatOs9Chars(vec))
+				bogus := 0
 
-				//for i := byte(0); i < sz; i++ {
-				//x := Peek1(uint(i) + value)
-				//if vec[i] != x {
-				//log.Printf("C_EVENT BAD VEC @ %x: %x vs %x", i, vec[i], x)
-				//}
-				//}
+				switch cmd {
+				case C_EVENT:
+					event := getByte(fromUSB)
+					sz := getByte(fromUSB)
+					hi := getByte(fromUSB)
+					lo := getByte(fromUSB)
+					value := (uint(hi) << 8) | uint(lo)
+					vec := make([]byte, sz)
+					for i := byte(0); i < sz; i++ {
+						vec[i] = getByte(fromUSB)
+					}
+					eventName, ok := CommandStrings[event]
+					if !ok {
+						log.Fatalf("Unknown event number: %d.", event)
+					}
+					log.Printf("C_EVENT %q $%04x: % 3x %q", eventName, value, vec, FormatOs9Chars(vec))
 
-				eRec := &EventRec{
-					Number: event,
-					Value:  value,
-					Peeks:  vec,
-				}
-				latestEventOfType[event] = eRec
+					//for i := byte(0); i < sz; i++ {
+					//x := Peek1(uint(i) + value)
+					//if vec[i] != x {
+					//log.Printf("C_EVENT BAD VEC @ %x: %x vs %x", i, vec[i], x)
+					//}
+					//}
 
-				if event == EVENT_SWI2 {
-					latestPC, ok := latestEventOfType[EVENT_PC]
-					if ok && len(latestPC.Peeks) > 1 {
-						os9num := latestPC.Peeks[0]
+					eRec := &EventRec{
+						Number: event,
+						Value:  value,
+						Peeks:  vec,
+					}
+					latestEventOfType[event] = eRec
 
-						call, _ := os9api.CallOf[os9num]
-						eRec.SerialNum = mintSerialNum()
-						eRec.Call = FormatCall(os9num, call, latestEventOfType)
+					if event == EVENT_SWI2 {
+						latestPC, ok := latestEventOfType[EVENT_PC]
+						if ok && len(latestPC.Peeks) > 1 {
+							os9num := latestPC.Peeks[0]
 
-						lastPC := latestPC.Value
-						key := Format("os9_%02x_%04x_%04x_%s", os9num, lastPC, value, CurrentHardwareMMap()[:2])
-						log.Printf("\n%q === OS9_CALL _%d_:  %s\n\n", Who(), eRec.SerialNum, eRec.Call)
+							call, _ := os9api.CallOf[os9num]
+							eRec.SerialNum = mintSerialNum()
+							eRec.Call = FormatCall(os9num, call, latestEventOfType)
 
-						pendingKeyedEvents[key] = latestEventOfType
+							lastPC := latestPC.Value
+							key := Format("os9_%02x_%04x_%04x_%s", os9num, lastPC, value, CurrentHardwareMMap()[:2])
+							log.Printf("\n%q === OS9_CALL _%d_:  %s\n\n", Who(), eRec.SerialNum, eRec.Call)
+
+							pendingKeyedEvents[key] = latestEventOfType
+							latestEventOfType = make(map[byte]*EventRec) // clear before next big event
+						} else {
+							log.Printf("--- BAD latestPC in SWi2 ---")
+						}
+					}
+					if event == EVENT_RTI {
+						if latestPC_M8, ok := latestEventOfType[EVENT_PC_M8]; ok {
+							if p := latestPC_M8.Peeks; len(p) >= 8 {
+								lastPC := 8 + latestPC_M8.Value
+
+								os9num := byte(255) // tentatively, a non-existant number.
+								key := ""           // tentatively
+
+								if p[8-3] == 0x10 && p[8-2] == 0x3F {
+									// Previous instruction appears to have been a SWI2 and a system call number.
+									// (Note this might be wrong if an IRQ occurs at just the wrong time.)
+									os9num = p[8-1]
+									// The matching SWI2 event would have the PC at the system call number.
+									lastPC -= 1
+									key = Format("os9_%02x_%04x_%04x_%s", os9num, lastPC, value, CurrentHardwareMMap()[:2])
+								}
+
+								// Log("lastPC=%04x , key=%q, p = % 3x ; latestPC_M8=%#v", lastPC, key, p, latestPC_M8)
+
+								if pending, ok := pendingKeyedEvents[key]; ok {
+									// Log("Found pending keyed event %q: %#v", key, pending)
+									if swi2Event, ok := pending[EVENT_SWI2]; ok {
+
+										call, _ := os9api.CallOf[os9num]
+										returnString := FormatReturn(os9num, call, latestEventOfType)
+										Log("\n%q === OS9_RETURN _%d_:  %s %s\n\n", Who(), swi2Event.SerialNum, swi2Event.Call, returnString)
+									}
+									delete(pendingKeyedEvents, key)
+								} else {
+									Log("NOT FOUND: pending keyed event %q", key)
+								}
+
+							} else {
+								Log("len(p) FAILS")
+							}
+						} else {
+							Log("PC_M8 FAILS")
+						}
+
 						latestEventOfType = make(map[byte]*EventRec) // clear before next big event
-					} else {
-						log.Printf("--- BAD latestPC in SWi2 ---")
-					}
-				}
-				if event == EVENT_RTI {
-					if latestPC_M8, ok := latestEventOfType[EVENT_PC_M8]; ok {
-						if p := latestPC_M8.Peeks; len(p) >= 8 {
-							lastPC := 8 + latestPC_M8.Value
 
-							os9num := byte(255) // tentatively, a non-existant number.
-							key := ""           // tentatively
-
-							if p[8-3] == 0x10 && p[8-2] == 0x3F {
-								// Previous instruction appears to have been a SWI2 and a system call number.
-								// (Note this might be wrong if an IRQ occurs at just the wrong time.)
-								os9num = p[8-1]
-								// The matching SWI2 event would have the PC at the system call number.
-								lastPC -= 1
-								key = Format("os9_%02x_%04x_%04x_%s", os9num, lastPC, value, CurrentHardwareMMap()[:2])
-							}
-
-							// Log("lastPC=%04x , key=%q, p = % 3x ; latestPC_M8=%#v", lastPC, key, p, latestPC_M8)
-
-							if pending, ok := pendingKeyedEvents[key]; ok {
-								// Log("Found pending keyed event %q: %#v", key, pending)
-								if swi2Event, ok := pending[EVENT_SWI2]; ok {
-
-									call, _ := os9api.CallOf[os9num]
-									returnString := FormatReturn(os9num, call, latestEventOfType)
-									Log("\n%q === OS9_RETURN _%d_:  %s %s\n\n", Who(), swi2Event.SerialNum, swi2Event.Call, returnString)
-								}
-								delete(pendingKeyedEvents, key)
-							} else {
-								Log("NOT FOUND: pending keyed event %q", key)
-							}
-
-						} else {
-							Log("len(p) FAILS")
-						}
-					} else {
-						Log("PC_M8 FAILS")
+						DumpRam()
 					}
 
-					latestEventOfType = make(map[byte]*EventRec) // clear before next big event
+				case C_POKE:
+					hi := getByte(fromUSB)
+					mid := getByte(fromUSB)
+					lo := getByte(fromUSB)
+					data := getByte(fromUSB)
+					longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
+					longaddr &= RAM_MASK
 
-					DumpRam()
-				}
+					log.Printf("       =C_POKE= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
+					trackRam[longaddr] = data
 
-			case C_POKE:
-				hi := getByte(fromUSB)
-				mid := getByte(fromUSB)
-				lo := getByte(fromUSB)
-				data := getByte(fromUSB)
-				longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
-				longaddr &= RAM_MASK
-
-				log.Printf("       =C_POKE= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
-				trackRam[longaddr] = data
-
-			case C_DUMP_RAM, C_DUMP_PHYS:
-				log.Printf("{{{ %s", CommandStrings[cmd])
-			DUMPING:
-				for {
-					what := getByte(fromUSB)
-					switch what {
-					case C_DUMP_LINE:
-						a := getByte(fromUSB)
-						b := getByte(fromUSB)
-						c := getByte(fromUSB)
-						var d [16]byte
-						for j := uint(0); j < 16; j++ {
-							d[j] = getByte(fromUSB)
-						}
-
-						if cmd == C_DUMP_PHYS {
+				case C_DUMP_RAM, C_DUMP_PHYS:
+					log.Printf("{{{ %s", CommandStrings[cmd])
+				DUMPING:
+					for {
+						what := getByte(fromUSB)
+						switch what {
+						case C_DUMP_LINE:
+							a := getByte(fromUSB)
+							b := getByte(fromUSB)
+							c := getByte(fromUSB)
+							var d [16]byte
 							for j := uint(0); j < 16; j++ {
-								longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-								if d[j] != trackRam[longaddr] {
-									log.Printf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
-								}
+								d[j] = getByte(fromUSB)
 							}
-						}
 
-						var buf bytes.Buffer
-						fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
-						for j := 0; j < 16; j++ {
-							fmt.Fprintf(&buf, "%02x ", d[j])
-							if j == 7 {
-								buf.WriteByte(' ')
-							}
-						}
-						buf.WriteByte('|')
-						for j := 0; j < 16; j++ {
-							ch := d[j]
-							if ch > 127 {
-								ch = '#'
-							} else {
-								ch = ch & 63
-								if ch < 32 {
-									ch += 64
-								}
-								if ch == 64 {
-									ch = '.'
+							if cmd == C_DUMP_PHYS {
+								for j := uint(0); j < 16; j++ {
+									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+									if d[j] != trackRam[longaddr] {
+										log.Printf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
+									}
 								}
 							}
-							buf.WriteByte(ch)
-						}
-						buf.WriteByte('|')
-						log.Printf("%s", buf.String())
-						break
 
-					case C_DUMP_STOP:
-						break DUMPING
-					default:
-						log.Printf("FUNNY CHAR: %d.", what)
-						bogus++
-						if bogus > 10 {
-							bogus = 0
+							var buf bytes.Buffer
+							fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
+							for j := 0; j < 16; j++ {
+								fmt.Fprintf(&buf, "%02x ", d[j])
+								if j == 7 {
+									buf.WriteByte(' ')
+								}
+							}
+							buf.WriteByte('|')
+							for j := 0; j < 16; j++ {
+								ch := d[j]
+								if ch > 127 {
+									ch = '#'
+								} else {
+									ch = ch & 63
+									if ch < 32 {
+										ch += 64
+									}
+									if ch == 64 {
+										ch = '.'
+									}
+								}
+								buf.WriteByte(ch)
+							}
+							buf.WriteByte('|')
+							log.Printf("%s", buf.String())
+							break
+
+						case C_DUMP_STOP:
 							break DUMPING
-						}
-					}
-				}
-				log.Printf("}}} %s", CommandStrings[cmd])
-
-			case C_PUTCHAR:
-				ch := getByte(fromUSB)
-				switch {
-				case 32 <= ch && ch <= 126:
-					fmt.Printf("%c", ch)
-					cr = false
-                    if (ch == '{') {
-                        remember = time.Now().UnixMicro()
-                    }
-                    if (ch == '}') {
-                        now := time.Now().UnixMicro()
-                        micros := now - remember
-                        fmt.Printf("[%.6f : ", float64(micros) / 1000000.0 )
-                        timer_sum += micros
-                        timer_count++
-                        fmt.Printf(" %.6f]", float64(timer_sum) / 1000000.0 / float64(timer_count) )
-                    }
-				case ch == 13:
-					fmt.Println()
-					cr = true
-				case ch == 10:
-					if !cr {
-						fmt.Println() // lf skips Println after cr does Println
-					}
-					cr = false
-				case ch == 255:
-					log.Fatalf("FATAL BECAUSE PUTCHAR 255")
-				default:
-					fmt.Printf("{%d}", ch)
-					cr = false
-				}
-				if false {
-					token := "."
-					if cr {
-						token = "+"
-					}
-					fmt.Printf("[%d%s]", ch, token)
-				}
-
-			case C_KEY:
-				if stop {
-					WriteBytes(usbout, C_STOP)
-				} else {
-					if gap > 0 {
-						gap--
-						WriteBytes(usbout, C_NOKEY)
-					} else {
-						b1 := make([]byte, 1)
-						sz, err := os.Stdin.Read(b1)
-						if err != nil {
-							log.Panicf("cannot os.Stdin.Read: %v", err)
-						}
-						if sz == 1 {
-							x := b1[0]
-							if x == 10 { // if LF
-								x = 13 // use CR
+						default:
+							log.Printf("FUNNY CHAR: %d.", what)
+							bogus++
+							if bogus > 10 {
+								bogus = 0
+								break DUMPING
 							}
-
-							row, col, plane := LookupCocoKey(x)
-
-							WriteBytes(usbout, C_KEY, row, col, plane)
-						} else {
-							WriteBytes(usbout, C_NOKEY)
 						}
 					}
+					log.Printf("}}} %s", CommandStrings[cmd])
+
+				case C_PUTCHAR:
+					ch := getByte(fromUSB)
+					switch {
+					case 32 <= ch && ch <= 126:
+						fmt.Printf("%c", ch)
+						cr = false
+						if ch == '{' {
+							remember = time.Now().UnixMicro()
+						}
+						if ch == '}' {
+							now := time.Now().UnixMicro()
+							micros := now - remember
+							fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
+							timer_sum += micros
+							timer_count++
+							fmt.Printf(" %.6f]", float64(timer_sum)/1000000.0/float64(timer_count))
+						}
+					case ch == 13:
+						fmt.Println()
+						cr = true
+					case ch == 10:
+						if !cr {
+							fmt.Println() // lf skips Println after cr does Println
+						}
+						cr = false
+					case ch == 255:
+						log.Fatalf("FATAL BECAUSE PUTCHAR 255")
+					default:
+						fmt.Printf("{%d}", ch)
+						cr = false
+					}
+					if false {
+						token := "."
+						if cr {
+							token = "+"
+						}
+						fmt.Printf("[%d%s]", ch, token)
+					}
+
+				case C_KEY:
+					if stop {
+						WriteBytes(usbout, C_STOP)
+					} else {
+						if gap > 0 {
+							gap--
+							WriteBytes(usbout, C_NOKEY)
+						} else {
+							b1 := make([]byte, 1)
+							sz, err := os.Stdin.Read(b1)
+							if err != nil {
+								log.Panicf("cannot os.Stdin.Read: %v", err)
+							}
+							if sz == 1 {
+								x := b1[0]
+								if x == 10 { // if LF
+									x = 13 // use CR
+								}
+
+								row, col, plane := LookupCocoKey(x)
+
+								WriteBytes(usbout, C_KEY, row, col, plane)
+							} else {
+								WriteBytes(usbout, C_NOKEY)
+							}
+						}
+					}
+
+				case C_GETCHAR:
+					log.Fatalf("NO MORE GETCHAR")
+					//				if stop {
+					//					WriteBytes(port, C_GETCHAR, C_STOP)
+					//                    log.Fatalf("STOPPING")
+					//                    /*
+					//				} else if len(CannedInput) > 0 {
+					//					WriteBytes(port, C_GETCHAR, CannedInput[0])
+					//					CannedInput = CannedInput[1:]
+					//					if len(CannedInput) == 0 {
+					//						stop = true
+					//					}
+					//                    */
+					//				} else {
+					//                    character, ok := TryInkey(inkey)
+					//                    if ok {
+					//						WriteBytes(port, C_GETCHAR, character)
+					//					} else {
+					//						WriteBytes(port, C_NOCHAR)
+					//					}
+					//				}
+
+				case 255:
+					fmt.Printf("\n[255: finished]\n")
+					log.Printf("go func: Received END MARK 255; exiting")
+					close(viaUSB)
+					log.Fatalf("go func: Received END MARK 255; exiting")
+					return
+
+				default:
+					switch {
+					case 32 <= cmd && cmd <= 126:
+						bb.WriteByte(cmd)
+					case cmd == 13:
+						// do nothing
+						bb.WriteByte(cmd)
+						//> log.Printf("# %s", bb.String())
+						//> bb.Reset()
+						pushBB()
+					case cmd == 10:
+						// fmt.Fprintf(&bb, "{%d}", cmd)
+					default:
+						fmt.Fprintf(&bb, "{%d}", cmd)
+					}
 				}
-
-			case C_GETCHAR:
-				log.Fatalf("NO MORE GETCHAR")
-				//				if stop {
-				//					WriteBytes(port, C_GETCHAR, C_STOP)
-				//                    log.Fatalf("STOPPING")
-				//                    /*
-				//				} else if len(CannedInput) > 0 {
-				//					WriteBytes(port, C_GETCHAR, CannedInput[0])
-				//					CannedInput = CannedInput[1:]
-				//					if len(CannedInput) == 0 {
-				//						stop = true
-				//					}
-				//                    */
-				//				} else {
-				//                    character, ok := TryInkey(inkey)
-				//                    if ok {
-				//						WriteBytes(port, C_GETCHAR, character)
-				//					} else {
-				//						WriteBytes(port, C_NOCHAR)
-				//					}
-				//				}
-
-			case 255:
-				fmt.Printf("\n[255: finished]\n")
-				log.Printf("go func: Received END MARK 255; exiting")
-				close(viaUSB)
-				log.Fatalf("go func: Received END MARK 255; exiting")
-				return
-
-			default:
-				switch {
-				case 32 <= cmd && cmd <= 126:
-					bb.WriteByte(cmd)
-				case cmd == 13:
-					// do nothing
-					bb.WriteByte(cmd)
-					//> log.Printf("# %s", bb.String())
+				if bb.Len() > 250 {
+					//> log.Printf("# %q\\", bb.String())
 					//> bb.Reset()
 					pushBB()
-				case cmd == 10:
-					// fmt.Fprintf(&bb, "{%d}", cmd)
-				default:
-					fmt.Fprintf(&bb, "{%d}", cmd)
 				}
-			}
-			if bb.Len() > 250 {
-				//> log.Printf("# %q\\", bb.String())
-				//> bb.Reset()
-				pushBB()
-			}
-		}
+			} // end select
+		} // end for ever
 	}()
 
 	for {

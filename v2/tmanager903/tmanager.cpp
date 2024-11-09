@@ -2,10 +2,11 @@
 #define TRACKING 0
 #define SEEN 0
 // #define EVENT 0
+#define RECORD 0
 #define ALL_POKES 0
 #define  BORING_SWI2S  9999999 // 200 // 160
 
-#define REQUIRED 1
+#define REQUIRED 0
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -190,6 +191,7 @@ const char* HighFlags(uint high) {
     return high_buf;
 }
 
+#if RECORD
 constexpr uint TRACE_SIZE = 1024;
 constexpr uint TRACE_MASK = TRACE_SIZE - 1;
 
@@ -228,6 +230,7 @@ void DumpTrace() {
     }
     printf("DumpTrace)))))\n");
 }
+#endif // RECORD
 
 void DumpRamText() {
 #if 0
@@ -308,7 +311,9 @@ void DumpRamAndGetStuck(const char* why) {
     interest = MAX_INTEREST;
     printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
     printf("DumpRamAndGetStuck: %s\n", why);
+#if RECORD
     DumpTrace();
+#endif // RECORD
     DumpRamText();
     DumpPhys();
     DumpRam();
@@ -1056,7 +1061,9 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         prev = data;
 
         if (vma || addr != 0xFFFF) {
+#if RECORD
             Record(addr, (byte)(flags>>8), data);
+#endif // RECORD
         }
 
         switch (event) {
