@@ -1398,8 +1398,6 @@ void HandleTwo() {
     byte data;
     byte rtc_value;
     bool vma = false; // Valid Memory Address ( = delayed AVMA )
-    bool fic = false; // First Instruction Cycle ( = delayed LIC )
-    uint active = 0;
     uint num_resets = 0;
     uint event = 0;
     uint when = 0;
@@ -1491,7 +1489,7 @@ void HandleTwo() {
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
 
-        bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
+        bool io = (0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
         const bool reading = (flags & F_READ);
 
         if (reading) { // CPU reads, Pico Tx
@@ -1569,43 +1567,11 @@ void HandleTwo() {
             PUT(data);    // pins
             PUT(0x0000);  // pindirs
 
-            uint high = flags & F_HIGH;
-            if (true || vma || high) {
-#if 0
-                Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
-#else
-                if (active and not vma and (addr == 0xFFFF)) {
-                    Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
-                } else {
-#if SEEN
-                    Q("%s %04x %02x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
-#else
-                    Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
-#endif
-                }
-#endif
-            } else {
-                Q("|\n");
-            }
-
-            if (addr == 0xFFFE) {
-                active = 1;
-            }
-#if SEEN
-            if (fic) {
-                if (!Seen[addr]) {
-                    Seen[addr] = 1;
-                }
-            }
-#endif
-
-
         } else {
-            // CPU writes, Pico Rx
+                // CPU writes, Pico Rx
 
-            // q2: Writing
-            data = WAIT_GET();
-            if (active) {
+                // q2: Writing
+                data = WAIT_GET();
                 if (FOR_BASIC && (0x8000 <= addr && addr < 0xFF00)) {
                     // Writing to ROM space
                     Q("wROM %04x %02x\n", addr, data);
@@ -1661,23 +1627,8 @@ void HandleTwo() {
                     } // end 0x103f SWI2
                     break;
                 } // end switch (event)
-            } // end if active
         }  // end if read / write
         prev = data;
-
-        if (vma || addr != 0xFFFF) {
-#if RECORD
-            Record(addr, (byte)(flags>>8), data);
-#endif // RECORD
-        }
-
-        switch (event) {
-/*
-        case 0x103f:  // SWI2 (i.e. OS9 kernel call)
-            DumpRamAndGetStuck("SWI2 event");
-            break;
-*/
-        }
 
         // q3: Side Effects after Reading or Writing.
         if (io) {
@@ -1846,12 +1797,10 @@ void HandleTwo() {
                 
             default: {}
             }
-            D("--- IOPAGE %s: addr %x flags %x data %x\n", reading? "READ": "WRITE", addr, flags, data);
         }
 OKAY:
 
-        vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
-        fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
+        {}
 
     } // next cy
 
