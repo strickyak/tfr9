@@ -593,10 +593,9 @@ void HandlePio(uint num_cycles, uint krn_entry) {
     uint active = 0;
     uint num_resets = 0;
     uint event = 0;
-    uint when = 0;
-    uint arg = 0;
     uint prev = 0; // previous data byte
     uint num_swi2s = 0;
+    uint when = 0;
 
     PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     PUT(0x000000);  // Data to put.
@@ -944,7 +943,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                     }
                     switch (age) {
                     case 2:
-                        arg = 0x80 & data;  // "entire" bit of condition codes
                         Q("= CC: %02x (%s)\n", data, DecodeCC(data));
                         break;
                     case 3:
@@ -1401,7 +1399,6 @@ void HandleTwo() {
     uint num_resets = 0;
     uint event = 0;
     uint when = 0;
-    uint arg = 0;
     uint prev = 0; // previous data byte
     uint num_swi2s = 0;
 
