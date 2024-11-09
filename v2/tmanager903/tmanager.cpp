@@ -1561,7 +1561,6 @@ void HandleTwo() {
                     break;
 
                 default:
-                    data = Peek(addr);
                     break;
                 }
             }
