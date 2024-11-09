@@ -49,7 +49,11 @@ class BigRam {
 
     byte ram[RAM_SIZE];
 
+#if ENABLE_MMU
     bool enable_mmu;
+#else
+    constexpr static bool enable_mmu = true;
+#endif
     byte current_task;
 
     byte mmu[8][2];
@@ -58,7 +62,9 @@ class BigRam {
     void Reset() {
         interest += 500;
 
+#if ENABLE_MMU
         enable_mmu = true;
+#endif
         current_task = 1;
 
         Write(0xFF90, 0x40);
@@ -83,10 +89,12 @@ class BigRam {
     }
 
     void SetEnableMmu(bool a) {
+#if ENABLE_MMU
         if (a != enable_mmu) {
             RP("COCO3: Now MMU is %u\n", a);
         }
         enable_mmu = a;
+#endif
     }
     void SetCurrentTask(byte a) {
         assert(a < 2);
@@ -112,25 +120,71 @@ class BigRam {
         return block;
     }
     uint Phys(uint addr) {
-        //addr = addr & 0xFFFF;
-        //uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
-        //uint offset = addr & OFFSET_MASK;
-        //bool use_mmu = enable_mmu && (addr < 0xFE00);
-        //uint block = (use_mmu) ? mmu[slot][current_task] : 0x38 + slot;
-
         DETERMINE_BLOCK
+
         uint pre_phys = ((block << SLOT_SHIFT) | offset);
         uint phys = ((block << SLOT_SHIFT) | offset) & RAM_MASK;
 
-        RP("                                         --------- ADDR %04x SLOT %02x OFF %04x M%dT%d BLOCK %02x PHYS %05x\n",
-                addr, slot, offset, use_mmu, current_task,
-                block, phys);
+        return phys;
+    }
+    force_inline uint Phys(uint addr, byte block) {
+        uint offset = addr & OFFSET_MASK;
+
+        uint pre_phys = ((block << SLOT_SHIFT) | offset);
+        uint phys = ((block << SLOT_SHIFT) | offset) & RAM_MASK;
+
         return phys;
     }
     byte Read(uint addr) {
         uint phys = Phys(addr);
         return ram[phys];
     }
+    force_inline void Write(uint addr, byte data, byte block) {
+        uint phys = Phys(addr, block);
+        ram[phys] = data;
+
+#if ALL_POKES
+                putbyte(C_POKE);
+                // putbyte(the_ram.Block(addr));
+                putbyte(phys >> 16);
+                putbyte(phys >> 8);
+                putbyte(phys);
+                putbyte(data);
+#endif
+
+        if ((addr & 0xFFC0) == 0xFF80) {
+            switch (addr & 0x00FF) {
+                case 0x90:
+                  this->SetEnableMmu((data & 0x40) != 0);
+                  break;
+                case 0x91:
+                  this->SetCurrentTask(data & 1);
+                  break;
+                case 0xA0:
+                case 0xA1:
+                case 0xA2:
+                case 0xA3:
+                case 0xA4:
+                case 0xA5:
+                case 0xA6:
+                case 0xA7:
+                case 0xA8:
+                case 0xA9:
+                case 0xAA:
+                case 0xAB:
+                case 0xAC:
+                case 0xAD:
+                case 0xAE:
+                case 0xAF:
+                    {
+                        byte task = (addr >> 3) & 1;
+                        byte slot = addr & 7;
+                        this->WriteMmu(task, slot, data);
+                    }
+                    break;
+            } // switch
+        } // if
+    } // Write
     void Write(uint addr, byte data) {
         uint phys = Phys(addr);
         ram[phys] = data;
@@ -201,6 +255,10 @@ force_inline byte Peek(uint addr) {
 
 force_inline void Poke(uint addr, byte data) {
     the_ram.Write(addr, data);
+}
+
+force_inline void Poke(uint addr, byte data, byte block) {
+    the_ram.Write(addr, data, block);
 }
 
 force_inline uint Peek2(uint addr) {

@@ -1654,10 +1654,9 @@ void HandleTwo() {
 
             const uint addr = WAIT_GET();
             const uint flags = WAIT_GET();
-            // const bool io = (0xFF00 <= addr && addr <= 0xFFEE /* 0xFFFD */ );
             const bool reading = (flags & F_READ);
 
-            if (likely(addr < 0xFF00)) {
+            if (likely(addr < 0xFE00)) {
                 if (reading) {
                     PUT(0x00FF);        // pindirs: outputs
                     PUT(Peek(addr));    // pins
@@ -1674,6 +1673,15 @@ void HandleTwo() {
                 } else {
                     (void) WAIT_GET();
                 }
+
+            } else if (addr < 0xFF00) {
+                if (reading) {
+                    PUT(0x00FF);        // pindirs: outputs
+                    PUT(Peek(addr));    // pins
+                    PUT(0x0000);        // pindirs
+                } else {
+                    Poke(addr, WAIT_GET(), 0x3F);
+                }  // end if reading
 
             } else {
 
