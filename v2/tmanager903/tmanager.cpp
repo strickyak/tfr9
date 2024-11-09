@@ -445,14 +445,7 @@ uint WAIT_GET() {
 void PUT(uint x) {
     const PIO pio = pio0;
     const uint sm = 0;
-
-    // TODO: waiting should not be needed.
-    while (pio_sm_is_tx_fifo_full (pio, sm)) {
-        P("ERROR: tx fifo full\n");
-        while (true) DELAY;
-    }
     pio_sm_put(pio, sm, x);
-    if(0) P("> %x\n", x);
 }
 
 void StartPio() {
