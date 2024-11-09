@@ -195,20 +195,20 @@ typedef BigRam Ram;
 
 Ram the_ram;
 
-inline byte Peek(uint addr) {
+force_inline byte Peek(uint addr) {
     return the_ram.Read(addr);
 }
 
-inline void Poke(uint addr, byte data) {
+force_inline void Poke(uint addr, byte data) {
     the_ram.Write(addr, data);
 }
 
-inline uint Peek2(uint addr) {
+force_inline uint Peek2(uint addr) {
     uint hi = Peek(addr);
     uint lo = Peek(addr+1);
     return (hi << 8) | lo;
 }
-inline void Poke2(uint addr, uint data) {
+force_inline void Poke2(uint addr, uint data) {
     byte hi = (byte)(data >> 8);
     byte lo = (byte)data;
     Poke(addr, hi);
