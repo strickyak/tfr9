@@ -52,7 +52,7 @@ extern void RecvOut_byte(byte* x);
 
 #define ATTENTION_SPAN 25 // was 250
 #define VSYNC_TICK_MASK 0x3FFF // 0xFFFF   // one less than a power of two
-#define ACIA_TICK_MASK 0x3FFF // 0xFFF     // one less than a power of two
+#define ACIA_TICK_MASK 0xFF // 0xFFF     // one less than a power of two
 
 #define TFR_RTC_BASE 0xFF50
 
@@ -610,7 +610,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
 
     for (uint cy = 0; true; cy++) {
         if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
-            //ShowChar('[');
 
             {
                 char just_one[1] = {0};
@@ -653,9 +652,6 @@ void HandlePio(uint num_cycles, uint krn_entry) {
         if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
 #endif
         {
-#if SHOW_TICKS
-            ShowChar('`');
-#endif
             TimerFired = false;
             Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
             if (vsync_irq_enabled) {
@@ -1423,7 +1419,6 @@ void HandleTwo() {
 
     for (uint cy = 0; true; cy++) {
         if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
-            //ShowChar('[');
 
             {
                 char just_one[1] = {0};
@@ -1437,63 +1432,55 @@ void HandleTwo() {
 
             if (not acia_char_in_ready) {
                         int next = usb_input.Has(1) ? (int)usb_input.Peek() : -1;
-                        // printf("xxx next %d\n", next);
                         if (1 <= next && next <= 126) {
                                 acia_char = usb_input.Take();
                                 if (acia_char == 10) {
                                     acia_char = 13;
-                                    //ShowChar('$');
                                 }
                                 acia_char_in_ready = true;
                                 acia_irq_firing = true;
-#if SHOW_TICKS
-                                ShowChar('+');
-#endif
-                                //ShowChar(acia_char);
                         } else {
                                 acia_char = 0;
                                 acia_char_in_ready = false;
                                 acia_irq_firing = false;
-                                //ShowChar('-');
                         }
             }
-        }
-
 
 #if USE_TIMER
-        if (TimerFired)
+            if (TimerFired)
 #else
-        if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
+            if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
 #endif
-        {
-#if SHOW_TICKS
-            ShowChar('`');
-#endif
-            TimerFired = false;
-            Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
-            if (vsync_irq_enabled) {
-                vsync_irq_firing = true;
-            }
-            if (gime_irq_enabled && gime_vsync_irq_enabled) {
-                gime_vsync_irq_firing = true;
-            }
+            {
+                TimerFired = false;
+                Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
+                if (vsync_irq_enabled) {
+                    vsync_irq_firing = true;
+                }
+                if (gime_irq_enabled && gime_vsync_irq_enabled) {
+                    gime_vsync_irq_firing = true;
+                }
 
-            // GIME Interrupts:
+                // GIME Interrupts:
 
-            // INIT0 = $ff90
-            //    Bit 5 of FF90 must be set to enable GIME IRQs.
-            //    Bit 4 of FF90 must be set to enable GIME FIRQs.
-            // Our clock writes 6C to INIT0 (sets bit 5, not bit 4).
+                // INIT0 = $ff90
+                //    Bit 5 of FF90 must be set to enable GIME IRQs.
+                //    Bit 4 of FF90 must be set to enable GIME FIRQs.
+                // Our clock writes 6C to INIT0 (sets bit 5, not bit 4).
 
-            // IRQEN = $ff92
-            //    Bit 5 of FF92 enables TIMER irq.
-            //    Bit 3 of FF92 enables VSYNC irq.
-            //    Bit 1 of FF92 enables KBD/JOY irq.
-            //    Bit 0 of FF92 enables CART irq.
-            //    Reading FF92 clears the IRQs.
-            // Our clock writes 00, 08, and 09 to IRQEN.
-            //    (uses only VSYNC and CART irqs)
-        }
+                // IRQEN = $ff92
+                //    Bit 5 of FF92 enables TIMER irq.
+                //    Bit 3 of FF92 enables VSYNC irq.
+                //    Bit 1 of FF92 enables KBD/JOY irq.
+                //    Bit 0 of FF92 enables CART irq.
+                //    Reading FF92 clears the IRQs.
+                // Our clock writes 00, 08, and 09 to IRQEN.
+                //    (uses only VSYNC and CART irqs)
+
+            }  // end Timer
+
+        }  // end ACIA_TICK_MASK
+
 
         const uint addr = WAIT_GET();
         const uint flags = WAIT_GET();
