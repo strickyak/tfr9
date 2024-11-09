@@ -1388,9 +1388,493 @@ int main() {
 #endif
 #if N9_LEVEL == 2
     HandlePio(0, 0);
+    {
+        extern void HandleTwo();
+        // HandleTwo();
+    }
 #endif
     sleep_ms(100);
     D("\nFinished.\n");
     sleep_ms(100);
     GET_STUCK();
+}
+
+void HandleTwo() {
+    // TOP
+    const PIO pio = pio0;
+    const uint sm = 0;
+
+    CircBuf usb_input;
+
+    byte data;
+    byte rtc_value;
+    bool vma = false; // Valid Memory Address ( = delayed AVMA )
+    bool fic = false; // First Instruction Cycle ( = delayed LIC )
+    uint active = 0;
+    uint num_resets = 0;
+    uint event = 0;
+    uint when = 0;
+    uint arg = 0;
+    uint prev = 0; // previous data byte
+    uint num_swi2s = 0;
+
+    PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
+    PUT(0x000000);  // Data to put.
+
+    for (uint cy = 0; true; cy++) {
+        if ((cy & ACIA_TICK_MASK) == ACIA_TICK_MASK) {
+            //ShowChar('[');
+
+            {
+                char just_one[1] = {0};
+                int rc = stdio_usb_in_chars(just_one, sizeof just_one);
+                    (void)rc;
+
+                if (just_one[0]) {
+                    usb_input.Put((byte)just_one[0]);
+                }
+            }
+
+            if (not acia_char_in_ready) {
+                        int next = usb_input.Has(1) ? (int)usb_input.Peek() : -1;
+                        // printf("xxx next %d\n", next);
+                        if (1 <= next && next <= 126) {
+                                acia_char = usb_input.Take();
+                                if (acia_char == 10) {
+                                    acia_char = 13;
+                                    //ShowChar('$');
+                                }
+                                acia_char_in_ready = true;
+                                acia_irq_firing = true;
+#if SHOW_TICKS
+                                ShowChar('+');
+#endif
+                                //ShowChar(acia_char);
+                        } else {
+                                acia_char = 0;
+                                acia_char_in_ready = false;
+                                acia_irq_firing = false;
+                                //ShowChar('-');
+                        }
+            }
+        }
+
+
+#if USE_TIMER
+        if (TimerFired)
+#else
+        if ((cy & VSYNC_TICK_MASK) == VSYNC_TICK_MASK)
+#endif
+        {
+#if SHOW_TICKS
+            ShowChar('`');
+#endif
+            TimerFired = false;
+            Poke(0xFF03, Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
+            if (vsync_irq_enabled) {
+                vsync_irq_firing = true;
+            }
+            if (gime_irq_enabled && gime_vsync_irq_enabled) {
+                gime_vsync_irq_firing = true;
+            }
+
+            // GIME Interrupts:
+
+            // INIT0 = $ff90
+            //    Bit 5 of FF90 must be set to enable GIME IRQs.
+            //    Bit 4 of FF90 must be set to enable GIME FIRQs.
+            // Our clock writes 6C to INIT0 (sets bit 5, not bit 4).
+
+            // IRQEN = $ff92
+            //    Bit 5 of FF92 enables TIMER irq.
+            //    Bit 3 of FF92 enables VSYNC irq.
+            //    Bit 1 of FF92 enables KBD/JOY irq.
+            //    Bit 0 of FF92 enables CART irq.
+            //    Reading FF92 clears the IRQs.
+            // Our clock writes 00, 08, and 09 to IRQEN.
+            //    (uses only VSYNC and CART irqs)
+        }
+
+        const uint addr = WAIT_GET();
+        const uint flags = WAIT_GET();
+
+        bool io = (active && 0xFF00 <= addr && addr <= /*0xFFEE*/ 0xFFFD);
+        const bool reading = (flags & F_READ);
+
+        if (reading) { // CPU reads, Pico Tx
+            // q1: Reading.
+            data = Peek(addr);  // default behavior
+            if (0xFF00 <= addr && addr < 0xFFF0) { // READ (GET) IO
+                switch (0xFF & addr) {
+
+                // Read PIA0
+                case 0x00:
+                    D("----- PIA0 Read not Impl: %x\n", addr);
+                    data = 0xFF;  // say like, no key pressed
+                    break;
+                case 0x01:
+                    D("----- PIA0 Read not Impl: %x\n", addr);
+                    DumpRamAndGetStuck("pia0");
+                    break;
+                case 0x02:
+                    Poke(0xFF03, Peek(0xFF03) & 0x7F);  // Clear the bit indicating VSYNC occurred.
+                    vsync_irq_firing = false;
+                    data = 0xFF;
+                    break;
+                case 0x03:
+                    // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
+                    break;
+
+                case 0x92: // GIME IRQEN register
+                    {
+                        if (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing) {
+                            data = 0x08;
+                            gime_vsync_irq_firing = false; // Reading this register clears the IRQ.
+                        } else {
+                            data = 0;
+                        }
+                    }
+                    break;
+
+                case 255&(ACIA_PORT+0): // read ACIA control/status port
+                    {
+                        data = 0x02;  // Transmit buffer always considered empty.
+                        data |= (acia_irq_firing) ? 0x80 : 0x00;
+                        data |= (acia_char_in_ready) ? 0x01 : 0x00;
+
+                        acia_irq_firing = false;  // Side effect of reading status.
+                    }
+                    break;
+
+                case 255&(ACIA_PORT+1): // read ACIA data port
+                    if (acia_char_in_ready) {
+                        data = acia_char;
+                        acia_char_in_ready = false;
+                    } else {
+                        data = 0;
+                    }
+                    break;
+
+                case 0xFF & (BLOCK_PORT+7): // read disk status
+                    data = 1;  // 1 is OKAY
+                    break;
+
+                case 0xFF & (EMUDSK_PORT+3): // read disk status
+                    data = 0;  // 0 is OKAY
+                    break;
+
+                case 0xFF & (TFR_RTC_BASE+0):
+                    data = rtc_value;
+                    break;
+
+                default:
+                    data = Peek(addr);
+                    break;
+                }
+            }
+
+            PUT(0x00FF);  // pindirs: outputs
+            PUT(data);    // pins
+            PUT(0x0000);  // pindirs
+
+            uint high = flags & F_HIGH;
+            if (true || vma || high) {
+#if 0
+                Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#else
+                if (active and not vma and (addr == 0xFFFF)) {
+                    Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
+                } else {
+#if SEEN
+                    Q("%s %04x %02x  =%s #%d\n", (fic ? (Seen[addr] ? "@" : "@@") : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#else
+                    Q("%s %04x %02x  =%s #%d\n", (fic ? "@" : vma ? "r" : "-"), addr, data, HighFlags(high), cy);
+#endif
+                }
+#endif
+            } else {
+                Q("|\n");
+            }
+
+            if (addr == 0xFFFE) {
+                active = 1;
+            }
+#if SEEN
+            if (fic) {
+                if (!Seen[addr]) {
+                    Seen[addr] = 1;
+                }
+            }
+#endif
+
+
+        } else {
+            // CPU writes, Pico Rx
+
+            // q2: Writing
+            data = WAIT_GET();
+            if (active) {
+                if (FOR_BASIC && (0x8000 <= addr && addr < 0xFF00)) {
+                    // Writing to ROM space
+                    Q("wROM %04x %02x\n", addr, data);
+                } else {
+                    // Writing to RAM or IO space
+                    Poke(addr, data);
+                    Q("w %04x %02x\n", addr, data);
+                }
+
+                switch (event) {
+                case 0x103f:  // SWI2 (i.e. OS9 kernel call)
+                    {
+                        constexpr uint SZ = 20;
+                        static byte hist[SZ];
+
+                        uint age = cy - when;
+                        if (age < SZ) {
+                            hist[age] = data;
+                        }
+
+                        switch (age) {
+                        case 5: ViewAt("PC", data, prev);
+                            break;
+                        case 7: ViewAt("U", data, prev);
+                            break;
+                        case 9: ViewAt("Y", data, prev);
+                            break;
+                        case 11: ViewAt("X", data, prev);
+                            break;
+                        case 12: P("= DP: %02x\n", data);
+                            break;
+                        case 14: ViewAt("D", data, prev);
+                            break;
+                        case 15: P("= CC: %02x (%s)\n", data, DecodeCC(data));
+                            {
+
+                                ViewAt("SP", addr>>8, addr);
+
+                        SendEventRam(EVENT_D, 16, Peek2(addr+15-14));
+                        SendEventRam(EVENT_X, 16, Peek2(addr+15-11));
+                        SendEventRam(EVENT_Y, 16, Peek2(addr+15-9));
+                        SendEventRam(EVENT_U, 16, Peek2(addr+15-7));
+                        SendEventRam(EVENT_PC, 16, Peek2(addr+15-5));
+                        SendEventRam(EVENT_GIME, 32, 0xFF90);
+                        SendEventRam(EVENT_SWI2, 12, addr);
+                                //putbyte(C_EVENT);
+                                //putbyte(EVENT_SWI2);
+                                //putbyte(SZ);
+                                //for (uint i=0; i < SZ; i++) putbyte(hist[i]);
+                            }
+                            break;
+                        }
+                    } // end 0x103f SWI2
+                    break;
+                } // end switch (event)
+            } // end if active
+        }  // end if read / write
+        prev = data;
+
+        if (vma || addr != 0xFFFF) {
+#if RECORD
+            Record(addr, (byte)(flags>>8), data);
+#endif // RECORD
+        }
+
+        switch (event) {
+/*
+        case 0x103f:  // SWI2 (i.e. OS9 kernel call)
+            DumpRamAndGetStuck("SWI2 event");
+            break;
+*/
+        }
+
+        // q3: Side Effects after Reading or Writing.
+        if (io) {
+
+            switch (255&addr) {
+            case 0x00:
+            case 0x01:
+            case 0x02:
+                D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
+                goto OKAY;
+            case 0x03:
+                // Read PIA0
+                D("= PIA0: %04x %c\n", addr, reading? 'r': 'w');
+                if (not reading) {
+                    vsync_irq_enabled = bool ((data&1) != 0);
+                }
+                goto OKAY;
+
+            case 0x90: // GIME INIT0
+                if (not reading) {
+                    gime_irq_enabled = bool((data & 0x20) != 0);
+                }
+                goto OKAY;
+
+            case 0x92: // GIME IRQEN
+                if (not reading) {
+                    gime_vsync_irq_enabled = bool((data & 0x08) != 0);
+                }
+                goto OKAY;
+
+            case 255&(ACIA_PORT+0): // control port
+                if (reading) {  // reading control prot
+                    {}
+                } else { // writing control port:
+                    if ((data & 0x03) != 0) {
+                      acia_irq_enabled = false;
+                    }
+
+                    if ((data & 0x80) != 0) {
+                      acia_irq_enabled = true;
+                    } else {
+                      acia_irq_enabled = false;
+                    }
+                }
+                goto OKAY;
+
+            case 255&(ACIA_PORT+1): // data port
+                if (reading) {  // reading data prot
+                } else { // writing data port:
+                    putbyte(C_PUTCHAR);
+                    putbyte(data);
+                }
+                goto OKAY;
+
+            case 255&(BLOCK_PORT+0): // Save params for Disk.
+            case 255&(BLOCK_PORT+1):
+            case 255&(BLOCK_PORT+2):
+            case 255&(BLOCK_PORT+3):
+            case 255&(BLOCK_PORT+4):
+            case 255&(BLOCK_PORT+5):
+            case 255&(BLOCK_PORT+6):
+                Q("-BLOCK %x %x %x\n", addr, data, Peek(addr));
+                goto OKAY;
+            case 255&(BLOCK_PORT+7): // Run Disk Command.
+                if (!reading) {
+                    byte command = Peek(BLOCK_PORT + 0);
+
+                    Q("-NANDO %x %x %x\n", addr, data, Peek(data));
+                    Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
+                        Peek(BLOCK_PORT + 1),
+                        Peek2(BLOCK_PORT + 2),
+                        Peek2(BLOCK_PORT + 4),
+                        command);
+
+                    uint lsn = Peek2(BLOCK_PORT + 2);
+                    byte* dp = Disk + 256*lsn;
+                    uint buffer = Peek2(BLOCK_PORT + 4);
+
+                    Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer, command);
+
+                    switch (command) {
+                    case 0: // Disk Read
+                        for (uint k = 0; k < 256; k++) {
+                            Poke(buffer+k, dp[k]);
+                        }
+                        goto OKAY;
+                    case 1: // Disk Write
+                        for (uint k = 0; k < 256; k++) {
+                            dp[k] = Peek(buffer+k);
+                        }
+                        goto OKAY;
+                    default: {
+                        printf("\nwut command %d.\n", command);
+                        DumpRamAndGetStuck("wut");
+                        }
+                    }
+                }
+                goto OKAY;
+
+            case 255&(EMUDSK_PORT+0): // LSN(hi)
+            case 255&(EMUDSK_PORT+1): // LSN(mid)
+            case 255&(EMUDSK_PORT+2): // LSN(lo)
+            case 255&(EMUDSK_PORT+4): // buffer addr
+            case 255&(EMUDSK_PORT+5):
+            case 255&(EMUDSK_PORT+6): // drive number
+                Q("-EMUDSK %x %x %x\n", addr, data, Peek(addr));
+                goto OKAY;
+            case 255&(EMUDSK_PORT+3): // Run EMUDSK Command.
+                if (!reading) {
+                    byte command = data;
+
+                    Q("-NANDO %x %x %x\n", addr, data, Peek(data));
+                    Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
+                        Peek(EMUDSK_PORT + 0),
+                        Peek2(EMUDSK_PORT + 1),
+                        Peek2(EMUDSK_PORT + 4),
+                        command);
+
+                    uint lsn = Peek2(EMUDSK_PORT + 1);
+                    byte* dp = Disk + 256*lsn;
+                    uint buffer = Peek2(EMUDSK_PORT + 4);
+
+                    Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer, command);
+
+                    switch (command) {
+                    case 0: // Disk Read
+                        for (uint k = 0; k < 256; k++) {
+                            Poke(buffer+k, dp[k]);
+                        }
+                        goto OKAY;
+                    case 1: // Disk Write
+                        for (uint k = 0; k < 256; k++) {
+                            dp[k] = Peek(buffer+k);
+                        }
+                        goto OKAY;
+                    default:
+                        printf("\nwut emudsk command %d.\n", command);
+                        DumpRamAndGetStuck("wut emudsk");
+                    }
+                }
+                goto OKAY;
+
+            case 0xFF & (TFR_RTC_BASE+1):
+                switch (data) {
+                  case 0: rtc_value = 0; break; // Sec
+                  case 1: rtc_value = 3; break; // Sec (10)
+                  case 2: rtc_value = 5; break; // Min
+                  case 3: rtc_value = 1; break; // Min (10)
+
+                  case 4: rtc_value = 2; break; // Hour
+                  case 5: rtc_value = 1; break; // Hour (10)
+
+                  case 6: rtc_value = 5; break; // Day of month
+                  case 7: rtc_value = 2; break; // Day of month (10)
+
+                  case 8: rtc_value = 2; break; // Month 1-12
+                  case 9: rtc_value = 1; break; // Month (10)
+
+                  case 10: rtc_value = 4; break;  // Year - 1900
+                  case 11: rtc_value = 2; break;  // (10)
+                  case 12: rtc_value = 1; break;  // (100)
+
+                  default: rtc_value = data; break;
+                }
+                goto OKAY;
+                
+            default: {}
+            }
+            D("--- IOPAGE %s: addr %x flags %x data %x\n", reading? "READ": "WRITE", addr, flags, data);
+        }
+OKAY:
+
+        vma = 0 != (flags & F_AVMA);   // AVMA bit means next cycle is Valid
+        fic = 0 != (flags & F_LIC); // LIC bit means next cycle is First Instruction Cycle
+
+        {
+            static bool prev_irq_needed;
+            bool irq_needed =
+                (vsync_irq_enabled && vsync_irq_firing)
+                || (acia_irq_enabled && acia_irq_firing)
+                || (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing)
+                ;
+
+            if (irq_needed != prev_irq_needed) {
+                PutIrq(irq_needed);
+                prev_irq_needed = irq_needed;
+            }
+        }
+    } // next cy
+
+    // BOTTOM
 }

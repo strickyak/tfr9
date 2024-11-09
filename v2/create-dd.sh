@@ -43,13 +43,15 @@ bye
 cat >/tmp/tfr.startup <<~~~~
 basic09
 e
-10 x = 0
-20 for j=1 to 20
+10 for j=1 to 20
+20 x = 0
 50 print "{";
-110 FOR I=0 to 100
+110 FOR I=0 to 300
 120 x = x + i
 130 next i
 140 print "}"
+210 FOR z=0 to 300
+230 next z
 900 next j
 q
 run
