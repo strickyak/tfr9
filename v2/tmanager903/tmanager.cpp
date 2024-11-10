@@ -1659,10 +1659,10 @@ void HandleTwo() {
             if (likely(addr < 0xFE00)) {
                 if (reading) {
                     PUT(0x00FF);        // pindirs: outputs
-                    PUT(Peek(addr));    // pins
+                    PUT(FastPeek(addr));    // pins
                     PUT(0x0000);        // pindirs
                 } else {
-                    Poke(addr, WAIT_GET());
+                    FastPoke(addr, WAIT_GET());
                 }  // end if reading
 
             } else if (addr == 0xFFFF) {

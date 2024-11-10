@@ -55,8 +55,10 @@ class BigRam {
     constexpr static bool enable_mmu = true;
 #endif
     byte current_task;
+    uint* current_bases;
 
-    byte mmu[8][2];
+    uint base[2][8];
+    byte mmu[2][8];
 
   public:
     void Reset() {
@@ -80,7 +82,7 @@ class BigRam {
     /*
         for (uint task = 0; task < 2; task++) {
             for (uint slot = 0; slot < 8; slot++) {
-                mmu[slot][task] = 0x38 + slot;
+                mmu[task][slot] = 0x38 + slot;
             }
         }
         */
@@ -102,11 +104,13 @@ class BigRam {
             RP("COCO3: Now Task is %u\n", a);
         }
         current_task = a;
+        current_bases = base[a];
     }
-    void WriteMmu(byte task, byte slot, byte data) {
-        RP("WriteMmu: task %x slot %x data %02x\n",
-                task, slot, data);
-        mmu[slot][task] = data;
+    void WriteMmu(byte task, byte slot, byte blk) {
+        RP("WriteMmu: task %x slot %x blk %02x\n",
+                task, slot, blk);
+        mmu[task][slot] = blk;
+        base[task][slot] = (blk << SLOT_SHIFT) & RAM_MASK;
     }
     uint Block(uint addr) {
 #define DETERMINE_BLOCK \
@@ -114,11 +118,12 @@ class BigRam {
         uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK; \
         uint offset = addr & OFFSET_MASK; \
         bool use_mmu = enable_mmu && (addr < 0xFE00); \
-        uint block = (use_mmu) ? mmu[slot][current_task] : 0x38 + slot;
+        uint block = (use_mmu) ? mmu[current_task][slot] : 0x38 + slot;
 
         DETERMINE_BLOCK
         return block;
     }
+    // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
     uint Phys(uint addr) {
         DETERMINE_BLOCK
 
@@ -135,10 +140,36 @@ class BigRam {
 
         return phys;
     }
+    // ==============================================
+    uint FastPhys(uint addr) {
+        uint offset = addr & OFFSET_MASK;
+        uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
+        uint basis = current_bases[slot];
+        uint phys = (basis | offset) & RAM_MASK;
+
+        return phys;
+    }
+    force_inline uint FastPhys(uint addr, byte block) {
+        uint offset = addr & OFFSET_MASK;
+        uint basis = current_bases[block];
+        uint phys = (basis | offset) & RAM_MASK;
+
+        return phys;
+    }
+    // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     byte Read(uint addr) {
         uint phys = Phys(addr);
         return ram[phys];
     }
+    byte FastRead(uint addr) {
+        //uint phys = Phys(addr);
+        uint phys2 = FastPhys(addr);
+        //if (phys != phys2) {
+            //printf("DIFFERENT(%x) %x vs %x\n", addr, phys, phys2);
+        //}
+        return ram[phys2];
+    }
+    // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     force_inline void Write(uint addr, byte data, byte block) {
         uint phys = Phys(addr, block);
         ram[phys] = data;
@@ -231,6 +262,52 @@ class BigRam {
             } // switch
         } // if
     } // Write
+    void FastWrite(uint addr, byte data) {
+        uint phys = FastPhys(addr);
+        ram[phys] = data;
+
+#if ALL_POKES
+                putbyte(C_POKE);
+                // putbyte(the_ram.Block(addr));
+                putbyte(phys >> 16);
+                putbyte(phys >> 8);
+                putbyte(phys);
+                putbyte(data);
+#endif
+
+        if ((addr & 0xFFC0) == 0xFF80) {
+            switch (addr & 0x00FF) {
+                case 0x90:
+                  this->SetEnableMmu((data & 0x40) != 0);
+                  break;
+                case 0x91:
+                  this->SetCurrentTask(data & 1);
+                  break;
+                case 0xA0:
+                case 0xA1:
+                case 0xA2:
+                case 0xA3:
+                case 0xA4:
+                case 0xA5:
+                case 0xA6:
+                case 0xA7:
+                case 0xA8:
+                case 0xA9:
+                case 0xAA:
+                case 0xAB:
+                case 0xAC:
+                case 0xAD:
+                case 0xAE:
+                case 0xAF:
+                    {
+                        byte task = (addr >> 3) & 1;
+                        byte slot = addr & 7;
+                        this->WriteMmu(task, slot, data);
+                    }
+                    break;
+            } // switch
+        } // if
+    } // FastWrite
     byte ReadPhys(uint addr) {
         return ram[addr];
     }
@@ -249,12 +326,18 @@ typedef BigRam Ram;
 
 Ram the_ram;
 
+force_inline byte FastPeek(uint addr) {
+    return the_ram.FastRead(addr);
+}
 force_inline byte Peek(uint addr) {
     return the_ram.Read(addr);
 }
 
 force_inline void Poke(uint addr, byte data) {
     the_ram.Write(addr, data);
+}
+force_inline void FastPoke(uint addr, byte data) {
+    the_ram.FastWrite(addr, data);
 }
 
 force_inline void Poke(uint addr, byte data, byte block) {
