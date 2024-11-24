@@ -19,3 +19,4 @@ generated/
 *.gen.d
 *.gen.h
 *.gen.sh
+build-*/
