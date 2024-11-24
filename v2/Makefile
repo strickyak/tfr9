@@ -25,6 +25,11 @@ _n9drivers_:
 	python3 binary-header-generator.py n9drivers/level1.rom > tmanager903/level1.rom.h
 	python3 binary-header-generator.py generated/level2.disk > tmanager/level2.disk.h
 	python3 binary-header-generator.py generated/level2.disk > tmanager903/level2.disk.h
-	mkdir -p build
-	cd build && cmake ../tmanager903
-	make -C build
+	:
+	mkdir -p build-wifi-scanner
+	cd build-wifi-scanner && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../wifi-scanner/ -D'PICO_BOARD=pico_w'
+	cd build-wifi-scanner && make
+	:
+	mkdir -p build-tmanager903
+	cd build-tmanager903 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../tmanager903 -D'PICO_BOARD=pico_w'
+	cd build-tmanager903 && make

@@ -33,11 +33,11 @@
 .program tpio
 .side_set 5
                                              ; ENTRY
-    pull block     side 28 ; P1 + None
-    out pindirs,21 side 28 ; P1 + None       ; initialize Pin Dirs
+    ;;pull block     side 28 ; P1 + None
+    ;;out pindirs,21 side 28 ; P1 + None       ; initialize Pin Dirs
 
-    pull block     side 24 ; P1 + RecvAddr
-    out pins,21    side 24 ; P1 + RecvAddr   ; initialize Pins
+    ;;pull block     side 24 ; P1 + RecvAddr
+    ;;out pins,21    side 24 ; P1 + RecvAddr   ; initialize Pins
 
 .wrap_target                                 ; BEGIN LOOP
 top:
