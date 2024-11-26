@@ -1568,7 +1568,15 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
                     } // post switch
 }
 
+void LAMBDA_DEMO() {
+    using F = void(*)(int cy);
+    F foo = [&rtc_value](int goose) { printf("\n LAMBDA_DEMO %d %d\n", goose, rtc_value); };
+    foo(404);
+}
+
 void HandleTwo() {
+    LAMBDA_DEMO();
+
     // TOP
     const PIO pio = pio0;
     constexpr uint sm = 0;
