@@ -14,6 +14,8 @@
 
 #include <stdio.h>
 
+#include <functional>
+
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
@@ -1569,8 +1571,9 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
 }
 
 void LAMBDA_DEMO() {
-    using F = void(*)(int cy);
-    F foo = [&rtc_value](int goose) { printf("\n LAMBDA_DEMO %d %d\n", goose, rtc_value); };
+    unsigned int rdu = 919;
+    using F = std::function< void(int cy) >;
+    F foo = [&rdu](int goose) { printf("\n LAMBDA_DEMO %d %d\n", goose, rdu); };
     foo(404);
 }
 
