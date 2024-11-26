@@ -19,7 +19,7 @@
 #define ATTENTION_SPAN 25 // was 250
 #define TICK_MASK 0xFF   // one less than a power of two
 
-#define CONSOLE_PORT 0xFF50
+///// #define CONSOLE_PORT 0xFF50
 #define DISK_PORT 0xFF58
 #define D if(1) if(1)printf
 #define P if(1) if(0)printf

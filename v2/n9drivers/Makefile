@@ -33,12 +33,12 @@ level$Lprelude.raw: level$Lprelude.asm
 
 _ROM1_: _FORCE_
 	sh boot-rom-maker.sh
-	python3 ../binary-header-generator.py level1.rom > ../tmanager/level1.rom.h
+	python3 ../binary-header-generator.py level1.rom > ../tmanager901/level1.rom.h
 	python3 ../binary-header-generator.py level1.rom > ../tmanager903/level1.rom.h
 
 _ROM2_: _FORCE_
 	sh boot-two-maker-level2.sh
-	python3 ../binary-header-generator.py _level2.track35 > ../tmanager/level2.rom.h
+	python3 ../binary-header-generator.py _level2.track35 > ../tmanager901/level2.rom.h
 	python3 ../binary-header-generator.py _level2.track35 > ../tmanager903/level2.rom.h
 
 clean:

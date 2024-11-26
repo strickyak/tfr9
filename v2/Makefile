@@ -9,10 +9,10 @@ _GENERATED_FILES_:
 	mkdir -p generated
 	python3 tfr9ports.py
 	sh create-dd.sh generated/level1.disk
-	python3 binary-header-generator.py generated/level1.disk > tmanager/level1.disk.h
+	python3 binary-header-generator.py generated/level1.disk > tmanager901/level1.disk.h
 	python3 binary-header-generator.py generated/level1.disk > tmanager903/level1.disk.h
 	sh create-dd.sh generated/level2.disk
-	python3 binary-header-generator.py generated/level2.disk > tmanager/level2.disk.h
+	python3 binary-header-generator.py generated/level2.disk > tmanager901/level2.disk.h
 	python3 binary-header-generator.py generated/level2.disk > tmanager903/level2.disk.h
 
 #	#python3 binary-header-generator.py $(ROM_BASIC) $(ROM_XBASIC) > generated/rom-basic16k.h 
@@ -21,14 +21,18 @@ _GENERATED_FILES_:
 
 _n9drivers_:
 	make -C n9drivers
-	python3 binary-header-generator.py n9drivers/level1.rom > tmanager/level1.rom.h
+	python3 binary-header-generator.py n9drivers/level1.rom > tmanager901/level1.rom.h
 	python3 binary-header-generator.py n9drivers/level1.rom > tmanager903/level1.rom.h
-	python3 binary-header-generator.py generated/level2.disk > tmanager/level2.disk.h
+	python3 binary-header-generator.py generated/level2.disk > tmanager901/level2.disk.h
 	python3 binary-header-generator.py generated/level2.disk > tmanager903/level2.disk.h
 	:
 	mkdir -p build-wifi-scanner
 	cd build-wifi-scanner && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../wifi-scanner/ -D'PICO_BOARD=pico_w'
 	cd build-wifi-scanner && make
+	:
+	mkdir -p build-tmanager901
+	cd build-tmanager901 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../tmanager901 -D'PICO_BOARD=pico'
+	cd build-tmanager901 && make
 	:
 	mkdir -p build-tmanager903
 	cd build-tmanager903 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../tmanager903 -D'PICO_BOARD=pico_w'

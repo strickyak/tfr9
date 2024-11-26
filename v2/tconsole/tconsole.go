@@ -595,13 +595,16 @@ func Run(files DiskFiles, inkey chan byte) {
 						if ch == '{' {
 							remember = time.Now().UnixMicro()
 						}
+						if ch == '@' {
+							timer_sum, timer_count = 0, 0
+						}
 						if ch == '}' {
 							now := time.Now().UnixMicro()
 							micros := now - remember
 							fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
 							timer_sum += micros
 							timer_count++
-							fmt.Printf(" %.6f]", float64(timer_sum)/1000000.0/float64(timer_count))
+							fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
 						}
 					case ch == 13:
 						fmt.Println()

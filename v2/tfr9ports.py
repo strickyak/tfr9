@@ -18,7 +18,7 @@ if __name__ == '__main__':
         for k, v in sorted(defs.items()):
             print('%-20s equ $%04x' % (k, v), file=w)
 
-    with open('tmanager/tfr9ports.gen.h', 'w') as w:
+    with open('tmanager901/tfr9ports.gen.h', 'w') as w:
         for k, v in sorted(defs.items()):
             print('#define %-20s 0x%04x' % (k, v), file=w)
 
