@@ -36,34 +36,36 @@
 
 .wrap_target                                 ; BEGIN LOOP
 top:
+    nop             side 24 ; P1 + RecvAddr    ; must      XXX
+    nop             side 24 ; P1 + RecvAddr    ; must      XXX
     nop             side 24 ; P1 + RecvAddr    ; must
     nop             side 24 ; P1 + RecvAddr        ; 
-    in  pins, 16    side 24 ; P1 + RecvAddr  ; Read Address
+    in  pins, 16    side 26 ; P2 + RecvAddr  ; Read Address
+    nop             side 22 ; P2 + RecvData      XXX
     nop             side 22 ; P2 + RecvData
-    nop             side 22 ; P2 + RecvData        ; 
-    in  pins, 16    side 23 ;<- 22,23 ; P2 + RecvData  ; Read Data
+    nop             side 23 ; P3 + RecvData        ; 
+    in  pins, 16    side 23 ; P2 + RecvData  ; Read Data
     jmp pin, read   side 23 ; P3 + RecvData
 
 ; CPU write PICO rx                          ; IF WRITE CYCLE (Receiving from CPU)
-  nop             side 21 ; P1 + RecvAddr    ; must
+  nop             side 21 ; P4 + RecvAddr    ; must
     in pins, 16     side 21 ; P4 + RecvData    ; Receive accurate data.
-  nop             side 24 ; P1 + RecvAddr    ; must
-    jmp top         side 24 ; P1 + RecvAddr
+  nop             side 24 ; P4 + RecvAddr    ; must
+    jmp top         side 24 ; P4 + RecvAddr
 
 read:                                        ; ELSE READ CYCLE (Sending to CPU)
+    nop  side 21 ; P4 + RecvData  ; change Data Pins to output                  XXX
     out pindirs,16  side 21 ; P4 + RecvData  ; change Data Pins to output
+    nop     side 5 ;  P4 + SendData  ; output the data.                  XXX
     out pins,16     side 5 ;  P4 + SendData  ; output the data.
-    nop      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.
+    nop      side 4;;;5 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
+    nop      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
     out pindirs,16  side 4;;;;;24 ; P1 + RecvAddr  ; change Data Pins to inputs
 .wrap                                        ; REPEAT LOOP
 
 % c-sdk {
 
-// CLOCK DIVISOR: 16.0 was very reliable.  Stops getting faster at 8.  Breaks at 4.
-// 16 -> 30.5; 14 -> 28.2; 12 -> 26.2; 10 -> 24.2; 8,6,5 -> 22.5; 4 -> Broke.
-//        ( constant pre-roll overhead about 6 sec )
-
-#define CLOCK_DIVISOR 3.0 // 6.0
+#define CLOCK_DIVISOR 2
 
 void tpio_program_init(PIO pio, uint sm, uint offset) {
    //
