@@ -83,7 +83,7 @@ run
 # echo One Two Three
 # ~~~~
 
-os9 copy -l -r /tmp/tfr.startup1  "$D",startup
+os9 copy -l -r /tmp/tfr.startup2  "$D",startup
 # os9 del "$D",startup
 
 os9 copy -r $HOME/NEW/nitros9/level2/coco3/cmds/basic09   "$D",CMDS/basic09
@@ -109,3 +109,7 @@ os9 attr -r -w -e -pr -pe "$D",cmds/mfree
 # startup2: 98.*99.}[0.707397 : 30 :  0.707322]
 # startup2: 98.*99.}[0.707461 : 30 :  0.707289]
 
+# Wed Nov 27 11:24:17 PM EST 2024
+# 98.*99.}[0.695263 : 30 :  0.695987]
+# 98.*99.}[0.695661 : 30 :  0.695961]
+# 98.*99.}[0.695299 : 60 :  0.695804]

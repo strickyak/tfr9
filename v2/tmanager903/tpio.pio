@@ -33,11 +33,6 @@
 .program tpio
 .side_set 5
                                              ; ENTRY
-    ;;pull block     side 28 ; P1 + None
-    ;;out pindirs,21 side 28 ; P1 + None       ; initialize Pin Dirs
-
-    ;;pull block     side 24 ; P1 + RecvAddr
-    ;;out pins,21    side 24 ; P1 + RecvAddr   ; initialize Pins
 
 .wrap_target                                 ; BEGIN LOOP
 top:
@@ -56,11 +51,9 @@ top:
     jmp top         side 24 ; P1 + RecvAddr
 
 read:                                        ; ELSE READ CYCLE (Sending to CPU)
-    pull block      side 21 ; P4 + RecvData
     out pindirs,16  side 21 ; P4 + RecvData  ; change Data Pins to output
-    pull block      side 5 ;  P4 + SendData
     out pins,16     side 5 ;  P4 + SendData  ; output the data.
-    pull block      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.
+    nop      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.
     out pindirs,16  side 4;;;;;24 ; P1 + RecvAddr  ; change Data Pins to inputs
 .wrap                                        ; REPEAT LOOP
 
@@ -98,8 +91,8 @@ void tpio_program_init(PIO pio, uint sm, uint offset) {
 
    // OUT: Shift to right, don't autopull, threshold 29
    const bool OUT_SHIFT_RIGHT = true;
-   const bool AUTOPULL = false;
-   const uint PULL_THRESHOLD = 29;
+   const bool AUTOPULL = true;
+   const uint PULL_THRESHOLD = 16;
    sm_config_set_out_shift(&cf, OUT_SHIFT_RIGHT, AUTOPULL, PULL_THRESHOLD);
 
    pio_sm_init(pio, sm, offset, &cf);
