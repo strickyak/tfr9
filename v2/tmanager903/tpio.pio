@@ -36,9 +36,9 @@
 
 .wrap_target                                 ; BEGIN LOOP
 top:
-    nop             side 24 ; P1 + RecvAddr    ; must      XXX
-    nop             side 24 ; P1 + RecvAddr    ; must      XXX
-    nop             side 24 ; P1 + RecvAddr    ; must
+    nop             side 24 ; P1 + RecvAddr    ; 
+    nop             side 24 ; P1 + RecvAddr    ; 
+    nop             side 24 ; P1 + RecvAddr    ; 
     nop             side 24 ; P1 + RecvAddr        ; 
     in  pins, 16    side 26 ; P2 + RecvAddr  ; Read Address
     nop             side 22 ; P2 + RecvData      XXX
@@ -54,12 +54,12 @@ top:
     jmp top         side 24 ; P4 + RecvAddr
 
 read:                                        ; ELSE READ CYCLE (Sending to CPU)
-    nop  side 21 ; P4 + RecvData  ; change Data Pins to output                  XXX
+    pull block  side 21 ; P4 + RecvData  ; change Data Pins to output                  XXX
     out pindirs,16  side 21 ; P4 + RecvData  ; change Data Pins to output
-    nop     side 5 ;  P4 + SendData  ; output the data.                  XXX
+    pull block     side 5 ;  P4 + SendData  ; output the data.                  XXX
     out pins,16     side 5 ;  P4 + SendData  ; output the data.
     nop      side 4;;;5 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
-    nop      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
+    pull block      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
     out pindirs,16  side 4;;;;;24 ; P1 + RecvAddr  ; change Data Pins to inputs
 .wrap                                        ; REPEAT LOOP
 
@@ -93,7 +93,7 @@ void tpio_program_init(PIO pio, uint sm, uint offset) {
 
    // OUT: Shift to right, don't autopull, threshold 29
    const bool OUT_SHIFT_RIGHT = true;
-   const bool AUTOPULL = true;
+   const bool AUTOPULL = false;
    const uint PULL_THRESHOLD = 16;
    sm_config_set_out_shift(&cf, OUT_SHIFT_RIGHT, AUTOPULL, PULL_THRESHOLD);
 

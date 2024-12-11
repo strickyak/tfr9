@@ -208,7 +208,7 @@ const char* HighFlags(uint high) {
 constexpr uint TRACE_SIZE = 1024;
 constexpr uint TRACE_MASK = TRACE_SIZE - 1;
 
-struct TraceRec {
+struct TraceRecord {
     word addr;
     byte block;
     byte flags;
@@ -1577,16 +1577,9 @@ void LAMBDA_DEMO() {
     foo(404);
 }
 
-void HandleTwo() {
-    LAMBDA_DEMO();
-
-    // TOP
-    const PIO pio = pio0;
-    constexpr uint sm = 0;
-
     CircBuf usb_input;
 
-    byte data;
+    uint data;
     bool vma = false; // Valid Memory Address ( = delayed AVMA )
     uint num_resets = 0;
     uint event = 0;
@@ -1596,7 +1589,16 @@ void HandleTwo() {
     //PUT(0x1F0000);  // 0:15 inputs; 16:21 outputs.
     //PUT(0x000000);  // Data to put.
 
+
+void HandleTwo() {
     uint cy = 0;
+
+    // LAMBDA_DEMO();
+
+    // TOP
+    const PIO pio = pio0;
+    constexpr uint sm = 0;
+
 
     while (true) {
 

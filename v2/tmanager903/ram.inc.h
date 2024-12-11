@@ -124,7 +124,7 @@ class BigRam {
         return block;
     }
     // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-    uint Phys(uint addr) {
+    force_inline uint Phys(uint addr) {
         DETERMINE_BLOCK
 
         uint pre_phys = ((block << SLOT_SHIFT) | offset);
@@ -141,7 +141,7 @@ class BigRam {
         return phys;
     }
     // ==============================================
-    uint FastPhys(uint addr) {
+    force_inline uint FastPhys(uint addr) {
         uint offset = addr & OFFSET_MASK;
         uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
         uint basis = current_bases[slot];
@@ -157,11 +157,11 @@ class BigRam {
         return phys;
     }
     // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    byte Read(uint addr) {
+    force_inline byte Read(uint addr) {
         uint phys = Phys(addr);
         return ram[phys];
     }
-    byte FastRead(uint addr) {
+    force_inline byte FastRead(uint addr) {
         //uint phys = Phys(addr);
         uint phys2 = FastPhys(addr);
         //if (phys != phys2) {
