@@ -27,13 +27,21 @@ class SmallRam {
   public:
     void Reset() {}
     byte Read(uint addr) {
+        printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
         return ram[addr & 0xFFFF];
     }
-    void Write(uint addr, byte data) {
+    void Write(uint addr, byte data, byte block=0) {
+        printf("write %x <- %x\n", addr, data);
         ram[addr & 0xFFFF] = data;
     }
+    byte FastRead(uint addr) {
+        return Read(addr);
+    }
+    void FastWrite(uint addr, byte data) {
+        Write(addr, data);
+    }
     byte ReadPhys(uint addr) {
-        return ram[addr & 0xFFFF];
+        return Read(addr);
     }
     uint PhysSize() { return sizeof ram; }
 };
