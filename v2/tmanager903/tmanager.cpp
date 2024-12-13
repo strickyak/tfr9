@@ -1,9 +1,9 @@
 #define FOR_BASIC 0
-#define TRACKING 0
+#define TRACKING 1
 #define SEEN 0
 // #define EVENT 0
 #define RECORD 0
-#define ALL_POKES 0
+#define ALL_POKES 1
 #define  BORING_SWI2S  9999999 // 200 // 160
 
 #define REQUIRED 0
@@ -933,18 +933,11 @@ void HandleTwo() {
 
     PreRoll();
 
-#if N9_LEVEL == 1
      const byte value_FFFF = Peek(0xFFFF);
-#endif
-#if N9_LEVEL == 2
-     const byte value_FFFF = Peek(0xFFFF);
-     assert(value_FFFF == 2);
-#endif
     printf("value_FFFF = %x\n", value_FFFF);
 
     while (true) {
 #if TRACKING
-        D(" [W] ");
             interest = 999;
 #endif
 
@@ -1027,7 +1020,6 @@ void HandleTwo() {
             for (uint loop = 0; loop < 256; loop++) {
 
 #if TRACKING
-        D(" [F] ");
             interest = 999;
 #endif
 
@@ -1040,8 +1032,15 @@ void HandleTwo() {
                     PUT(0x00FF);        // pindirs: outputs
                     PUT(FastPeek(addr));    // pins
                     PUT(0x0000);        // pindirs
+#if TRACKING
+                    data = FastPeek(addr);
+#endif
                 } else {
-                    FastPoke(addr, WAIT_GET());
+                    const byte foo = WAIT_GET();
+                    FastPoke(addr, foo);
+#if TRACKING
+                    data = foo;
+#endif
                 }  // end if reading
 
             } else if (addr == 0xFFFF) {
@@ -1049,8 +1048,15 @@ void HandleTwo() {
                     PUT(0x00FF);        // pindirs: outputs
                     PUT(value_FFFF);          // pins
                     PUT(0x0000);        // pindirs
+#if TRACKING
+                    data = value_FFFF;
+#endif
                 } else {
-                    (void) WAIT_GET();
+                    const byte foo = WAIT_GET();
+                    (void) foo;
+#if TRACKING
+                    data = foo;
+#endif
                 }
 
             } else if (addr < 0xFF00) {
@@ -1058,8 +1064,15 @@ void HandleTwo() {
                     PUT(0x00FF);        // pindirs: outputs
                     PUT(Peek(addr));    // pins
                     PUT(0x0000);        // pindirs
+#if TRACKING
+                    data = Peek(addr);
+#endif
                 } else {
-                    Poke(addr, WAIT_GET(), 0x3F);
+                    const byte foo = WAIT_GET();
+                    Poke(addr, foo, 0x3F);
+#if TRACKING
+                    data = foo;
+#endif
                 }  // end if reading
 
             } else {
