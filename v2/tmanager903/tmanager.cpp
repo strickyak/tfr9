@@ -1244,7 +1244,7 @@ void HandleTwo() {
           if (fic) {
             label = "@";
 #if SEEN
-            if (Seen[addr]) {
+            if (not Seen[addr]) {
               label = "@@";
             }
 #endif
