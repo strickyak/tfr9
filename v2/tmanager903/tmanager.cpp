@@ -1,6 +1,6 @@
 #define FOR_BASIC 0
 #define TRACKING 1
-#define SEEN 0
+#define SEEN 1
 // #define EVENT 0
 #define RECORD 0
 #define ALL_POKES 1
@@ -114,10 +114,6 @@ byte Disk[] = {
 #endif
 };
 
-#if SEEN
-byte Seen[0x10000];
-#endif
-
 #define LEVEL1_PRELUDE_START (0xFF00 - 32)
 
 uint FFFxVectors[] = {
@@ -202,6 +198,29 @@ const char* HighFlags(uint high) {
     *p = '\0';
     return high_buf;
 }
+
+#if SEEN
+class Bitmap64K {
+    const static uint SZ = (1u<<16);
+
+  public:
+    byte guts[SZ >> 3];
+
+    bool operator[] (uint i) const {
+        i &= (SZ-1);
+        byte mask = 1 << (i&7);
+        uint sub = i >> 3;
+        return (0 != (mask & guts[i]));
+    }
+    void Insert(uint i) {
+        i &= (SZ-1);
+        byte mask = 1 << (i&7);
+        uint sub = i >> 3;
+        guts[i] |= mask;
+    }
+
+} Seen;
+#endif
 
 #if RECORD
 constexpr uint TRACE_SIZE = 1024;
@@ -1183,11 +1202,7 @@ void HandleTwo() {
                 active = 1;
             }
 #if SEEN
-            if (fic) {
-                if (!Seen[addr]) {
-                    Seen[addr] = 1;
-                }
-            }
+            if (fic) { Seen.Insert(addr); }
 #endif
 
         vma = (0 != (flags & F_AVMA));
@@ -1499,11 +1514,7 @@ void HandlePio(uint num_cycles, uint krn_entry) {
                 active = 1;
             }
 #if SEEN
-            if (fic) {
-                if (!Seen[addr]) {
-                    Seen[addr] = 1;
-                }
-            }
+            if (fic) { Seen.Insert(addr); }
 #endif
 
 #if REQUIRED
