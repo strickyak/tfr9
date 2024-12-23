@@ -153,6 +153,9 @@ class BigRam {
     return phys;
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  byte GetPhys(uint phys_addr) {
+    return ram[phys_addr];
+  }
   force_inline byte Read(uint addr) {
     uint phys = Phys(addr);
     return ram[phys];
@@ -210,6 +213,12 @@ class BigRam {
       }  // switch
     }    // if
   }      // Write
+#if 0
+  force_inline void WriteQuietly(uint addr, byte data) {
+    uint phys = Phys(addr);
+    ram[phys] = data;
+  }
+#endif
   void Write(uint addr, byte data) {
     uint phys = Phys(addr);
     ram[phys] = data;
@@ -316,6 +325,9 @@ force_inline byte FastPeek(uint addr) { return the_ram.FastRead(addr); }
 force_inline byte Peek(uint addr) { return the_ram.Read(addr); }
 
 force_inline void Poke(uint addr, byte data) { the_ram.Write(addr, data); }
+#if 0
+force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr, data); }
+#endif
 force_inline void FastPoke(uint addr, byte data) {
   the_ram.FastWrite(addr, data);
 }

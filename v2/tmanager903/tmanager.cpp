@@ -1,9 +1,9 @@
 #define FOR_BASIC 0
-#define TRACKING 1
+#define TRACKING 0
 #define SEEN 1
 // #define EVENT 0
 #define RECORD 0
-#define ALL_POKES 1
+#define ALL_POKES 0
 #define BORING_SWI2S 9999999  // 200 // 160
 
 #define REQUIRED 0
@@ -117,7 +117,7 @@ byte Disk[] = {
 #include "level1.disk.h"
 #endif
 #if N9_LEVEL == 2
-#include "level2.disk.h"
+// #include "level2.disk.h"
 #endif
 };
 
@@ -162,6 +162,8 @@ enum {
   C_DUMP_PHYS = 170,
   C_POKE = 171,
   C_EVENT = 172,
+  C_DISK_READ = 173,
+  C_DISK_WRITE = 174,
   //
   EVENT_PC_M8 = 238,
   EVENT_GIME = 239,
@@ -193,6 +195,10 @@ const byte IRQ_BAR_PIN = 22;    // negative logic
 
 #include "ram.inc.h"
 
+extern "C" {
+extern int stdio_usb_in_chars(char* buf, int length);
+}
+
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) { putchar_raw(x); }
 
@@ -220,13 +226,13 @@ class Bitmap64K {
     i &= (SZ - 1);
     byte mask = 1 << (i & 7);
     uint sub = i >> 3;
-    return (0 != (mask & guts[i]));
+    return (0 != (mask & guts[sub]));
   }
   void Insert(uint i) {
     i &= (SZ - 1);
     byte mask = 1 << (i & 7);
     uint sub = i >> 3;
-    guts[i] |= mask;
+    guts[sub] |= mask;
   }
 
 } Seen;
@@ -573,29 +579,28 @@ bool acia_irq_firing;
 bool acia_char_in_ready;
 int acia_char;
 
+template <uint N>
 class CircBuf {
  private:
-  const static uint N = 1234;
   byte buf[N];
   uint nextIn, nextOut;
 
- public:
-  CircBuf() : nextIn(0), nextOut(0) {}
-
-  uint BytesAvailable() {
+  uint NumBytesAvailable() {
     if (nextOut <= nextIn)
       return nextIn - nextOut;
     else
       return nextIn + N - nextOut;
   }
-  bool Has(uint n) {
-    uint ba = BytesAvailable();
-    // printf("%u", ba);
+
+ public:
+  CircBuf() : nextIn(0), nextOut(0) {}
+
+  bool HasAtLeast(uint n) {
+    uint ba = NumBytesAvailable();
     return ba >= n;
   }
   byte Peek() { return buf[nextOut]; }
   byte Take() {
-    // ShowChar('~');
     byte z = buf[nextOut];
     ++nextOut;
     if (nextOut >= N) nextOut = 0;
@@ -605,7 +610,7 @@ class CircBuf {
     // ShowChar('`');
     buf[nextIn] = x;
     ++nextIn;
-    if (nextIn >= N) nextOut = 0;
+    if (nextIn >= N) nextIn = 0;
   }
 };
 
@@ -626,10 +631,6 @@ void SendEventRam(byte event, byte sz, word base_addr) {
   }
   Noisy();
 #endif  // REQUIRED
-}
-
-extern "C" {
-extern int stdio_usb_in_chars(char* buf, int length);
 }
 
 void InitRamFromRom() {
@@ -782,6 +783,68 @@ void PreRoll() {
   }
 }
 
+CircBuf<1200> usb_input;
+CircBuf<1200> term_input;
+CircBuf<1200> disk_input;
+const uint kDiskReadSize = 1 + 4 + 256;
+
+bool TryGetUsbByte(char* ptr) {
+      int rc = stdio_usb_in_chars(ptr, 1);
+      return (rc != PICO_ERROR_NO_DATA);
+}
+
+bool PollDiskInput() {
+    int peek = disk_input.HasAtLeast(1) ? (int)disk_input.Peek() : -1;
+    switch (peek) {
+    case C_DISK_READ:
+        if (disk_input.HasAtLeast(kDiskReadSize)) {
+            return true;
+        }
+        break;
+    }
+    return false;
+}
+
+void PollUsbInput() {
+    while (1) {
+        char x = 0;
+        bool ok = TryGetUsbByte(&x);
+        if (ok) {
+            usb_input.Put(x);
+        } else {
+            break;
+        }
+    }
+
+    while (1) {
+        int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+        if (1 <= peek && peek <= 126) {
+            byte c = usb_input.Take();
+            assert((int)c == peek);
+            if (c == 10) {
+              c = 13;
+            }
+            term_input.Put(c);
+        } else {
+            break;
+        }
+    }
+
+    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+    switch (peek) {
+    case C_DISK_READ:
+        if (usb_input.HasAtLeast(kDiskReadSize)) {
+            for (uint i = 0; i < kDiskReadSize; i++) {
+                byte t = usb_input.Take();
+                disk_input.Put(t);
+            }
+        }
+        break;
+    }
+    return;
+}
+
+uint disk_buffer;
 byte rtc_value;
 force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
   switch (255 & addr) {
@@ -890,28 +953,52 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
         byte command = data;
 
         Q("-NANDO %x %x %x\n", addr, data, Peek(data));
-        Q("- sector $%02x.%04x bufffer $%04x diskop %x\n",
+        Q("- device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
+          Peek(EMUDSK_PORT + 6),
           Peek(EMUDSK_PORT + 0), Peek2(EMUDSK_PORT + 1), Peek2(EMUDSK_PORT + 4),
           command);
 
         uint lsn = Peek2(EMUDSK_PORT + 1);
         byte* dp = Disk + 256 * lsn;
-        uint buffer = Peek2(EMUDSK_PORT + 4);
+        disk_buffer = Peek2(EMUDSK_PORT + 4);
 
-        Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer,
+        Q("- VARS sector $%04x buffer $%04x diskop %x\n", lsn, disk_buffer,
           command);
 
         switch (command) {
           case 0:  // Disk Read
-            for (uint k = 0; k < 256; k++) {
-              Poke(buffer + k, dp[k]);
-            }
+            putbyte(C_DISK_READ);
+            putbyte(Peek(EMUDSK_PORT + 6));  // device
+            putbyte(lsn >> 16);
+            putbyte(lsn >> 8);
+            putbyte(lsn >> 0);
+
+              while (1) {
+                PollUsbInput();
+                if (PollDiskInput()) {
+                    for (uint k = 0; k < kDiskReadSize - 256; k++) {
+                        (void)disk_input.Take(); // 4-byte device & LSN.
+                    }
+                    for (uint k = 0; k < 256; k++) {
+                        Poke(disk_buffer + k, disk_input.Take());
+                    }
+                    data = 0; // Ready  
+                    break;
+                }
+              }
             break;
+
           case 1:  // Disk Write
+            putbyte(C_DISK_WRITE);
+            putbyte(Peek(EMUDSK_PORT + 6));  // device
+            putbyte(lsn >> 16);
+            putbyte(lsn >> 8);
+            putbyte(lsn >> 0);
             for (uint k = 0; k < 256; k++) {
-              dp[k] = Peek(buffer + k);
+                putbyte(Peek(disk_buffer + k));
             }
             break;
+
           default:
             printf("\nwut emudsk command %d.\n", command);
             DumpRamAndGetStuck("wut emudsk");
@@ -980,9 +1067,6 @@ void LAMBDA_DEMO() {
   foo(404);
 }
 
-// These were in HandleTwo, but it's faster if they are global.
-CircBuf usb_input;
-
 uint data;
 uint num_resets;
 uint event;
@@ -1024,28 +1108,13 @@ void HandleTwo() {
       }
     }
 
-    {
-      char just_one[1] = {0};
-      int rc = stdio_usb_in_chars(just_one, sizeof just_one);
-      (void)rc;
-
-      if (just_one[0]) {
-        usb_input.Put((byte)just_one[0]);
-      }
-    }
+    PollUsbInput();
 
     if (not acia_char_in_ready) {
-      int next = usb_input.Has(1) ? (int)usb_input.Peek() : -1;
-      if (1 <= next && next <= 126) {
-        acia_char = usb_input.Take();
-        if (acia_char == 10) {
-          acia_char = 13;
-        }
+      if (term_input.HasAtLeast(1)) {
+        acia_char = term_input.Take();
         acia_char_in_ready = true;
         acia_irq_firing = true;
-#if SHOW_TICKS
-        ShowChar('+');
-#endif
       } else {
         acia_char = 0;
         acia_char_in_ready = false;
@@ -1090,6 +1159,10 @@ void HandleTwo() {
     for (uint loop = 0; loop < 256; loop++) {
 #if TRACKING
       interest = 999;
+      const byte zed = the_ram.GetPhys(0x008D2F);
+      if (zed > 16) {
+              DumpRamAndGetStuck("(Peek(0xCD2F, 4) > 16)");
+      }
 #endif
 
       const uint addr = WAIT_GET();
@@ -1201,11 +1274,11 @@ void HandleTwo() {
               break;
 
             case 0xFF & (BLOCK_PORT + 7):  // read disk status
-              data = 1;                    // 1 is OKAY
+              // TODO
               break;
 
             case 0xFF & (EMUDSK_PORT + 3):  // read disk status
-              data = 0;                     // 0 is OKAY
+                data = 0; // always a good status.
               break;
 
             case 0xFF & (TFR_RTC_BASE + 0):
@@ -1242,6 +1315,15 @@ void HandleTwo() {
         const char* label = reading ? (vma ? "r" : "-") : "w";
         if (reading) {
           if (fic) {
+            if (addr < 0x0010) {
+                printf("(%x)\n", addr);
+                DumpRamAndGetStuck("PC too low");
+            }
+            if (addr > 0xFF00 && addr < 0xFFF0) {
+                // fic can be asserted during interrupt vector fetch.
+                printf("(%x)\n", addr);
+                DumpRamAndGetStuck("PC too high");
+            }
             label = "@";
 #if SEEN
             if (not Seen[addr]) {
