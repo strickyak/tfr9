@@ -30,9 +30,9 @@ _n9drivers_:
 	cd build-wifi-scanner && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../wifi-scanner/ -D'PICO_BOARD=pico_w'
 	cd build-wifi-scanner && make
 	:
-	mkdir -p build-tmanager901
-	cd build-tmanager901 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../tmanager901 -D'PICO_BOARD=pico'
-	cd build-tmanager901 && make
+	#mkdir -p build-tmanager901
+	#cd build-tmanager901 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../tmanager901 -D'PICO_BOARD=pico'
+	#cd build-tmanager901 && make
 	:
 	mkdir -p build-tmanager903
 	cd build-tmanager903 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../tmanager903 -D'PICO_BOARD=pico_w'

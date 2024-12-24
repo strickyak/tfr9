@@ -1,10 +1,12 @@
-#define FOR_BASIC 0
+//#define FOR_BASIC 0
+//#define BORING_SWI2S 9999999  // 200 // 160
+#define INCLUDED_DISK 0
+
 #define TRACKING 0
 #define SEEN 1
 // #define EVENT 0
 #define RECORD 0
 #define ALL_POKES 0
-#define BORING_SWI2S 9999999  // 200 // 160
 
 #define REQUIRED 0
 
@@ -112,14 +114,16 @@ const byte Rom[] = {
 #endif
 };
 
+#if INCLUDED_DISK
 byte Disk[] = {
 #if N9_LEVEL == 1
 #include "level1.disk.h"
 #endif
 #if N9_LEVEL == 2
-// #include "level2.disk.h"
+#include "level2.disk.h"
 #endif
 };
+#endif
 
 #define LEVEL1_PRELUDE_START (0xFF00 - 32)
 
@@ -897,6 +901,7 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
       }
       break;
 
+#if 0
     case 255 & (BLOCK_PORT + 0):  // Save params for Disk.
     case 255 & (BLOCK_PORT + 1):
     case 255 & (BLOCK_PORT + 2):
@@ -939,6 +944,7 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
         }
       }
       break;
+#endif
 
     case 255 & (EMUDSK_PORT + 0):  // LSN(hi)
     case 255 & (EMUDSK_PORT + 1):  // LSN(mid)
@@ -959,14 +965,21 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
           command);
 
         uint lsn = Peek2(EMUDSK_PORT + 1);
-        byte* dp = Disk + 256 * lsn;
         disk_buffer = Peek2(EMUDSK_PORT + 4);
+#if INCLUDED_DISK
+        byte* dp = Disk + 256 * lsn;
+#endif
 
         Q("- VARS sector $%04x buffer $%04x diskop %x\n", lsn, disk_buffer,
           command);
 
         switch (command) {
           case 0:  // Disk Read
+#if INCLUDED_DISK
+        for (uint k = 0; k < 256; k++) {
+            Poke(disk_buffer + k, dp[k]);
+        }
+#else
             putbyte(C_DISK_READ);
             putbyte(Peek(EMUDSK_PORT + 6));  // device
             putbyte(lsn >> 16);
@@ -986,9 +999,15 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
                     break;
                 }
               }
+#endif
             break;
 
           case 1:  // Disk Write
+#if INCLUDED_DISK
+        for (uint k = 0; k < 256; k++) {
+            dp[k] = Peek(disk_buffer + k);
+        }
+#else
             putbyte(C_DISK_WRITE);
             putbyte(Peek(EMUDSK_PORT + 6));  // device
             putbyte(lsn >> 16);
@@ -997,6 +1016,7 @@ force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
             for (uint k = 0; k < 256; k++) {
                 putbyte(Peek(disk_buffer + k));
             }
+#endif
             break;
 
           default:
@@ -1077,6 +1097,88 @@ bool vma;      // Valid Memory Address ( = delayed AVMA )
 bool fic;      // First Instruction Cycle ( = delayed LIC )
 uint next_pc;  // for multibyte ops.
 #endif
+
+void HandleIOReads(uint addr) {
+          data = Peek(addr);  // default behavior
+
+          switch (0xFF & addr) {
+            case 0x42:
+                // data = flash_data;
+                break;
+            case 0x43:
+                data = Peek(addr-1);  // return flash_data???
+                break;
+
+            // Read PIA0
+            case 0x00:
+              D("----- PIA0 Read not Impl: %x\n", addr);
+              data = 0xFF;  // say like, no key pressed
+              break;
+            case 0x01:
+              D("----- PIA0 Read not Impl: %x\n", addr);
+              DumpRamAndGetStuck("pia0");
+              break;
+            case 0x02:
+              Poke(0xFF03,
+                   Peek(0xFF03) &
+                       0x7F);  // Clear the bit indicating VSYNC occurred.
+              vsync_irq_firing = false;
+              data = 0xFF;
+              break;
+            case 0x03:
+              // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
+              break;
+
+            case 0x92:  // GIME IRQEN register
+            {
+              if (gime_irq_enabled && gime_vsync_irq_enabled &&
+                  gime_vsync_irq_firing) {
+                data = 0x08;
+                gime_vsync_irq_firing =
+                    false;  // Reading this register clears the IRQ.
+              } else {
+                data = 0;
+              }
+            } break;
+
+            case 255 & (ACIA_PORT + 0):  // read ACIA control/status port
+            {
+              data = 0x02;  // Transmit buffer always considered empty.
+              data |= (acia_irq_firing) ? 0x80 : 0x00;
+              data |= (acia_char_in_ready) ? 0x01 : 0x00;
+
+              acia_irq_firing = false;  // Side effect of reading status.
+            } break;
+
+            case 255 & (ACIA_PORT + 1):  // read ACIA data port
+              if (acia_char_in_ready) {
+                data = acia_char;
+                acia_char_in_ready = false;
+              } else {
+                data = 0;
+              }
+              break;
+
+            case 0xFF & (BLOCK_PORT + 7):  // read disk status
+              // TODO
+              break;
+
+            case 0xFF & (EMUDSK_PORT + 3):  // read disk status
+                data = 0; // always a good status.
+              break;
+
+            case 0xFF & (TFR_RTC_BASE + 0):
+              data = rtc_value;
+              break;
+
+            default:
+              break;
+          }  // switch
+
+          PUT(0x00FF);  // pindirs: outputs
+          PUT(data);    // pins
+          PUT(0x0000);  // pindirs
+}
 
 void HandleTwo() {
   uint cy = 0;  // This is faster if local.
@@ -1159,10 +1261,13 @@ void HandleTwo() {
     for (uint loop = 0; loop < 256; loop++) {
 #if TRACKING
       interest = 999;
+
+#if 0
       const byte zed = the_ram.GetPhys(0x008D2F);
       if (zed > 16) {
               DumpRamAndGetStuck("(Peek(0xCD2F, 4) > 16)");
       }
+#endif
 #endif
 
       const uint addr = WAIT_GET();
@@ -1202,14 +1307,14 @@ void HandleTwo() {
         }
 
       } else if (addr < 0xFF00) {
-        if (reading) {
+        if (reading) { // if reading FExx
           PUT(0x00FF);      // pindirs: outputs
           PUT(Peek(addr));  // pins
           PUT(0x0000);      // pindirs
 #if TRACKING
           data = Peek(addr);
 #endif
-        } else {
+        } else { // if writing FExx
           const byte foo = WAIT_GET();
           Poke(addr, foo, 0x3F);
 #if TRACKING
@@ -1219,91 +1324,13 @@ void HandleTwo() {
 
       } else {
         if ((reading)) {  // CPU reads, Pico Tx
-          // q1: Reading.
-          data = Peek(addr);  // default behavior
-
-          switch (0xFF & addr) {
-            // Read PIA0
-            case 0x00:
-              D("----- PIA0 Read not Impl: %x\n", addr);
-              data = 0xFF;  // say like, no key pressed
-              break;
-            case 0x01:
-              D("----- PIA0 Read not Impl: %x\n", addr);
-              DumpRamAndGetStuck("pia0");
-              break;
-            case 0x02:
-              Poke(0xFF03,
-                   Peek(0xFF03) &
-                       0x7F);  // Clear the bit indicating VSYNC occurred.
-              vsync_irq_firing = false;
-              data = 0xFF;
-              break;
-            case 0x03:
-              // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
-              break;
-
-            case 0x92:  // GIME IRQEN register
-            {
-              if (gime_irq_enabled && gime_vsync_irq_enabled &&
-                  gime_vsync_irq_firing) {
-                data = 0x08;
-                gime_vsync_irq_firing =
-                    false;  // Reading this register clears the IRQ.
-              } else {
-                data = 0;
-              }
-            } break;
-
-            case 255 & (ACIA_PORT + 0):  // read ACIA control/status port
-            {
-              data = 0x02;  // Transmit buffer always considered empty.
-              data |= (acia_irq_firing) ? 0x80 : 0x00;
-              data |= (acia_char_in_ready) ? 0x01 : 0x00;
-
-              acia_irq_firing = false;  // Side effect of reading status.
-            } break;
-
-            case 255 & (ACIA_PORT + 1):  // read ACIA data port
-              if (acia_char_in_ready) {
-                data = acia_char;
-                acia_char_in_ready = false;
-              } else {
-                data = 0;
-              }
-              break;
-
-            case 0xFF & (BLOCK_PORT + 7):  // read disk status
-              // TODO
-              break;
-
-            case 0xFF & (EMUDSK_PORT + 3):  // read disk status
-                data = 0; // always a good status.
-              break;
-
-            case 0xFF & (TFR_RTC_BASE + 0):
-              data = rtc_value;
-              break;
-
-            default:
-              break;
-          }  // switch
-
-          PUT(0x00FF);  // pindirs: outputs
-          PUT(data);    // pins
-          PUT(0x0000);  // pindirs
-
+          HandleIOReads(addr);
         } else {
           // CPU writes, Pico Rx
           data = WAIT_GET();
-          Poke(addr, data);
-
+          Poke(addr, data, 0x3F);
         }  // end if read / write
-
-        // q3: Side Effects after Reading or Writing.
-
         HandleSideEffects(addr, data, reading);
-
       }  // addr type
 
 #if TRACKING
@@ -1338,7 +1365,7 @@ void HandleTwo() {
             }
           }
         }
-        Q("%s %04x %02x  =%s #%d\n", label, addr, data, HighFlags(high), cy);
+        Q("%s %04x %02x  =%s #%d\n", label, addr, 0xFF&data, HighFlags(high), cy);
       }
 
 #if SEEN

@@ -118,3 +118,10 @@ os9 attr -r -w -e -pr -pe "$D",cmds/mfree
 # 0.678086
 # 0.678024
 # 0.678025
+
+#################### Experiment:
+#rm -f "$D"
+#N=NOS9_6809_L2_v030300_coco3_cocosdc.dsk
+#N=NOS9_6809_L2_v030300_coco3_emudsk.dsk
+#N=NOS9_6809_L2_v030300_coco3_cocosdc.dsk
+#cp -vf ~/coco-shelf/nitros9/level2/coco3/$N "$D"
