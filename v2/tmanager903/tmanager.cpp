@@ -6,9 +6,10 @@
 #define SEEN 1
 // #define EVENT 0
 #define RECORD 0
-#define ALL_POKES 0
-
-#define REQUIRED 0
+#define ALL_POKES 1
+#define HEURISTICS 1
+#define OPCODES 1
+#define TRACE_RTI 1
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -99,6 +100,10 @@ extern void RecvOut_byte(byte* x);
 
 uint interest;
 uint btbug;
+
+uint current_opcode_cy; // what was the CY of the current opcode?
+uint current_opcode_pc; // what was the PC of the current opcode?
+byte current_opcode;    // what was the current opcode?
 
 #define MAX_INTEREST 999999999
 #define getchar(X) NeverUseGetChar
@@ -555,6 +560,7 @@ byte GetCharFromConsole() {
 }
 #endif
 
+#if 0
 void Strike(const char* why) {
   interest += 100;
   static int strikes;
@@ -565,6 +571,7 @@ void Strike(const char* why) {
     DumpRamAndGetStuck("20th strike");
   }
 }
+#endif
 
 void ShowChar(byte ch) {
   putchar(C_PUTCHAR);
@@ -622,8 +629,23 @@ void PutIrq(bool activate) {
   gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
 }
 
+void SendEventHist(byte event, byte* buf, byte sz) {
+#if 1
+  Quiet();
+  putbyte(C_EVENT);
+  putbyte(event);
+  putbyte(sz);
+  putbyte(current_opcode_pc >> 8);
+  putbyte(current_opcode_pc );
+  for (byte i = 0; i < sz; i++) {
+    putbyte(buf[i]);
+  }
+  Noisy();
+#endif  // TRACKING
+}
+
 void SendEventRam(byte event, byte sz, word base_addr) {
-#if REQUIRED
+#if TRACKING
   Quiet();
   putbyte(C_EVENT);
   putbyte(event);
@@ -634,7 +656,7 @@ void SendEventRam(byte event, byte sz, word base_addr) {
     putbyte(Peek(base_addr + i));
   }
   Noisy();
-#endif  // REQUIRED
+#endif  // TRACKING
 }
 
 void InitRamFromRom() {
@@ -852,6 +874,32 @@ uint disk_buffer;
 byte rtc_value;
 force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
   switch (255 & addr) {
+    case 0x48: // WD Floppy or CocoSDC command reg.
+      if (not reading and Peek(0xFF40) == 0x43 and data==0xC0) { // Special CocoSDC Command Mode
+        byte special_cmd = Peek(0xFF49);
+printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xFF4A), Peek(0xFF4B));
+        switch (special_cmd) {
+          case 'Q':
+            Poke(0xFF49, 0x00);
+            Poke(0xFF4A, 0x02);
+            Poke(0xFF4B, 0x10);  // Say size $000210 sectors.
+            break;
+          case 'g':  // Set global flags.
+          // llcocosdc.0250230904: [Secondary command to "Set Global Flags"]
+          // [Disable Floppy Emulation capability in SDC controller] uses param $FF80
+            Poke(0xFF49, 0x00);
+            Poke(0xFF4A, 0x00);
+            Poke(0xFF4B, 0x00);
+            break;
+          default:
+            Poke(0xFF49, 0x00);
+            Poke(0xFF4A, 0x00);
+            Poke(0xFF4B, 0x00);
+            break;
+        }
+      }
+      break;
+
     case 0x00:
     case 0x01:
     case 0x02:
@@ -1096,18 +1144,40 @@ uint num_swi2s;
 bool vma;      // Valid Memory Address ( = delayed AVMA )
 bool fic;      // First Instruction Cycle ( = delayed LIC )
 uint next_pc;  // for multibyte ops.
+
 #endif
 
 void HandleIOReads(uint addr) {
           data = Peek(addr);  // default behavior
 
           switch (0xFF & addr) {
-            case 0x42:
-                // data = flash_data;
+
+// yak
+            case 0x42:  // CocoSDC Flash Data?
+                // We need to emulate just enough of the Flash register behavior
+                // so the initial scan thinks it has found a CocoSDC.
+                // Cycles I see in the scan:
+                // r FF42 <- $64
+                // w FF43 -> 0
+                // clr FF42
+                // r FF43 -> should differ by XOR $60
                 break;
-            case 0x43:
-                data = Peek(addr-1);  // return flash_data???
+            case 0x43:  // CocoSDC Flash Control
+                if ((Peek(0xFF7F) & 3) == 3) {
+                    // Respond to MPI slot 3.
+                    // Return what was saved at 0x42?
+                    // I don't know why, just guessing, but it works,
+                    // for this line:
+                    // "llcocosdc.0250230904"+01e0   lda -5,x ; get value from Flash Ctrl Reg
+                    data = 0x60 & Peek(addr-1);
+                } else {
+                    data = 0;
+                }
                 break;
+            case 0x48:  // Read SDC Status
+                data = 0; // okay
+                break;
+
 
             // Read PIA0
             case 0x00:
@@ -1194,7 +1264,7 @@ void HandleTwo() {
 
   while (true) {
 #if TRACKING
-    interest = 999;
+    interest = (cy > 1000000) ? 99999 : 0;
 #endif
 
     {
@@ -1258,9 +1328,10 @@ void HandleTwo() {
 
     }  // end Timer
 
+
     for (uint loop = 0; loop < 256; loop++) {
 #if TRACKING
-      interest = 999;
+      //interest = 999;
 
 #if 0
       const byte zed = the_ram.GetPhys(0x008D2F);
@@ -1274,54 +1345,60 @@ void HandleTwo() {
       const uint flags = WAIT_GET();
       const bool reading = (flags & F_READ);
 
+      // =============================================================
+      // =============================================================
+
       if (likely(addr < 0xFE00)) {
         if (reading) {
           PUT(0x00FF);          // pindirs: outputs
           PUT(FastPeek(addr));  // pins
           PUT(0x0000);          // pindirs
-#if TRACKING
+#if TRACKING || OPCODES || HEURISTICS
           data = FastPeek(addr);
 #endif
         } else {
           const byte foo = WAIT_GET();
           FastPoke(addr, foo);
-#if TRACKING
+#if TRACKING || OPCODES || HEURISTICS
           data = foo;
 #endif
         }  // end if reading
 
+      // =============================================================
       } else if (addr == 0xFFFF) {
         if (reading) {
           PUT(0x00FF);      // pindirs: outputs
           PUT(value_FFFF);  // pins
           PUT(0x0000);      // pindirs
-#if TRACKING
+#if TRACKING || OPCODES || HEURISTICS
           data = value_FFFF;
 #endif
         } else {
           const byte foo = WAIT_GET();
           (void)foo;
-#if TRACKING
+#if TRACKING || OPCODES || HEURISTICS
           data = foo;
 #endif
         }
 
+      // =============================================================
       } else if (addr < 0xFF00) {
         if (reading) { // if reading FExx
           PUT(0x00FF);      // pindirs: outputs
           PUT(Peek(addr));  // pins
           PUT(0x0000);      // pindirs
-#if TRACKING
+#if TRACKING || OPCODES || HEURISTICS
           data = Peek(addr);
 #endif
         } else { // if writing FExx
           const byte foo = WAIT_GET();
           Poke(addr, foo, 0x3F);
-#if TRACKING
+#if TRACKING || OPCODES || HEURISTICS
           data = foo;
 #endif
         }  // end if reading
 
+      // =============================================================
       } else {
         if ((reading)) {  // CPU reads, Pico Tx
           HandleIOReads(addr);
@@ -1333,15 +1410,18 @@ void HandleTwo() {
         HandleSideEffects(addr, data, reading);
       }  // addr type
 
-#if TRACKING
-      uint high = flags & F_HIGH;
+      // =============================================================
+      // =============================================================
 
-      if (reading and (not vma) and (addr == 0xFFFF)) {
-        Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
-      } else {
-        const char* label = reading ? (vma ? "r" : "-") : "w";
-        if (reading) {
-          if (fic) {
+#if OPCODES
+     if (reading and addr != 0xFFFF and fic) {
+        //ShowChar('1');
+            current_opcode_cy = cy;
+            current_opcode_pc = addr;
+            current_opcode = data;
+//printf("1<%d,%d,%d>\n", cy, addr, data);
+
+#if HEURISTICS
             if (addr < 0x0010) {
                 printf("(%x)\n", addr);
                 DumpRamAndGetStuck("PC too low");
@@ -1351,6 +1431,36 @@ void HandleTwo() {
                 printf("(%x)\n", addr);
                 DumpRamAndGetStuck("PC too high");
             }
+
+
+#endif
+     }
+     if (reading and addr != 0xFFFF) {
+#if HEURISTICS
+            if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
+                if (data == 0xFE) {
+                    DumpRamAndGetStuck("Infinite BRA loop");
+                }
+            }
+#endif
+     }
+#endif // OPCODES
+
+      uint high = flags & F_HIGH;
+
+#if HEURISTICS
+    if (loop<4) {
+        printf("$%d: #%d$ %04x %02x %02x $$ [ #%d. pc=%04x op=%02x ]\n", loop, cy, addr, (high>>8), (255&data), current_opcode_cy, current_opcode_pc, current_opcode);
+    }
+#endif
+
+#if TRACKING
+      if (reading and (not vma) and (addr == 0xFFFF)) {
+        Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
+      } else {
+        const char* label = reading ? (vma ? "r" : "-") : "w";
+        if (reading) {
+          if (fic) {
             label = "@";
 #if SEEN
             if (not Seen[addr]) {
@@ -1359,21 +1469,44 @@ void HandleTwo() {
 #endif
             next_pc = addr + 1;
           } else {
+            // case: Reading but not FIC
             if (next_pc == addr) {
               label = "&";
               next_pc++;
             }
-          }
-        }
-        Q("%s %04x %02x  =%s #%d\n", label, addr, 0xFF&data, HighFlags(high), cy);
-      }
+#if TRACE_RTI
+            if (current_opcode == 0x3B) { // RTI
+              uint age = cy - current_opcode_cy;
+              //ShowChar('@');
+              printf("A<%d,ccy=%d,cpc=%d,cop=%d,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
+                    constexpr uint SZ = 15;
+                    static byte hist[SZ];
+                    interest += 50;
+
+                    if (age < SZ) {
+                        hist[age] = data;
+                        if (age == SZ-1) {
+                            ShowChar('%');
+                            SendEventHist(EVENT_RTI, hist, SZ);
+                        }
+                    }
+              } // end RTI
+#endif
+
+            } // end case Reading but not FIC
+    
+          } // end if reading
+          Q("%s %04x %02x  =%s #%d\n", label, addr, 0xFF&data, HighFlags(high), cy);
+        } // end if valid cycle
 
 #if SEEN
       if (fic) {
         Seen.Insert(addr);
       }
 #endif
+#endif // TRACKING
 
+#if OPCODES
       vma = (0 != (flags & F_AVMA));
       fic = (0 != (flags & F_LIC));
 #endif
