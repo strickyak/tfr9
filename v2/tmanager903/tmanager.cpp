@@ -3,6 +3,8 @@
 #define INCLUDED_DISK 0
 
 #define TRACKING 0
+#define TRACKING_MINIMUM 1300000
+
 #define SEEN 1
 // #define EVENT 0
 #define RECORD 0
@@ -103,7 +105,7 @@ uint btbug;
 
 uint current_opcode_cy; // what was the CY of the current opcode?
 uint current_opcode_pc; // what was the PC of the current opcode?
-byte current_opcode;    // what was the current opcode?
+uint current_opcode;    // what was the current opcode?
 
 #define MAX_INTEREST 999999999
 #define getchar(X) NeverUseGetChar
@@ -1263,10 +1265,6 @@ void HandleTwo() {
   printf("value_FFFF = %x\n", value_FFFF);
 
   while (true) {
-#if TRACKING
-    interest = (cy > 1000000) ? 99999 : 0;
-#endif
-
     {
       static bool prev_irq_needed;
       bool irq_needed =
@@ -1331,13 +1329,10 @@ void HandleTwo() {
 
     for (uint loop = 0; loop < 256; loop++) {
 #if TRACKING
-      //interest = 999;
-
-#if 0
-      const byte zed = the_ram.GetPhys(0x008D2F);
-      if (zed > 16) {
-              DumpRamAndGetStuck("(Peek(0xCD2F, 4) > 16)");
-      }
+#if TRACKING_MINIMUM
+    interest = (cy > TRACKING_MINIMUM) ? 99999 : 0;
+#else
+    interest = 99999;
 #endif
 #endif
 
@@ -1435,13 +1430,69 @@ void HandleTwo() {
 
 #endif
      }
+
+     constexpr uint OS9_SZ = 19;
+     static byte os9_hist[OS9_SZ];
+
      if (reading and addr != 0xFFFF) {
+            if (current_opcode == 0x10 /* prefix */ && current_opcode_cy + 1 == cy) {
+                current_opcode = 0x1000 | data;
+                printf("change to opcode %x\n", current_opcode);
+            }
+            if (current_opcode == 0x11 /* prefix */ && current_opcode_cy + 1 == cy) {
+                current_opcode = 0x1100 | data;
+                printf("change to opcode %x\n", current_opcode);
+            }
 #if HEURISTICS
             if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
                 if (data == 0xFE) {
                     DumpRamAndGetStuck("Infinite BRA loop");
                 }
             }
+#endif
+#if TRACE_RTI
+            if (current_opcode == 0x3B) { // RTI
+              uint age = cy - current_opcode_cy;
+              //ShowChar('@');
+              printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
+                    constexpr uint SZ = 15;
+                    static byte hist[SZ];
+                    interest += 50;
+
+                    if (age < SZ) {
+                        hist[age] = data;
+                        if (age == SZ-1) {
+                            ShowChar('>');
+                            SendEventHist(EVENT_RTI, hist, SZ);
+                        }
+                    }
+              } // end RTI
+         if (current_opcode == 0x103F) { // SWI2/OS9
+              uint age = cy - current_opcode_cy;
+              printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
+                    if (age < OS9_SZ) {
+                        os9_hist[age] = data;
+                        if (age == OS9_SZ-1) {
+                            ShowChar('<');
+                            SendEventHist(EVENT_SWI2, os9_hist, OS9_SZ);
+                        }
+                    }
+         }
+#endif
+     }
+     if (!reading) {
+#if TRACE_RTI
+         if (current_opcode == 0x103F) { // SWI2/OS9
+              uint age = cy - current_opcode_cy;
+              printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
+                    if (age < OS9_SZ) {
+                        os9_hist[age] = data;
+                        if (age == OS9_SZ-1) {
+                            ShowChar('<');
+                            SendEventHist(EVENT_SWI2, os9_hist, OS9_SZ);
+                        }
+                    }
+         }
 #endif
      }
 #endif // OPCODES
@@ -1474,24 +1525,6 @@ void HandleTwo() {
               label = "&";
               next_pc++;
             }
-#if TRACE_RTI
-            if (current_opcode == 0x3B) { // RTI
-              uint age = cy - current_opcode_cy;
-              //ShowChar('@');
-              printf("A<%d,ccy=%d,cpc=%d,cop=%d,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
-                    constexpr uint SZ = 15;
-                    static byte hist[SZ];
-                    interest += 50;
-
-                    if (age < SZ) {
-                        hist[age] = data;
-                        if (age == SZ-1) {
-                            ShowChar('%');
-                            SendEventHist(EVENT_RTI, hist, SZ);
-                        }
-                    }
-              } // end RTI
-#endif
 
             } // end case Reading but not FIC
     
