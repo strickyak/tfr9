@@ -13,6 +13,7 @@
 #define OPCODES 1
 #define TRACE_RTI 1
 
+
 // tmanager.cpp -- for the TFR/901 -- strick
 //
 // SPDX-License-Identifier: MIT
@@ -107,6 +108,11 @@ uint current_opcode_cy; // what was the CY of the current opcode?
 uint current_opcode_pc; // what was the PC of the current opcode?
 uint current_opcode;    // what was the current opcode?
 
+constexpr uint RTI_SZ = 14;
+constexpr uint SWI2_SZ = 17;
+static byte hist_data[24];
+static uint hist_addr[24];
+
 #define MAX_INTEREST 999999999
 #define getchar(X) NeverUseGetChar
 
@@ -175,6 +181,7 @@ enum {
   C_EVENT = 172,
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
+  C_CONFIG = 175,
   //
   EVENT_PC_M8 = 238,
   EVENT_GIME = 239,
@@ -270,6 +277,7 @@ void Record(word addr, byte flags, byte data) {
   ++NextTraceIndex;
   NextTraceIndex &= TRACE_MASK;
 }
+
 void DumpTrace() {
   bool vma = false;  // Valid Memory Address ( = delayed AVMA )
   bool fic = false;  // First Instruction Cycle ( = delayed LIC )
@@ -631,7 +639,7 @@ void PutIrq(bool activate) {
   gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
 }
 
-void SendEventHist(byte event, byte* buf, byte sz) {
+void SendEventHist(byte event, byte sz) {
 #if 1
   Quiet();
   putbyte(C_EVENT);
@@ -640,7 +648,9 @@ void SendEventHist(byte event, byte* buf, byte sz) {
   putbyte(current_opcode_pc >> 8);
   putbyte(current_opcode_pc );
   for (byte i = 0; i < sz; i++) {
-    putbyte(buf[i]);
+    putbyte(hist_data[i]);
+    putbyte(hist_addr[i] >> 8);
+    putbyte(hist_addr[i]);
   }
   Noisy();
 #endif  // TRACKING
@@ -1252,6 +1262,27 @@ void HandleIOReads(uint addr) {
           PUT(0x0000);  // pindirs
 }
 
+void SendConfig() {
+    constexpr int sz =
+        (TRACKING ? 1 : 0) +
+        (SEEN ? 1 : 0) +
+        (RECORD ? 1 : 0) +
+        (HEURISTICS ? 1 : 0) +
+        (OPCODES ? 1 : 0) +
+        (TRACE_RTI ? 1 : 0) +
+        0;
+  putbyte(C_CONFIG);
+  putbyte(sz);
+  for (int i = 0; i < sz; i++) {
+        if (TRACKING) putbyte('t');
+        if (SEEN) putbyte('s');
+        if (RECORD) putbyte('r');
+        if (HEURISTICS) putbyte('h');
+        if (OPCODES) putbyte('o');
+        if (TRACE_RTI) putbyte('R');
+  }
+}
+
 void HandleTwo() {
   uint cy = 0;  // This is faster if local.
 
@@ -1259,6 +1290,7 @@ void HandleTwo() {
   const PIO pio = pio0;
   constexpr uint sm = 0;
 
+  SendConfig();
   PreRoll();
 
   const byte value_FFFF = Peek(0xFFFF);
@@ -1431,8 +1463,6 @@ void HandleTwo() {
 #endif
      }
 
-     constexpr uint OS9_SZ = 19;
-     static byte os9_hist[OS9_SZ];
 
      if (reading and addr != 0xFFFF) {
             if (current_opcode == 0x10 /* prefix */ && current_opcode_cy + 1 == cy) {
@@ -1452,29 +1482,29 @@ void HandleTwo() {
 #endif
 #if TRACE_RTI
             if (current_opcode == 0x3B) { // RTI
-              uint age = cy - current_opcode_cy;
+              uint age = cy - current_opcode_cy - 1 /*one byte opcode*/;
               //ShowChar('@');
-              printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
-                    constexpr uint SZ = 15;
-                    static byte hist[SZ];
+              printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
                     interest += 50;
-
-                    if (age < SZ) {
-                        hist[age] = data;
-                        if (age == SZ-1) {
-                            ShowChar('>');
-                            SendEventHist(EVENT_RTI, hist, SZ);
+                    if (age < RTI_SZ) {
+                        hist_data[age] = data;
+                        hist_addr[age] = addr;
+                        if (age == RTI_SZ-1) {
+                            //ShowChar('>');
+                            SendEventHist(EVENT_RTI, RTI_SZ);
                         }
                     }
               } // end RTI
          if (current_opcode == 0x103F) { // SWI2/OS9
-              uint age = cy - current_opcode_cy;
-              printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
-                    if (age < OS9_SZ) {
-                        os9_hist[age] = data;
-                        if (age == OS9_SZ-1) {
-                            ShowChar('<');
-                            SendEventHist(EVENT_SWI2, os9_hist, OS9_SZ);
+              uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
+              printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+                    interest += 50;
+                    if (age < SWI2_SZ) {
+                        hist_data[age] = data;
+                        hist_addr[age] = addr;
+                        if (age == SWI2_SZ-1) {
+                            //ShowChar('<');
+                            SendEventHist(EVENT_SWI2, SWI2_SZ);
                         }
                     }
          }
@@ -1483,14 +1513,12 @@ void HandleTwo() {
      if (!reading) {
 #if TRACE_RTI
          if (current_opcode == 0x103F) { // SWI2/OS9
-              uint age = cy - current_opcode_cy;
-              printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d>\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age);
-                    if (age < OS9_SZ) {
-                        os9_hist[age] = data;
-                        if (age == OS9_SZ-1) {
-                            ShowChar('<');
-                            SendEventHist(EVENT_SWI2, os9_hist, OS9_SZ);
-                        }
+              uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
+              printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+                    interest += 50;
+                    if (age < SWI2_SZ) {
+                        hist_data[age] = data;
+                        hist_addr[age] = addr;
                     }
          }
 #endif

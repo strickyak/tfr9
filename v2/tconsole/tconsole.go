@@ -56,6 +56,7 @@ const (
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
+	C_CONFIG = 175
 	EVENT_PC_M8  = 238
 	EVENT_GIME   = 239
 	EVENT_RTI    = 240
@@ -103,6 +104,8 @@ var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\
 
 // MatchFIC DEMO: @ fe9a 6e  =
 var MatchFIC = regexp.MustCompile("^@@? ([0-9a-f]{4}) ([0-9a-f]{2})  =.*")
+
+var ConfigStr string
 
 // plane: 0=no key 1=normal 2=shifted
 func LookupCocoKey(ascii byte) (row, col, plane byte) {
@@ -180,9 +183,11 @@ func FormatOs9Chars(vec []byte) string {
 	return buf.String()
 }
 
-func FormatReturn(os9num byte, call *os9api.Call, latest map[byte]*EventRec) string {
+func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) string {
+    return "__TODO__FormatReturn__"
+/*
 	var buf bytes.Buffer
-	p := latest[EVENT_RTI].Peeks
+	p := latest[EVENT_RTI].Datas
 	cc, rb := p[0], p[2]
 	if (cc & 1) != 0 {
 		errorName, _ := os9api.ErrorNames[rb]
@@ -205,7 +210,7 @@ func FormatReturn(os9num byte, call *os9api.Call, latest map[byte]*EventRec) str
 		}
 		if call.RX != "" {
 			if call.X[0] == '$' {
-				fmt.Fprintf(&buf, "RX=%s=%02x=%q, ", call.X, p[4:6], FormatOs9Chars(latest[EVENT_X].Peeks))
+				fmt.Fprintf(&buf, "RX=%s=%02x=%q, ", call.X, p[4:6], FormatOs9Chars(latest[EVENT_X].Datas))
 			} else {
 				fmt.Fprintf(&buf, "RX=%s=%02x, ", call.RX, p[4:6])
 			}
@@ -219,11 +224,18 @@ func FormatReturn(os9num byte, call *os9api.Call, latest map[byte]*EventRec) str
 	}
 	fmt.Fprintf(&buf, ")")
 	return buf.String()
+*/
 }
 
-func FormatCall(os9num byte, call *os9api.Call, latest map[byte]*EventRec) string {
+func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) string {
 	var buf bytes.Buffer
-	p := latest[EVENT_SWI2].Peeks
+	a := rec.Datas[2:]
+    var p [12]byte
+    for i:= 0; i < 12; i++ {
+		log.Printf("p[%d] = a[%d] = %02x\n", i,  11 - i, a[ 11 - i])
+        p[i] = a[ 11 - i]
+    }
+	log.Printf("% 3x\n", p[:])
 
 	if call == nil {
 		fmt.Fprintf(&buf, "$%02x = UNKNOWN ( D=%02x, X=%02x, Y=%02x, U=%02x, ", os9num, p[1:3], p[4:6], p[6:8], p[8:10])
@@ -241,7 +253,7 @@ func FormatCall(os9num byte, call *os9api.Call, latest map[byte]*EventRec) strin
 		}
 		if call.X != "" {
 			if call.X[0] == '$' {
-				fmt.Fprintf(&buf, "X=%s=%02x=%q, ", call.X, p[4:6], FormatOs9Chars(latest[EVENT_X].Peeks))
+				fmt.Fprintf(&buf, "X=%s=%02x=%q, ", call.X, p[4:6], "<TODO>")
 			} else {
 				fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, p[4:6])
 			}
@@ -254,8 +266,9 @@ func FormatCall(os9num byte, call *os9api.Call, latest map[byte]*EventRec) strin
 		}
 	}
 
+/*
 	mmapDesc := "No"
-	gime := latest[EVENT_GIME].Peeks
+	gime := latest[EVENT_GIME].Datas
 	if (gime[0] & 0x40) != 0 {
 		if (gime[1] & 1) != 0 {
 			mmapDesc = fmt.Sprintf("T1: % 3x", gime[0x18:0x20])
@@ -264,6 +277,7 @@ func FormatCall(os9num byte, call *os9api.Call, latest map[byte]*EventRec) strin
 		}
 	}
 	fmt.Fprintf(&buf, ") %s", mmapDesc)
+*/
 	return buf.String()
 }
 
@@ -293,7 +307,8 @@ var trackRam [RAM_SIZE]byte
 type EventRec struct {
 	Number    byte
 	Value     uint
-	Peeks     []byte
+	Datas     []byte
+	Addrs     []uint
 	Call      string
 	SerialNum uint
 }
@@ -840,6 +855,13 @@ func Run(files DiskFiles, inkey chan byte) {
 
 				switch cmd {
 
+                case C_CONFIG:
+                    sz := <-fromUSB
+                    for i := 0; i < int(sz); i++ {
+                        ConfigStr += string([]byte{<-fromUSB})
+                    }
+                    log.Printf("ConfigStr: %q", ConfigStr)
+
 				case C_DISK_WRITE:
 					log.Printf("C_DISK_WRITE START (((")
 
@@ -895,35 +917,49 @@ func Run(files DiskFiles, inkey chan byte) {
 					sz := getByte(fromUSB)
 					hi := getByte(fromUSB)
 					lo := getByte(fromUSB)
-					value := (uint(hi) << 8) | uint(lo)
-					vec := make([]byte, sz)
+					op_pc := (uint(hi) << 8) | uint(lo)
+					datas := make([]byte, sz)
+					addrs := make([]uint, sz)
 					for i := byte(0); i < sz; i++ {
-						vec[i] = getByte(fromUSB)
+						one := getByte(fromUSB)
+						two := getByte(fromUSB)
+						three := getByte(fromUSB)
+						datas[i] = one
+                        addrs[i] = (uint(two)<<8) | uint(three)
 					}
 					eventName, ok := CommandStrings[event]
 					if !ok {
 						log.Fatalf("Unknown event number: %d.", event)
 					}
-					log.Printf("C_EVENT %q $%04x: % 3x %q", eventName, value, vec, FormatOs9Chars(vec))
-
-					//for i := byte(0); i < sz; i++ {
-					//x := Peek1(uint(i) + value)
-					//if vec[i] != x {
-					//log.Printf("C_EVENT BAD VEC @ %x: %x vs %x", i, vec[i], x)
-					//}
-					//}
+					log.Printf("C_EVENT %q $%04x: % 3x %q % 5x", eventName, op_pc, datas, FormatOs9Chars(datas), addrs)
 
 					eRec := &EventRec{
 						Number: event,
-						Value:  value,
-						Peeks:  vec,
+						Value:  op_pc,
+						Datas:  datas,
+						Addrs:  addrs,
 					}
 					latestEventOfType[event] = eRec
 
-					if event == EVENT_SWI2 {
+                    switch event {
+					case EVENT_SWI2:
+                        fmt.Printf("<")
+
+                        os9num := eRec.Datas[0]
+						call, _ := os9api.CallOf[os9num]
+						eRec.SerialNum = mintSerialNum()
+						eRec.Call = FormatCall(os9num, call, eRec)
+
+                        lastPC := op_pc
+						key := Format("os9_%02x_%04x_%s", os9num, lastPC, CurrentHardwareMMap()[:2])
+						log.Printf("\n%q === OS9_CALL _%d_:  %s\n\n", Who(), eRec.SerialNum, eRec.Call)
+						pendingKeyedEvents[key] = latestEventOfType
+
+
+/*
 						latestPC, ok := latestEventOfType[EVENT_PC]
-						if ok && len(latestPC.Peeks) > 1 {
-							os9num := latestPC.Peeks[0]
+						if ok && len(latestPC.Datas) > 1 {
+							os9num := latestPC.Datas[0]
 
 							call, _ := os9api.CallOf[os9num]
 							eRec.SerialNum = mintSerialNum()
@@ -938,10 +974,12 @@ func Run(files DiskFiles, inkey chan byte) {
 						} else {
 							log.Printf("--- BAD latestPC in SWi2 ---")
 						}
-					}
-					if event == EVENT_RTI {
+*/
+
+					case EVENT_RTI:
+                        fmt.Printf(">")
 						if latestPC_M8, ok := latestEventOfType[EVENT_PC_M8]; ok {
-							if p := latestPC_M8.Peeks; len(p) >= 8 {
+							if p := latestPC_M8.Datas; len(p) >= 8 {
 								lastPC := 8 + latestPC_M8.Value
 
 								os9num := byte(255) // tentatively, a non-existant number.
@@ -953,7 +991,7 @@ func Run(files DiskFiles, inkey chan byte) {
 									os9num = p[8-1]
 									// The matching SWI2 event would have the PC at the system call number.
 									lastPC -= 1
-									key = Format("os9_%02x_%04x_%04x_%s", os9num, lastPC, value, CurrentHardwareMMap()[:2])
+									key = Format("os9_%02x_%04x_%s", os9num, lastPC, CurrentHardwareMMap()[:2])
 								}
 
 								// Log("lastPC=%04x , key=%q, p = % 3x ; latestPC_M8=%#v", lastPC, key, p, latestPC_M8)
@@ -963,7 +1001,7 @@ func Run(files DiskFiles, inkey chan byte) {
 									if swi2Event, ok := pending[EVENT_SWI2]; ok {
 
 										call, _ := os9api.CallOf[os9num]
-										returnString := FormatReturn(os9num, call, latestEventOfType)
+										returnString := FormatReturn(os9num, call, nil)
 										Log("\n%q === OS9_RETURN _%d_:  %s %s\n\n", Who(), swi2Event.SerialNum, swi2Event.Call, returnString)
 									}
 									delete(pendingKeyedEvents, key)
@@ -981,7 +1019,7 @@ func Run(files DiskFiles, inkey chan byte) {
 						latestEventOfType = make(map[byte]*EventRec) // clear before next big event
 
 						DumpRam()
-					}
+					} // end switch event
 
 				case C_POKE:
 					hi := getByte(fromUSB)
