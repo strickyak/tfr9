@@ -184,7 +184,20 @@ func FormatOs9Chars(vec []byte) string {
 }
 
 func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) string {
-    return "__TODO__FormatReturn__"
+
+    d := rec.Datas
+    cc := d[0]
+    verdict := "OKAY"
+    if (cc & 1) == 1 { // if Carry bit set (bit 0x01)
+      errnum := d[2] // the B register
+      errname, _ := os9api.ErrorNames[errnum]
+      errdesc, _ := os9api.ErrorDescription[errnum]
+      verdict = Format("ERROR(=$%x=%d.=%s=) *** %s ***", errnum, errnum, errname, strings.TrimSpace(errdesc))
+    }
+    return verdict
+
+
+    // return "__TODO__FormatReturn__"
 /*
 	var buf bytes.Buffer
 	p := latest[EVENT_RTI].Datas
@@ -276,8 +289,8 @@ func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) string {
 			mmapDesc = fmt.Sprintf("T0: % 3x", gime[0x10:0x18])
 		}
 	}
-	fmt.Fprintf(&buf, ") %s", mmapDesc)
 */
+	fmt.Fprintf(&buf, ")")
 	return buf.String()
 }
 
@@ -306,7 +319,8 @@ var trackRam [RAM_SIZE]byte
 
 type EventRec struct {
 	Number    byte
-	Value     uint
+	PC     uint
+    Os9Num  byte
 	Datas     []byte
 	Addrs     []uint
 	Call      string
@@ -795,8 +809,9 @@ func Run(files DiskFiles, inkey chan byte) {
 		MinimumReadSize: 1,
 	}
 
-	pendingKeyedEvents := make(map[string]map[byte]*EventRec)
-	latestEventOfType := make(map[byte]*EventRec)
+	pending := make(map[string]*EventRec)
+	//pendingKeyedEvents := make(map[string]map[byte]*EventRec)
+	// latestEventOfType := make(map[byte]*EventRec)
 
 	// Open the Serial Port.
 	port, err := serial.Open(options)
@@ -933,27 +948,29 @@ func Run(files DiskFiles, inkey chan byte) {
 					}
 					log.Printf("C_EVENT %q $%04x: % 3x %q % 5x", eventName, op_pc, datas, FormatOs9Chars(datas), addrs)
 
-					eRec := &EventRec{
+					rec := &EventRec{
 						Number: event,
-						Value:  op_pc,
+						PC:  op_pc,
 						Datas:  datas,
 						Addrs:  addrs,
 					}
-					latestEventOfType[event] = eRec
+					// latestEventOfType[event] = rec
 
                     switch event {
 					case EVENT_SWI2:
                         fmt.Printf("<")
 
-                        os9num := eRec.Datas[0]
+                        os9num := rec.Datas[0]
+                        rec.Os9Num = os9num
 						call, _ := os9api.CallOf[os9num]
-						eRec.SerialNum = mintSerialNum()
-						eRec.Call = FormatCall(os9num, call, eRec)
+						rec.SerialNum = mintSerialNum()
+						rec.Call = FormatCall(os9num, call, rec)
 
                         lastPC := op_pc
-						key := Format("os9_%02x_%04x_%s", os9num, lastPC, CurrentHardwareMMap()[:2])
-						log.Printf("\n%q === OS9_CALL _%d_:  %s\n\n", Who(), eRec.SerialNum, eRec.Call)
-						pendingKeyedEvents[key] = latestEventOfType
+						// id := Format("os9_%02x_%04x_%s", os9num, lastPC, CurrentHardwareMMap()[:2])
+                        key := Format("%04x_%04x", lastPC, addrs[2])
+						log.Printf("\n%q === OS9_CALL _%d_ %q:  %s ......\n\n", Who(), rec.SerialNum, key, rec.Call)
+						pending[key] = rec
 
 
 /*
@@ -978,6 +995,28 @@ func Run(files DiskFiles, inkey chan byte) {
 
 					case EVENT_RTI:
                         fmt.Printf(">")
+
+                        // TODO: 6309
+                        // TODO: FIRQ
+                        hi, lo = datas[10], datas[11]
+                        ret_pc := (uint(hi) << 8) | uint(lo)
+                        ret_sp := addrs[11]
+
+                        key := Format("%04x_%04x", ret_pc-3, ret_sp)
+                        caller, ok := pending[key]
+
+                        if ok {
+                            os9num := caller.Os9Num
+						    call, _ := os9api.CallOf[os9num]
+							returnString := FormatReturn(caller.Os9Num, call, rec)
+							Log("\n%q === OS9_RETURN _%d_ %q:  %s --> %s\n\n", Who(), caller.SerialNum, key, caller.Call, returnString)
+                            delete(pending, key)
+                        } else {
+							Log("\n%q === OS9_RETURN _%d_ %q:xxxxxxx\n\n", Who(), rec.SerialNum, key)
+                        }
+
+
+/*
 						if latestPC_M8, ok := latestEventOfType[EVENT_PC_M8]; ok {
 							if p := latestPC_M8.Datas; len(p) >= 8 {
 								lastPC := 8 + latestPC_M8.Value
@@ -1017,6 +1056,7 @@ func Run(files DiskFiles, inkey chan byte) {
 						}
 
 						latestEventOfType = make(map[byte]*EventRec) // clear before next big event
+*/
 
 						DumpRam()
 					} // end switch event

@@ -108,7 +108,7 @@ uint current_opcode_cy; // what was the CY of the current opcode?
 uint current_opcode_pc; // what was the PC of the current opcode?
 uint current_opcode;    // what was the current opcode?
 
-constexpr uint RTI_SZ = 14;
+constexpr uint RTI_SZ = 12;
 constexpr uint SWI2_SZ = 17;
 static byte hist_data[24];
 static uint hist_addr[24];
@@ -382,10 +382,10 @@ void GET_STUCK() {
   }
 }
 
-void DumpRamAndGetStuck(const char* why) {
+void DumpRamAndGetStuck(const char* why, uint what) {
   interest = MAX_INTEREST;
   printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
-  printf("DumpRamAndGetStuck: %s\n", why);
+  printf("DumpRamAndGetStuck: %s ($%x = %d.)\n", why, what, what);
 #if RECORD
   DumpTrace();
 #endif  // RECORD
@@ -1081,7 +1081,7 @@ printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xF
 
           default:
             printf("\nwut emudsk command %d.\n", command);
-            DumpRamAndGetStuck("wut emudsk");
+            DumpRamAndGetStuck("wut emudsk", command);
         }
       }
       break;
@@ -1198,7 +1198,7 @@ void HandleIOReads(uint addr) {
               break;
             case 0x01:
               D("----- PIA0 Read not Impl: %x\n", addr);
-              DumpRamAndGetStuck("pia0");
+              DumpRamAndGetStuck("pia0", addr);
               break;
             case 0x02:
               Poke(0xFF03,
@@ -1450,13 +1450,11 @@ void HandleTwo() {
 
 #if HEURISTICS
             if (addr < 0x0010) {
-                printf("(%x)\n", addr);
-                DumpRamAndGetStuck("PC too low");
+                DumpRamAndGetStuck("PC too low", addr);
             }
             if (addr > 0xFF00 && addr < 0xFFF0) {
                 // fic can be asserted during interrupt vector fetch.
-                printf("(%x)\n", addr);
-                DumpRamAndGetStuck("PC too high");
+                DumpRamAndGetStuck("PC too high", addr);
             }
 
 
@@ -1476,34 +1474,32 @@ void HandleTwo() {
 #if HEURISTICS
             if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
                 if (data == 0xFE) {
-                    DumpRamAndGetStuck("Infinite BRA loop");
+                    DumpRamAndGetStuck("Infinite BRA loop", addr);
                 }
             }
 #endif
 #if TRACE_RTI
             if (current_opcode == 0x3B) { // RTI
-              uint age = cy - current_opcode_cy - 1 /*one byte opcode*/;
-              //ShowChar('@');
+              uint age = cy - current_opcode_cy - 2 /*one byte opcode, one extra cycle */;
               printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
-                    interest += 50;
-                    if (age < RTI_SZ) {
+              interest += 50;
+              // TODO -- recognize E==0 for FIRQ
+              if (age < RTI_SZ) {
                         hist_data[age] = data;
                         hist_addr[age] = addr;
                         if (age == RTI_SZ-1) {
-                            //ShowChar('>');
                             SendEventHist(EVENT_RTI, RTI_SZ);
                         }
-                    }
-              } // end RTI
+              }
+            } // end RTI
          if (current_opcode == 0x103F) { // SWI2/OS9
-              uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
+              uint age = cy - current_opcode_cy - 2 /*two byte opcode.  extra cycle contains OS9 call number. */;
               printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
                     interest += 50;
                     if (age < SWI2_SZ) {
                         hist_data[age] = data;
                         hist_addr[age] = addr;
                         if (age == SWI2_SZ-1) {
-                            //ShowChar('<');
                             SendEventHist(EVENT_SWI2, SWI2_SZ);
                         }
                     }
