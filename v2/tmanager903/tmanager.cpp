@@ -3,16 +3,18 @@
 #define INCLUDED_DISK 0
 
 #define TRACKING 0
-#define TRACKING_MINIMUM 1300000
+// #define TRACKING_CYCLE 1124000 // 566750 // 940000
+// #define STOP_CYCLE 2000000 // 652689 // 1139300
 
-#define SEEN 1
-// #define EVENT 0
+#define SEEN 0
 #define RECORD 0
-#define ALL_POKES 1
-#define HEURISTICS 1
-#define OPCODES 1
-#define TRACE_RTI 1
+#define ALL_POKES 0
+#define HEURISTICS 0
+#define OPCODES 0
+#define TRACE_RTI 0
 
+#define ALLOW_DUMP_PHYS 0
+#define ALLOW_DUMP_RAM 0
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -107,6 +109,9 @@ uint btbug;
 uint current_opcode_cy; // what was the CY of the current opcode?
 uint current_opcode_pc; // what was the PC of the current opcode?
 uint current_opcode;    // what was the current opcode?
+uint sdc_disk_pending;
+byte sdc_disk_read_data[256];
+byte* sdc_disk_read_ptr;
 
 constexpr uint RTI_SZ = 12;
 constexpr uint SWI2_SZ = 17;
@@ -183,8 +188,8 @@ enum {
   C_DISK_WRITE = 174,
   C_CONFIG = 175,
   //
-  EVENT_PC_M8 = 238,
-  EVENT_GIME = 239,
+  // EVENT_PC_M8 = 238,
+  // EVENT_GIME = 239,
   EVENT_RTI = 240,
   EVENT_SWI2 = 241,
   EVENT_CC = 242,
@@ -329,7 +334,7 @@ yes:
 }
 
 void DumpPhys() {
-#if 1
+#if ALLOW_DUMP_PHYS
   Quiet();
   putbyte(C_DUMP_PHYS);
   uint sz = the_ram.PhysSize();
@@ -353,7 +358,7 @@ void DumpPhys() {
 }
 
 void DumpRam() {
-#if 1
+#if ALLOW_DUMP_RAM
   Quiet();
   putbyte(C_DUMP_RAM);
   for (uint i = 0; i < 0x10000; i += 16) {
@@ -647,6 +652,10 @@ void SendEventHist(byte event, byte sz) {
   putbyte(sz);
   putbyte(current_opcode_pc >> 8);
   putbyte(current_opcode_pc );
+  putbyte(current_opcode_cy >> 24);
+  putbyte(current_opcode_cy >> 16);
+  putbyte(current_opcode_cy >> 8);
+  putbyte(current_opcode_cy );
   for (byte i = 0; i < sz; i++) {
     putbyte(hist_data[i]);
     putbyte(hist_addr[i] >> 8);
@@ -699,8 +708,11 @@ bool TimerCallback(repeating_timer_t* rt) {
 
 extern void HandlePio(uint num_cycles, uint krn_entry);
 extern void HandleTwo();
+extern void ReaderInit(void);
 
 int main() {
+  ReaderInit();
+
   interest = MAX_INTEREST;  /// XXX
   stdio_usb_init();
   // stdio_init_all();
@@ -882,35 +894,81 @@ void PollUsbInput() {
     return;
 }
 
-uint disk_buffer;
-byte rtc_value;
-force_inline void HandleSideEffects(uint addr, byte data, bool reading) {
-  switch (255 & addr) {
-    case 0x48: // WD Floppy or CocoSDC command reg.
-      if (not reading and Peek(0xFF40) == 0x43 and data==0xC0) { // Special CocoSDC Command Mode
-        byte special_cmd = Peek(0xFF49);
-printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xFF4A), Peek(0xFF4B));
-        switch (special_cmd) {
-          case 'Q':
-            Poke(0xFF49, 0x00);
-            Poke(0xFF4A, 0x02);
-            Poke(0xFF4B, 0x10);  // Say size $000210 sectors.
-            break;
-          case 'g':  // Set global flags.
-          // llcocosdc.0250230904: [Secondary command to "Set Global Flags"]
-          // [Disable Floppy Emulation capability in SDC controller] uses param $FF80
-            Poke(0xFF49, 0x00);
-            Poke(0xFF4A, 0x00);
-            Poke(0xFF4B, 0x00);
-            break;
-          default:
-            Poke(0xFF49, 0x00);
-            Poke(0xFF4A, 0x00);
-            Poke(0xFF4B, 0x00);
-            break;
+void ReadDisk(uint device, uint lsn, byte* buffer) {
+#if INCLUDED_DISK
+        for (uint k = 0; k < 256; k++) {
+            Poke(buffer + k, TODO dp[k]);
         }
-      }
-      break;
+#else
+    printf("READ SDC SECTOR %x %x\n", device, lsn);
+            putbyte(C_DISK_READ);
+            putbyte(device);
+            putbyte(lsn >> 16);
+            putbyte(lsn >> 8);
+            putbyte(lsn >> 0);
+
+              while (1) {
+                PollUsbInput();
+                if (PollDiskInput()) {
+                    for (uint k = 0; k < kDiskReadSize - 256; k++) {
+                        (void)disk_input.Take(); // 4-byte device & LSN.
+                    }
+                    for (uint k = 0; k < 256; k++) {
+                        buffer[k] = disk_input.Take();
+                    }
+                    break;
+                }
+              }
+#endif
+}
+
+uint sdc_lsn;
+uint emu_disk_buffer;
+byte rtc_value;
+void HandleIOWrites(uint addr, byte data) {
+  const bool reading = false;
+
+  switch (255 & addr) {
+
+    case 0x4B:
+            sdc_lsn = (Peek(0xFF49)<<16) | (Peek(0xFF4A)<<8) | (0xFF & data);
+            printf("SET SDC SECTOR sdc_lsn=%x\n", sdc_lsn);
+            break;
+
+    case 0x48: // WD Floppy or CocoSDC command reg.
+        if (data==0xC0) { // Special CocoSDC Command Mode
+            if (Peek(0xFF40) == 0x43) {
+                byte special_cmd = Peek(0xFF49);
+        printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xFF4A), Peek(0xFF4B));
+                switch (special_cmd) {
+                  case 'Q':
+                    Poke(0xFF49, 0x00);
+                    Poke(0xFF4A, 0x02);
+                    Poke(0xFF4B, 0x10);  // Say size $000210 sectors.
+                    break;
+                  case 'g':  // Set global flags.
+                  // llcocosdc.0250230904: [Secondary command to "Set Global Flags"]
+                  // [Disable Floppy Emulation capability in SDC controller] uses param $FF80
+                    Poke(0xFF49, 0x00);
+                    Poke(0xFF4A, 0x00);
+                    Poke(0xFF4B, 0x00);
+                    break;
+                  default:
+                    Poke(0xFF49, 0x00);
+                    Poke(0xFF4A, 0x00);
+                    Poke(0xFF4B, 0x00);
+                    break;
+                } // end switch special_cmd
+            } // if data
+
+      } else if (0x84 <= data && data <= 0x87) {
+            // Read Sector
+            ReadDisk(data & 3, sdc_lsn, sdc_disk_read_data);
+            sdc_disk_read_ptr = sdc_disk_read_data;
+            sdc_disk_pending = data;
+        }
+
+      break; // case 0x48
 
     case 0x00:
     case 0x01:
@@ -1025,19 +1083,19 @@ printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xF
           command);
 
         uint lsn = Peek2(EMUDSK_PORT + 1);
-        disk_buffer = Peek2(EMUDSK_PORT + 4);
+        emu_disk_buffer = Peek2(EMUDSK_PORT + 4);
 #if INCLUDED_DISK
         byte* dp = Disk + 256 * lsn;
 #endif
 
-        Q("- VARS sector $%04x buffer $%04x diskop %x\n", lsn, disk_buffer,
+        Q("- VARS sector $%04x buffer $%04x diskop %x\n", lsn, emu_disk_buffer,
           command);
 
         switch (command) {
           case 0:  // Disk Read
 #if INCLUDED_DISK
         for (uint k = 0; k < 256; k++) {
-            Poke(disk_buffer + k, dp[k]);
+            Poke(emu_disk_buffer + k, dp[k]);
         }
 #else
             putbyte(C_DISK_READ);
@@ -1053,7 +1111,7 @@ printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xF
                         (void)disk_input.Take(); // 4-byte device & LSN.
                     }
                     for (uint k = 0; k < 256; k++) {
-                        Poke(disk_buffer + k, disk_input.Take());
+                        Poke(emu_disk_buffer + k, disk_input.Take());
                     }
                     data = 0; // Ready  
                     break;
@@ -1065,7 +1123,7 @@ printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xF
           case 1:  // Disk Write
 #if INCLUDED_DISK
         for (uint k = 0; k < 256; k++) {
-            dp[k] = Peek(disk_buffer + k);
+            dp[k] = Peek(emu_disk_buffer + k);
         }
 #else
             putbyte(C_DISK_WRITE);
@@ -1074,7 +1132,7 @@ printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xF
             putbyte(lsn >> 8);
             putbyte(lsn >> 0);
             for (uint k = 0; k < 256; k++) {
-                putbyte(Peek(disk_buffer + k));
+                putbyte(Peek(emu_disk_buffer + k));
             }
 #endif
             break;
@@ -1135,9 +1193,10 @@ printf("- yak - Special CocoSDC Command Mode: %x %x %x\n", special_cmd, Peek(0xF
         default:
           rtc_value = data;
           break;
-      }
+      } // switch data
+      break;
 
-  }  // post switch
+  }  // switch addr
 }
 
 void LAMBDA_DEMO() {
@@ -1159,10 +1218,77 @@ uint next_pc;  // for multibyte ops.
 
 #endif
 
+typedef byte (*IOReader)(uint addr, byte data);
+
+IOReader IOReaders[256];
+
+byte Reader43(uint addr, byte data) {
+                if ((Peek(0xFF7F) & 3) == 3) {
+                    // Respond to MPI slot 3.
+                    // Return what was saved at 0x42?
+                    // I don't know why, just guessing, but it works,
+                    // for this line:
+                    // "llcocosdc.0250230904"+01e0   lda -5,x ; get value from Flash Ctrl Reg
+                    data = 0x60 & Peek(addr-1);
+                } else {
+                    data = 0;
+                }
+                return data;
+}
+byte Reader48(uint addr, byte data) {
+                if (sdc_disk_pending) {
+                    data = 3; // BUSY and READY
+                    sdc_disk_pending = 0;
+                } else {
+                    data = 0; // NOT BUSY
+                }
+                return data;
+}
+byte Reader4b(uint addr, byte data) {
+                if (sdc_disk_read_ptr) {
+                    data = *sdc_disk_read_ptr++;
+                    if (sdc_disk_read_ptr == (sdc_disk_read_data+256)) {
+                        sdc_disk_read_ptr = nullptr;
+                    }
+                }
+                return data;
+}
+byte ReaderAcia0(uint addr, byte data) {
+              data = 0x02;  // Transmit buffer always considered empty.
+              data |= (acia_irq_firing) ? 0x80 : 0x00;
+              data |= (acia_char_in_ready) ? 0x01 : 0x00;
+
+              acia_irq_firing = false;  // Side effect of reading status.
+                return data;
+}
+
+byte ReaderAcia1(uint addr, byte data) {
+              if (acia_char_in_ready) {
+                data = acia_char;
+                acia_char_in_ready = false;
+              } else {
+                data = 0;
+              }
+                return data;
+}
+
+
+void ReaderInit() {
+    IOReaders[0x43] = &Reader43;
+    IOReaders[0x48] = &Reader48;
+    IOReaders[0x4b] = &Reader4b;
+    IOReaders[(byte)(ACIA_PORT + 0)] = &ReaderAcia0;
+    IOReaders[(byte)(ACIA_PORT + 1)] = &ReaderAcia1;
+}
+
 void HandleIOReads(uint addr) {
           data = Peek(addr);  // default behavior
 
-          switch (0xFF & addr) {
+          byte dev = addr & 0xFF;
+          IOReader reader = IOReaders[dev];
+          if (reader) {
+            data = (*reader)(addr, data);
+          } else switch (dev) {
 
 // yak
             case 0x42:  // CocoSDC Flash Data?
@@ -1174,7 +1300,9 @@ void HandleIOReads(uint addr) {
                 // clr FF42
                 // r FF43 -> should differ by XOR $60
                 break;
+
             case 0x43:  // CocoSDC Flash Control
+                assert(0);
                 if ((Peek(0xFF7F) & 3) == 3) {
                     // Respond to MPI slot 3.
                     // Return what was saved at 0x42?
@@ -1186,8 +1314,25 @@ void HandleIOReads(uint addr) {
                     data = 0;
                 }
                 break;
+
             case 0x48:  // Read SDC Status
-                data = 0; // okay
+                assert(0);
+                if (sdc_disk_pending) {
+                    data = 3; // BUSY and READY
+                    sdc_disk_pending = 0;
+                } else {
+                    data = 0; // NOT BUSY
+                }
+                break;
+
+            case 0x4b:  // Read SDC Data
+                assert(0);
+                if (sdc_disk_read_ptr) {
+                    data = *sdc_disk_read_ptr++;
+                    if (sdc_disk_read_ptr == (sdc_disk_read_data+256)) {
+                        sdc_disk_read_ptr = nullptr;
+                    }
+                }
                 break;
 
 
@@ -1224,6 +1369,7 @@ void HandleIOReads(uint addr) {
             } break;
 
             case 255 & (ACIA_PORT + 0):  // read ACIA control/status port
+            assert(0);
             {
               data = 0x02;  // Transmit buffer always considered empty.
               data |= (acia_irq_firing) ? 0x80 : 0x00;
@@ -1233,6 +1379,7 @@ void HandleIOReads(uint addr) {
             } break;
 
             case 255 & (ACIA_PORT + 1):  // read ACIA data port
+            assert(0);
               if (acia_char_in_ready) {
                 data = acia_char;
                 acia_char_in_ready = false;
@@ -1361,8 +1508,8 @@ void HandleTwo() {
 
     for (uint loop = 0; loop < 256; loop++) {
 #if TRACKING
-#if TRACKING_MINIMUM
-    interest = (cy > TRACKING_MINIMUM) ? 99999 : 0;
+#if TRACKING_CYCLE
+    interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
 #else
     interest = 99999;
 #endif
@@ -1433,8 +1580,8 @@ void HandleTwo() {
           // CPU writes, Pico Rx
           data = WAIT_GET();
           Poke(addr, data, 0x3F);
+          HandleIOWrites(addr, data);
         }  // end if read / write
-        HandleSideEffects(addr, data, reading);
       }  // addr type
 
       // =============================================================
@@ -1465,11 +1612,11 @@ void HandleTwo() {
      if (reading and addr != 0xFFFF) {
             if (current_opcode == 0x10 /* prefix */ && current_opcode_cy + 1 == cy) {
                 current_opcode = 0x1000 | data;
-                printf("change to opcode %x\n", current_opcode);
+                // printf("change to opcode %x\n", current_opcode);
             }
             if (current_opcode == 0x11 /* prefix */ && current_opcode_cy + 1 == cy) {
                 current_opcode = 0x1100 | data;
-                printf("change to opcode %x\n", current_opcode);
+                // printf("change to opcode %x\n", current_opcode);
             }
 #if HEURISTICS
             if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
@@ -1481,7 +1628,7 @@ void HandleTwo() {
 #if TRACE_RTI
             if (current_opcode == 0x3B) { // RTI
               uint age = cy - current_opcode_cy - 2 /*one byte opcode, one extra cycle */;
-              printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+              if (0) printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
               interest += 50;
               // TODO -- recognize E==0 for FIRQ
               if (age < RTI_SZ) {
@@ -1494,7 +1641,7 @@ void HandleTwo() {
             } // end RTI
          if (current_opcode == 0x103F) { // SWI2/OS9
               uint age = cy - current_opcode_cy - 2 /*two byte opcode.  extra cycle contains OS9 call number. */;
-              printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+              if (0) printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
                     interest += 50;
                     if (age < SWI2_SZ) {
                         hist_data[age] = data;
@@ -1510,7 +1657,7 @@ void HandleTwo() {
 #if TRACE_RTI
          if (current_opcode == 0x103F) { // SWI2/OS9
               uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
-              printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+              if (0) printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
                     interest += 50;
                     if (age < SWI2_SZ) {
                         hist_data[age] = data;
@@ -1525,7 +1672,7 @@ void HandleTwo() {
 
 #if HEURISTICS
     if (loop<4) {
-        printf("$%d: #%d$ %04x %02x %02x $$ [ #%d. pc=%04x op=%02x ]\n", loop, cy, addr, (high>>8), (255&data), current_opcode_cy, current_opcode_pc, current_opcode);
+        if (0) printf("$%d: #%d$ %04x %02x %02x $$ [ #%d. pc=%04x op=%02x ]\n", loop, cy, addr, (high>>8), (255&data), current_opcode_cy, current_opcode_pc, current_opcode);
     }
 #endif
 
@@ -1568,9 +1715,16 @@ void HandleTwo() {
       fic = (0 != (flags & F_LIC));
 #endif
 
+#if STOP_CYCLE
+    if (cy >= STOP_CYCLE) {
+        printf("=== STOPPING BECAUSE CYCLE %d REACHED MAXIMIUM\n", cy);
+        goto bottom;
+    }
+#endif
       cy++;
     }  // next loop
   }    // while true
 
-  // BOTTOM
+bottom:
+  {}
 }
