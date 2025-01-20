@@ -268,6 +268,9 @@ class BigRam {
     ram[phys] = data;
 
 #if ALL_POKES
+// TODO -- FEWER_POKES
+#endif
+#if ALL_POKES
     putbyte(C_POKE);
     // putbyte(the_ram.Block(addr));
     putbyte(phys >> 16);

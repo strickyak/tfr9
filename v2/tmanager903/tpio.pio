@@ -20,10 +20,10 @@
 ; Not RecvData = 8
 ; Not SendData = 16 + 8
 
-; Phase1 : 0
-; Phase2 : 2
-; Phase3 : 3
-; Phase4 : 1
+; Phase1 : 0 : neither
+; Phase2 : 2 : just Q
+; Phase3 : 3 : both
+; Phase4 : 1 : just E
 
 ;   None = 28
 ;   ReceiveAddress = None - 4 = 24
@@ -32,36 +32,34 @@
 
 .program tpio
 .side_set 5
-                                             ; ENTRY
-
-.wrap_target                                 ; BEGIN LOOP
+.wrap_target                  ; BEGIN LOOP
 top:
-    nop             side 24 ; P1 + RecvAddr    ; 
-    nop             side 24 ; P1 + RecvAddr    ; 
-    nop             side 24 ; P1 + RecvAddr    ; 
-    nop             side 24 ; P1 + RecvAddr        ; 
-    in  pins, 16    side 26 ; P2 + RecvAddr  ; Read Address
-    nop             side 22 ; P2 + RecvData      XXX
-    nop             side 22 ; P2 + RecvData
-    nop             side 23 ; P3 + RecvData        ; 
-    in  pins, 16    side 23 ; P2 + RecvData  ; Read Data
-    jmp pin, read   side 23 ; P3 + RecvData
+    nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr
+    in  pins, 16    side 26 ; Phase2 + RecvAddr  ; Read Address
+    nop             side 22 ; Phase2 + RecvData
+    nop             side 22 ; Phase2 + RecvData
+    nop             side 23 ; Phase3 + RecvData
+    in  pins, 16    side 23 ; Phase3 + RecvData  ; Read Status bits (R/W, AVMA, LLIC...)
+    jmp pin, read   side 23 ; Phase3 + RecvData  ; Jump based on R/W pin.
 
-; CPU write PICO rx                          ; IF WRITE CYCLE (Receiving from CPU)
-  nop             side 21 ; P4 + RecvAddr    ; must
-    in pins, 16     side 21 ; P4 + RecvData    ; Receive accurate data.
-  nop             side 24 ; P4 + RecvAddr    ; must
-    jmp top         side 24 ; P4 + RecvAddr
+write:                        ; IF WRITE CYCLE (Receiving from CPU)
+    nop             side 21 ; Phase4 + RecvData
+    in pins, 16     side 21 ; Phase4 + RecvData  ; Receive accurate data.
+    nop             side 24 ; Phase4 + RecvAddr
+    jmp top         side 24 ; Phase4 + RecvAddr
 
-read:                                        ; ELSE READ CYCLE (Sending to CPU)
-    pull block  side 21 ; P4 + RecvData  ; change Data Pins to output                  XXX
-    out pindirs,16  side 21 ; P4 + RecvData  ; change Data Pins to output
-    pull block     side 5 ;  P4 + SendData  ; output the data.                  XXX
-    out pins,16     side 5 ;  P4 + SendData  ; output the data.
-    nop      side 4;;;5 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
-    pull block      side 4 ;  P1 + SendData  ; Drop E (P4->P1) but continue to output data.    XXX
-    out pindirs,16  side 4;;;;;24 ; P1 + RecvAddr  ; change Data Pins to inputs
-.wrap                                        ; REPEAT LOOP
+read:                         ; ELSE READ CYCLE (Sending to CPU)
+    pull block      side 21 ; Phase4 + RecvData
+    out pindirs,16  side 21 ; Phase4 + RecvData  ; change Data Pins to output
+    pull block      side 5 ;  Phase4 + SendData
+    out pins,16     side 5 ;  Phase4 + SendData  ; output the data.
+    nop             side 4 ;  Phase1 + SendData  ; Drop E (P4->P1) but continue to output data.
+    pull block      side 4 ;  Phase1 + SendData
+    out pindirs,16  side 4 ;  Phase1 + SendData  ; change Data Pins to inputs
+.wrap                         ; REPEAT LOOP
 
 % c-sdk {
 
