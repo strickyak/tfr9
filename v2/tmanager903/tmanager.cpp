@@ -489,9 +489,9 @@ void ViewAt(const char* label, uint hi, uint lo) {
 void ResetCpu() {
   for (uint i = 0; i <= 20; i++) {
     gpio_init(i);
-    gpio_set_dir(i, GPIO_OUT);
+    gpio_set_dir(i, (i<16) ? GPIO_IN : GPIO_OUT);
+    gpio_put(i, 1);
   }
-  // 903:
   constexpr uint control_pins[] = {21, 22, 26, 27, 28};
   for (uint p : control_pins) {
     gpio_init(p);
@@ -507,13 +507,13 @@ void ResetCpu() {
   gpio_put(RESET_BAR_PIN, not true);  // negative logic
   const uint EnoughCyclesToReset = 60;
   for (uint i = 0; i < EnoughCyclesToReset; i++) {
-    gpio_put(PIN_Q, 0);
-    DELAY;
-    gpio_put(PIN_E, 0);
-    DELAY;
     gpio_put(PIN_Q, 1);
     DELAY;
     gpio_put(PIN_E, 1);
+    DELAY;
+    gpio_put(PIN_Q, 0);
+    DELAY;
+    gpio_put(PIN_E, 0);
     DELAY;
   }
   D("run ========\n");
