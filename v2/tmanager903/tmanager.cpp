@@ -1,3 +1,5 @@
+#if !TINY
+
 //#define FOR_BASIC 0
 //#define BORING_SWI2S 9999999  // 200 // 160
 #define INCLUDED_DISK 0
@@ -1728,3 +1730,61 @@ void HandleTwo() {
 bottom:
   {}
 }
+
+#else // if TINY
+
+typedef unsigned char byte;
+typedef unsigned int word;
+byte ram[64 * 1024];
+void Show(char ch) {
+    putchar(161); // Prefix for Show 1 Char on Screen
+    putchar(ch);
+}
+#define DELAY sleep_us(1);
+void ResetCpu() {
+  for (uint i = 0; i <= 20; i++) {
+    gpio_init(i);
+    gpio_set_dir(i, (i<16) ? GPIO_IN : GPIO_OUT);
+    gpio_put(i, 1);
+  }
+  constexpr uint control_pins[] = {21, 22, 26, 27, 28};
+  for (uint p : control_pins) {
+    gpio_init(p);
+    gpio_put(p, 1);
+    gpio_set_dir(p, GPIO_OUT);
+    gpio_put(p, 1);
+  }
+
+  const uint PIN_E = 16;  // clock output pin
+  const uint PIN_Q = 17;  // clock output pin
+
+  Show('(');
+  gpio_put(RESET_BAR_PIN, not true);  // negative logic
+  const uint EnoughCyclesToReset = 60;
+  for (uint i = 0; i < EnoughCyclesToReset; i++) {
+    gpio_put(PIN_Q, 1);
+    DELAY;
+    gpio_put(PIN_E, 1);
+    DELAY;
+    gpio_put(PIN_Q, 0);
+    DELAY;
+    gpio_put(PIN_E, 0);
+    DELAY;
+    Show('.');
+  }
+  gpio_put(RESET_BAR_PIN, not false);  // negative logic
+  Show(')');
+}
+#define LED_W(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+int main() {
+  stdio_usb_init();
+  cyw43_arch_init();
+  for (uint blink = 0; blink < 5; blink++) {
+    LED_W(1);
+    sleep_ms(500);
+    LED_W(0);
+    sleep_ms(500);
+    Show('*');
+  }
+}
+#endif // TINY

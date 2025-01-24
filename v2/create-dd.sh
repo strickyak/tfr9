@@ -10,7 +10,8 @@ esac
 . n9drivers/tfr9ports.gen.sh
 
 rm -f "$D"
-os9 format -l200 -e -n'TFR9-DISK' "$D"
+# os9 format -l200 -e -n'TFR9-DISK' "$D"
+os9 format -l9999 -e -n'TFR9-DISK' "$D"
 os9 makdir "$D",CMDS
 
 case $N9_LEVEL in
@@ -86,20 +87,33 @@ run
 os9 copy -l -r /tmp/tfr.startup2  "$D",startup
 # os9 del "$D",startup
 
-os9 copy -r $HOME/NEW/nitros9/level2/coco3/cmds/basic09   "$D",CMDS/basic09
-# os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/date   "$D",CMDS/date
-# os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/list   "$D",CMDS/list
-# os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/dump   "$D",CMDS/dump
-# os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/free   "$D",CMDS/free
-# os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/mfree  "$D",CMDS/mfree
+if false
+then
+    os9 copy -r $HOME/NEW/nitros9/level2/coco3/cmds/basic09   "$D",CMDS/basic09
+    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/date   "$D",CMDS/date
+    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/list   "$D",CMDS/list
+    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/dump   "$D",CMDS/dump
+    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/free   "$D",CMDS/free
+    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/mfree  "$D",CMDS/mfree
 
-os9 attr -r -w -e -pr -pe "$D",cmds/basic09
-os9 attr -r -w -e -pr -pe "$D",cmds/date
-os9 attr -r -w -e -pr -pe "$D",cmds/list
-# os9 attr -r -w -e -pr -pe "$D",cmds/dump
-os9 attr -r -w -e -pr -pe "$D",cmds/free
-os9 attr -r -w -e -pr -pe "$D",cmds/mfree
-
+    os9 attr -r -w -e -pr -pe "$D",cmds/basic09
+    os9 attr -r -w -e -pr -pe "$D",cmds/date
+    os9 attr -r -w -e -pr -pe "$D",cmds/list
+    os9 attr -r -w -e -pr -pe "$D",cmds/dump
+    os9 attr -r -w -e -pr -pe "$D",cmds/free
+    os9 attr -r -w -e -pr -pe "$D",cmds/mfree
+else
+    #ls -1 $HOME/NEW/nitros9/level1/tfr9/cmds/ | grep -v [.]list | grep -v [.]map | while read f
+    #do
+    #  os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/$f  "$D",CMDS/$f
+    #  os9 attr -r -w -e -pr -pe "$D",cmds/$f
+    #done
+    ls -1 $HOME/coco-shelf/nitros9/level2/coco3/cmds/ | egrep -v '[.](list|map)$' | while read f
+    do
+      os9 copy -r $HOME/coco-shelf/nitros9/level2/coco3/cmds/$f  "$D",CMDS/$f
+      os9 attr -r -w -e -pr -pe "$D",cmds/$f
+    done
+fi
 
 # Mon Nov 25 11:53:40 PM EST 2024
 # startup1: {}[0.305099 : 20 :  0.305659]
@@ -120,8 +134,8 @@ os9 attr -r -w -e -pr -pe "$D",cmds/mfree
 # 0.678025
 
 #################### Experiment:
-rm -f "$D"
-N=NOS9_6809_L2_v030300_coco3_cocosdc.dsk
-N=NOS9_6809_L2_v030300_coco3_emudsk.dsk
-N=NOS9_6809_L2_v030300_coco3_cocosdc.dsk
-cp -vf ~/coco-shelf/nitros9/level2/coco3/$N "$D"
+#rm -f "$D"
+#N=NOS9_6809_L2_v030300_coco3_cocosdc.dsk
+#N=NOS9_6809_L2_v030300_coco3_emudsk.dsk
+#N=NOS9_6809_L2_v030300_coco3_cocosdc.dsk
+#cp -vf ~/coco-shelf/nitros9/level2/coco3/$N "$D"

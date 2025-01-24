@@ -38,15 +38,19 @@ top:
     nop             side 24 ; Phase1 + RecvAddr
     nop             side 24 ; Phase1 + RecvAddr
     nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr  ; EXTRA
     in  pins, 16    side 26 ; Phase2 + RecvAddr  ; Read Address
     nop             side 22 ; Phase2 + RecvData
     nop             side 22 ; Phase2 + RecvData
+    nop             side 22 ; Phase2 + RecvData  ; EXTRA
     nop             side 23 ; Phase3 + RecvData
+    nop             side 23 ; Phase3 + RecvData  ; EXTRA
     in  pins, 16    side 23 ; Phase3 + RecvData  ; Read Status bits (R/W, AVMA, LLIC...)
     jmp pin, read   side 23 ; Phase3 + RecvData  ; Jump based on R/W pin.
 
 write:                        ; IF WRITE CYCLE (Receiving from CPU)
     nop             side 21 ; Phase4 + RecvData
+    nop             side 21 ; Phase4 + RecvData  ; EXTRA
     in pins, 16     side 21 ; Phase4 + RecvData  ; Receive accurate data.
     nop             side 24 ; Phase4 + RecvAddr
     jmp top         side 24 ; Phase4 + RecvAddr
@@ -63,7 +67,7 @@ read:                         ; ELSE READ CYCLE (Sending to CPU)
 
 % c-sdk {
 
-#define CLOCK_DIVISOR 2  // should work as low as 2
+#define CLOCK_DIVISOR 2   // should work as low as 2
 
 void tpio_program_init(PIO pio, uint sm, uint offset) {
    //

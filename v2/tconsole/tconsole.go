@@ -56,9 +56,9 @@ const (
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
-	C_CONFIG = 175
-	EVENT_PC_M8  = 238
-	EVENT_GIME   = 239
+	C_CONFIG     = 175
+	// EVENT_PC_M8  = 238
+	// EVENT_GIME   = 239
 	EVENT_RTI    = 240
 	EVENT_SWI2   = 241
 	EVENT_CC     = 242
@@ -85,8 +85,8 @@ var CommandStrings = map[byte]string{
 	170: "C_DUMP_PHYS",
 	171: "C_POKE",
 	172: "C_EVENT",
-	238: "EVENT_PC_M8",
-	239: "EVENT_GIME",
+	// 238: "EVENT_PC_M8",
+	// 239: "EVENT_GIME",
 	240: "EVENT_RTI",
 	241: "EVENT_SWI2",
 	242: "EVENT_CC",
@@ -106,6 +106,13 @@ var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\
 var MatchFIC = regexp.MustCompile("^@@? ([0-9a-f]{4}) ([0-9a-f]{2})  =.*")
 
 var ConfigStr string
+
+var LastSerialNumber uint
+
+func MintSerial() uint {
+	LastSerialNumber++
+	return LastSerialNumber
+}
 
 // plane: 0=no key 1=normal 2=shifted
 func LookupCocoKey(ascii byte) (row, col, plane byte) {
@@ -183,35 +190,66 @@ func FormatOs9Chars(vec []byte) string {
 	return buf.String()
 }
 
-func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) string {
-
-    d := rec.Datas
-    cc := d[0]
-    verdict := "OKAY"
-    if (cc & 1) == 1 { // if Carry bit set (bit 0x01)
-      errnum := d[2] // the B register
-      errname, _ := os9api.ErrorNames[errnum]
-      errdesc, _ := os9api.ErrorDescription[errnum]
-      verdict = Format("ERROR(=$%x=%d.=%s=) *** %s ***", errnum, errnum, errname, strings.TrimSpace(errdesc))
-    }
-    return verdict
-
-
-    // return "__TODO__FormatReturn__"
-/*
+func FormatOs9StringFromRam(addr uint) string {
+	a := addr
 	var buf bytes.Buffer
-	p := latest[EVENT_RTI].Datas
+	//buf.WriteByte('`')
+	for {
+		x := LPeek1(a)
+		if x == 0 || x == 10 || x == 13 {
+			break
+		}
+		ch := 127 & x
+		if ch < 32 || ch > 126 {
+			ch = '?'
+		}
+		buf.WriteByte(ch)
+		if (x & 128) != 0 {
+			break
+		}
+		a++
+		if a > addr+300 || a < addr {
+			buf.WriteByte('?')
+			buf.WriteByte('?')
+			buf.WriteByte('?')
+			break
+		}
+	}
+	//buf.WriteByte('`')
+	return buf.String()
+}
+
+type Regs struct {
+    cc, a, b, dp byte 
+    d, x, y, u uint
+}
+
+func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) (string, *Regs) {
+	p := rec.Datas
 	cc, rb := p[0], p[2]
-	if (cc & 1) != 0 {
-		errorName, _ := os9api.ErrorNames[rb]
-		return Format("OS9_ERROR $%02x=%d. %q", rb, rb, errorName)
+    regs := &Regs {
+        cc: p[0],
+        a: p[1],
+        b: p[2],
+        dp: p[3],
+        d: (uint(p[1])<<8) | uint(p[2]),
+        x: (uint(p[4])<<8) | uint(p[5]),
+        y: (uint(p[6])<<8) | uint(p[7]),
+        u: (uint(p[8])<<8) | uint(p[9]),
+    }
+
+	if (cc & 1) == 1 { // if Carry bit set (bit 0x01)
+		errname, _ := os9api.ErrorNames[rb]
+		errdesc, _ := os9api.ErrorDescription[rb]
+		return Format("ERROR(=$%x=%d.=%s=) *** %s ***", rb, rb, errname, strings.TrimSpace(errdesc)), regs
 	}
 
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "( ")
 	if call == nil {
-		fmt.Fprintf(&buf, "( RD=%02x, RX=%02x, RY=%02x, RU=%02x", p[1:3], p[4:6], p[6:8], p[8:10])
+		fmt.Fprintf(&buf, "RD=%02x, RX=%02x, RY=%02x, RU=%02x", p[1:3], p[4:6], p[6:8], p[8:10])
 
 	} else {
-		fmt.Fprintf(&buf, "( ")
 		if call.RA != "" {
 			fmt.Fprintf(&buf, "RA=%s=%02x, ", call.RA, p[1])
 		}
@@ -222,10 +260,11 @@ func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) string {
 			fmt.Fprintf(&buf, "RD=%s=%02x, ", call.RD, p[1:3])
 		}
 		if call.RX != "" {
+			rx := 256*uint(p[4]) + uint(p[5])
 			if call.X[0] == '$' {
-				fmt.Fprintf(&buf, "RX=%s=%02x=%q, ", call.X, p[4:6], FormatOs9Chars(latest[EVENT_X].Datas))
+				fmt.Fprintf(&buf, "RX=%s=%04x=%q, ", call.RX, rx, FormatOs9StringFromRam(rx))
 			} else {
-				fmt.Fprintf(&buf, "RX=%s=%02x, ", call.RX, p[4:6])
+				fmt.Fprintf(&buf, "RX=%s=%04x, ", call.RX, rx)
 			}
 		}
 		if call.RY != "" {
@@ -236,19 +275,29 @@ func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) string {
 		}
 	}
 	fmt.Fprintf(&buf, ")")
-	return buf.String()
-*/
+	return buf.String(), regs
 }
 
-func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) string {
+func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) (string, *Regs) {
 	var buf bytes.Buffer
 	a := rec.Datas[2:]
-    var p [12]byte
-    for i:= 0; i < 12; i++ {
-		log.Printf("p[%d] = a[%d] = %02x\n", i,  11 - i, a[ 11 - i])
-        p[i] = a[ 11 - i]
-    }
+	var p [12]byte
+	for i := 0; i < 12; i++ {
+		// log.Printf("p[%d] = a[%d] = %02x\n", i,  11 - i, a[ 11 - i])
+		p[i] = a[11-i]
+	}
 	log.Printf("% 3x\n", p[:])
+
+    regs := &Regs {
+        cc: p[0],
+        a: p[1],
+        b: p[2],
+        dp: p[3],
+        d: (uint(p[1])<<8) | uint(p[2]),
+        x: (uint(p[4])<<8) | uint(p[5]),
+        y: (uint(p[6])<<8) | uint(p[7]),
+        u: (uint(p[8])<<8) | uint(p[9]),
+    }
 
 	if call == nil {
 		fmt.Fprintf(&buf, "$%02x = UNKNOWN ( D=%02x, X=%02x, Y=%02x, U=%02x, ", os9num, p[1:3], p[4:6], p[6:8], p[8:10])
@@ -265,10 +314,11 @@ func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) string {
 			fmt.Fprintf(&buf, "D=%s=%02x, ", call.D, p[1:3])
 		}
 		if call.X != "" {
+			x := 256*uint(p[4]) + uint(p[5])
 			if call.X[0] == '$' {
-				fmt.Fprintf(&buf, "X=%s=%02x=%q, ", call.X, p[4:6], "<TODO>")
+				fmt.Fprintf(&buf, "X=%s=%04x=%q, ", call.X, x, FormatOs9StringFromRam(x))
 			} else {
-				fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, p[4:6])
+				fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, x)
 			}
 		}
 		if call.Y != "" {
@@ -279,18 +329,35 @@ func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) string {
 		}
 	}
 
-/*
-	mmapDesc := "No"
-	gime := latest[EVENT_GIME].Datas
-	if (gime[0] & 0x40) != 0 {
-		if (gime[1] & 1) != 0 {
-			mmapDesc = fmt.Sprintf("T1: % 3x", gime[0x18:0x20])
-		} else {
-			mmapDesc = fmt.Sprintf("T0: % 3x", gime[0x10:0x18])
-		}
-	}
-*/
 	fmt.Fprintf(&buf, ")")
+	return buf.String(), regs
+}
+
+func CurrentMapString() string {
+	const DefaultBlock = 0x38
+	const IOBlock = 0x3F
+	const MmuEnableAddr = 0xFF90
+	const MmuEnableBit = 0x40
+	const FExxEnableBit = 0x40
+	const MmuTaskAddr = 0xFF91
+	const MmuTaskBit = 0x01
+
+	e := Peek1AtBlock(MmuEnableAddr, IOBlock)
+	enabled := (e & MmuEnableBit) != 0
+
+	if !enabled {
+		return "No"
+	}
+
+	task := uint(Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "T%x[", task)
+	for a := uint(0); a < 8; a++ {
+		fmt.Fprintf(&buf, "%x ", LPeek1(a+0xFFA0+8*task))
+	}
+	fmt.Fprintf(&buf, "]")
+
 	return buf.String()
 }
 
@@ -319,8 +386,9 @@ var trackRam [RAM_SIZE]byte
 
 type EventRec struct {
 	Number    byte
-	PC     uint
-    Os9Num  byte
+	PC        uint
+	Cycle     uint
+	Os9Num    byte
 	Datas     []byte
 	Addrs     []uint
 	Call      string
@@ -335,6 +403,70 @@ func PPeek2(addr uint) uint {
 	hi := PPeek1(addr)
 	lo := PPeek1(addr + 1)
 	return (uint(hi) << 8) | uint(lo)
+}
+
+// SECOND IMPLEMENTATION
+
+func PhysicalAddrAtBlock(addr uint, block uint) uint {
+	addr &= 0x1FFF        // Use bottom 13 bits of address.
+	region := block << 13 // block provides the higher bits.
+	z := (addr | region) & (RAM_SIZE - 1)
+	//log.Printf("PhysicalAddrAtBlock: %04x %x -> %04x", addr, block, z)
+	return z
+}
+func Peek1AtBlock(addr uint, block uint) byte {
+	p := PhysicalAddrAtBlock(addr, block)
+	z := trackRam[p]
+	//log.Printf("Peek1AtBlock: %04x %x -> %04x %02x", addr, block, p, z)
+	return z
+}
+
+func PhysicalAddrWithMmu(logical uint) uint {
+	if (logical &^ 0xFFFF) != 0 {
+		log.Panicf("bad logical: %x", logical)
+	}
+
+	const DefaultBlock = 0x38
+	const IOBlock = 0x3F
+	const MmuEnableAddr = 0xFF90
+	const MmuEnableBit = 0x40
+	const FExxEnableBit = 0x40
+	const MmuTaskAddr = 0xFF91
+	const MmuTaskBit = 0x01
+
+	slot := logical >> 13
+	offset := logical & 0x1FFF
+
+	e := Peek1AtBlock(MmuEnableAddr, IOBlock)
+	enabled := (e & MmuEnableBit) != 0
+	if !enabled {
+		z := PhysicalAddrAtBlock(offset, DefaultBlock+slot)
+		//log.Printf("PhysicalAddrWithMmu(%04x) => No %06x", uint, z)
+		return z
+	}
+
+	if 0xFF00 <= logical {
+		z := PhysicalAddrAtBlock(offset, DefaultBlock+slot)
+		//log.Printf("PhysicalAddrWithMmu(%04x) => (FF) %06x", z)
+		return z
+	}
+
+	fexx := (e & FExxEnableBit) != 0
+	if fexx && 0xFE00 <= logical {
+		z := PhysicalAddrAtBlock(offset, DefaultBlock+slot)
+		//log.Printf("PhysicalAddrWithMmu(%04x) => (FE) %06x", z)
+		return z
+	}
+
+	task := uint(Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
+	mapbyte := Peek1AtBlock(0xFFA0+slot+8*task, IOBlock)
+	z := PhysicalAddrAtBlock(offset, uint(mapbyte))
+	//log.Printf("PhysicalAddrWithMmu(%04x) => %x %x %06x", task, mapbyte, z)
+	return z
+}
+
+func LPeek1(addr uint) byte {
+	return trackRam[PhysicalAddrWithMmu(addr)]
 }
 
 func Who() string {
@@ -472,6 +604,8 @@ func GetMappingFromTable(addr uint) Mapping {
 		0x3F & PPeek2(addr+14),
 	}
 }
+
+// FIRST IMPLEMENTATION
 
 func Peek1(addr uint) byte {
 	phys := Physical(addr)
@@ -751,7 +885,8 @@ func AsmSourceLine(modName string, offset uint) string {
 }
 
 func DumpRam() {
-	Log("DumpRam (((((")
+	serial := MintSerial()
+	Log("DumpRam_%d (((((", serial)
 	for i := uint(0); i < RAM_SIZE; i += 16 {
 		dirty := false
 		for j := uint(i); j < i+16; j++ {
@@ -789,7 +924,7 @@ func DumpRam() {
 		buf.WriteByte('|')
 		Log(buf.String())
 	}
-	Log("DumpRam )))))")
+	Log("DumpRam_%d )))))", serial)
 }
 
 var Format = fmt.Sprintf
@@ -870,12 +1005,12 @@ func Run(files DiskFiles, inkey chan byte) {
 
 				switch cmd {
 
-                case C_CONFIG:
-                    sz := <-fromUSB
-                    for i := 0; i < int(sz); i++ {
-                        ConfigStr += string([]byte{<-fromUSB})
-                    }
-                    log.Printf("ConfigStr: %q", ConfigStr)
+				case C_CONFIG:
+					sz := <-fromUSB
+					for i := 0; i < int(sz); i++ {
+						ConfigStr += string([]byte{<-fromUSB})
+					}
+					log.Printf("ConfigStr: %q", ConfigStr)
 
 				case C_DISK_WRITE:
 					log.Printf("C_DISK_WRITE START (((")
@@ -885,11 +1020,14 @@ func Run(files DiskFiles, inkey chan byte) {
 						disk_param[i] = <-fromUSB
 						log.Printf("disk_param: %02x", disk_param[i])
 					}
+                    AssertEQ( disk_param[0], 0)
 
-					_, err4 := files[0].Seek(256*int64(disk_param[3]), 0)
+                    lsn := (uint(disk_param[1])<<16) | (uint(disk_param[2])<<8) | uint(disk_param[3])
+					_, err4 := files[0].Seek(256*int64(lsn), 0)
 					if err4 != nil {
 						log.Fatalf("Cannot seek")
 					}
+					log.Printf("C_DISK_WRITE LSN %x", lsn)
 
 					sector := make([]byte, 256)
 					for i := 0; i < 256; i++ {
@@ -901,7 +1039,7 @@ func Run(files DiskFiles, inkey chan byte) {
 						log.Fatalf("Cannot write")
 					}
 
-					log.Printf("C_DISK_READ DONE )))")
+					log.Printf("C_DISK_WRITE DONE )))")
 				case C_DISK_READ:
 					log.Printf("C_DISK_READ START (((")
 
@@ -910,16 +1048,21 @@ func Run(files DiskFiles, inkey chan byte) {
 						disk_param[i] = <-fromUSB
 						log.Printf("disk_param: %02x", disk_param[i])
 					}
+                    AssertEQ( disk_param[0], 0)
 
-					_, err4 := files[0].Seek(256*int64(disk_param[3]), 0)
+                    lsn := (uint(disk_param[1])<<16) | (uint(disk_param[2])<<8) | uint(disk_param[3])
+					_, err4 := files[0].Seek(256*int64(lsn), 0)
 					if err4 != nil {
 						log.Fatalf("Cannot seek")
 					}
+					log.Printf("C_DISK_READ LSN %x", lsn)
+
 					sector := make([]byte, 256)
 					_, err5 := files[0].Read(sector)
 					if err5 != nil {
 						log.Fatalf("Cannot read")
 					}
+					log.Printf("C_DISK_READ SECTOR % 3x ...", sector[:16])
 
 					WriteBytes(usbout, C_DISK_READ)
 					WriteBytes(usbout, disk_param[:]...)
@@ -930,9 +1073,17 @@ func Run(files DiskFiles, inkey chan byte) {
 				case C_EVENT:
 					event := getByte(fromUSB)
 					sz := getByte(fromUSB)
-					hi := getByte(fromUSB)
-					lo := getByte(fromUSB)
-					op_pc := (uint(hi) << 8) | uint(lo)
+
+					pc1 := getByte(fromUSB)
+					pc2 := getByte(fromUSB)
+					op_pc := (uint(pc1) << 8) | uint(pc2)
+
+					cy1 := getByte(fromUSB)
+					cy2 := getByte(fromUSB)
+					cy3 := getByte(fromUSB)
+					cy4 := getByte(fromUSB)
+					op_cy := (uint(cy1) << 24) | (uint(cy2) << 16) | (uint(cy3) << 8) | uint(cy4)
+
 					datas := make([]byte, sz)
 					addrs := make([]uint, sz)
 					for i := byte(0); i < sz; i++ {
@@ -940,125 +1091,78 @@ func Run(files DiskFiles, inkey chan byte) {
 						two := getByte(fromUSB)
 						three := getByte(fromUSB)
 						datas[i] = one
-                        addrs[i] = (uint(two)<<8) | uint(three)
+						addrs[i] = (uint(two) << 8) | uint(three)
 					}
 					eventName, ok := CommandStrings[event]
 					if !ok {
 						log.Fatalf("Unknown event number: %d.", event)
 					}
-					log.Printf("C_EVENT %q $%04x: % 3x %q % 5x", eventName, op_pc, datas, FormatOs9Chars(datas), addrs)
+
+					{
+						var buf bytes.Buffer
+						for i := 0; i < int(sz); i++ {
+							fmt.Fprintf(&buf, " %04x:%02x", addrs[i], datas[i])
+						}
+						log.Printf("C_EVENT %q $%04x #%d:%s", eventName, op_pc, op_cy, buf.String())
+					}
 
 					rec := &EventRec{
 						Number: event,
-						PC:  op_pc,
+						PC:     op_pc,
+						Cycle:  op_cy,
 						Datas:  datas,
 						Addrs:  addrs,
 					}
 					// latestEventOfType[event] = rec
 
-                    switch event {
+					switch event {
 					case EVENT_SWI2:
-                        fmt.Printf("<")
+						fmt.Printf("<")
 
-                        os9num := rec.Datas[0]
-                        rec.Os9Num = os9num
+						os9num := rec.Datas[0]
+						rec.Os9Num = os9num
 						call, _ := os9api.CallOf[os9num]
 						rec.SerialNum = mintSerialNum()
-						rec.Call = FormatCall(os9num, call, rec)
+						callString, regs := FormatCall(os9num, call, rec)
+						rec.Call = callString
 
-                        lastPC := op_pc
-						// id := Format("os9_%02x_%04x_%s", os9num, lastPC, CurrentHardwareMMap()[:2])
-                        key := Format("%04x_%04x", lastPC, addrs[2])
-						log.Printf("\n%q === OS9_CALL _%d_ %q:  %s ......\n\n", Who(), rec.SerialNum, key, rec.Call)
+						lastPC := op_pc
+						key := Format("%04x_%04x", lastPC, addrs[2])
+						log.Printf("\n%q === OS9_CALL _%d_ %q:  %s #%d ...... %s\n\n", Who(), rec.SerialNum, key, rec.Call, op_cy, CurrentMapString())
 						pending[key] = rec
 
-
-/*
-						latestPC, ok := latestEventOfType[EVENT_PC]
-						if ok && len(latestPC.Datas) > 1 {
-							os9num := latestPC.Datas[0]
-
-							call, _ := os9api.CallOf[os9num]
-							eRec.SerialNum = mintSerialNum()
-							eRec.Call = FormatCall(os9num, call, latestEventOfType)
-
-							lastPC := latestPC.Value
-							key := Format("os9_%02x_%04x_%04x_%s", os9num, lastPC, value, CurrentHardwareMMap()[:2])
-							log.Printf("\n%q === OS9_CALL _%d_:  %s\n\n", Who(), eRec.SerialNum, eRec.Call)
-
-							pendingKeyedEvents[key] = latestEventOfType
-							latestEventOfType = make(map[byte]*EventRec) // clear before next big event
-						} else {
-							log.Printf("--- BAD latestPC in SWi2 ---")
-						}
-*/
-
-					case EVENT_RTI:
-                        fmt.Printf(">")
-
-                        // TODO: 6309
-                        // TODO: FIRQ
-                        hi, lo = datas[10], datas[11]
-                        ret_pc := (uint(hi) << 8) | uint(lo)
-                        ret_sp := addrs[11]
-
-                        key := Format("%04x_%04x", ret_pc-3, ret_sp)
-                        caller, ok := pending[key]
-
-                        if ok {
-                            os9num := caller.Os9Num
-						    call, _ := os9api.CallOf[os9num]
-							returnString := FormatReturn(caller.Os9Num, call, rec)
-							Log("\n%q === OS9_RETURN _%d_ %q:  %s --> %s\n\n", Who(), caller.SerialNum, key, caller.Call, returnString)
-                            delete(pending, key)
-                        } else {
-							Log("\n%q === OS9_RETURN _%d_ %q:xxxxxxx\n\n", Who(), rec.SerialNum, key)
+                        if os9num == 0x8A /* I$Write */ {
+                            HandleWrite(regs)
                         }
 
+                        if os9num == 0x8C /* I$WritLn */ {
+                            HandleWritLn(regs)
+                        }
 
-/*
-						if latestPC_M8, ok := latestEventOfType[EVENT_PC_M8]; ok {
-							if p := latestPC_M8.Datas; len(p) >= 8 {
-								lastPC := 8 + latestPC_M8.Value
+					case EVENT_RTI:
+						fmt.Printf(">")
 
-								os9num := byte(255) // tentatively, a non-existant number.
-								key := ""           // tentatively
+						// TODO: 6309
+						// TODO: FIRQ
+						pc1, pc2 := datas[10], datas[11]
+						ret_pc := (uint(pc1) << 8) | uint(pc2)
+						ret_sp := addrs[11]
 
-								if p[8-3] == 0x10 && p[8-2] == 0x3F {
-									// Previous instruction appears to have been a SWI2 and a system call number.
-									// (Note this might be wrong if an IRQ occurs at just the wrong time.)
-									os9num = p[8-1]
-									// The matching SWI2 event would have the PC at the system call number.
-									lastPC -= 1
-									key = Format("os9_%02x_%04x_%s", os9num, lastPC, CurrentHardwareMMap()[:2])
-								}
+						key := Format("%04x_%04x", ret_pc-3, ret_sp)
+						caller, ok := pending[key]
 
-								// Log("lastPC=%04x , key=%q, p = % 3x ; latestPC_M8=%#v", lastPC, key, p, latestPC_M8)
-
-								if pending, ok := pendingKeyedEvents[key]; ok {
-									// Log("Found pending keyed event %q: %#v", key, pending)
-									if swi2Event, ok := pending[EVENT_SWI2]; ok {
-
-										call, _ := os9api.CallOf[os9num]
-										returnString := FormatReturn(os9num, call, nil)
-										Log("\n%q === OS9_RETURN _%d_:  %s %s\n\n", Who(), swi2Event.SerialNum, swi2Event.Call, returnString)
-									}
-									delete(pendingKeyedEvents, key)
-								} else {
-									Log("NOT FOUND: pending keyed event %q", key)
-								}
-
-							} else {
-								Log("len(p) FAILS")
-							}
+						if ok {
+							os9num := caller.Os9Num
+							call, _ := os9api.CallOf[os9num]
+							returnString, regs := FormatReturn(caller.Os9Num, call, rec)
+                            _ = regs
+							Log("\n%q === OS9_RETURN _%d_ %q:  %s #%d --> %s #%d %s\n\n", Who(), caller.SerialNum, key, caller.Call, caller.Cycle, returnString, op_cy, CurrentMapString())
+							delete(pending, key)
 						} else {
-							Log("PC_M8 FAILS")
+							Log("\n%q === OS9_RETURN _%d_ %q:xxxxxxx #%d \n\n", Who(), rec.SerialNum, key, op_cy)
 						}
 
-						latestEventOfType = make(map[byte]*EventRec) // clear before next big event
-*/
-
-						DumpRam()
+						// DumpRam()
 					} // end switch event
 
 				case C_POKE:
@@ -1069,8 +1173,12 @@ func Run(files DiskFiles, inkey chan byte) {
 					longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
 					longaddr &= RAM_MASK
 
-					log.Printf("       =C_POKE= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
+					// log.Printf("       =C_POKE= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
 					trackRam[longaddr] = data
+
+                    if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
+                        HandleIOPoke(longaddr, data)
+                    }
 
 				case C_DUMP_RAM, C_DUMP_PHYS:
 					log.Printf("{{{ %s", CommandStrings[cmd])
@@ -1273,4 +1381,84 @@ func Run(files DiskFiles, inkey chan byte) {
 		}
 	}
 	log.Printf("End LOOP.")
+}
+
+func AssertEQ[T Ordered](a, b T) {
+    if a != b {
+        log.Fatalf("AssertEQ fails: %v vs %v", a, b)
+    }
+}
+type Ordered interface {
+    byte | int | uint | int64 | uint64 | rune | string
+}
+
+func HandleWrite(regs *Regs) {
+    if regs.y == 256 {
+        return // It's a BLOCK operation
+    }
+    for i := uint(0); i < regs.y; i++ {
+        ch := LPeek1(regs.x + i)
+        if ch == 10 || ch == 13 {
+            ShowChar('\n')
+        } else {
+            ShowChar(127 & ch)
+        }
+    }
+}
+
+func ShowChar(b byte) {
+    os.Stdout.Write([]byte{b})
+}
+
+func HandleWritLn(regs *Regs) {
+    switch vg.Task() {
+    case 0: // Level 2, Kernel
+    case 1: // Level 2, User
+    case -1: // Level 1
+    }
+    for i := uint(0); i < regs.y; i++ {
+        ch := LPeek1(regs.x + i)
+        if ch == 0 {
+            break
+        }
+        if ch == 10 || ch == 13 {
+            ShowChar('\n')
+        } else {
+            ShowChar(127 & ch)
+        }
+        if 128 <= ch {
+            break
+        }
+    }
+}
+
+type VgaGime struct {
+    compat, mmu, fexx bool
+    gime_irq, gime_firq, ext_scs bool
+    task int
+    rom_mode int // 0,1: 16k int, 16k ext. 2: 32k int. 3: 32k ext.
+}
+
+var vg = new(VgaGime)
+
+func (o *VgaGime) Task() int {
+    if o.mmu {
+        return o.task
+    }
+    return -1
+}
+
+func HandleIOPoke(longAddr uint, data byte) {
+    a := longAddr - IO_PHYS
+    switch (a) {
+    case 0x90:
+        vg.compat = (data & 0x80) != 0
+        vg.mmu = (data & 0x40) != 0
+        vg.gime_irq = (data & 0x20) != 0
+        vg.gime_firq = (data & 0x10) != 0
+        vg.fexx = (data & 0x08) != 0
+        vg.ext_scs = (data & 0x04) != 0
+        vg.rom_mode = int(data & 0x03)
+    case 0x91:
+    }
 }
