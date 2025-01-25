@@ -1,0 +1,288 @@
+NitrOS-9/6809 Level 2
+TFR/901
+(C) 2014 The NitrOS-9 Project
+**   DEVELOPMENT BUILD   **
+** NOT FOR DISTRIBUTION! **
+Tue Nov  5 19:24:51 2024
+http://www.nitros9.org
+
+{12}            BASIC09
+     6809 VERSION 01.01.00
+COPYRIGHT 1980 BY MOTOROLA INC.
+  AND MICROWARE SYSTEMS CORP.
+   REPRODUCED UNDER LICENSE
+       TO TANDY CORP.
+    ALL RIGHTS RESERVED.
+
+Basic09
+Ready
+B:PROCEDURE Program
+*
+E:*
+E:*
+E:*
+E:*
+E:*
+E:*
+E:*
+E:*
+E:*
+E:Ready
+B:{*1.*2.*3.*4.*5.*6.*7.*8.*9.*10.*11.*12.*13.*14.*15.*16.*17.*18.*19.*20.*21.*22.*23.*24.*25.*26.*27.*28.*29.*30.*31.*32.*33.*34.*35.*36.*37.*38.*39.*40.*41.*42.*43.*44.*45.*46.*47.*48.*49.*50.*51.*52.*53.*54.*55.*56.*57.*58.*59.*60.*61.*62.*63.*64.*65.*66.*67.*68.*69.*70.*71.*72.*73.*74.*75.*76.*77.*78.*79.*80.*81.*82.*83.*84.*85.*86.*87.*88.*89.*90.*91.*92.*93.*94.*95.*96.*97.*98.*99.}[0.717187 : 1 :  0.717187]
+{*1.*2.*3.*4.*5.*6.*7.*8.*9.*10.*11.*12.*13.*14.*15.*16.*17.*18.*19.*20.*21.*22.*23.*24.*25.*26.*27.*28.*29.*30.*31.*32.*33.*34.*35.*36.*37.*38.*39.*40.*41.*42.*43.*44.*45.*46.*47.*48.*49.*50.*51.*52.*53.*54.*55.*56.*57.*58.*59.*60.*61.*62.*63.*64.*65.*66.*67.*68.*69.*70.*71.*72.*73.*74.*75.*76.*77.*78.*79.*80.*81.*82.*83.*84.*85.*86.*87.*88.*89.*90.*91.*92.*93.*94.*95.*96.*97.*98.*99.}[0.716860 : 2 :  0.717024]
+{*1.*2.*3.*4.*5.*6.*7.*8.*9.*10.*11.*12.*13.*14.*15.*16.*17.*18.*19.*20.*21.*22.*23.*24.*25.*26.*27.*28.*29.*30.*31.*32.*33.*34.*35.*36.*37.*38.*39.*40.*41.*42.*43.*44.*45.*46.*47.*48.*49.*50.*51.*52.*53.*54.*55.*56.*57.*58.*59.*60.*61.*62.*63.*64.*65.*66.*67.*68.*69.*70.*71.*72.*73.*74.*75.*76.*77.*78.*79.*80.*81.*82.*83.*84.*85.*86.*87.*88.*89.*90.*91.*92.*93.*94.*95.*96.*97.*98.*99.}[0.716449 : 3 :  0.716832]
+{*1.*2.*3.*4.*5.*6.*7.*8.*9.*10.*11.*12.*13.*14.*15.*16.*17.*18.*19.*20.*21.*22.*23.*24.*25.*26.*27.*28.*29.*30.*31.*32.*33.*34.*35.*36.*37.*38.*39.*40.*41.*42.*43.*44.*45.*46.*47.*48.*49.*50.*51.*52.*53.*54.*55.*56.*57.*58.*59.*60.*61.*62.*63.*64.*65.*66.*67.*68.*69.*70.*71.*72.*73.*74.*75.*76.*77.*78.*79.*80.*81.*82.*83.*84.*85.*86.*87.*88.*89.*90.*91.*92.*93.*94.*95.*96.*97.*98.*99.}[0.717005 : 4 :  0.716875]
+{*1.*2.*3.*4.*5.*6.*7.*8.*9.*10.*11.*12.*13.*14.*15.*16.*17.*18.*19.*20.*21.*22.*23.*24.*25.*26.*27.*28.*29.*30.*31.*32.*33.*34.*35.*36.*37.*38.*39.*40.*41.*42.*43.*44.*45.*46.*47.*48.*49.*50.*51.*52.*53.*54.*55.*56.*57.*58.*59.*60.*61.*62.*63.*64.*65.*66.*67.*68.*69.*70.*71.*72.*73.*74.*75.*76.*77.*78.*79.*80.*81.*82.*83.*84.*85.*86.*87.*88.*89.*90.*91.*92.*93.*94.*95.*96.*97.*98.*99.}[0.716632 : 5 :  0.716827]
+Ready
+B:
+Shell
+
+OS9:dir
+dir
+
+ Directory of .  2024/12/25 12:15
+CMDS            OS9Boot         startup
+
+OS9:dir -x
+dir -x
+
+ Directory of .  2024/12/25 12:15
+asm             attr            backup          basic09         binex
+build           cmp             cobbler         copy            cputype
+date            dcheck          debug           ded             deiniz
+del             deldir          devs            dir             dirsort
+disasm          display         dmem            dmode           dsave
+dump            dw              echo            edit            error
+exbin           format          free            gfx             gfx2
+grfdrv          help            httpd           ident           inetd
+iniz            inkey           irqs            link            list
+load            login           makdir          makefile        mdir
+megaread        merge           mfree           minted          mmap
+modpatch        montype         mpi             os9gen          padrom
+park            pmap            proc            procs           prompt
+pwd             pxd             reboot          rename          runb
+save            setime          shell           shell_21        shellplus
+sleep           smap            syscall         tee             telnet
+tmode           touch           tsmon           tuneport        unlink
+utilpak1        verify          wcreate         xmode           ncl
+
+
+OS9:list startup
+list startup
+basic09
+e
+100 for j=1 to 5
+210 print "{";
+220 FOR z=1 to 99
+240 print "*";z;
+250 next z
+290 print "}[0.032419 : 7 :  0.521146]"
+810 FOR z=0 to 300
+890 next z
+900 next j
+q
+run
+
+OS9:mdir
+mdir
+
+   Module Directory at 12:15:32
+REL         Boot        Krn         Shell       Echo        MDir     
+Dir         SMap        MMap        PMap        Term        sc6850   
+Init        EmuDsk      DD          Clock       Clock2      SysGo    
+RBF         SCF         IOMan       KrnP2       
+
+OS9:mdir -e
+mdir -e
+
+   Module Directory at 12:15:34
+
+Block Offset Size Typ Rev Attr  Use Module Name
+----- ------ ---- --- --- ---- ---- ------------
+  3F    D06   12A  C1   6 r...    0 REL
+  3F    E30   1D0  C1   0 r...    1 Boot
+  3F   1000   EDF  C0   0 r...    0 Krn
+   2   1F00   602  11   0 r...    3 Shell
+   2   2502    22  11   1 r...    0 Echo
+   2   2524   2ED  11   1 r...    2 MDir
+   2   2811   3A1  11   0 r...    0 Dir
+   2   2BB2   1CF  11   0 r...    0 SMap
+   2   2D81   1E9  11   0 r...    0 MMap
+   2   2F6A   1F2  11   0 r...    0 PMap
+   2   315C    3F  F1   0 r...    2 Term
+   2   319B   405  E1   0 r...    2 sc6850
+   2   35A0    61  C0   0 r...    2 Init
+   2   3601    EC  E1   2 r...    9 EmuDsk
+   2   36ED    2F  F1   1 r...    9 DD
+   2   371C   207  C1   5 r...    1 Clock
+   2   3923    76  21   0 r...    1 Clock2
+   2   3999   1FC  11   3 r...    1 SysGo
+   2   3B95  12EE  D1   3 r...    9 RBF
+   2   4E83   778  D1   0 r...    2 SCF
+   2   55FB   A25  C1   6 r...    1 IOMan
+   2   6020   CDB  C0   0 r...    1 KrnP2
+
+OS9:free
+free
+
+"TFR9-DISK" created on: 2025/01/24
+Capacity: 9,999 sectors (1-sector clusters) 
+8,979 free sectors, largest block 8,979 sectors 
+
+OS9:mfree
+mfree
+
+ Blk Begin   End   Blks  Size
+ --- ------ ------ ---- ------
+   8  10000  1DFFF    7    56k
+                   ==== ======
+            Total:    7    56k
+
+OS9:mmap
+mmap
+
+     0 1 2 3 4 5 6 7 8 9 A B C D E F
+  #  = = = = = = = = = = = = = = = =
+ 00  U U U U U U _ U _ _ _ _ _ _ _ . 
+  Block Size: 8192
+ Free Blocks: 8
+ KBytes Free: 64
+
+OS9:smap
+smap
+
+    0 1 2 3 4 5 6 7 8 9 A B C D E F
+ #  = = = = = = = = = = = = = = = =
+ 0  U U U U U U U U U U U U U U U U 
+ 1  U U U U U U U U U U U U U U U U 
+ 2  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 3  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 4  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 5  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 6  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 7  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 8  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ 9  _ _ _ U U U U U U U U U U U U U 
+ A  U U U U U U U U U U U U U U U U 
+ B  U U U U U U U U U U U U U U U U 
+ C  U U U U U U U U U U U U U U U U 
+ D  U U U U U U U U U U U U U U U U 
+ E  U U U U U U U U U U U U U U U U 
+ F  U U U U U U U U U U U U U U U . 
+
+ Number of Free Pages: 115
+   RAM Free in KBytes:  28
+
+OS9:pmap
+pmap
+
+ ID   01 23 45 67 89 AB CD EF  Program    
+____  __ __ __ __ __ __ __ __  ___________
+  1   00 .. .. 01 02 03 04 3F  SYSTEM   
+  2   07 .. .. .. 02 03 04 3F  Shell    
+  3   05 .. .. .. 02 03 04 3F  PMap     
+
+OS9:basic09
+basic09
+{12}            BASIC09
+     6809 VERSION 01.01.00
+COPYRIGHT 1980 BY MOTOROLA INC.
+  AND MICROWARE SYSTEMS CORP.
+   REPRODUCED UNDER LICENSE
+       TO TANDY CORP.
+    ALL RIGHTS RESERVED.
+
+Basic09
+Ready
+B:$shell
+$shell
+
+Shell
+
+OS9:proc
+proc
+
+ ID Prnt User Pty  Age  Tsk  Status  Signal   Module    I/O Paths
+___ ____ ____ ___  ___  ___  _______ __  __  _________ __________________
+  1   0    0  255  255   00  sTimOut  0  00  System    <Term >Term >>Term
+  2   1    0  128  129   00  s        0  00  Shell     <Term >Term >>Term
+  3   2    0  128  128   00  s        0  00  Basic09   <Term >Term >>Term
+                                             (Not Defined)
+  4   3    0  128  128   00  s        0  00  Shell     <Term >Term >>Term
+  5   4    0  128  129   00  s        0  00  Shell     <Term >Term >>Term
+  6   5    0  128  128   02  s        0  00  Proc      <Term >Term >>Term
+
+OS9:procs
+procs
+
+         User                     Mem Stack
+Id  PId Number  Pty Age Sts Signl Siz  Ptr   Primary Module
+--- --- ------- --- --- --- ----- --- ----- ----------------
+  2   1     0   128 129 $80    0    3 $96E2 Shell
+  3   2     0   128 128 $80    0   32 $94E2 Basic09
+  4   3     0   128 128 $80    0    3 $92E2 Shell
+  5   4     0   128 129 $80    0    3 $90E2 Shell
+  6   5     0   128 128 $80    0    6 $05F3 Procs
+
+OS9:pmap
+pmap
+
+ ID   01 23 45 67 89 AB CD EF  Program
+____  __ __ __ __ __ __ __ __  ___________
+  1   00 .. .. 01 02 03 04 3F  SYSTEM
+  2   07 .. .. .. 02 03 04 3F  Shell
+  3   05 .. .. .. .. 06 08 09  Basic09
+  4   0B .. .. .. 02 03 04 3F  Shell
+  5   0D .. .. .. 02 03 04 3F  Shell
+  6   0A .. .. .. 02 03 04 3F  PMap
+
+OS9:
+OS9:basic09
+basic09
+{12}            BASIC09
+     6809 VERSION 01.01.00
+COPYRIGHT 1980 BY MOTOROLA INC.
+  AND MICROWARE SYSTEMS CORP.
+   REPRODUCED UNDER LICENSE
+       TO TANDY CORP.
+    ALL RIGHTS RESERVED.
+
+Basic09
+Ready
+B:edit hundred
+edit hundred
+PROCEDURE hundred
+*
+E:10 for i=1 to 100
+10 for i=1 to 100
+*
+E:20 print i,
+20 print i,
+*
+E:30 next i
+30 next i
+*
+E:q
+q
+Ready
+B:list
+list
+PROCEDURE hundred
+ 0000 10   FOR i=1 TO 100
+ 0015 20     PRINT i,
+ 001E 30   NEXT i
+Ready
+B:run
+run
+1.              2.              3.              4.              5.              6.              7.              8.              9.              10.             11.             12.             13.             14.             15.             16.             17.             18.             19.             20.             21.             22.             23.             24.             25.             26.             27.             28.             29.             30.             31.             32.             33.             34.             35.             36.             37.             38.             39.             40.             41.             42.             43.             44.             45.             46.             47.             48.             49.             50.             51.             52.             53.             54.             55.             56.             57.             58.             59.             60.             61.             62.             63.             64.             65.             66.             67.             68.             69.             70.             71.             72.             73.             74.             75.             76.             77.             78.             79.             80.             81.             82.             83.             84.             85.             86.             87.             88.             89.             90.             91.             92.             93.             94.             95.             96.             97.             98.             99.             100.            Ready
+B:pack
+pack
+Ready
+B:bye
+bye
+
+OS9:hundred
+hundred
+1.              2.              3.              4.              5.              6.              7.              8.              9.              10.             11.             12.             13.             14.             15.             16.             17.             18.             19.             20.             21.             22.             23.             24.             25.             26.             27.             28.             29.             30.             31.             32.             33.             34.             35.             36.             37.             38.             39.             40.             41.             42.             43.             44.             45.             46.             47.             48.             49.             50.             51.             52.             53.             54.             55.             56.             57.             58.             59.             60.             61.             62.             63.             64.             65.             66.             67.             68.             69.             70.             71.             72.             73.             74.             75.             76.             77.             78.             79.             80.             81.             82.             83.             84.             85.             86.             87.             88.             89.             90.             91.             92.             93.             94.             95.             96.             97.             98.             99.             100.
+OS9:
+

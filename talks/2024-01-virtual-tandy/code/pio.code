@@ -1,0 +1,46 @@
+; E = 1
+; Q = 2
+; Not RecvAddress = 4
+; Not RecvData = 8
+; Not SendData = 16 + 8
+
+; Phase1 : 0 : neither
+; Phase2 : 2 : just Q
+; Phase3 : 3 : both
+; Phase4 : 1 : just E
+
+;   None = 28
+;   ReceiveAddress = None - 4 = 24
+;   ReceiveData = None - 8 = 20
+;   SendData = ReceiveData - 16 = 4
+
+.program tpio
+.side_set 5
+.wrap_target                  ; BEGIN LOOP
+top:
+    nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr
+    nop             side 24 ; Phase1 + RecvAddr
+    in  pins, 16    side 26 ; Phase2 + RecvAddr  ; Read Address
+    nop             side 22 ; Phase2 + RecvData
+    nop             side 22 ; Phase2 + RecvData
+    nop             side 23 ; Phase3 + RecvData
+    in  pins, 16    side 23 ; Phase3 + RecvData  ; Read Data & status
+    jmp pin, read   side 23 ; Phase3 + RecvData  ; Jump based on R/W pin.
+
+write:                        ; IF WRITE CYCLE (Receiving from CPU)
+    nop             side 21 ; Phase4 + RecvData
+    in pins, 16     side 21 ; Phase4 + RecvData    ; Receive accurate data.
+    nop             side 24 ; Phase4 + RecvAddr
+    jmp top         side 24 ; Phase4 + RecvAddr
+
+read:                         ; ELSE READ CYCLE (Sending to CPU)
+    pull block      side 21 ; Phase4 + RecvData
+    out pindirs,16  side 21 ; Phase4 + RecvData  ; change Data Pins to output
+    pull block      side 5 ;  Phase4 + SendData
+    out pins,16     side 5 ;  Phase4 + SendData  ; output the data.
+    nop             side 4 ;  Phase1 + SendData  ; Drop E (P4->P1) but continue to output data.
+    pull block      side 4 ;  Phase1 + SendData
+    out pindirs,16  side 4 ;  Phase1 + SendData  ; change Data Pins to inputs
+.wrap                         ; REPEAT LOOP

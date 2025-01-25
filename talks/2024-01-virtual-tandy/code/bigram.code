@@ -1,0 +1,53 @@
+class BigRam {
+ private:
+  const static uint RAM_SIZE = 128 * 1024;
+  const static uint RAM_MASK = RAM_SIZE - 1;
+
+  byte ram[RAM_SIZE];
+  uint base[2][8];
+  byte mmu[2][8];
+
+  bool enable_mmu;
+  byte current_task;
+  uint* current_bases;
+
+  const static uint SLOT_SHIFT = 13;
+  const static uint OFFSET_MASK = (1 << 13) - 1;
+  const static uint SLOT_MASK = 7;
+
+  void SetCurrentTask(byte a) {
+    assert(a < 2);
+    if (a != current_task) {
+      RP("COCO3: Now Task is %u\n", a);
+    }
+    current_task = a;
+    current_bases = base[a];
+  }
+  void WriteMmu(byte task, byte slot, byte blk) {
+    RP("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
+    mmu[task][slot] = blk;
+    base[task][slot] = (blk << SLOT_SHIFT) & RAM_MASK;
+  }
+
+  uint LogicalToPhys(uint addr) {
+    addr = addr & 0xFFFF;
+    uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
+    uint offset = addr & OFFSET_MASK;
+    bool use_mmu = enable_mmu && (addr < 0xFE00);
+    uint block = (use_mmu) ? mmu[current_task][slot] : 0x38 + slot;
+    uint pre_phys = ((block << SLOT_SHIFT) | offset);
+    uint phys = ((block << SLOT_SHIFT) | offset) & RAM_MASK;
+    return phys;
+  }
+  byte Read(uint addr) {
+    uint phys = LogicalToPhys(addr);
+    return ram[phys];
+  }
+  void Write(uint addr, byte data) {
+    uint phys = LogicalToPhys(addr);
+    ram[phys] = data;
+  }
+
+
+
+

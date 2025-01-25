@@ -1,0 +1,123 @@
+# @@ 2602 20  = #2 T1(0 39 3a 3b  3c 3d 3e 3f):072602 :: "=0="+0d02 
+# & 2603 2d  = #3
+# - ---- --  = #4
+MMOf/rel: 72631 -> d31
+BORGES: Loaded Source: "/home/strick/borges//rel.012a8d817f" (136)
+# @@ 2631 c6  = #5 T1(0 39 3a 3b  3c 3d 3e 3f):072631 :: "rel.012a8d817f"+002b start               ldb       #$FF                negative - do complete boot
+# & 2632 ff  = #6
+MMOf/rel: 72633 -> d33
+# @@ 2633 7f  = #7 T1(0 39 3a 3b  3c 3d 3e 3f):072633 :: "rel.012a8d817f"+002d                     clr       >$FFDF              added for OS-9 ROM Kit boots +BGP+
+# & 2634 ff  = #8
+# & 2635 df  = #9
+# - ---- --  = #10
+# r ffdf 00  =Y #11
+# - ---- --  =Y #12
+# w ffdf 00  = #13
+MMOf/rel: 72636 -> d36
+# @@ 2636 1a  = #14 T1(0 39 3a 3b  3c 3d 3e 3f):072636 :: "rel.012a8d817f"+0030 start1              orcc      #IntMasks           turn off IRQ's
+# & 2637 50  = #15
+# & 2638 7f  = #16
+MMOf/rel: 72638 -> d38
+# @@ 2638 7f  = #17 T1(0 39 3a 3b  3c 3d 3e 3f):072638 :: "rel.012a8d817f"+0032                     clr       >PIA0Base+3         turn off SAM IRQ's
+# & 2639 ff  = #18
+# & 263a 03  = #19
+# - ---- --  = #20
+# r ff03 80  =Y #21
+# - ---- --  =Y #22
+# = PIA0: ff03 w
+# w ff03 00  = #23
+MMOf/rel: 7263b -> d3b
+# @@ 263b 4f  = #24 T1(0 39 3a 3b  3c 3d 3e 3f):07263b :: "rel.012a8d817f"+0035                     clra                          make A=0 for later
+# & 263c 1f  = #25
+MMOf/rel: 7263c -> d3c
+# @@ 263c 1f  = #26 T1(0 39 3a 3b  3c 3d 3e 3f):07263c :: "rel.012a8d817f"+0036                     tfr       a,dp
+# & 263d 8b  = #27
+# - ---- --  = #28
+# - ---- --  = #29
+# - ---- --  = #30
+# - ---- --  = #31
+MMOf/rel: 7263e -> d3e
+# @@ 263e 0f  = #32 T1(0 39 3a 3b  3c 3d 3e 3f):07263e :: "rel.012a8d817f"+0038                     clr       <D.CBStrt           cold boot start: don't re-boot on reset
+# & 263f 71  = #33
+# - ---- --  = #34
+# r 0071 00  =Y #35
+# - ---- --  =Y #36
+# w 0071 00  = #37
+MMOf/rel: 72640 -> d40
+# @@ 2640 7f  = #38 T1(0 39 3a 3b  3c 3d 3e 3f):072640 :: "rel.012a8d817f"+003a                     clr       >DAT.Regs+0         map RAM block 0 to block 0 in DAT
+# & 2641 ff  = #39
+# & 2642 a0  = #40
+# - ---- --  = #41
+# r ffa0 00  =Y #42
+# - ---- --  =Y #43
+# w ffa0 00  = #44
+MMOf/rel: 72643 -> d43
+# @@ 2643 10  = #45 T1(0 39 3a 3b  3c 3d 3e 3f):072643 :: "rel.012a8d817f"+003d                     lds       #$1FFF              set stack to the end of the block
+# & 2644 ce  = #46
+# & 2645 1f  =Y #47
+# & 2646 ff  = #48
+MMOf/rel: 72647 -> d47
+# @@ 2647 e7  = #49 T1(0 39 3a 3b  3c 3d 3e 3f):072647 :: "rel.012a8d817f"+0041                     stb       ,-s                 save status of start, $00=cold, $01=warm
+# & 2648 e2  = #50
+# & 2649 27  = #51
+# - ---- --  = #52
+# - ---- --  = #53
+# w 1ffe ff  = #54
+MMOf/rel: 72649 -> d49
+# @@ 2649 27  = #55 T1(0 39 3a 3b  3c 3d 3e 3f):072649 :: "rel.012a8d817f"+0043                     beq       Cont                --don't clear out direct page if it's a crash
+# & 264a 0a  = #56
+# - ---- --  = #57
+MMOf/rel: 7264b -> d4b
+# @@ 264b 5f  = #58 T1(0 39 3a 3b  3c 3d 3e 3f):07264b :: "rel.012a8d817f"+0045                     clrb
+# & 264c 1f  = #59
+MMOf/rel: 7264c -> d4c
+# @@ 264c 1f  = #60 T1(0 39 3a 3b  3c 3d 3e 3f):07264c :: "rel.012a8d817f"+0046                     tfr       d,x                 here, too
+# & 264d 01  = #61
+# - ---- --  = #62
+# - ---- --  = #63
+# - ---- --  = #64
+# - ---- --  = #65
+MMOf/rel: 7264e -> d4e
+# @@ 264e a7  = #66 T1(0 39 3a 3b  3c 3d 3e 3f):07264e :: "rel.012a8d817f"+0048 L0072               sta       ,x+                 clear out the direct page
+# & 264f 80  = #67
+# & 2650 5c  = #68
+# - ---- --  = #69
+# - ---- --  = #70
+# w 0000 00  = #71
+MMOf/rel: 72650 -> d50
+# @@ 2650 5c  = #72 T1(0 39 3a 3b  3c 3d 3e 3f):072650 :: "rel.012a8d817f"+004a                     incb                          Boot won't be using any of it!
+# & 2651 26  = #73
+MMOf/rel: 72651 -> d51
+# @@ 2651 26  = #74 T1(0 39 3a 3b  3c 3d 3e 3f):072651 :: "rel.012a8d817f"+004b                     bne       L0072               BUT RAMMER/MD DOES!!!
+# & 2652 fb  = #75
+# - ---- --  = #76
+MMOf/rel: 7264e -> d4e
+# @ 264e a7  = #77 T1(0 39 3a 3b  3c 3d 3e 3f):07264e :: "rel.012a8d817f"+0048 L0072               sta       ,x+                 clear out the direct page
+# & 264f 80  = #78
+# & 2650 5c  = #79
+# - ---- --  = #80
+# - ---- --  = #81
+# w 0001 00  = #82
+MMOf/rel: 72650 -> d50
+# @ 2650 5c  = #83 T1(0 39 3a 3b  3c 3d 3e 3f):072650 :: "rel.012a8d817f"+004a                     incb                          Boot won't be using any of it!
+# & 2651 26  = #84
+MMOf/rel: 72651 -> d51
+# @ 2651 26  = #85 T1(0 39 3a 3b  3c 3d 3e 3f):072651 :: "rel.012a8d817f"+004b                     bne       L0072               BUT RAMMER/MD DOES!!!
+# & 2652 fb  = #86
+# - ---- --  = #87
+MMOf/rel: 7264e -> d4e
+# @ 264e a7  = #88 T1(0 39 3a 3b  3c 3d 3e 3f):07264e :: "rel.012a8d817f"+0048 L0072               sta       ,x+                 clear out the direct page
+# & 264f 80  = #89
+# & 2650 5c  = #90
+# - ---- --  = #91
+# - ---- --  = #92
+# w 0002 00  = #93
+MMOf/rel: 72650 -> d50
+# @ 2650 5c  = #94 T1(0 39 3a 3b  3c 3d 3e 3f):072650 :: "rel.012a8d817f"+004a                     incb                          Boot won't be using any of it!
+# & 2651 26  = #95
+MMOf/rel: 72651 -> d51
+# @ 2651 26  = #96 T1(0 39 3a 3b  3c 3d 3e 3f):072651 :: "rel.012a8d817f"+004b                     bne       L0072               BUT RAMMER/MD DOES!!!
+# & 2652 fb  = #97
+# - ---- --  = #98
+MMOf/rel: 7264e -> d4e
+# @ 264e a7  = #99 T1(0 39 3a 3b  3c 3d 3e 3f):07264e :: "rel.012a8d817f"+0048 L0072               sta       ,x+                 clear out the direct page
