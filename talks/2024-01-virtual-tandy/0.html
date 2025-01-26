@@ -139,19 +139,31 @@ for connecting the 6309 and the Pico.  (Next I should use 74LVC4245s.)</p></li>
 a simpler, cheaper 2-layer one next (TFR/905).</p></li>
 </ol>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=6><small>6.</small></a> &nbsp; Groups of 6309 Pins</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=6><small>6.</small></a> &nbsp; Comparisons</h2>
+
+<p><img src="img/10-compare.jpg" alt="img/10-compare.jpg"/></p>
+
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=7><small>7.</small></a> &nbsp; Costs</h2>
+
+<p><img src="img/20-parts.jpg" alt="img/20-parts.jpg"/></p>
+
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=8><small>8.</small></a> &nbsp; Groups of 6309 Pins</h2>
 
 <p><img src="img/22-two.jpg" alt="img/22-two.jpg"/></p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=7><small>7.</small></a> &nbsp; Multiplexing the G0:15 Bus</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=9><small>9.</small></a> &nbsp; Multiplexing the G0:15 Bus</h2>
 
 <p><img src="img/24-three.jpg" alt="img/24-three.jpg"/></p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=8><small>8.</small></a> &nbsp; Read &amp; Write Clock Cycles</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=10><small>10.</small></a> &nbsp; Read &amp; Write Clock Cycles</h2>
 
 <p><img src="img/26-e-q.jpg" alt="img/26-e-q.jpg"/></p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=9><small>9.</small></a> &nbsp; The USB Cable and the Console</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=11><small>11.</small></a> &nbsp; GPIO PINS</h2>
+
+<p><img src="img/30-gpio-pins.jpg" alt="img/30-gpio-pins.jpg"/></p>
+
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=12><small>12.</small></a> &nbsp; The USB Cable and the Console</h2>
 
 <p>The Pi Pico has a USB (micro) socket.  This can connect to any
 modern computer (window, linux, mac, raspberry pi, pi zero).</p>
@@ -160,7 +172,7 @@ modern computer (window, linux, mac, raspberry pi, pi zero).</p>
 keyboard and display for the machine.   It’s also the
 disk drive.</p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=10><small>10.</small></a> &nbsp; What about Wifi?</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=13><small>13.</small></a> &nbsp; What about Wifi?</h2>
 
 <p>If you use the “W” version of the Pico, wifi can be available.</p>
 
@@ -183,7 +195,7 @@ and a way to provide power (there are optional headers you
 can add, or use the USB connector) – then you have a
 portable 6309 computer!</p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=11><small>11.</small></a> &nbsp; Extra Credit</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=14><small>14.</small></a> &nbsp; Extra Credit</h2>
 
 <p>The TFR/903 actually has three Pico’s:</p>
 
@@ -198,7 +210,7 @@ portable 6309 computer!</p>
 <p>To simplify the (future) TFR/905 and make it cheaper,
 there will be only one Pico.</p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=12><small>12.</small></a> &nbsp; Code for Reset</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=15><small>15.</small></a> &nbsp; Code for Reset</h2>
 
 <PRE>
 const uint PIN_E = 16;  // clock output pin
@@ -236,7 +248,7 @@ void ResetCpu() {
 </PRE>
 
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=13><small>13.</small></a> &nbsp; Emulating RAM (coco2)</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=16><small>16.</small></a> &nbsp; Emulating RAM (coco2)</h2>
 
 <PRE>
 class SmallRam {
@@ -262,7 +274,7 @@ class SmallRam {
 </PRE>
 
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=14><small>14.</small></a> &nbsp; Emulating MMU + RAM (coco3)</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=17><small>17.</small></a> &nbsp; Emulating MMU + RAM (coco3)</h2>
 
 <PRE>
 class BigRam {
@@ -322,7 +334,7 @@ class BigRam {
 </PRE>
 
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=15><small>15.</small></a> &nbsp; Programmable IO Code</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=18><small>18.</small></a> &nbsp; Programmable IO Code</h2>
 
 <PRE>
 ; E = 1
@@ -375,7 +387,7 @@ read:                         ; ELSE READ CYCLE (Sending to CPU)
 </PRE>
 
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=16><small>16.</small></a> &nbsp; Example OS9 Level 2 Transcript</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=19><small>19.</small></a> &nbsp; Example OS9 Level 2 Transcript</h2>
 
 <PRE>
 NitrOS-9/6809 Level 2
@@ -670,7 +682,7 @@ OS9:
 </PRE>
 
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=17><small>17.</small></a> &nbsp; Examining OS9 system calls</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=20><small>20.</small></a> &nbsp; Examining OS9 system calls</h2>
 
 <p>( cd tmanager903 ; cp -vf with-os9 tmanager.cpp )</p>
 
@@ -755,7 +767,7 @@ UNKNOWN
 $
 </code></pre>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=18><small>18.</small></a> &nbsp; Tracing Machine Cycles – the beginning of REL</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=21><small>21.</small></a> &nbsp; Tracing Machine Cycles – the beginning of REL</h2>
 
 <p>( cd tmanager903 ; cp -vf with-tracking-all tmanager.cpp )</p>
 
@@ -889,7 +901,7 @@ MMOf/rel: 7264e -&gt; d4e
 
 <p> </p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=19><small>19.</small></a> &nbsp; Tracing Machine Cycles – somewhere in the SHELL</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=22><small>22.</small></a> &nbsp; Tracing Machine Cycles – somewhere in the SHELL</h2>
 
 <p> </p>
 
@@ -1836,7 +1848,7 @@ C_EVENT &quot;EVENT_SWI2&quot; $dd26 #1088951: dd28:4e 02dd:2d 94eb:28 94ea:dd 9
 
 <p> </p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=20><small>20.</small></a> &nbsp; Tracing Machine Cycles – some IOMAN</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=23><small>23.</small></a> &nbsp; Tracing Machine Cycles – some IOMAN</h2>
 
 <p> </p>
 
@@ -2401,7 +2413,7 @@ C_EVENT &quot;EVENT_RTI&quot; $fe2a #2140335: 8fcb:84 8fcc:0d 8fcd:02 8fce:00 8f
 
 <p> </p>
 
-<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=21><small>21.</small></a> &nbsp; FIN</h2>
+<br><br><br><br><br><br><br><br><br><br><hr><br><h2><a name=24><small>24.</small></a> &nbsp; FIN</h2>
 
 
 <br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>

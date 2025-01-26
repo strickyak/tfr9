@@ -49,6 +49,16 @@ for connecting the 6309 and the Pico.  (Next I should use 74LVC4245s.)
 4. Printed Circuit Board.  Currently (TFR/903) it is 100x100mm 4-layer.  I want to make
 a simpler, cheaper 2-layer one next (TFR/905).
 
+## Comparisons
+
+![img/10-compare.jpg](img/10-compare.jpg)
+
+## Costs
+
+![img/20-parts.jpg](img/20-parts.jpg)
+
+
+
 ## Groups of 6309 Pins
 
 ![img/22-two.jpg](img/22-two.jpg)
@@ -60,6 +70,10 @@ a simpler, cheaper 2-layer one next (TFR/905).
 ## Read & Write Clock Cycles
 
 ![img/26-e-q.jpg](img/26-e-q.jpg)
+
+## GPIO PINS
+
+![img/30-gpio-pins.jpg](img/30-gpio-pins.jpg)
 
 ## The USB Cable and the Console
 
