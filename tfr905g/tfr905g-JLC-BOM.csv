@@ -1,0 +1,8 @@
+"Id","Designator","Footprint","Quantity","Designation","Supplier and ref",JLC,LCSC
+44,"C7,C12,C1,C4,C9,C2,C5,C10,C8,C11","C_0402_1005Metric",10,"0.1uF","16V 100nF X7R ±10% 0402 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS,CL05B104KO5NNNC",402,C1525
+5,"U8,U3,U2,U7,U10,U9","TSSOP-24_4.4x7.8mm_P0.65mm",6,SN74LVC245APWR Logic Gate,C7494910,TSSOP-24,C7859
+7,"U13","SOIC-14_3.9x8.7mm_P1.27mm",1,"74LVC07AD,118",Nexperia,SOIC-14,C6049
+9,"U11","SOIC-16_3.9x9.9mm_P1.27mm",1,"74HC138DR","TI 74HC138 3-to-8 Decoder",SOIC-16,C6818
+33,"RN2,RN1",R_Array_Concave_4x0603,2,"4 ±5% 10kΩ 62.5mW ±200ppm/℃ 0603x4 Resistor Networks, Arrays ROHS",4D03WGJ0103T5E,0603x4,C29718
+12,"U12","TSSOP-20_4.4x6.5mm_P0.65mm",1,"74HC273PW,118","Nexperia 8 bit Latch Flip Flop",TSSOP-20,C131680
+13,"U4","SOIC-16_3.9x9.9mm_P1.27mm",1,"74HC161D,653","Nexperia Rising Edge Counter",SOIC-16,C5610
