@@ -1,0 +1,11 @@
+ 2071  vi create-dd.sh 
+ 2072  - make -B   && cp -v  build-tmanager903/tmanager.uf2 /media/strick/RPI-RP2/ && ( cd tconsole ; time go run --tags=level2,coco3 tconsole.go  2>/dev/pts/1 | tee _1 ) 
+ 2073  vi Makefile 
+ 2074  - make -B   && cp -v  build-tmanager903/tmanager.uf2 /media/strick/RPI-RP2/ && ( cd tconsole ; time go run --tags=level2,coco3 tconsole.go  2>/dev/pts/1 | tee _1 ) 
+ 2075  - make  && cp -v  build-tmanager903/tmanager.uf2 /media/strick/RPI-RP2/ && ( cd tconsole ; time go run --tags=level2,coco3 tconsole.go  2>_2 | tee _1 ) 
+ 2076  vi create-dd.sh 
+ 2077  - make -B  && cp -v  build-tmanager903/tmanager.uf2 /media/strick/RPI-RP2/ && ( cd tconsole ; time go run --tags=level2,coco3 tconsole.go  2>_2 | tee _1 ) 
+ 2078  - make  && cp -v  build-tmanager903/tmanager.uf2 /media/strick/RPI-RP2/ && ( cd tconsole ; time go run --tags=level2,coco3 tconsole.go  2>_2 | tee _1 ) 
+ 2079  ls
+ 2080  history 11
+ 2081  history 11 > H.61 
