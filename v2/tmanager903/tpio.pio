@@ -38,19 +38,19 @@ top:
     nop             side 24 ; Phase1 + RecvAddr
     nop             side 24 ; Phase1 + RecvAddr
     nop             side 24 ; Phase1 + RecvAddr
-    nop             side 24 ; Phase1 + RecvAddr  ; EXTRA
+    ;nop             side 24 ; Phase1 + RecvAddr  ; EXTRA
     in  pins, 16    side 26 ; Phase2 + RecvAddr  ; Read Address
     nop             side 22 ; Phase2 + RecvData
     nop             side 22 ; Phase2 + RecvData
-    nop             side 22 ; Phase2 + RecvData  ; EXTRA
+    ;nop             side 22 ; Phase2 + RecvData  ; EXTRA
     nop             side 23 ; Phase3 + RecvData
-    nop             side 23 ; Phase3 + RecvData  ; EXTRA
+    ;nop             side 23 ; Phase3 + RecvData  ; EXTRA
     in  pins, 16    side 23 ; Phase3 + RecvData  ; Read Status bits (R/W, AVMA, LLIC...)
     jmp pin, read   side 23 ; Phase3 + RecvData  ; Jump based on R/W pin.
 
 write:                        ; IF WRITE CYCLE (Receiving from CPU)
     nop             side 21 ; Phase4 + RecvData
-    nop             side 21 ; Phase4 + RecvData  ; EXTRA
+    ;nop             side 21 ; Phase4 + RecvData  ; EXTRA
     in pins, 16     side 21 ; Phase4 + RecvData  ; Receive accurate data.
     nop             side 24 ; Phase4 + RecvAddr
     jmp top         side 24 ; Phase4 + RecvAddr

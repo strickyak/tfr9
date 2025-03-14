@@ -26,6 +26,10 @@ if __name__ == '__main__':
         for k, v in sorted(defs.items()):
             print('#define %-20s 0x%04x' % (k, int(v)), file=w)
 
+    with open('coco2/tfr9ports.gen.h', 'w') as w:
+        for k, v in sorted(defs.items()):
+            print('#define %-20s 0x%04x' % (k, int(v)), file=w)
+
     with open('n9drivers/tfr9ports.gen.mk', 'w') as w:
         for k, v in sorted(defs.items()):
             print('%s=%d' % (k, int(v)), file=w)

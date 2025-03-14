@@ -65,7 +65,7 @@ run
 cat >/tmp/tfr.startup2 <<~~~~
 basic09
 e
-100 for j=1 to 30
+100 for j=1 to 5
 210 print "{";
 220 FOR z=1 to 99
 240 print "*";z;
@@ -113,6 +113,9 @@ else
       os9 copy -r $HOME/coco-shelf/nitros9/level2/coco3/cmds/$f  "$D",CMDS/$f
       os9 attr -r -w -e -pr -pe "$D",cmds/$f
     done
+
+    os9 copy -r /home/strick/glap/coco-shelf-oct10/mirror/frobio/built/v0extra/CMDS/ncl  "$D",CMDS/ncl
+    os9 attr -r -w -e -pr -pe "$D",cmds/ncl
 fi
 
 # Mon Nov 25 11:53:40 PM EST 2024
