@@ -41,6 +41,11 @@ def DataOut(x):
     Pin(6, Pin.OUT).value(1 if (x & 0x40) else 0)
     Pin(7, Pin.OUT).value(1 if (x & 0x80) else 0)
 
+def DownUp(pin):
+    pin.value(0)
+    pin.value(1)
+    
+
 DirectionIn()
 
 E = Pin(8, Pin.OUT)
@@ -86,7 +91,7 @@ def NullCycles(n):
         Q.value(0)
         E.value(0)
 
-def Reset():
+def TryLatches():
     Latch(RESET, SignalY6=True)
     NullCycles(8)
     Latch(RESET_HALT)
@@ -102,6 +107,46 @@ def Reset():
     Latch(NOTHING)
     NullCycles(4)
 
-while True:
+def Reset():
+    Latch(RESET, SignalY6=True)
+    NullCycles(20)
+    Latch(NOTHING)
+    NullCycles(1)
+
+def NormalCycle():
+    DirectionIn()
+    E.value(0)           # phase 1
+    DownUp(CounterReset) # -> Y0
+    alo = DataIn()
+    Q.value(1)           # phase 2
+    DownUp(CounterClock) # -> Y1
+    ahi = DataIn()
+    E.value(1)           # phase 3
+    DownUp(CounterClock) # -> Y2
+    status = DataIn()
+    Q.value(0)           # phase 4
+    DownUp(CounterClock) # -> Y3
+
+    if status & 1:       # CASE: 6809 READ CYCLE
+        DownUp(CounterClock) # -> Y4
+        DataOut(ReadRam(ahi, alo))
+        E.value(0)           # phase 1
+
+    else:                # CASE: 6809 WRITE CYCLE
+        data = DataIn()
+        WriteRam(ahi, alo, data)
+        
+def ReadRam(ahi, alo):
+    z = 0x0C  # INC Direct
+    print ("r %02x %02x -> %02x" % (ahi, alo, z))
+    return z
+
+def WriteRam(ahi, alo, data):
+    print ("w %02x %02x <- %02x w" % (ahi, alo, data))
+    pass
+
+if True:
     Reset()
+    for i in range(100):
+        NormalCycle()
 pass
