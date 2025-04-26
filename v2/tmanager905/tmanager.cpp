@@ -1,19 +1,19 @@
-#if !TINY
-
 //#define FOR_BASIC 0
 //#define BORING_SWI2S 9999999  // 200 // 160
 #define INCLUDED_DISK 0
+
+#define IRQS 1
 
 #define TRACKING 0
 // #define TRACKING_CYCLE 1124000 // 566750 // 940000
 // #define STOP_CYCLE 2000000 // 652689 // 1139300
 
-#define SEEN 0
-#define RECORD 0
-#define ALL_POKES 0
-#define HEURISTICS 0
-#define OPCODES 0
-#define TRACE_RTI 0
+#define SEEN        TRACKING
+#define RECORD        TRACKING
+#define ALL_POKES        TRACKING
+#define HEURISTICS        TRACKING
+#define OPCODES        TRACKING
+#define TRACE_RTI        TRACKING
 
 #define ALLOW_DUMP_PHYS 0
 #define ALLOW_DUMP_RAM 0
@@ -23,19 +23,18 @@
 // SPDX-License-Identifier: MIT
 
 #include <hardware/clocks.h>
-#include <hardware/exception.h>
 #include <hardware/pio.h>
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
 #include <pico/time.h>
+#include "pico/stdlib.h"
 #include <stdio.h>
 
 #include <functional>
 
-#include "hardware/clocks.h"
-#include "hardware/pio.h"
-#include "pico/cyw43_arch.h"
-#include "pico/stdlib.h"
+#define LED(X) gpio_put(25, (X))
+
+//////////////////////////////////////// #include "pico/cyw43_arch.h"
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -59,16 +58,17 @@ extern void RecvOut_byte(byte* x);
 // Configuration
 #include "tfr9ports.gen.h"
 
-// PIO code for the primary pico
+// PIO code
 #include "tpio.pio.h"
+#include "latch.pio.h"
 
-// LED_W for Pico W:   LED_W(1) for on, LED_W(0) for off.
-#define LED_W(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+///////////////////////  // LED_W for Pico W:   LED_W(1) for on, LED_W(0) for off.
+///////////////////////  #define LED_W(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 
 #define ATTENTION_SPAN 25  // was 250
 
 #if TRACKING
-#define VSYNC_TICK_MASK 0x3FF  // 0xFFFF   // one less than a power of two
+#define VSYNC_TICK_MASK 0xFFFF // 0x3FF  // 0xFFFF   // one less than a power of two
 #define ACIA_TICK_MASK 0xFF    // 0xFFF     // one less than a power of two
 #else
 #define VSYNC_TICK_MASK 0x3FFF  // 0xFFFF   // one less than a power of two
@@ -104,6 +104,26 @@ extern void RecvOut_byte(byte* x);
   if (0) printf
 
 #endif
+
+#define HL_JOIN(H,L) ( \
+    ((255 & (H)) <<  8) | \
+    ((255 & (L)) <<  0) )
+
+#define HL_SPLIT(H,L,X) ( \
+    H = (byte)((X) >>  8), \
+    L = (byte)((X) >>  0) )
+
+#define QUAD_JOIN(A,B,C,D) ( \
+    ((255 & (A)) << 24) | \
+    ((255 & (B)) << 16) | \
+    ((255 & (C)) <<  8) | \
+    ((255 & (D)) <<  0) )
+
+#define QUAD_SPLIT(A,B,C,D,X) ( \
+    A = (byte)((X) >> 24), \
+    B = (byte)((X) >> 16), \
+    C = (byte)((X) >>  8), \
+    D = (byte)((X) >>  0) )
 
 uint interest;
 uint btbug;
@@ -204,24 +224,39 @@ enum {
   EVENT_SP = 249,
 };
 
-#define DELAY sleep_us(1);
+#define DELAY sleep_us(1)
 
-#define F_READ 0x0100
-#define F_AVMA 0x0200
-#define F_LIC 0x0400
-#define F_BA 0x0800
-#define F_BS 0x1000
-#define F_BUSY 0x2000
+#define F_READ 0x01
+#define F_AVMA 0x02
+#define F_LIC 0x04
+#define F_BA 0x08
+#define F_BS 0x10
+#define F_BUSY 0x20
 
 #define F_HIGH (F_BA | F_BS | F_BUSY)
 
-const byte RESET_BAR_PIN = 21;  // negative logic
-const byte IRQ_BAR_PIN = 22;    // negative logic
+#define PIN_E   8            // clock output pin
+#define PIN_Q   9            // clock output pin
+#define COUNTER_CLOCK 10     // 74hc161 counter control output pin
+#define COUNTER_RESET 11     // 74hc161 counter control output pin
+
+#define STATE_Y5_RESET_PIN 0
+#define STATE_Y5_IRQ_PIN 2
 
 #include "ram.inc.h"
 
 extern "C" {
 extern int stdio_usb_in_chars(char* buf, int length);
+}
+
+void ShowChar(byte ch) {
+  putchar(C_PUTCHAR);
+  putchar(ch);
+}
+void ShowStr(const char* s) {
+    while (*s) {
+        ShowChar(*s++);
+    }
 }
 
 // putbyte does CR/LF escaping for Binary Data
@@ -488,26 +523,56 @@ void ViewAt(const char* label, uint hi, uint lo) {
 #endif
 }
 
-void ResetCpu() {
-  for (uint i = 0; i <= 20; i++) {
+void StrobePin(uint pin) {
+    gpio_put(pin, 0);
+    DELAY;
+    gpio_put(pin, 1);
+    DELAY;
+}
+
+void SetY(uint y) {
+    StrobePin(COUNTER_RESET);
+    for (uint i = 0; i<y; i++) {
+        StrobePin(COUNTER_CLOCK);
+    }
+}
+
+void InitializePinsForGpio() {
+  for (uint i = 0; i < 8; i++) {
     gpio_init(i);
-    gpio_set_dir(i, (i<16) ? GPIO_IN : GPIO_OUT);
+    gpio_set_dir(i, GPIO_IN);
+  }
+  for (uint i = 8; i < 12; i++) {
+    gpio_init(i);
+    gpio_set_dir(i, GPIO_OUT);
     gpio_put(i, 1);
   }
-  constexpr uint control_pins[] = {21, 22, 26, 27, 28};
-  for (uint p : control_pins) {
-    gpio_init(p);
-    gpio_put(p, 1);
-    gpio_set_dir(p, GPIO_OUT);
-    gpio_put(p, 1);
+}
+
+void ResetCpu() {
+  // printf("Resetting CPU ... ");
+  InitializePinsForGpio();
+
+  // Activate the 6309 RESET line
+  SetY(4);
+  for (uint i = 0; i < 8; i++) {
+    gpio_put(i, 1);
+    gpio_set_dir(i, GPIO_OUT);
+    gpio_put(i, 1);
   }
+  gpio_put(STATE_Y5_RESET_PIN, 0); // 0 is active
+  StrobePin(COUNTER_CLOCK); // Y5
+  StrobePin(COUNTER_CLOCK); // Y6
+  for (uint i = 0; i < 8; i++) {
+    gpio_set_dir(i, GPIO_IN);
+  }
+  SetY(0);
 
-  const uint PIN_E = 16;  // clock output pin
-  const uint PIN_Q = 17;  // clock output pin
-
-  D("begin reset cpu ========\n");
-  gpio_put(RESET_BAR_PIN, not true);  // negative logic
-  const uint EnoughCyclesToReset = 60;
+  const uint EnoughCyclesToReset = 12;
+  gpio_put(PIN_Q, 0);
+  DELAY;
+  gpio_put(PIN_E, 0);
+  DELAY;
   for (uint i = 0; i < EnoughCyclesToReset; i++) {
     gpio_put(PIN_Q, 1);
     DELAY;
@@ -518,8 +583,22 @@ void ResetCpu() {
     gpio_put(PIN_E, 0);
     DELAY;
   }
-  D("run ========\n");
-  gpio_put(RESET_BAR_PIN, not false);  // negative logic
+
+  // Release the 6309 RESET line
+  SetY(4);
+  for (uint i = 0; i < 8; i++) {
+    gpio_put(i, 1);
+    gpio_set_dir(i, GPIO_OUT);
+    gpio_put(i, 1);
+  }
+  gpio_put(STATE_Y5_RESET_PIN, 1); // 1 is release
+  StrobePin(COUNTER_CLOCK); // Y5
+  StrobePin(COUNTER_CLOCK); // Y6
+  for (uint i = 0; i < 8; i++) {
+    gpio_set_dir(i, GPIO_IN);
+  }
+  SetY(0);
+  printf("done.\n");
 }
 
 uint WAIT_GET() {
@@ -542,9 +621,46 @@ void StartPio() {
   constexpr uint sm = 0;
 
   pio_clear_instruction_memory(pio);
-  const uint offset = pio_add_program(pio, &tpio_program);
-  tpio_program_init(pio, sm, offset);
+  pio_add_program_at_offset(pio, &tpio_program, 0);
+  tpio_program_init(pio, sm, 0);
 }
+
+#if IRQS
+void SetInfiniteLoop() {
+  // Set a infinite loop.
+  const PIO pio = pio0;
+  pio->instr_mem[1] = 0x1800 + 1;
+  ShowChar(':');
+}
+void CauseInterrupt(bool irq_needed) {
+  const PIO pio = pio0;
+  constexpr uint sm = 0;
+
+   // Assume tpio_program is already stuck at beginning of loop.
+   // Disable it.
+   pio_sm_set_enabled(pio, sm, false);
+
+   // and switch to the Latch program.
+  pio_clear_instruction_memory(pio);
+   pio_add_program_at_offset(pio, &latch_program, 0);
+   latch_program_init(pio, sm, 0);
+
+   byte unused = 0x00;
+   byte inputs = 0x00;
+   byte irq_on = irq_needed ? 0xFB : 0xFF;
+   byte outputs = 0xFF;
+   pio_sm_put(pio, sm, QUAD_JOIN(unused, inputs, irq_on, outputs));
+
+   // Wait for Finished signal on FIFO, then stop pio.
+   (void) pio_sm_get_blocking(pio, sm);
+   pio_sm_set_enabled(pio, sm, false);
+
+   pio_clear_instruction_memory(pio);
+   pio_add_program_at_offset(pio, &tpio_program, 0);
+   tpio_program_init(pio, sm, 0);
+   ShowChar(';');
+}
+#endif
 
 const char* DecodeCC(byte cc) {
   static char buf[9];
@@ -558,41 +674,6 @@ const char* DecodeCC(byte cc) {
   buf[7] = 0x01 & cc ? 'C' : 'c';
   buf[8] = '\0';
   return buf;
-}
-
-#if 0
-byte GetCharFromConsole() {
-    putbyte(C_GETCHAR);
-    byte one = getbyte();
-    if (one == C_NOCHAR) {
-        return 0;
-    } else if (one == C_GETCHAR) {
-        byte two = getbyte();
-        return two;
-    } else {
-        printf("\nGetCharFromConsole did not expect %d\n", one);
-        DumpRamAndGetStuck();
-        return 0;
-    }
-}
-#endif
-
-#if 0
-void Strike(const char* why) {
-  interest += 100;
-  static int strikes;
-  ++strikes;
-  D("------ Strike %d -------- %s\n", strikes, why);
-  if (strikes >= 20) {
-    D("------ 20th Strike -------- %s\n", why);
-    DumpRamAndGetStuck("20th strike");
-  }
-}
-#endif
-
-void ShowChar(byte ch) {
-  putchar(C_PUTCHAR);
-  putchar(ch);
 }
 
 bool gime_irq_enabled;
@@ -642,9 +723,12 @@ class CircBuf {
   }
 };
 
+#if 0
+TODO
 void PutIrq(bool activate) {
   gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
 }
+#endif
 
 void SendEventHist(byte event, byte sz) {
 #if 1
@@ -713,20 +797,33 @@ extern void HandleTwo();
 extern void ReaderInit(void);
 
 int main() {
+  stdio_usb_init();
+  InitializePinsForGpio();
+  gpio_init(25);
+  gpio_set_dir(25, GPIO_OUT);
+  LED(1);
+#if 0
+  for (uint i = 0; i < 26; i++) {
+    ShowChar('a' + i);
+    printf("Hello WORLD(905) : %u\n", i);
+    LED(1);
+    sleep_ms(200);
+    LED(0);
+    sleep_ms(200);
+  }
+#endif
+  InitializePinsForGpio();
   ReaderInit();
 
   interest = MAX_INTEREST;  /// XXX
-  stdio_usb_init();
-  // stdio_init_all();
-  cyw43_arch_init();
 
-  quiet_ram = 888;
+  quiet_ram = 0;
 
   const uint BLINKS = 3;  // Initial LED blink countdown.
   for (uint i = BLINKS; i > 0; i--) {
-    LED_W(1);
+    LED(1);
     sleep_ms(500);
-    LED_W(0);
+    LED(0);
     sleep_ms(500);
     printf("+%d+ ", i);
 
@@ -740,7 +837,7 @@ int main() {
   }
   ShowChar('+');
 
-  LED_W(1);
+  LED(1);
 
   the_ram.Reset();
 #if N9_LEVEL == 2
@@ -781,12 +878,15 @@ int main() {
   }
 
   ShowChar('+');
-  ShowChar('\n');
-  LED_W(0);
+  LED(0);
   printf("\nStartPio()\n");
+  ShowChar('P');
   StartPio();
+  ShowChar('I');
   printf("\nEND StartPio()\n");
+  ShowChar('O');
 
+#if 0
   //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
   //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
   //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
@@ -800,8 +900,14 @@ int main() {
   // repeating_timer_callback_t callback, void *user_data, repeating_timer_t
   // *out)
   alarm_pool_init_default();
-  add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
 
+  // add_repeating_timer_us(16_666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
+
+  add_repeating_timer_us(10_000_000 /* 0.1 Hz */, TimerCallback, nullptr, &TimerData);
+
+#endif
+
+  ShowChar('\n');
   HandleTwo();
 
   sleep_ms(100);
@@ -812,18 +918,24 @@ int main() {
 
 void PreRoll() {
   while (1) {
-    const uint addr = WAIT_GET();
-    const uint flags = WAIT_GET();
+    const uint got32 = WAIT_GET();
+    byte junk, alo, ahi, flags;
+    QUAD_SPLIT(junk, alo, ahi, flags, got32);
+    const uint addr = HL_JOIN(ahi, alo);
+
+    // const uint addr = WAIT_GET();
+    // const uint flags = WAIT_GET();
     const bool reading = (flags & F_READ);
     const byte x = Peek(0xFFFE);
 
-    printf(":Preroll: addr %x flags %x reading %x x %x\n", addr, flags, reading,
+    printf(":Preroll: got %08x addr %x flags %x reading %x x %x\n", got32, addr, flags, reading,
            x);
 
     if (reading) {
-      PUT(0x00FF);  // pindirs: outputs
-      PUT(x);       // pins
-      PUT(0x0000);  // pindirs
+      PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, x, 0xFF/*=outputs*/));
+      // PUT(0x00FF);  // pindirs: outputs
+      // PUT(x);       // pins
+      // PUT(0x0000);  // pindirs
     } else {
       {}  // do nothing.
     }     // end if reading
@@ -1406,9 +1518,11 @@ void HandleIOReads(uint addr) {
               break;
           }  // switch
 
-          PUT(0x00FF);  // pindirs: outputs
-          PUT(data);    // pins
-          PUT(0x0000);  // pindirs
+          PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, data, 0xFF/*=outputs*/));
+
+          // PUT(0x00FF);  // pindirs: outputs
+          // PUT(data);    // pins
+          // PUT(0x0000);  // pindirs
 }
 
 void SendConfig() {
@@ -1433,31 +1547,37 @@ void SendConfig() {
 }
 
 void HandleTwo() {
+  ShowChar('2');
   uint cy = 0;  // This is faster if local.
 
   // TOP
   const PIO pio = pio0;
   constexpr uint sm = 0;
 
+  ShowChar('s');
   SendConfig();
+  ShowChar('p');
   PreRoll();
+  ShowChar('.');
 
   const byte value_FFFF = Peek(0xFFFF);
   printf("value_FFFF = %x\n", value_FFFF);
 
+  bool prev_irq_needed = false;
+
   while (true) {
-    {
-      static bool prev_irq_needed;
+#if IRQS
       bool irq_needed =
           (vsync_irq_enabled && vsync_irq_firing) ||
           (acia_irq_enabled && acia_irq_firing) ||
           (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
 
       if (irq_needed != prev_irq_needed) {
-        PutIrq(irq_needed);
-        prev_irq_needed = irq_needed;
+        // The infinite loop will be hit after the
+        // current instruction handling.
+        SetInfiniteLoop();
       }
-    }
+#endif
 
     PollUsbInput();
 
@@ -1517,8 +1637,9 @@ void HandleTwo() {
 #endif
 #endif
 
-      const uint addr = WAIT_GET();
-      const uint flags = WAIT_GET();
+      const uint get32 = WAIT_GET();
+      const uint addr = (0xFF00 & get32) | (0x00FF & (get32 >> 16));
+      const uint flags = 0xFF & get32;
       const bool reading = (flags & F_READ);
 
       // =============================================================
@@ -1526,26 +1647,32 @@ void HandleTwo() {
 
       if (likely(addr < 0xFE00)) {
         if (reading) {
-          PUT(0x00FF);          // pindirs: outputs
-          PUT(FastPeek(addr));  // pins
-          PUT(0x0000);          // pindirs
+
+          PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, FastPeek(addr), 0xFF/*=outputs*/));
+
+          //PUT(0x00FF);          // pindirs: outputs
+          //PUT(FastPeek(addr));  // pins
+          //PUT(0x0000);          // pindirs
+
 #if TRACKING || OPCODES || HEURISTICS
           data = FastPeek(addr);
 #endif
         } else {
-          const byte foo = WAIT_GET();
-          FastPoke(addr, foo);
+          const uint data_and_more = WAIT_GET(); // 
+          FastPoke(addr, (byte)data_and_more);
 #if TRACKING || OPCODES || HEURISTICS
-          data = foo;
+          data = (byte)data_and_more;
 #endif
         }  // end if reading
 
       // =============================================================
       } else if (addr == 0xFFFF) {
         if (reading) {
-          PUT(0x00FF);      // pindirs: outputs
-          PUT(value_FFFF);  // pins
-          PUT(0x0000);      // pindirs
+          PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, value_FFFF, 0xFF/*=outputs*/));
+
+          //PUT(0x00FF);      // pindirs: outputs
+          //PUT(value_FFFF);  // pins
+          //PUT(0x0000);      // pindirs
 #if TRACKING || OPCODES || HEURISTICS
           data = value_FFFF;
 #endif
@@ -1560,9 +1687,12 @@ void HandleTwo() {
       // =============================================================
       } else if (addr < 0xFF00) {
         if (reading) { // if reading FExx
-          PUT(0x00FF);      // pindirs: outputs
-          PUT(Peek(addr));  // pins
-          PUT(0x0000);      // pindirs
+
+          PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, Peek(addr), 0xFF/*=outputs*/));
+
+          // PUT(0x00FF);      // pindirs: outputs
+          // PUT(Peek(addr));  // pins
+          // PUT(0x0000);      // pindirs
 #if TRACKING || OPCODES || HEURISTICS
           data = Peek(addr);
 #endif
@@ -1724,67 +1854,16 @@ void HandleTwo() {
     }
 #endif
       cy++;
+#if IRQS
+      if (irq_needed != prev_irq_needed) {
+        CauseInterrupt(irq_needed);
+        prev_irq_needed = irq_needed;
+      }
+#endif
     }  // next loop
+
   }    // while true
 
 bottom:
   {}
 }
-
-#else // if TINY
-
-typedef unsigned char byte;
-typedef unsigned int word;
-byte ram[64 * 1024];
-void Show(char ch) {
-    putchar(161); // Prefix for Show 1 Char on Screen
-    putchar(ch);
-}
-#define DELAY sleep_us(1);
-void ResetCpu() {
-  for (uint i = 0; i <= 20; i++) {
-    gpio_init(i);
-    gpio_set_dir(i, (i<16) ? GPIO_IN : GPIO_OUT);
-    gpio_put(i, 1);
-  }
-  constexpr uint control_pins[] = {21, 22, 26, 27, 28};
-  for (uint p : control_pins) {
-    gpio_init(p);
-    gpio_put(p, 1);
-    gpio_set_dir(p, GPIO_OUT);
-    gpio_put(p, 1);
-  }
-
-  const uint PIN_E = 16;  // clock output pin
-  const uint PIN_Q = 17;  // clock output pin
-
-  Show('(');
-  gpio_put(RESET_BAR_PIN, not true);  // negative logic
-  const uint EnoughCyclesToReset = 60;
-  for (uint i = 0; i < EnoughCyclesToReset; i++) {
-    gpio_put(PIN_Q, 1);
-    DELAY;
-    gpio_put(PIN_E, 1);
-    DELAY;
-    gpio_put(PIN_Q, 0);
-    DELAY;
-    gpio_put(PIN_E, 0);
-    DELAY;
-    Show('.');
-  }
-  gpio_put(RESET_BAR_PIN, not false);  // negative logic
-  Show(')');
-}
-#define LED_W(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
-int main() {
-  stdio_usb_init();
-  cyw43_arch_init();
-  for (uint blink = 0; blink < 5; blink++) {
-    LED_W(1);
-    sleep_ms(500);
-    LED_W(0);
-    sleep_ms(500);
-    Show('*');
-  }
-}
-#endif // TINY

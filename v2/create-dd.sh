@@ -80,43 +80,46 @@ run
 # END STANDARD TIMING TWO
 
 
-# cat >/tmp/tfr.startup <<~~~~
-# echo One Two Three
-# ~~~~
+cat >/tmp/tfr.startup3 <<\~~~~
+basic09
+e
+100 for j=1 to 5
+210 print "{";
+220 FOR z=1 to 99
+240 print "*";z;
+250 next z
+290 print "}"
+810 FOR z=0 to 300
+890 next z
+900 next j
+q
+run
+$ mmap
+$ smap
+$ pmap
+bye
+mfree
+free
+dir
+dir -x
+mmap
+smap
+pmap
+~~~~
+
 
 os9 copy -l -r /tmp/tfr.startup2  "$D",startup
+# os9 copy -l -r /tmp/tfr.startup3  "$D",startup
 # os9 del "$D",startup
 
-if false
-then
-    os9 copy -r $HOME/NEW/nitros9/level2/coco3/cmds/basic09   "$D",CMDS/basic09
-    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/date   "$D",CMDS/date
-    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/list   "$D",CMDS/list
-    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/dump   "$D",CMDS/dump
-    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/free   "$D",CMDS/free
-    os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/mfree  "$D",CMDS/mfree
+ls -1 $HOME/coco-shelf/nitros9/level2/coco3/cmds/ | egrep -v '[.](list|map)$' | while read f
+do
+  os9 copy -r $HOME/coco-shelf/nitros9/level2/coco3/cmds/$f  "$D",CMDS/$f
+  os9 attr -r -w -e -pr -pe "$D",cmds/$f
+done
 
-    os9 attr -r -w -e -pr -pe "$D",cmds/basic09
-    os9 attr -r -w -e -pr -pe "$D",cmds/date
-    os9 attr -r -w -e -pr -pe "$D",cmds/list
-    os9 attr -r -w -e -pr -pe "$D",cmds/dump
-    os9 attr -r -w -e -pr -pe "$D",cmds/free
-    os9 attr -r -w -e -pr -pe "$D",cmds/mfree
-else
-    #ls -1 $HOME/NEW/nitros9/level1/tfr9/cmds/ | grep -v [.]list | grep -v [.]map | while read f
-    #do
-    #  os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/$f  "$D",CMDS/$f
-    #  os9 attr -r -w -e -pr -pe "$D",cmds/$f
-    #done
-    ls -1 $HOME/coco-shelf/nitros9/level2/coco3/cmds/ | egrep -v '[.](list|map)$' | while read f
-    do
-      os9 copy -r $HOME/coco-shelf/nitros9/level2/coco3/cmds/$f  "$D",CMDS/$f
-      os9 attr -r -w -e -pr -pe "$D",cmds/$f
-    done
-
-    os9 copy -r /home/strick/glap/coco-shelf-oct10/mirror/frobio/built/v0extra/CMDS/ncl  "$D",CMDS/ncl
-    os9 attr -r -w -e -pr -pe "$D",cmds/ncl
-fi
+os9 copy -r /home/strick/glap/coco-shelf-oct10/mirror/frobio/built/v0extra/CMDS/ncl  "$D",CMDS/ncl
+os9 attr -r -w -e -pr -pe "$D",cmds/ncl
 
 # Mon Nov 25 11:53:40 PM EST 2024
 # startup1: {}[0.305099 : 20 :  0.305659]
