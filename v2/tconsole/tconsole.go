@@ -59,16 +59,16 @@ const (
 	C_CONFIG     = 175
 	// EVENT_PC_M8  = 238
 	// EVENT_GIME   = 239
-	EVENT_RTI    = 240
-	EVENT_SWI2   = 241
-	EVENT_CC     = 242
-	EVENT_D      = 243
-	EVENT_DP     = 244
-	EVENT_X      = 245
-	EVENT_Y      = 246
-	EVENT_U      = 247
-	EVENT_PC     = 248
-	EVENT_SP     = 249
+	EVENT_RTI  = 240
+	EVENT_SWI2 = 241
+	EVENT_CC   = 242
+	EVENT_D    = 243
+	EVENT_DP   = 244
+	EVENT_X    = 245
+	EVENT_Y    = 246
+	EVENT_U    = 247
+	EVENT_PC   = 248
+	EVENT_SP   = 249
 )
 
 var CommandStrings = map[byte]string{
@@ -220,23 +220,23 @@ func FormatOs9StringFromRam(addr uint) string {
 }
 
 type Regs struct {
-    cc, a, b, dp byte 
-    d, x, y, u uint
+	cc, a, b, dp byte
+	d, x, y, u   uint
 }
 
 func FormatReturn(os9num byte, call *os9api.Call, rec *EventRec) (string, *Regs) {
 	p := rec.Datas
 	cc, rb := p[0], p[2]
-    regs := &Regs {
-        cc: p[0],
-        a: p[1],
-        b: p[2],
-        dp: p[3],
-        d: (uint(p[1])<<8) | uint(p[2]),
-        x: (uint(p[4])<<8) | uint(p[5]),
-        y: (uint(p[6])<<8) | uint(p[7]),
-        u: (uint(p[8])<<8) | uint(p[9]),
-    }
+	regs := &Regs{
+		cc: p[0],
+		a:  p[1],
+		b:  p[2],
+		dp: p[3],
+		d:  (uint(p[1]) << 8) | uint(p[2]),
+		x:  (uint(p[4]) << 8) | uint(p[5]),
+		y:  (uint(p[6]) << 8) | uint(p[7]),
+		u:  (uint(p[8]) << 8) | uint(p[9]),
+	}
 
 	if (cc & 1) == 1 { // if Carry bit set (bit 0x01)
 		errname, _ := os9api.ErrorNames[rb]
@@ -288,16 +288,16 @@ func FormatCall(os9num byte, call *os9api.Call, rec *EventRec) (string, *Regs) {
 	}
 	log.Printf("% 3x\n", p[:])
 
-    regs := &Regs {
-        cc: p[0],
-        a: p[1],
-        b: p[2],
-        dp: p[3],
-        d: (uint(p[1])<<8) | uint(p[2]),
-        x: (uint(p[4])<<8) | uint(p[5]),
-        y: (uint(p[6])<<8) | uint(p[7]),
-        u: (uint(p[8])<<8) | uint(p[9]),
-    }
+	regs := &Regs{
+		cc: p[0],
+		a:  p[1],
+		b:  p[2],
+		dp: p[3],
+		d:  (uint(p[1]) << 8) | uint(p[2]),
+		x:  (uint(p[4]) << 8) | uint(p[5]),
+		y:  (uint(p[6]) << 8) | uint(p[7]),
+		u:  (uint(p[8]) << 8) | uint(p[9]),
+	}
 
 	if call == nil {
 		fmt.Fprintf(&buf, "$%02x = UNKNOWN ( D=%02x, X=%02x, Y=%02x, U=%02x, ", os9num, p[1:3], p[4:6], p[6:8], p[8:10])
@@ -554,12 +554,21 @@ func main() {
 }
 
 func InkeyRoutine(inkey chan byte) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			log.Printf("InkeyRoutine: recovers panic: %v", r)
+		}
+	}()
 	for {
 		bb := make([]byte, 1)
+		log.Printf("InkeyRoutine: reading...")
 		sz, err := os.Stdin.Read(bb)
+		log.Printf("InkeyRoutine:    ... sz=%d err=%v", sz, err)
 		if err != nil {
 			log.Panicf("cannot os.Stdin.Read: %v", err)
 		}
+		log.Printf("INKEY:%d(%q)", bb[0], bb)
 		if sz == 1 {
 			inkey <- bb[0]
 		}
@@ -1020,9 +1029,9 @@ func Run(files DiskFiles, inkey chan byte) {
 						disk_param[i] = <-fromUSB
 						log.Printf("disk_param: %02x", disk_param[i])
 					}
-                    AssertEQ( disk_param[0], 0)
+					AssertEQ(disk_param[0], 0)
 
-                    lsn := (uint(disk_param[1])<<16) | (uint(disk_param[2])<<8) | uint(disk_param[3])
+					lsn := (uint(disk_param[1]) << 16) | (uint(disk_param[2]) << 8) | uint(disk_param[3])
 					_, err4 := files[0].Seek(256*int64(lsn), 0)
 					if err4 != nil {
 						log.Fatalf("Cannot seek")
@@ -1048,9 +1057,9 @@ func Run(files DiskFiles, inkey chan byte) {
 						disk_param[i] = <-fromUSB
 						log.Printf("disk_param: %02x", disk_param[i])
 					}
-                    AssertEQ( disk_param[0], 0)
+					AssertEQ(disk_param[0], 0)
 
-                    lsn := (uint(disk_param[1])<<16) | (uint(disk_param[2])<<8) | uint(disk_param[3])
+					lsn := (uint(disk_param[1]) << 16) | (uint(disk_param[2]) << 8) | uint(disk_param[3])
 					_, err4 := files[0].Seek(256*int64(lsn), 0)
 					if err4 != nil {
 						log.Fatalf("Cannot seek")
@@ -1131,13 +1140,13 @@ func Run(files DiskFiles, inkey chan byte) {
 						log.Printf("\n%q === OS9_CALL _%d_ %q:  %s #%d ...... %s\n\n", Who(), rec.SerialNum, key, rec.Call, op_cy, CurrentMapString())
 						pending[key] = rec
 
-                        if os9num == 0x8A /* I$Write */ {
-                            HandleWrite(regs)
-                        }
+						if os9num == 0x8A /* I$Write */ {
+							HandleWrite(regs)
+						}
 
-                        if os9num == 0x8C /* I$WritLn */ {
-                            HandleWritLn(regs)
-                        }
+						if os9num == 0x8C /* I$WritLn */ {
+							HandleWritLn(regs)
+						}
 
 					case EVENT_RTI:
 						fmt.Printf(">")
@@ -1155,7 +1164,7 @@ func Run(files DiskFiles, inkey chan byte) {
 							os9num := caller.Os9Num
 							call, _ := os9api.CallOf[os9num]
 							returnString, regs := FormatReturn(caller.Os9Num, call, rec)
-                            _ = regs
+							_ = regs
 							Log("\n%q === OS9_RETURN _%d_ %q:  %s #%d --> %s #%d %s\n\n", Who(), caller.SerialNum, key, caller.Call, caller.Cycle, returnString, op_cy, CurrentMapString())
 							delete(pending, key)
 						} else {
@@ -1176,9 +1185,9 @@ func Run(files DiskFiles, inkey chan byte) {
 					// log.Printf("       =C_POKE= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
 					trackRam[longaddr] = data
 
-                    if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
-                        HandleIOPoke(longaddr, data)
-                    }
+					if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
+						HandleIOPoke(longaddr, data)
+					}
 
 				case C_DUMP_RAM, C_DUMP_PHYS:
 					log.Printf("{{{ %s", CommandStrings[cmd])
@@ -1384,81 +1393,82 @@ func Run(files DiskFiles, inkey chan byte) {
 }
 
 func AssertEQ[T Ordered](a, b T) {
-    if a != b {
-        log.Fatalf("AssertEQ fails: %v vs %v", a, b)
-    }
+	if a != b {
+		log.Fatalf("AssertEQ fails: %v vs %v", a, b)
+	}
 }
+
 type Ordered interface {
-    byte | int | uint | int64 | uint64 | rune | string
+	byte | int | uint | int64 | uint64 | rune | string
 }
 
 func HandleWrite(regs *Regs) {
-    if regs.y == 256 {
-        return // It's a BLOCK operation
-    }
-    for i := uint(0); i < regs.y; i++ {
-        ch := LPeek1(regs.x + i)
-        if ch == 10 || ch == 13 {
-            ShowChar('\n')
-        } else {
-            ShowChar(127 & ch)
-        }
-    }
+	if regs.y == 256 {
+		return // It's a BLOCK operation
+	}
+	for i := uint(0); i < regs.y; i++ {
+		ch := LPeek1(regs.x + i)
+		if ch == 10 || ch == 13 {
+			ShowChar('\n')
+		} else {
+			ShowChar(127 & ch)
+		}
+	}
 }
 
 func ShowChar(b byte) {
-    os.Stdout.Write([]byte{b})
+	os.Stdout.Write([]byte{b})
 }
 
 func HandleWritLn(regs *Regs) {
-    switch vg.Task() {
-    case 0: // Level 2, Kernel
-    case 1: // Level 2, User
-    case -1: // Level 1
-    }
-    for i := uint(0); i < regs.y; i++ {
-        ch := LPeek1(regs.x + i)
-        if ch == 0 {
-            break
-        }
-        if ch == 10 || ch == 13 {
-            ShowChar('\n')
-        } else {
-            ShowChar(127 & ch)
-        }
-        if 128 <= ch {
-            break
-        }
-    }
+	switch vg.Task() {
+	case 0: // Level 2, Kernel
+	case 1: // Level 2, User
+	case -1: // Level 1
+	}
+	for i := uint(0); i < regs.y; i++ {
+		ch := LPeek1(regs.x + i)
+		if ch == 0 {
+			break
+		}
+		if ch == 10 || ch == 13 {
+			ShowChar('\n')
+		} else {
+			ShowChar(127 & ch)
+		}
+		if 128 <= ch {
+			break
+		}
+	}
 }
 
 type VgaGime struct {
-    compat, mmu, fexx bool
-    gime_irq, gime_firq, ext_scs bool
-    task int
-    rom_mode int // 0,1: 16k int, 16k ext. 2: 32k int. 3: 32k ext.
+	compat, mmu, fexx            bool
+	gime_irq, gime_firq, ext_scs bool
+	task                         int
+	rom_mode                     int // 0,1: 16k int, 16k ext. 2: 32k int. 3: 32k ext.
 }
 
 var vg = new(VgaGime)
 
 func (o *VgaGime) Task() int {
-    if o.mmu {
-        return o.task
-    }
-    return -1
+	if o.mmu {
+		return o.task
+	}
+	return -1
 }
 
 func HandleIOPoke(longAddr uint, data byte) {
-    a := longAddr - IO_PHYS
-    switch (a) {
-    case 0x90:
-        vg.compat = (data & 0x80) != 0
-        vg.mmu = (data & 0x40) != 0
-        vg.gime_irq = (data & 0x20) != 0
-        vg.gime_firq = (data & 0x10) != 0
-        vg.fexx = (data & 0x08) != 0
-        vg.ext_scs = (data & 0x04) != 0
-        vg.rom_mode = int(data & 0x03)
-    case 0x91:
-    }
+	a := longAddr - IO_PHYS
+	switch a {
+	case 0x90:
+		vg.compat = (data & 0x80) != 0
+		vg.mmu = (data & 0x40) != 0
+		vg.gime_irq = (data & 0x20) != 0
+		vg.gime_firq = (data & 0x10) != 0
+		vg.fexx = (data & 0x08) != 0
+		vg.ext_scs = (data & 0x04) != 0
+		vg.rom_mode = int(data & 0x03)
+	case 0x91:
+	}
 }
