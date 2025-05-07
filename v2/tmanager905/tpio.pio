@@ -41,50 +41,41 @@
 
 .wrap_target                  ; BEGIN LOOP
 top:
-    nop             side 12 ; Phase1 + Neutal
-    nop             side  4 ; Phase1 + CounterReset(-8)  ; Y0: selects A0-7
-    nop             side 12 ; Phase1 + Neutral
+    nop     [1]     side  4 ; Phase1 + CounterReset(-8)  ; Y0: selects A0-7
+    nop     [1]     side 12 ; Phase1 + Neutral
     in  null, 8     side 12 ; Phase1 + Neutral
-    in  pins, 8     side 14 ; Phase2 + Neutral
-    nop             side 10 ; Phase2 + CounterClock(-4)  ; Y1: selects A8-15
+    in  pins, 8     side 10 ; Phase2 + CounterClock(-4)  ; Y1: selects A8-15
     nop   [1]       side 14 ; Phase2 + Neutral
-    in  pins, 8     side 14 ; Phase2 + Neutral
-
-    nop             side 11 ; Phase3 + CounterClock(-4)  ; Y2: selects R/W & status
+    nop   [1]       side 14 ; Phase2 + Neutral
+    nop   [0]       side 14 ; Phase2 + Neutral
+    in  pins, 8     side 11 ; Phase2 + CounterClock(-4)  ; Y2: selects R/W & status
     nop   [1]       side 15 ; Phase3 + Neutral
     nop   [1]       side 15 ; Phase3 + Neutral
+    nop   [0]       side 15 ; Phase3 + Neutral
     in  pins, 8     side 15 ; Phase3 + Neutral   ; Read Status bits (R/W, AVMA, LLIC...)
-    jmp pin, read   side 15 ; Phase3 + Neutral   ; Jump based on R/W pin 0.
+    jmp pin, read   side 9 ; Phase 4 + Y3
 
 write:                        ; IF WRITE CYCLE (Receiving from CPU)
-    nop             side  9 ; Phase4 + CounterClock(-4)  ; Y3: selects D0-7
     nop    [1]      side 13 ; Phase4 + Neutral
-    nop             side 13 ; Phase4 + Neutral 
+    nop    [1]      side 13 ; Phase4 + Neutral
     in pins, 32     side 13 ; Phase4 + Neutral   ; Receive data.
-    jmp top         side 13 ; Phase4 + Neutral 
+    jmp top         side 12 ; Phase1 + Neutral 
 
 read:                         ; ELSE READ CYCLE (Sending to CPU)
-    nop             side  9 ; Phase4 + CounterClock(-4)  ; Y3: selects D0-7
-    nop    [1]      side 13 ; Phase4 + Neutral
-
     pull block      side 13 ; Phase4 + Neutral  ; pulls a 32 bit word, but we only use 24 bits.
-    out pindirs,8   side 13 ; Phase4 + Neutral  ; change Data Pins to output
-
-    nop             side  9 ; Phase4 + CounterClock(-4)  ; Y4: selects output to D0-7
-    nop    [1]      side 13 ; Phase4 + Neutral
+    out pindirs,8   side 9 ; Phase4 + CounterClock(-4)  ; change Data Pins to output, and Y4.
 
     out pins,8      side 13 ; Phase4 + Neutral   ; output the data.
     nop    [1]      side 13 ; Phase4 + Neutral
-
-    nop    [1]      side 12 ; Phase1 + Neutral   ; Drop E (P4->P1) but continue to output data.
     out pindirs,8   side 12 ; Phase1 + Neutral   ; change Data Pins to inputs
+
 .wrap                         ; REPEAT LOOP
 
 % c-sdk {
 
 void tpio_program_init(PIO pio, uint sm, uint offset) {
 
-   constexpr uint CLOCK_DIVISOR = 5;
+   constexpr uint CLOCK_DIVISOR = 2;
 
    //
    //  pico-examples/pio/hub75/hub75.pio shows order of inits.

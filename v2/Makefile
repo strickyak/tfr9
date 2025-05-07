@@ -53,3 +53,6 @@ _n9drivers_:
 	mkdir -p build-coco2
 	cd build-coco2 && PICOTOOL_FETCH_FROM_GIT_PATH=$$HOME/pico/picotool/  cmake ../coco2 -D'PICO_BOARD=pico_w'
 	cd build-coco2 && make
+
+re_905:
+	cd build-tmanager905 && PICO_EXAMPLES_PATH=/dev/null PICO_SDK_PATH=$$HOME/modoc/coco-shelf/pico-sdk  make

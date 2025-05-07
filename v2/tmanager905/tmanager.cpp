@@ -1547,18 +1547,19 @@ void SendConfig() {
 }
 
 void HandleTwo() {
-  ShowChar('2');
+  ShowChar('h');
   uint cy = 0;  // This is faster if local.
 
   // TOP
   const PIO pio = pio0;
   constexpr uint sm = 0;
 
-  ShowChar('s');
+  ShowChar('i');
   SendConfig();
-  ShowChar('p');
+  ShowChar('j');
   PreRoll();
-  ShowChar('.');
+  ShowChar('k');
+  ShowChar('\n');
 
   const byte value_FFFF = Peek(0xFFFF);
   printf("value_FFFF = %x\n", value_FFFF);
