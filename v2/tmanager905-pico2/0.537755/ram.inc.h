@@ -37,7 +37,7 @@ class SmallRam {
 
 class BigRam {
  private:
-  const static uint RAM_SIZE = 256 * 1024;
+  const static uint RAM_SIZE = 128 * 1024;
   const static uint RAM_MASK = RAM_SIZE - 1;
 
   const static uint SLOT_SHIFT = 13;
