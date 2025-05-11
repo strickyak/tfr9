@@ -1,0 +1,74 @@
+
+.program latch
+.side_set 4
+
+   mov y, ~null    side 12 ;              ;  Y := $FFFFFFFF
+
+   nop             side  4 ; CounterReset(-8) ; Y0
+   nop             side 12 ; .
+   nop             side  8 ; CounterClock(-4) ; Y1
+   nop             side 12 ; .
+   nop             side  8 ; CounterClock(-4) ; Y2
+   nop             side 12 ; .
+   nop             side  8 ; CounterClock(-4) ; Y3
+   nop             side 12 ; .
+   nop             side  8 ; CounterClock(-4) ; Y4
+   nop             side 12 ; .
+
+   pull block      side 12 ; .     ; pulls a 32 bit word, but we only use 24 bits.
+   out pindirs,8   side 12 ; .     ; change Data Pins to output
+
+   out pins,8      side 12 ; . + Neutral   ; output the data.
+
+   nop     [1]     side  8 ; CounterClock(-4) ; Y5
+   nop     [1]     side 12 ; .
+
+   nop             side  4 ; CounterReset(-8) ; Y0
+   out pindirs,8   side 12 ; .     ; change Data Pins to input
+
+   in pins, 32     side 12 ; .     ; signal we are finished.
+
+Hold:
+   jmp Hold        side 12 ; .     ; get stuck here.
+
+
+% c-sdk {
+
+void latch_program_init(PIO pio, uint sm, uint offset) {
+
+   constexpr uint CLOCK_DIVISOR = 16;
+
+   //
+   //  Parameters are the same as for tpio, execpt CLOCK_DIVISOR.
+   //
+   pio_sm_set_consecutive_pindirs(pio, sm, 0, 8, false/*in*/);
+   pio_sm_set_consecutive_pindirs(pio, sm, 8, 4, true/*out*/);
+   for (uint i = 0; i < 12; i++) {
+       pio_gpio_init(pio, i);
+   }
+
+   pio_sm_config cf = latch_program_get_default_config(offset);
+   sm_config_set_jmp_pin(&cf, 0);
+   sm_config_set_in_pins(&cf, 0);
+   sm_config_set_out_pins(&cf, 0, 8);
+   sm_config_set_sideset(&cf, 4, false, false);
+   sm_config_set_sideset_pins(&cf, 8);
+   sm_config_set_clkdiv(&cf, CLOCK_DIVISOR);
+
+   // IN: Shift from left, do autopush
+   const bool IN_SHIFT_RIGHT = false;
+   const bool AUTOPUSH = true;
+   const uint PUSH_THRESHOLD = 32;
+   sm_config_set_in_shift(&cf, IN_SHIFT_RIGHT, AUTOPUSH, PUSH_THRESHOLD);
+
+   // OUT: Shift to right, don't autopull
+   const bool OUT_SHIFT_RIGHT = true;
+   const bool AUTOPULL = false;
+   const uint PULL_THRESHOLD = 8;
+   sm_config_set_out_shift(&cf, OUT_SHIFT_RIGHT, AUTOPULL, PULL_THRESHOLD);
+
+   pio_sm_init(pio, sm, offset, &cf);
+   pio_sm_exec(pio, sm, offset);
+   pio_sm_set_enabled(pio, sm, true);
+}
+%}
