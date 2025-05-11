@@ -1,0 +1,113 @@
+; tpio.pio -- for the TFR/901 -- strick
+; This is the King's PIO assembly language code.
+;
+; SPDX-License-Identifier: MIT
+
+;#########################.define public EBAR    1
+;#########################.define public QBAR    2
+;#########################.define public MODE0   0 ; (0 << 2)
+;#########################.define public MODE1   4 ; (1 << 2)
+;#########################.define public MODE2   8 ; (2 << 2)
+;#########################.define public MODE3  12 ; (3 << 2)
+;#########################.define public MODE4  16 ; (4 << 2)
+;#########################.define public MODE5  20 ; (5 << 2)
+;#########################.define public MODE6  24 ; (6 << 2)
+;#########################.define public MODE7  28 ; (7 << 2)
+
+; E = 1
+; Q = 2
+; OLD: Not RecvAddress = 4
+; OLD: Not RecvData = 8
+; OLD: Not SendData = 16 + 8
+
+; Phase1 : 0 : neither
+; Phase2 : 2 : just Q
+; Phase3 : 3 : both
+; Phase4 : 1 : just E
+
+;   OLD: None = 28
+;   OLD: ReceiveAddress = None - 4 = 24
+;   OLD: ReceiveData = None - 8 = 20
+;   OLD: SendData = ReceiveData - 16 = 4
+
+;  NEW: 12: CounterReset & CounterClock inactive
+;  NEW: Subtract 4:   CounterClock active
+;  NEW: Subtract 8:   CounterReset active
+
+.program tpio
+.side_set 4
+
+   mov y, ~null     side 12 ; Phase1 + Neutral  ;  Y := $FFFFFFFF
+
+.wrap_target                  ; BEGIN LOOP
+top:
+    nop     [1]     side  4 ; Phase1 + CounterReset(-8)  ; Y0: selects A0-7
+    nop     [1]     side 12 ; Phase1 + Neutral
+    in  null, 8     side 12 ; Phase1 + Neutral
+    in  pins, 8     side 10 ; Phase2 + CounterClock(-4)  ; Y1: selects A8-15
+    nop   [1]       side 14 ; Phase2 + Neutral
+    nop   [1]       side 14 ; Phase2 + Neutral
+    nop   [0]       side 14 ; Phase2 + Neutral
+    in  pins, 8     side 11 ; Phase2 + CounterClock(-4)  ; Y2: selects R/W & status
+    nop   [1]       side 15 ; Phase3 + Neutral
+    nop   [1]       side 15 ; Phase3 + Neutral
+    nop   [0]       side 15 ; Phase3 + Neutral
+    in  pins, 8     side 15 ; Phase3 + Neutral   ; Read Status bits (R/W, AVMA, LLIC...)
+    jmp pin, read   side 9 ; Phase 4 + Y3
+
+write:                        ; IF WRITE CYCLE (Receiving from CPU)
+    nop    [1]      side 13 ; Phase4 + Neutral
+    nop    [1]      side 13 ; Phase4 + Neutral
+    in pins, 32     side 13 ; Phase4 + Neutral   ; Receive data.
+    jmp top         side 12 ; Phase1 + Neutral 
+
+read:                         ; ELSE READ CYCLE (Sending to CPU)
+    pull block      side 13 ; Phase4 + Neutral  ; pulls a 32 bit word, but we only use 24 bits.
+    out pindirs,8   side 9 ; Phase4 + CounterClock(-4)  ; change Data Pins to output, and Y4.
+
+    out pins,8      side 13 ; Phase4 + Neutral   ; output the data.
+    nop    [1]      side 13 ; Phase4 + Neutral
+    out pindirs,8   side 12 ; Phase1 + Neutral   ; change Data Pins to inputs
+
+.wrap                         ; REPEAT LOOP
+
+% c-sdk {
+
+void tpio_program_init(PIO pio, uint sm, uint offset) {
+
+   constexpr uint CLOCK_DIVISOR = 2;
+
+   //
+   //  pico-examples/pio/hub75/hub75.pio shows order of inits.
+   //
+   pio_sm_set_consecutive_pindirs(pio, sm, 0, 8, false/*in*/);
+   pio_sm_set_consecutive_pindirs(pio, sm, 8, 4, true/*out*/);
+   for (uint i = 0; i < 12; i++) {
+       pio_gpio_init(pio, i);
+   }
+
+   pio_sm_config cf = tpio_program_get_default_config(offset);
+   sm_config_set_jmp_pin(&cf, 0);
+   sm_config_set_in_pins(&cf, 0);
+   sm_config_set_out_pins(&cf, 0, 8);
+   sm_config_set_sideset(&cf, 4, false, false);
+   sm_config_set_sideset_pins(&cf, 8);
+   sm_config_set_clkdiv(&cf, CLOCK_DIVISOR);
+
+   // IN: Shift from left, do autopush
+   const bool IN_SHIFT_RIGHT = false;
+   const bool AUTOPUSH = true;
+   const uint PUSH_THRESHOLD = 32;
+   sm_config_set_in_shift(&cf, IN_SHIFT_RIGHT, AUTOPUSH, PUSH_THRESHOLD);
+
+   // OUT: Shift to right, don't autopull
+   const bool OUT_SHIFT_RIGHT = true;
+   const bool AUTOPULL = false;
+   const uint PULL_THRESHOLD = 8;
+   sm_config_set_out_shift(&cf, OUT_SHIFT_RIGHT, AUTOPULL, PULL_THRESHOLD);
+
+   pio_sm_init(pio, sm, offset, &cf);
+   pio_sm_exec(pio, sm, offset);
+   pio_sm_set_enabled(pio, sm, true);
+}
+%}

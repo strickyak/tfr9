@@ -1,9 +1,10 @@
 set(PROJECT tmanager)
 cmake_minimum_required(VERSION 3.12)
+set(PICO_BOARD pico)
+set(PICO_PLATFORM rp2040)
+
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 project(${PROJECT} C CXX ASM)
-
-#### set(PICO_BOARD pico_w)
 pico_sdk_init()
 
 add_executable(${PROJECT} tmanager.cpp)
