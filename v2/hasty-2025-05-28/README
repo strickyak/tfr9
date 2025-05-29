@@ -3,9 +3,16 @@ This is a hasty initial release for the TFR/905h.
 This will be OK for seeing the board run.
 You can have one disk, and can save your work on it.
 
-The most important source files are saved here,
-but you probably won't be able to regenerate the
-release without a fair amount of effort.
+There are a bunch of files in this archive,
+but you will only need 3 of them:
+    * One of the "tmanager.uf2" files.
+    * One of the "tconsole.*.exe" commands
+    * The default drive disk image "level2.disk"
+
+The other files are some of the most important source files, but you
+probably won't be able to regenerate the release without a fair amount
+of effort.  They haven't been cleaned up and fixed yet.
+
 That'll be addressed soon in the github:
     https://github.com/strickyak/tfr9/tree/main/v2
 
@@ -158,6 +165,32 @@ and run a small benchmark program five times.  Each time
 the program counts to 99.  Each time, tconsole triggers on
 characters "{" and "}" and prints the time between the two,
 and the number of trials, and the average time over all trials.
+
+========================================================
+
+THINGS TO TRY
+-------------
+
+After booting up your board and running the tconsole command,
+here are some NitrOS9 shell commands that should work:
+
+    dir
+    dir -e -x
+    mdir
+    mdir -e
+    free
+    mfree
+    cputype
+    proc
+    procs
+    pmap
+    smap
+    mmap
+    startup
+    list startup
+    dump startup
+
+If you learn Basic09, you can type "basic09" and use it.
 
 ========================================================
 
