@@ -811,7 +811,7 @@ extern void HandleTwo();
 extern void ReaderInit(void);
 
 int main() {
-  set_sys_clock_khz(250000, true); // 0.537755
+  set_sys_clock_khz(200000, true); // 0.537755
   // set_sys_clock_khz(260000, true); // 0.516071
   // set_sys_clock_khz(270000, true); // NO
 

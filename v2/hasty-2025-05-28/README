@@ -1,0 +1,184 @@
+This is a hasty initial release for the TFR/905h.
+
+This will be OK for seeing the board run.
+You can have one disk, and can save your work on it.
+
+The most important source files are saved here,
+but you probably won't be able to regenerate the
+release without a fair amount of effort.
+That'll be addressed soon in the github:
+    https://github.com/strickyak/tfr9/tree/main/v2
+
+===================================================
+
+PICO 1 VS PICO 2
+----------------
+
+Your TFR/905h has a Pi Pico soldered onto it.
+It's the little circuit board with the USB connector
+on it.
+
+This Pi Pico may be either a Pico 1 or a Pico 2. 
+The Pico 2 says prominently "Pico[2]" with the 2 in a white box.
+If it doesn't say that, it is a Pico 1.
+Look at yours and see which it is.  It will matter for
+which firmware you flash onto it.
+
+===================================================
+
+FIRMWARE .uf2 FILES
+-------------------
+
+Inside this release, notice these .uf2 files:
+
+    * level2-pico1-133mhz-div2/tmanager.uf2
+    * level2-pico2-150mhz-div3/tmanager.uf2
+    * level2-pico2-200mhz-div3/tmanager.uf2
+    * level2-pico2-250mhz-div3/tmanager.uf2
+
+Those are firmware files, to be flashed onto the Pi Pico.
+
+If you have a Pico 1, use the file in the only
+directory that says pico1.
+
+If you have a Pico 2, you have three options to try.
+150mhz runs the slowest, and 250mhz runs the fastest.
+Since it is overclocking the Pi Pico 2, the fastest
+may not work for your specfic Pi Pico, so try a
+slower one, if the faster one fails.
+
+====================================================
+
+HOW TO FLASH
+------------
+
+How to flash the firmware:
+
+Disconnect the USB cable from the Pi Pico.
+
+Hold down the little white button (near the USB port)
+while you plug it into your PC (Windows, Mac, Linux,
+whatever).  The white button tells the Pico that
+you want to flash it, as opposed to just run it.
+
+A moment after plugging it in, it should be detected
+as a USB thumb drive.  Copy the chosen .uf2 file
+onto the thumb drive.  That's it.  The thumb drive
+will probably unmount itself and vanish.
+
+====================================================
+
+VERSIONS OF TCONSOLE
+--------------------
+
+There are eight files with names tconsole.*.exe.
+Pick the one that is correct for your PC's operating
+system.  Later we will just call it "tconsole".
+
+    tconsole.linux-386.exe
+        for 32-bit installs of Linux on Intel or AMD CPUs
+
+    tconsole.linux-amd64.exe
+        for 64-bit installs of Linux on Intel or AMD CPUs
+
+    tconsole.linux-arm64.exe
+        for Raspberry Pi with 64 bit OS
+
+    tconsole.linux-arm-7.exe
+        for Raspberry Pi with 32 bit OS
+
+    tconsole.mac-amd64.exe
+        for MacOS on Intel CPU (older)
+
+    tconsole.mac-arm64.exe
+        for MacOS on Apple Silicon (M1, M2, M3, M4...) (newer)
+
+    tconsole.win-386.exe
+        for 32-bit installs of Windows
+
+    tconsole.win-amd64.exe
+        for 64-bit installs of Windows
+
+========================================================
+
+USB DEVICE NAMES
+----------------
+
+When you plug the USB cable in, between the PC and the Pi Pico,
+and you don't hold down the white button (because you are
+not trying to flash it), a device will appear on your PC.
+
+Under Linux, its name is probably
+    /dev/ttyACM0
+
+Under Windows, its name is probably "COM" followed by
+a number, like "COM5".
+
+You need to figure out what this USB device name is.
+For instance, you might look in some Device table control panel,
+or you might use a command like "ls /dev/tty*",
+both before and after plugging the card in, to see what changes.
+
+========================================================
+
+RUNNING NitrOS-9 Level 2
+------------------------
+
+On the PC, execute your tconsole command:
+
+    1.  The command does console input and output
+        on the standard input and standard output
+        streams.  The standard error stream is for
+        debug logging, and is very verbose.
+        You will want to route the standard error
+        into a file, or maybe the /dev/null device.
+
+    2.  You will have to set the "--disks" option
+        to the location of the "level2.disk" file,
+        or your copy of it, if you choose to copy
+        that disk image.
+
+    3.  If your USB device is not "/dev/ttyACM0",
+        you will have to set the "--tty" option.
+
+Example:
+
+    ./tconsole.linux-amd64.exe --disk level2.disk --tty /dev/ttyACM1 2>logfile
+
+That will create a file named "logfile" with errors and logging.
+
+If the tconsole program does not work, you may see no output at all.
+The diagnostic information (error messages) will be in "logfile".
+
+You should be able to kill the tconsole command with Control C.
+If that doesn't work, try Control \.
+
+The startup file on the disk will have the machine go into Basic09
+and run a small benchmark program five times.  Each time
+the program counts to 99.  Each time, tconsole triggers on
+characters "{" and "}" and prints the time between the two,
+and the number of trials, and the average time over all trials.
+
+========================================================
+
+BUGS
+----
+
+THE TCONSOLE STAYS IN LINE-INPUT MODE.  That is, the tty is cooked.
+So you might have problems with programs that want 1 keystroke
+at a time.
+
+REDUNDANT ECHOING IS ON. so you see things you type twice.
+
+THERE IS A CRITICAL RACE THAT HAPPENS SOMETIMES, in which commands you type
+are incorrectly echoed, and just don't work.  If this happens,
+kill the tconsole, and start a new one.  You may not see a shell
+prompt, but you are still whereever you left off.  
+Perhaps type "dir" ENTER if you are in a shell, and see if that works.
+
+NO CLOCK IRQ: There is no 60Hz clock interrupt yet, so if you put
+something in background, it will not run, and if something sleeps
+for some number of ticks or seconds, that time will never come.
+
+IF THE MACHINE'S OUTPUT CONTAINS { and } CHARACTERS,
+it triggers the benchmark timing, and extra timing data will be printed.

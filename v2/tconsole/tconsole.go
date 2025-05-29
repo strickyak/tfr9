@@ -522,7 +522,7 @@ func main() {
 	flag.Parse()
 
 	if false { // Why doesnt this seem to have the effect
-		sttyErr := exec.Command("stty", "cbreak", "min", "1").Run()
+		sttyErr := exec.Command("stty", "cbreak", "min", "-echo", "1").Run()
 		if sttyErr != nil {
 			log.Printf("stty failed: %v", sttyErr)
 		}

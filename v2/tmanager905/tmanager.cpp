@@ -811,6 +811,8 @@ extern void HandleTwo();
 extern void ReaderInit(void);
 
 int main() {
+  set_sys_clock_khz(150000, true);
+
   stdio_usb_init();
   InitializePinsForGpio();
   gpio_init(25);

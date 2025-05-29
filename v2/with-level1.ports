@@ -1,8 +1,8 @@
 defs = dict(
-    CONSOLE_PORT  =     0xFF04,
-    BOOTHACK_PORT =     0xFF05,
+    # CONSOLE_PORT  =     0xFF04,
+    # BOOTHACK_PORT =     0xFF05,
     ACIA_PORT     =     0xFF06,  # sc6850
-    BLOCK_PORT    =     0xFF08,
+    # BLOCK_PORT    =     0xFF08,
     EMUDSK_PORT   =     0xFF80,
     USE_ACIA      =     1,
     N9_LEVEL      =     1,
