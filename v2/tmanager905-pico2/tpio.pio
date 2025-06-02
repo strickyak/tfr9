@@ -23,8 +23,16 @@
 .wrap_target                  ; BEGIN LOOP
 top:
     nop     [1]     side  4 ; Phase1 + CounterReset(-8)  ; Y0: selects A0-7
+;;;;;;;;;
+
+    ; WAIT FOR THE GO_AHEAD
+; offset `2`
+    pull block [1]      side 12 ;
+
     nop     [1]     side 12 ; Phase1 + Neutral
-    nop     [0]     side 12 ; Phase1 + Neutral
+    ; nop     [0]     side 12 ; Phase1 + Neutral
+
+;;;;;;;;;
     in  null, 8     side 12 ; Phase1 + Neutral
     in  pins, 8     side 10 ; Phase2 + CounterClock(-4)  ; Y1: selects A8-15
     nop   [1]       side 14 ; Phase2 + Neutral
@@ -59,6 +67,8 @@ read:                         ; ELSE READ CYCLE (Sending to CPU)
 
 void tpio_program_init(PIO pio, uint sm, uint offset) {
 
+   // At 150 MHz, CLOCK_DIVISOR can be 2, for 0.710156
+   // For 200(0.686792) or 250 or 270(0.509053) MHz, CLOCK_DIVISOR seems to be 3.
    constexpr uint CLOCK_DIVISOR = 3;
 
    //

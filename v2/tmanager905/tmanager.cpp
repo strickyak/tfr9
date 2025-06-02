@@ -640,11 +640,11 @@ void StartPio() {
 }
 
 #if IRQS
-void SetInfiniteLoop() {
+void SetInfiniteLoop(bool irq_needed) {
   // Set a infinite loop.
   const PIO pio = pio0;
   pio->instr_mem[1] = 0x1800 + 1;
-  ShowChar(':');
+  ShowChar(irq_needed ? ':' : '.');
 }
 void CauseInterrupt(bool irq_needed) {
   const PIO pio = pio0;
@@ -672,7 +672,7 @@ void CauseInterrupt(bool irq_needed) {
    pio_clear_instruction_memory(pio);
    pio_add_program_at_offset(pio, &tpio_program, 0);
    tpio_program_init(pio, sm, 0);
-   ShowChar(';');
+   ShowChar(irq_needed ? ';' : ',');
 }
 #endif
 
@@ -1584,7 +1584,7 @@ void HandleTwo() {
   bool prev_irq_needed = false;
 
   while (true) {
-#if IRQS
+#if 0 && IRQS
       bool irq_needed =
           (vsync_irq_enabled && vsync_irq_firing) ||
           (acia_irq_enabled && acia_irq_firing) ||
@@ -1593,7 +1593,7 @@ void HandleTwo() {
       if (irq_needed != prev_irq_needed) {
         // The infinite loop will be hit after the
         // current instruction handling.
-        SetInfiniteLoop();
+        SetInfiniteLoop(irq_needed);
       }
 #endif
 
@@ -1647,6 +1647,23 @@ void HandleTwo() {
 
 
     for (uint loop = 0; loop < 256; loop++) {
+// MOVED HERE
+#if IRQS
+      bool irq_needed =
+          (vsync_irq_enabled && vsync_irq_firing) ||
+          (acia_irq_enabled && acia_irq_firing) ||
+          (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
+      if (irq_needed) {
+        ShowChar('*');
+      }
+
+      if (irq_needed != prev_irq_needed) {
+        // The infinite loop will be hit after the
+        // current instruction handling.
+        SetInfiniteLoop(irq_needed);
+      }
+#endif
+
 #if TRACKING
 #if TRACKING_CYCLE
     interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
