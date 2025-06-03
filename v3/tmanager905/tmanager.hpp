@@ -2,11 +2,31 @@
 //#define BORING_SWI2S 9999999  // 200 // 160
 #define INCLUDED_DISK 0
 
-#define OLD_IRQS 0
-#define IRQS 1
 #define SHOW_IRQS 0
 
-#define TRACKING 0
+#if OS_LEVEL == 90
+const char Banner[] = "Level 90 Turbos9SIM";
+#define FOR_COCO 0  // SAM & VDG & PIAs
+#define FOR_TURBO9SIM 1
+#define IRQS 1
+#endif
+
+#if OS_LEVEL == 100
+#define FOR_COCO 1  // SAM & VDG & PIAs
+#define FOR_TURBO9SIM 0
+#define IRQS 1
+const char Banner[] = "Level 1 NitrOS-9";
+#endif
+
+#if OS_LEVEL == 200
+#define FOR_COCO 1  // SAM & VDG & PIAs
+#define FOR_TURBO9SIM 0
+#define IRQS 1
+const char Banner[] = "Level 2 NitrOS-9";
+#endif
+
+
+#define TRACKING TRACE_CYCLES
 // #define TRACKING_CYCLE 1124000 // 566750 // 940000
 // #define STOP_CYCLE 2000000 // 652689 // 1139300
 
@@ -19,6 +39,8 @@
 
 #define ALLOW_DUMP_PHYS 0
 #define ALLOW_DUMP_RAM 0
+
+#define RAPID_BURST_CYCLES 256  // Without checking IRQs, etc.
 
 // tmanager.cpp -- for the TFR/901 -- strick
 //
@@ -42,9 +64,6 @@
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define force_inline inline __attribute__((always_inline))
 
-volatile uint TimerTicks;
-volatile bool TimerFired;
-
 typedef unsigned char byte;
 typedef unsigned int word;
 typedef unsigned char T_byte;
@@ -56,6 +75,8 @@ extern void SendIn_byte(byte x);
 extern void SendIn_word(word x);
 extern void SendIn_16(byte* x);
 extern void RecvOut_byte(byte* x);
+
+volatile bool TimerFired;
 
 // Configuration
 #include "tfr9ports.gen.h"
@@ -82,7 +103,7 @@ extern void RecvOut_byte(byte* x);
 #if TRACKING
 
 #define SHOW_TICKS 1
-#define USE_TIMER 0
+#define PICO_USE_TIMER 0
 #define D \
   if (interest) printf
 #define P \
@@ -95,7 +116,7 @@ extern void RecvOut_byte(byte* x);
 #else
 
 #define SHOW_TICKS 0
-#define USE_TIMER 1
+#define PICO_USE_TIMER 1
 #define D \
   if (0) printf
 #define P \
@@ -148,20 +169,28 @@ static uint hist_addr[24];
 /////////// #include "../generated/rpc.h"
 
 const byte Rom[] = {
-#if N9_LEVEL == 1
+#if FOR_TURBO9SIM
+#include "turbos9sim.rom.h"
+#endif
+
+#if FOR_COCO
+
+#if OS_LEVEL <= 199
 #include "level1.rom.h"
 #endif
-#if N9_LEVEL == 2
+#if OS_LEVEL >= 200
 #include "level2.rom.h"
+#endif
+
 #endif
 };
 
 #if INCLUDED_DISK
 byte Disk[] = {
-#if N9_LEVEL == 1
+#if OS_LEVEL == 100
 #include "level1.disk.h"
 #endif
-#if N9_LEVEL == 2
+#if OS_LEVEL == 200
 #include "level2.disk.h"
 #endif
 };
@@ -170,7 +199,7 @@ byte Disk[] = {
 #define LEVEL1_PRELUDE_START (0xFF00 - 32)
 
 uint FFFxVectors[] = {
-#if N9_LEVEL == 1
+#if OS_LEVEL == 100
     0,  //  6309 TRAP
     // From ~/coco-shelf/toolshed/cocoroms/bas13.rom :
     0x0100,
@@ -181,7 +210,7 @@ uint FFFxVectors[] = {
     0x0109,
     LEVEL1_PRELUDE_START,  //  RESET
 #endif
-#if N9_LEVEL == 2
+#if OS_LEVEL == 200
     // From ~/coco-shelf/toolshed/cocoroms/coco3.rom :
     0x0000,  // 6309 traps
     0xFEEE,
@@ -317,7 +346,11 @@ uint NextTraceIndex;
 void Record(word addr, byte flags, byte data) {
   auto* p = Trace + NextTraceIndex;
   p->addr = addr;
+#if OS_LEVEL >= 200
   p->block = the_ram.Block(addr);
+#else
+  p->block = 0;
+#endif
   p->flags = flags;
   p->data = data;
   ++NextTraceIndex;
@@ -443,10 +476,13 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 }
 
 uint AddressOfRom() {
-#if N9_LEVEL == 1
+#if OS_LEVEL == 90
+  return 0;
+#endif
+#if OS_LEVEL == 100
   return 0xFF00 - sizeof(Rom);
 #endif
-#if N9_LEVEL == 2
+#if OS_LEVEL == 200
   return 0x2600;
 #endif
 }
@@ -487,8 +523,16 @@ void Level1FindKernelEntry(uint* krn_start, uint* krn_entry, uint* krn_end) {
         entry);
       PrintName(i + name);
       D("\n");
-      if (Rom[i + name] == 'K' && Rom[i + name + 1] == 'r' &&
-          Rom[i + name + 2] == ('n' | 0x80)) {
+      if (
+#if FOR_TURBO9SIM
+          Rom[i + name] == 'k' && Rom[i + name + 1] == 'e' &&
+          Rom[i + name + 2] == 'r' && Rom[i + name + 3] == 'n'
+#endif
+#if FOR_COCO
+          Rom[i + name] == 'K' && Rom[i + name + 1] == 'r' &&
+          Rom[i + name + 2] == ('n' | 0x80)
+#endif
+          ) {
         *krn_start = i + AddressOfRom();
         *krn_entry = i + entry + AddressOfRom();
         *krn_end = i + size + AddressOfRom();
@@ -651,7 +695,7 @@ bool FinishChangeIrq(bool irq_needed) {
    pio_sm_set_enabled(pio, sm, false);
 
    // and switch to the Latch program.
-   pio_clear_instruction_memory(pio);
+  pio_clear_instruction_memory(pio);
    pio_add_program_at_offset(pio, &latch_program, 0);
    latch_program_init(pio, sm, 0);
 
@@ -812,13 +856,14 @@ void InitRamFromRom() {
   Noisy();
 }
 
+#if PICO_USE_TIMER
 struct repeating_timer TimerData;
 
 bool TimerCallback(repeating_timer_t* rt) {
-  TimerTicks++;
   TimerFired = true;
   return true;
 }
+#endif
 
 extern void HandlePio(uint num_cycles, uint krn_entry);
 extern void HandleTwo();
@@ -826,10 +871,10 @@ extern void ReaderInit(void);
 
 int main() {
   set_sys_clock_khz(250000, true);
+  // set_sys_clock_khz(250000, true); // 0.559099
   // set_sys_clock_khz(260000, true); // 0.516071  0.531793
   // set_sys_clock_khz(270000, true); // NO? YES.
-  // up to 270(0.509053) with divisor 3.
-
+  // up to 270(0.509053, 0.517735) with divisor 3.
   stdio_usb_init();
   InitializePinsForGpio();
   gpio_init(25);
@@ -860,11 +905,15 @@ int main() {
     }
   }
   ShowChar('+');
+  ShowChar(' ');
+  ShowStr(Banner);
+  ShowChar('\n');
+  printf("OS_LEVEL=%d\n", OS_LEVEL);
 
   LED(1);
 
   the_ram.Reset();
-#if N9_LEVEL == 2
+#if OS_LEVEL == 200
   printf("COCO3: Prepare for Level 2\n");
 #if 0
     //the_ram.SetEnableMmu(true);
@@ -888,7 +937,7 @@ int main() {
   ShowChar('Z');
   printf("stage-Z\n");
 
-#if N9_LEVEL == 1
+#if OS_LEVEL <= 199
   uint a = AddressOfRom();
   D("AddressOfRom = $%x\n", a);
   uint krn_start, krn_entry, krn_end;
@@ -896,10 +945,12 @@ int main() {
   D("Level1KernelEntry = $%x\n", krn_entry);
 #endif
 
+#if !FOR_TURBO9SIM
   // Set interrupt vectors
   for (uint j = 0; j < 8; j++) {
     Poke2(0xFFF0 + j + j, FFFxVectors[j]);
   }
+#endif
 
   ShowChar('+');
   LED(0);
@@ -910,7 +961,7 @@ int main() {
   printf("\nEND StartPio()\n");
   ShowChar('O');
 
-#if 1
+#if PICO_USE_TIMER
   //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
   //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
   //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
@@ -1070,14 +1121,69 @@ void ReadDisk(uint device, uint lsn, byte* buffer) {
 #endif
 }
 
+#if FOR_TURBO9SIM
+bool sim_timer_irq;
+bool sim_rx_ready_irq;
+byte sim_status_reg;
+byte sim_control_reg;
+byte sim_last_char_rx;
+byte sim_last_char_tx;
+
+constexpr byte SIM_TIMER_BIT = 0x01;
+constexpr byte SIM_RX_BIT    = 0x02;
+#endif
+
+#if FOR_COCO
 uint sdc_lsn;
 uint emu_disk_buffer;
 byte rtc_value;
+#endif
+
 void HandleIOWrites(uint addr, byte data) {
   const bool reading = false;
 
   switch (255 & addr) {
 
+#if FOR_TURBO9SIM
+    case 0: // Term.Out (Tx: transmit)
+        sim_last_char_tx = data;
+
+        ShowChar('-');
+        ShowChar(data);
+        break;
+
+    case 1: // Term.In (Rx: receive)
+        // no effect
+        break;
+
+    case 2: // Status Port
+        if (data & SIM_TIMER_BIT) { // Clear Timer Interrupt
+            sim_timer_irq = false;
+            sim_status_reg &=~ SIM_TIMER_BIT;
+        }
+
+        if (data & SIM_RX_BIT) { // Clear Rx Interrupt
+            sim_rx_ready_irq = false;
+            sim_status_reg &=~ SIM_RX_BIT;
+        }
+        break;
+
+    case 3:
+        sim_control_reg = data;
+
+        if ((data & SIM_TIMER_BIT) == 0) { // Clear Timer Interrupt
+            sim_timer_irq = false;
+            sim_status_reg &=~ SIM_TIMER_BIT;
+        }
+        if ((data & SIM_RX_BIT) == 0) { // Clear Rx Interrupt
+            sim_rx_ready_irq = false;
+            sim_status_reg &=~ SIM_RX_BIT;
+        }
+        break;
+
+#endif
+
+#if FOR_COCO
     case 0x4B:
             sdc_lsn = (Peek(0xFF49)<<16) | (Peek(0xFF4A)<<8) | (0xFF & data);
             printf("SET SDC SECTOR sdc_lsn=%x\n", sdc_lsn);
@@ -1237,12 +1343,12 @@ void HandleIOWrites(uint addr, byte data) {
             for (uint k = 0; k < 256; k++) {
                 putbyte(Peek(emu_disk_buffer + k));
             }
-#endif
             break;
 
           default:
             printf("\nwut emudsk command %d.\n", command);
             DumpRamAndGetStuck("wut emudsk", command);
+#endif
         }
       }
       break;
@@ -1298,6 +1404,7 @@ void HandleIOWrites(uint addr, byte data) {
           break;
       } // switch data
       break;
+#endif // FOR_COCO
 
   }  // switch addr & 255
 } // HandleIOWrites
@@ -1318,6 +1425,7 @@ typedef byte (*IOReader)(uint addr, byte data);
 
 IOReader IOReaders[256];
 
+#if FOR_COCO
 byte Reader43(uint addr, byte data) {
                 if ((Peek(0xFF7F) & 3) == 3) {
                     // Respond to MPI slot 3.
@@ -1367,14 +1475,38 @@ byte ReaderAcia1(uint addr, byte data) {
               }
                 return data;
 }
+#endif // FOR_COCO
 
+#if FOR_TURBO9SIM
+byte Turbos9simReaderTermOut(uint addr, byte data) {
+    return sim_last_char_tx;
+}
+byte Turbos9simReaderTermIn(uint addr, byte data) {
+    return sim_last_char_rx;
+}
+byte Turbos9simReaderStatus(uint addr, byte data) {
+    return sim_status_reg;
+}
+byte Turbos9simReaderControl(uint addr, byte data) {
+    return sim_control_reg;
+}
+#endif // FOR_TURBO9SIM
 
 void ReaderInit() {
+#if FOR_TURBO9SIM
+    IOReaders[0] = &Turbos9simReaderTermOut;
+    IOReaders[1] = &Turbos9simReaderTermIn;
+    IOReaders[2] = &Turbos9simReaderStatus;
+    IOReaders[3] = &Turbos9simReaderControl;
+#endif // FOR_TURBO9SIM
+
+#if FOR_COCO
     IOReaders[0x43] = &Reader43;
     IOReaders[0x48] = &Reader48;
     IOReaders[0x4b] = &Reader4b;
     IOReaders[(byte)(ACIA_PORT + 0)] = &ReaderAcia0;
     IOReaders[(byte)(ACIA_PORT + 1)] = &ReaderAcia1;
+#endif // FOR_COCO
 }
 
 void HandleIOReads(uint addr) {
@@ -1383,9 +1515,15 @@ void HandleIOReads(uint addr) {
           byte dev = addr & 0xFF;
           IOReader reader = IOReaders[dev];
           if (reader) {
+            // New style, pluggable, not all is converted yet:
             data = (*reader)(addr, data);
           } else switch (dev) {
 
+#if FOR_TURBO9SIM
+                
+#endif
+
+#if FOR_COCO
 // yak
             case 0x42:  // CocoSDC Flash Data?
                 // We need to emulate just enough of the Flash register behavior
@@ -1495,6 +1633,7 @@ void HandleIOReads(uint addr) {
             case 0xFF & (TFR_RTC_BASE + 0):
               data = rtc_value;
               break;
+#endif // FOR_COCO
 
             default:
               break;
@@ -1551,11 +1690,17 @@ void HandleTwo() {
 
   while (true) {
 #if IRQS
+#if FOR_TURBO9SIM
+      bool irq_needed = (sim_status_reg != 0);
+
+#endif
+
+#if FOR_COCO
       bool irq_needed =
           (vsync_irq_enabled && vsync_irq_firing) ||
           (acia_irq_enabled && acia_irq_firing) ||
           (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
-
+#endif // FOR_COCO
           if (SHOW_IRQS) if (vsync_irq_enabled && vsync_irq_firing) ShowChar('V');
           if (SHOW_IRQS) if (acia_irq_enabled && acia_irq_firing) ShowChar('A');
           if (SHOW_IRQS) if (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing) ShowChar('G');
@@ -1583,13 +1728,18 @@ void HandleTwo() {
       }
     }
 
-#if USE_TIMER
-    if (TimerFired)
-#else
-    if ((cy & VSYNC_TICK_MASK) == 0)
+#if !PICO_USE_TIMER
+    // Simulate timer firing every so-many cycles,
+    // but not with realtime timer,
+    // because we are running slowly.
+    if ((cy & VSYNC_TICK_MASK) == 0) TimerFired = true;
 #endif
+
+    if (TimerFired)
     {
       TimerFired = false;
+
+#if FOR_COCO
       Poke(0xFF03,
            Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
       if (vsync_irq_enabled) {
@@ -1598,9 +1748,10 @@ void HandleTwo() {
       if (gime_irq_enabled && gime_vsync_irq_enabled) {
         gime_vsync_irq_firing = true;
       }
+#endif
     }  // end Timer
 
-    for (uint loop = 0; loop < 256; loop++) {
+    for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {
 #if TRACKING
 #if TRACKING_CYCLE
     interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
