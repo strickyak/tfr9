@@ -280,7 +280,7 @@ enum {
 #define STATE_Y5_RESET_PIN 0
 #define STATE_Y5_IRQ_PIN 2
 
-#include "ram.inc.h"
+#include "ram.h"
 // FAILS // #define uint unsigned short
 
 
@@ -335,6 +335,29 @@ class Bitmap64K {
   }
 
 } Seen;
+#endif
+
+#if SEND_CONFIG
+void SendConfig() {
+    constexpr int sz =
+        (TRACKING ? 1 : 0) +
+        (SEEN ? 1 : 0) +
+        (RECORD ? 1 : 0) +
+        (HEURISTICS ? 1 : 0) +
+        (OPCODES ? 1 : 0) +
+        (TRACE_RTI ? 1 : 0) +
+        0;
+  putbyte(C_CONFIG);
+  putbyte(sz);
+  for (int i = 0; i < sz; i++) {
+        if (TRACKING) putbyte('t');
+        if (SEEN) putbyte('s');
+        if (RECORD) putbyte('r');
+        if (HEURISTICS) putbyte('h');
+        if (OPCODES) putbyte('o');
+        if (TRACE_RTI) putbyte('R');
+  }
+}
 #endif
 
 #if RECORD
@@ -871,147 +894,11 @@ bool TimerCallback(repeating_timer_t* rt) {
 }
 #endif
 
-extern void HandlePio(uint num_cycles, uint krn_entry);
-extern void HandleTwo();
-extern void ReaderInit(void);
+// extern void HandlePio(uint num_cycles, uint krn_entry);
+// extern void HandleTwo();
+// extern void ReaderInit(void);
 
-int main() {
-  // set_sys_clock_khz(250000, true);
-  // set_sys_clock_khz(250000, true); // 0.559099
-  // set_sys_clock_khz(260000, true); // 0.516071  0.531793
-  // set_sys_clock_khz(270000, true); // NO? YES.
-  // up to 270(0.509053, 0.517735) with divisor 3.
-  stdio_usb_init();
-  InitializePinsForGpio();
-  gpio_init(25);
-  gpio_set_dir(25, GPIO_OUT);
-  LED(1);
-
-  InitializePinsForGpio();
-  ReaderInit();
-
-  interest = MAX_INTEREST;  /// XXX
-
-  quiet_ram = 0;
-
-  for (uint i = BLINKS; i > 0; i--) {
-    LED(1);
-    sleep_ms(500);
-#if 1
-    ShowChar(' ');
-    ShowChar('0' + i);
-    ShowChar('!');
-#else
-    char pbuf[10];
-    sprintf(pbuf, "+%d+ ", i);
-    printf("%s", pbuf);
-    for (const char* p = pbuf; *p; p++) {
-      putchar(C_PUTCHAR);
-      putchar(*p);
-    }
-#endif
-    printf(" %d!\n", i);
-    LED(0);
-    sleep_ms(500);
-  }
-
-  ShowStr("\nAbout: https://github.com/strickyak/tfr9 <strick@yak.net>");
-  memset(Buf64, 0, sizeof Buf64);
-  pico_get_unique_board_id_string(Buf64, sizeof Buf64);
-  ShowStr("\nBoard-ID: ");
-  ShowStr(Buf64);
-#ifdef PICO_BOARD
-  ShowStr("\nBoard-Type: " PICO_BOARD);
-#endif
-#ifdef BANNER
-  ShowStr("\nFirmware: " BANNER);
-#endif
-#ifdef PICO_PROGRAM_NAME
-  ShowStr("\nProgram-Name: " PICO_PROGRAM_NAME);
-#endif
-#ifdef PICO_PROGRAM_BUILD_DATE
-  ShowStr("\nBuild-Date: " PICO_PROGRAM_BUILD_DATE);
-#endif
-#ifdef __DATE__
-  ShowStr("\nBuild-DATE: " __DATE__);
-#endif
-  ShowStr("\n");
-  printf("OS_LEVEL=%d\n", OS_LEVEL);
-
-  LED(1);
-
-  the_ram.Reset();
-#if OS_LEVEL == 200
-  printf("COCO3: Prepare for Level 2\n");
-  // Poke(0x5E, 0x39); // RTS for D.BtBug // TODO
-  Poke(0x5E, 0x7E);    // RTS for D.BtBug // TODO
-  Poke(0x5F, 0xFF);    // RTS for D.BtBug // TODO
-  Poke(0x60, 0xEC);    // RTS for D.BtBug // TODO
-  Poke(0xFFEC, 0x39);  // RTS for D.BtBug // TODO
-#endif
-
-  ShowChar('X');
-  printf("stage-X\n");
-  InitRamFromRom();
-  ShowChar('Y');
-  printf("stage-Y\n");
-  ResetCpu();
-  ShowChar('Z');
-  printf("stage-Z\n");
-
-#if OS_LEVEL <= 199
-  uint a = AddressOfRom();
-  D("AddressOfRom = $%x\n", a);
-  uint krn_start, krn_entry, krn_end;
-  Level1FindKernelEntry(&krn_start, &krn_entry, &krn_end);
-  D("Level1KernelEntry = $%x\n", krn_entry);
-#endif
-
-#if !FOR_TURBO9SIM
-  // Set interrupt vectors
-  for (uint j = 0; j < 8; j++) {
-    Poke2(0xFFF0 + j + j, FFFxVectors[j]);
-  }
-#endif
-
-  ShowChar('+');
-  LED(0);
-  printf("\nStartPio()\n");
-  ShowChar('P');
-  StartPio();
-  ShowChar('I');
-  printf("\nEND StartPio()\n");
-  ShowChar('O');
-
-#if PICO_USE_TIMER
-  //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
-  //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
-  //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
-  //the timer reach 0, it's set to this value)
-  //-- exception_set_exclusive_handler(SYSTICK_EXCEPTION, SysTickINT);
-  ////Interrupt
-
-  // ( pico-sdk/src/common/pico_time/include/pico/time.h )
-  // Note: typedef bool (*repeating_timer_callback_t)(repeating_timer_t *rt);
-  // Note: static inline bool add_repeating_timer_ms(int32_t delay_ms,
-  // repeating_timer_callback_t callback, void *user_data, repeating_timer_t
-  // *out)
-  alarm_pool_init_default();
-
-  add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
-
-  // add_repeating_timer_us(1000 * 1000 /* 1 Hz */, TimerCallback, nullptr, &TimerData);
-
-#endif
-
-  ShowChar('\n');
-  HandleTwo();
-
-  sleep_ms(100);
-  D("\nFinished.\n");
-  sleep_ms(100);
-  GET_STUCK();
-}
+// main() was here
 
 void PreRoll() {
   const PIO pio = pio0;
@@ -1142,6 +1029,8 @@ void ReadDisk(uint device, uint lsn, byte* buffer) {
               }
 #endif
 }
+
+struct Engine {
 
 #if FOR_TURBO9SIM
 bool sim_timer_irq;
@@ -1443,7 +1332,7 @@ uint next_pc;  // for multibyte ops.
 
 #endif
 
-typedef byte (*IOReader)(uint addr, byte data);
+typedef byte (Engine::* IOReader)(uint addr, byte data);
 
 IOReader IOReaders[256];
 
@@ -1516,18 +1405,18 @@ byte Turbos9simReaderControl(uint addr, byte data) {
 
 void ReaderInit() {
 #if FOR_TURBO9SIM
-    IOReaders[0] = &Turbos9simReaderTermOut;
-    IOReaders[1] = &Turbos9simReaderTermIn;
-    IOReaders[2] = &Turbos9simReaderStatus;
-    IOReaders[3] = &Turbos9simReaderControl;
+    IOReaders[0] = &Engine::Turbos9simReaderTermOut;
+    IOReaders[1] = &Engine::Turbos9simReaderTermIn;
+    IOReaders[2] = &Engine::Turbos9simReaderStatus;
+    IOReaders[3] = &Engine::Turbos9simReaderControl;
 #endif // FOR_TURBO9SIM
 
 #if FOR_COCO
-    IOReaders[0x43] = &Reader43;
-    IOReaders[0x48] = &Reader48;
-    IOReaders[0x4b] = &Reader4b;
-    IOReaders[(byte)(ACIA_PORT + 0)] = &ReaderAcia0;
-    IOReaders[(byte)(ACIA_PORT + 1)] = &ReaderAcia1;
+    IOReaders[0x43] = &Engine::Reader43;
+    IOReaders[0x48] = &Engine::Reader48;
+    IOReaders[0x4b] = &Engine::Reader4b;
+    IOReaders[(byte)(ACIA_PORT + 0)] = &Engine::ReaderAcia0;
+    IOReaders[(byte)(ACIA_PORT + 1)] = &Engine::ReaderAcia1;
 #endif // FOR_COCO
 }
 
@@ -1538,7 +1427,8 @@ void HandleIOReads(uint addr) {
           IOReader reader = IOReaders[dev];
           if (reader) {
             // New style, pluggable, not all is converted yet:
-            data = (*reader)(addr, data);
+            ///// data = (*reader)(addr, data);
+            data = (this->*reader)(addr, data);
           } else switch (dev) {
 
 #if FOR_TURBO9SIM
@@ -1668,347 +1558,468 @@ void HandleIOReads(uint addr) {
           // PUT(0x0000);  // pindirs
 }
 
-void SendConfig() {
-    constexpr int sz =
-        (TRACKING ? 1 : 0) +
-        (SEEN ? 1 : 0) +
-        (RECORD ? 1 : 0) +
-        (HEURISTICS ? 1 : 0) +
-        (OPCODES ? 1 : 0) +
-        (TRACE_RTI ? 1 : 0) +
-        0;
-  putbyte(C_CONFIG);
-  putbyte(sz);
-  for (int i = 0; i < sz; i++) {
-        if (TRACKING) putbyte('t');
-        if (SEEN) putbyte('s');
-        if (RECORD) putbyte('r');
-        if (HEURISTICS) putbyte('h');
-        if (OPCODES) putbyte('o');
-        if (TRACE_RTI) putbyte('R');
-  }
-}
+    void HandleTwo() {
+      ShowChar('h');
+      uint cy = 0;  // This is faster if local.
 
-void HandleTwo() {
-  ShowChar('h');
-  uint cy = 0;  // This is faster if local.
+      // TOP
+      const PIO pio = pio0;
+      constexpr uint sm = 0;
 
-  // TOP
-  const PIO pio = pio0;
-  constexpr uint sm = 0;
-
-  ShowChar('i');
-  SendConfig();
-  ShowChar('j');
-  PreRoll();
-  ShowChar('k');
-  ShowChar('\n');
-
-  const byte value_FFFF = Peek(0xFFFF);
-  printf("value_FFFF = %x\n", value_FFFF);
-  const uint value_FFFF_shift_8_plus_FF = (value_FFFF << 8) + 0xFF;
-
-  bool prev_irq_needed = false;
-
-  while (true) {
-#if IRQS
-#if FOR_TURBO9SIM
-      bool irq_needed = (sim_status_reg != 0);
-
+      ShowChar('i');
+#if SEND_CONFIG
+      SendConfig();
 #endif
+      ShowChar('j');
+      PreRoll();
+      ShowChar('k');
+      ShowChar('\n');
 
-#if FOR_COCO
-      bool irq_needed =
-          (vsync_irq_enabled && vsync_irq_firing) ||
-          (acia_irq_enabled && acia_irq_firing) ||
-          (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
-#endif // FOR_COCO
-          if (SHOW_IRQS) if (vsync_irq_enabled && vsync_irq_firing) ShowChar('V');
-          if (SHOW_IRQS) if (acia_irq_enabled && acia_irq_firing) ShowChar('A');
-          if (SHOW_IRQS) if (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing) ShowChar('G');
+      const byte value_FFFF = Peek(0xFFFF);
+      printf("value_FFFF = %x\n", value_FFFF);
+      const uint value_FFFF_shift_8_plus_FF = (value_FFFF << 8) + 0xFF;
 
-      if (irq_needed != prev_irq_needed) {
-        bool ok = NeoIrq(irq_needed);
-        if (ok) {
-          prev_irq_needed = irq_needed;
-          LED(irq_needed);
-        }
-      }
-#endif // IRQS
+      bool prev_irq_needed = false;
 
-    PollUsbInput();
+      while (true) {
+    #if IRQS
+    #if FOR_TURBO9SIM
+          bool irq_needed = (sim_status_reg != 0);
 
-    if (not acia_char_in_ready) {
-      if (term_input.HasAtLeast(1)) {
-        acia_char = term_input.Take();
-        acia_char_in_ready = true;
-        acia_irq_firing = true;
-      } else {
-        acia_char = 0;
-        acia_char_in_ready = false;
-        acia_irq_firing = false;
-      }
-    }
+    #endif
 
-#if !PICO_USE_TIMER
-    // Simulate timer firing every so-many cycles,
-    // but not with realtime timer,
-    // because we are running slowly.
-    if ((cy & VSYNC_TICK_MASK) == 0) TimerFired = true;
-#endif
+    #if FOR_COCO
+          bool irq_needed =
+              (vsync_irq_enabled && vsync_irq_firing) ||
+              (acia_irq_enabled && acia_irq_firing) ||
+              (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
+    #endif // FOR_COCO
+              if (SHOW_IRQS) if (vsync_irq_enabled && vsync_irq_firing) ShowChar('V');
+              if (SHOW_IRQS) if (acia_irq_enabled && acia_irq_firing) ShowChar('A');
+              if (SHOW_IRQS) if (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing) ShowChar('G');
 
-    if (TimerFired)
-    {
-      TimerFired = false;
-
-#if FOR_COCO
-      Poke(0xFF03,
-           Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
-      if (vsync_irq_enabled) {
-        vsync_irq_firing = true;
-      }
-      if (gime_irq_enabled && gime_vsync_irq_enabled) {
-        gime_vsync_irq_firing = true;
-      }
-#endif
-    }  // end Timer
-
-    for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {
-#if TRACKING
-#if TRACKING_CYCLE
-    interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
-#else
-    interest = 99999;
-#endif
-#endif
-
-      constexpr uint GO_AHEAD = 0x12345678;
-      pio_sm_put(pio, sm, GO_AHEAD);
-
-      const uint get32 = WAIT_GET();
-      const uint addr = (0xFF00 & get32) | (get32 >> 16);
-      const uint flags = get32;
-      const bool reading = (flags & F_READ) != 0;
-
-      // =============================================================
-      // =============================================================
-
-      if (likely(addr < 0xFE00)) {
-        if (reading) {
-
-          // PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, FastPeek(addr), 0xFF/*=outputs*/));
-          PUT( (FastPeek(addr)<<8) + 0xFF );
-
-          //PUT(0x00FF);          // pindirs: outputs
-          //PUT(FastPeek(addr));  // pins
-          //PUT(0x0000);          // pindirs
-
-#if TRACKING || OPCODES || HEURISTICS
-          data = FastPeek(addr);
-#endif
-        } else {
-          const uint data_and_more = WAIT_GET(); // 
-          FastPoke(addr, (byte)data_and_more);
-#if TRACKING || OPCODES || HEURISTICS
-          data = (byte)data_and_more;
-#endif
-        }  // end if reading
-
-      // =============================================================
-      } else if (addr == 0xFFFF) {
-        if (reading) {
-          // PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, value_FFFF, 0xFF/*=outputs*/));
-          PUT( value_FFFF_shift_8_plus_FF );
-
-          //PUT(0x00FF);      // pindirs: outputs
-          //PUT(value_FFFF);  // pins
-          //PUT(0x0000);      // pindirs
-#if TRACKING || OPCODES || HEURISTICS
-          data = value_FFFF;
-#endif
-        } else {
-          const byte foo = WAIT_GET();
-          (void)foo;
-#if TRACKING || OPCODES || HEURISTICS
-          data = foo;
-#endif
-        }
-
-      // =============================================================
-      } else if (addr < 0xFF00) {
-        if (reading) { // if reading FExx
-
-          // PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, Peek(addr), 0xFF/*=outputs*/));
-          PUT( (Peek(addr)<<8) + 0xFF );
-
-          // PUT(0x00FF);      // pindirs: outputs
-          // PUT(Peek(addr));  // pins
-          // PUT(0x0000);      // pindirs
-#if TRACKING || OPCODES || HEURISTICS
-          data = Peek(addr);
-#endif
-        } else { // if writing FExx
-          const byte foo = WAIT_GET();
-          Poke(addr, foo, 0x3F);
-#if TRACKING || OPCODES || HEURISTICS
-          data = foo;
-#endif
-        }  // end if reading
-
-      // =============================================================
-      } else {
-        if ((reading)) {  // CPU reads, Pico Tx
-          HandleIOReads(addr);
-        } else {
-          // CPU writes, Pico Rx
-          data = WAIT_GET();
-          Poke(addr, data, 0x3F);
-          HandleIOWrites(addr, data);
-        }  // end if read / write
-      }  // addr type
-
-      // =============================================================
-      // =============================================================
-
-#if OPCODES
-     if (reading and addr != 0xFFFF and fic) {
-        //ShowChar('1');
-            current_opcode_cy = cy;
-            current_opcode_pc = addr;
-            current_opcode = data;
-//printf("1<%d,%d,%d>\n", cy, addr, data);
-
-#if HEURISTICS
-            if (addr < 0x0010) {
-                DumpRamAndGetStuck("PC too low", addr);
+          if (irq_needed != prev_irq_needed) {
+            bool ok = NeoIrq(irq_needed);
+            if (ok) {
+              prev_irq_needed = irq_needed;
+              LED(irq_needed);
             }
-            if (addr > 0xFF00 && addr < 0xFFF0) {
-                // fic can be asserted during interrupt vector fetch.
-                DumpRamAndGetStuck("PC too high", addr);
-            }
+          }
+    #endif // IRQS
 
+        PollUsbInput();
 
-#endif
-     }
-
-
-     if (reading and addr != 0xFFFF) {
-            if (current_opcode == 0x10 /* prefix */ && current_opcode_cy + 1 == cy) {
-                current_opcode = 0x1000 | data;
-                // printf("change to opcode %x\n", current_opcode);
-            }
-            if (current_opcode == 0x11 /* prefix */ && current_opcode_cy + 1 == cy) {
-                current_opcode = 0x1100 | data;
-                // printf("change to opcode %x\n", current_opcode);
-            }
-#if HEURISTICS
-            if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
-                if (data == 0xFE) {
-                    DumpRamAndGetStuck("Infinite BRA loop", addr);
-                }
-            }
-#endif
-#if TRACE_RTI
-            if (current_opcode == 0x3B) { // RTI
-              uint age = cy - current_opcode_cy - 2 /*one byte opcode, one extra cycle */;
-              if (0) printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
-              interest += 50;
-              // TODO -- recognize E==0 for FIRQ
-              if (age < RTI_SZ) {
-                        hist_data[age] = data;
-                        hist_addr[age] = addr;
-                        if (age == RTI_SZ-1) {
-                            SendEventHist(EVENT_RTI, RTI_SZ);
-                        }
-              }
-            } // end RTI
-         if (current_opcode == 0x103F) { // SWI2/OS9
-              uint age = cy - current_opcode_cy - 2 /*two byte opcode.  extra cycle contains OS9 call number. */;
-              if (0) printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
-                    interest += 50;
-                    if (age < SWI2_SZ) {
-                        hist_data[age] = data;
-                        hist_addr[age] = addr;
-                        if (age == SWI2_SZ-1) {
-                            SendEventHist(EVENT_SWI2, SWI2_SZ);
-                        }
-                    }
-         }
-#endif
-     }
-     if (!reading) {
-#if TRACE_RTI
-         if (current_opcode == 0x103F) { // SWI2/OS9
-              uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
-              if (0) printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
-                    interest += 50;
-                    if (age < SWI2_SZ) {
-                        hist_data[age] = data;
-                        hist_addr[age] = addr;
-                    }
-         }
-#endif
-     }
-#endif // OPCODES
-
-      uint high = flags & F_HIGH;
-
-#if HEURISTICS
-    if (loop<4) {
-        if (0) printf("$%d: #%d$ %04x %02x %02x $$ [ #%d. pc=%04x op=%02x ]\n", loop, cy, addr, (high>>8), (255&data), current_opcode_cy, current_opcode_pc, current_opcode);
-    }
-#endif
-
-#if TRACKING
-      if (reading and (not vma) and (addr == 0xFFFF)) {
-        Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
-      } else {
-        const char* label = reading ? (vma ? "r" : "-") : "w";
-        if (reading) {
-          if (fic) {
-            label = "@";
-#if SEEN
-            if (not Seen[addr]) {
-              label = "@@";
-            }
-#endif
-            next_pc = addr + 1;
+        if (not acia_char_in_ready) {
+          if (term_input.HasAtLeast(1)) {
+            acia_char = term_input.Take();
+            acia_char_in_ready = true;
+            acia_irq_firing = true;
           } else {
-            // case: Reading but not FIC
-            if (next_pc == addr) {
-              label = "&";
-              next_pc++;
+            acia_char = 0;
+            acia_char_in_ready = false;
+            acia_irq_firing = false;
+          }
+        }
+
+    #if !PICO_USE_TIMER
+        // Simulate timer firing every so-many cycles,
+        // but not with realtime timer,
+        // because we are running slowly.
+        if ((cy & VSYNC_TICK_MASK) == 0) TimerFired = true;
+    #endif
+
+        if (TimerFired)
+        {
+          TimerFired = false;
+
+    #if FOR_COCO
+          Poke(0xFF03,
+               Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
+          if (vsync_irq_enabled) {
+            vsync_irq_firing = true;
+          }
+          if (gime_irq_enabled && gime_vsync_irq_enabled) {
+            gime_vsync_irq_firing = true;
+          }
+    #endif
+        }  // end Timer
+
+        for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {
+    #if TRACKING
+    #if TRACKING_CYCLE
+        interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
+    #else
+        interest = 99999;
+    #endif
+    #endif
+
+          constexpr uint GO_AHEAD = 0x12345678;
+          pio_sm_put(pio, sm, GO_AHEAD);
+
+          const uint get32 = WAIT_GET();
+          const uint addr = (0xFF00 & get32) | (get32 >> 16);
+          const uint flags = get32;
+          const bool reading = (flags & F_READ) != 0;
+
+          // =============================================================
+          // =============================================================
+
+          if (likely(addr < 0xFE00)) {
+            if (reading) {
+
+              // PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, FastPeek(addr), 0xFF/*=outputs*/));
+              PUT( (FastPeek(addr)<<8) + 0xFF );
+
+              //PUT(0x00FF);          // pindirs: outputs
+              //PUT(FastPeek(addr));  // pins
+              //PUT(0x0000);          // pindirs
+
+    #if TRACKING || OPCODES || HEURISTICS
+              data = FastPeek(addr);
+    #endif
+            } else {
+              const uint data_and_more = WAIT_GET(); // 
+              FastPoke(addr, (byte)data_and_more);
+    #if TRACKING || OPCODES || HEURISTICS
+              data = (byte)data_and_more;
+    #endif
+            }  // end if reading
+
+          // =============================================================
+          } else if (addr == 0xFFFF) {
+            if (reading) {
+              // PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, value_FFFF, 0xFF/*=outputs*/));
+              PUT( value_FFFF_shift_8_plus_FF );
+
+              //PUT(0x00FF);      // pindirs: outputs
+              //PUT(value_FFFF);  // pins
+              //PUT(0x0000);      // pindirs
+    #if TRACKING || OPCODES || HEURISTICS
+              data = value_FFFF;
+    #endif
+            } else {
+              const byte foo = WAIT_GET();
+              (void)foo;
+    #if TRACKING || OPCODES || HEURISTICS
+              data = foo;
+    #endif
             }
 
-            } // end case Reading but not FIC
+          // =============================================================
+          } else if (addr < 0xFF00) {
+            if (reading) { // if reading FExx
 
-          } // end if reading
-          Q("%s %04x %02x  =%s #%d\n", label, addr, 0xFF&data, HighFlags(high), cy);
-        } // end if valid cycle
+              // PUT(QUAD_JOIN(0xAA/*=unused*/, 0x00/*=inputs*/, Peek(addr), 0xFF/*=outputs*/));
+              PUT( (Peek(addr)<<8) + 0xFF );
 
-#if SEEN
-      if (fic) {
-        Seen.Insert(addr);
-      }
-#endif
-#endif // TRACKING
+              // PUT(0x00FF);      // pindirs: outputs
+              // PUT(Peek(addr));  // pins
+              // PUT(0x0000);      // pindirs
+    #if TRACKING || OPCODES || HEURISTICS
+              data = Peek(addr);
+    #endif
+            } else { // if writing FExx
+              const byte foo = WAIT_GET();
+              Poke(addr, foo, 0x3F);
+    #if TRACKING || OPCODES || HEURISTICS
+              data = foo;
+    #endif
+            }  // end if reading
 
-#if OPCODES
-      vma = (0 != (flags & F_AVMA));
-      fic = (0 != (flags & F_LIC));
-#endif
+          // =============================================================
+          } else {
+            if ((reading)) {  // CPU reads, Pico Tx
+              HandleIOReads(addr);
+            } else {
+              // CPU writes, Pico Rx
+              data = WAIT_GET();
+              Poke(addr, data, 0x3F);
+              HandleIOWrites(addr, data);
+            }  // end if read / write
+          }  // addr type
 
-#if STOP_CYCLE
-    if (cy >= STOP_CYCLE) {
-        printf("=== STOPPING BECAUSE CYCLE %d REACHED MAXIMIUM\n", cy);
-        goto bottom;
+          // =============================================================
+          // =============================================================
+
+    #if OPCODES
+         if (reading and addr != 0xFFFF and fic) {
+            //ShowChar('1');
+                current_opcode_cy = cy;
+                current_opcode_pc = addr;
+                current_opcode = data;
+    //printf("1<%d,%d,%d>\n", cy, addr, data);
+
+    #if HEURISTICS
+                if (addr < 0x0010) {
+                    DumpRamAndGetStuck("PC too low", addr);
+                }
+                if (addr > 0xFF00 && addr < 0xFFF0) {
+                    // fic can be asserted during interrupt vector fetch.
+                    DumpRamAndGetStuck("PC too high", addr);
+                }
+
+
+    #endif
+         }
+
+
+         if (reading and addr != 0xFFFF) {
+                if (current_opcode == 0x10 /* prefix */ && current_opcode_cy + 1 == cy) {
+                    current_opcode = 0x1000 | data;
+                    // printf("change to opcode %x\n", current_opcode);
+                }
+                if (current_opcode == 0x11 /* prefix */ && current_opcode_cy + 1 == cy) {
+                    current_opcode = 0x1100 | data;
+                    // printf("change to opcode %x\n", current_opcode);
+                }
+    #if HEURISTICS
+                if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
+                    if (data == 0xFE) {
+                        DumpRamAndGetStuck("Infinite BRA loop", addr);
+                    }
+                }
+    #endif
+    #if TRACE_RTI
+                if (current_opcode == 0x3B) { // RTI
+                  uint age = cy - current_opcode_cy - 2 /*one byte opcode, one extra cycle */;
+                  if (0) printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+                  interest += 50;
+                  // TODO -- recognize E==0 for FIRQ
+                  if (age < RTI_SZ) {
+                            hist_data[age] = data;
+                            hist_addr[age] = addr;
+                            if (age == RTI_SZ-1) {
+                                SendEventHist(EVENT_RTI, RTI_SZ);
+                            }
+                  }
+                } // end RTI
+             if (current_opcode == 0x103F) { // SWI2/OS9
+                  uint age = cy - current_opcode_cy - 2 /*two byte opcode.  extra cycle contains OS9 call number. */;
+                  if (0) printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+                        interest += 50;
+                        if (age < SWI2_SZ) {
+                            hist_data[age] = data;
+                            hist_addr[age] = addr;
+                            if (age == SWI2_SZ-1) {
+                                SendEventHist(EVENT_SWI2, SWI2_SZ);
+                            }
+                        }
+             }
+    #endif
+         }
+         if (!reading) {
+    #if TRACE_RTI
+             if (current_opcode == 0x103F) { // SWI2/OS9
+                  uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
+                  if (0) printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy, current_opcode_cy, current_opcode_pc, current_opcode, age, addr, data);
+                        interest += 50;
+                        if (age < SWI2_SZ) {
+                            hist_data[age] = data;
+                            hist_addr[age] = addr;
+                        }
+             }
+    #endif
+         }
+    #endif // OPCODES
+
+          uint high = flags & F_HIGH;
+
+    #if HEURISTICS
+        if (loop<4) {
+            if (0) printf("$%d: #%d$ %04x %02x %02x $$ [ #%d. pc=%04x op=%02x ]\n", loop, cy, addr, (high>>8), (255&data), current_opcode_cy, current_opcode_pc, current_opcode);
+        }
+    #endif
+
+    #if TRACKING
+          if (reading and (not vma) and (addr == 0xFFFF)) {
+            Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
+          } else {
+            const char* label = reading ? (vma ? "r" : "-") : "w";
+            if (reading) {
+              if (fic) {
+                label = "@";
+    #if SEEN
+                if (not Seen[addr]) {
+                  label = "@@";
+                }
+    #endif
+                next_pc = addr + 1;
+              } else {
+                // case: Reading but not FIC
+                if (next_pc == addr) {
+                  label = "&";
+                  next_pc++;
+                }
+
+                } // end case Reading but not FIC
+
+              } // end if reading
+              Q("%s %04x %02x  =%s #%d\n", label, addr, 0xFF&data, HighFlags(high), cy);
+            } // end if valid cycle
+
+    #if SEEN
+          if (fic) {
+            Seen.Insert(addr);
+          }
+    #endif
+    #endif // TRACKING
+
+    #if OPCODES
+          vma = (0 != (flags & F_AVMA));
+          fic = (0 != (flags & F_LIC));
+    #endif
+
+    #if STOP_CYCLE
+        if (cy >= STOP_CYCLE) {
+            printf("=== STOPPING BECAUSE CYCLE %d REACHED MAXIMIUM\n", cy);
+            goto bottom;
+        }
+    #endif
+          cy++;
+        }  // next loop
+
+      }    // while true
+
+    bottom:
+      {}
+    } // end HandleTwo
+}; // end struct Engine
+
+int main() {
+  // set_sys_clock_khz(250000, true);
+  // set_sys_clock_khz(250000, true); // 0.559099
+  // set_sys_clock_khz(260000, true); // 0.516071  0.531793
+  // set_sys_clock_khz(270000, true); // NO? YES.
+  // up to 270(0.509053, 0.517735) with divisor 3.
+  stdio_usb_init();
+  InitializePinsForGpio();
+  gpio_init(25);
+  gpio_set_dir(25, GPIO_OUT);
+  LED(1);
+
+  InitializePinsForGpio();
+
+  interest = MAX_INTEREST;  /// XXX
+
+  quiet_ram = 0;
+
+  for (uint i = BLINKS; i > 0; i--) {
+    LED(1);
+    sleep_ms(500);
+#if 1
+    ShowChar(' ');
+    ShowChar('0' + i);
+    ShowChar('!');
+#else
+    char pbuf[10];
+    sprintf(pbuf, "+%d+ ", i);
+    printf("%s", pbuf);
+    for (const char* p = pbuf; *p; p++) {
+      putchar(C_PUTCHAR);
+      putchar(*p);
     }
 #endif
-      cy++;
-    }  // next loop
+    printf(" %d!\n", i);
+    LED(0);
+    sleep_ms(500);
+  }
 
-  }    // while true
+  ShowStr("\nAbout: https://github.com/strickyak/tfr9 <strick@yak.net>");
+  memset(Buf64, 0, sizeof Buf64);
+  pico_get_unique_board_id_string(Buf64, sizeof Buf64);
+  ShowStr("\nBoard-ID: ");
+  ShowStr(Buf64);
+#ifdef PICO_BOARD
+  ShowStr("\nBoard-Type: " PICO_BOARD);
+#endif
+#ifdef BANNER
+  ShowStr("\nFirmware: " BANNER);
+#endif
+#ifdef PICO_PROGRAM_NAME
+  ShowStr("\nProgram-Name: " PICO_PROGRAM_NAME);
+#endif
+#ifdef PICO_PROGRAM_BUILD_DATE
+  ShowStr("\nBuild-Date: " PICO_PROGRAM_BUILD_DATE);
+#endif
+#ifdef __DATE__
+  ShowStr("\nBuild-DATE: " __DATE__);
+#endif
+  ShowStr("\n");
+  printf("OS_LEVEL=%d\n", OS_LEVEL);
 
-bottom:
-  {}
+  LED(1);
+
+  the_ram.Reset();
+#if OS_LEVEL == 200
+  printf("COCO3: Prepare for Level 2\n");
+  // Poke(0x5E, 0x39); // RTS for D.BtBug // TODO
+  Poke(0x5E, 0x7E);    // RTS for D.BtBug // TODO
+  Poke(0x5F, 0xFF);    // RTS for D.BtBug // TODO
+  Poke(0x60, 0xEC);    // RTS for D.BtBug // TODO
+  Poke(0xFFEC, 0x39);  // RTS for D.BtBug // TODO
+#endif
+
+  ShowChar('X');
+  printf("stage-X\n");
+  InitRamFromRom();
+  ShowChar('Y');
+  printf("stage-Y\n");
+  ResetCpu();
+  ShowChar('Z');
+  printf("stage-Z\n");
+
+#if OS_LEVEL <= 199
+  uint a = AddressOfRom();
+  D("AddressOfRom = $%x\n", a);
+  uint krn_start, krn_entry, krn_end;
+  Level1FindKernelEntry(&krn_start, &krn_entry, &krn_end);
+  D("Level1KernelEntry = $%x\n", krn_entry);
+#endif
+
+#if !FOR_TURBO9SIM
+  // Set interrupt vectors
+  for (uint j = 0; j < 8; j++) {
+    Poke2(0xFFF0 + j + j, FFFxVectors[j]);
+  }
+#endif
+
+  ShowChar('+');
+  LED(0);
+  printf("\nStartPio()\n");
+  ShowChar('P');
+  StartPio();
+  ShowChar('I');
+  printf("\nEND StartPio()\n");
+  ShowChar('O');
+
+#if PICO_USE_TIMER
+  //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
+  //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
+  //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
+  //the timer reach 0, it's set to this value)
+  //-- exception_set_exclusive_handler(SYSTICK_EXCEPTION, SysTickINT);
+  ////Interrupt
+
+  // ( pico-sdk/src/common/pico_time/include/pico/time.h )
+  // Note: typedef bool (*repeating_timer_callback_t)(repeating_timer_t *rt);
+  // Note: static inline bool add_repeating_timer_ms(int32_t delay_ms,
+  // repeating_timer_callback_t callback, void *user_data, repeating_timer_t
+  // *out)
+  alarm_pool_init_default();
+
+  add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
+
+  // add_repeating_timer_us(1000 * 1000 /* 1 Hz */, TimerCallback, nullptr, &TimerData);
+
+#endif
+
+  ShowChar('\n');
+  Engine* e = new Engine();
+  e->ReaderInit();
+  e->HandleTwo();
+
+  sleep_ms(100);
+  D("\nFinished.\n");
+  sleep_ms(100);
+  GET_STUCK();
 }
