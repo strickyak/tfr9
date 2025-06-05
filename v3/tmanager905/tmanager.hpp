@@ -2,10 +2,12 @@
 //#define BORING_SWI2S 9999999  // 200 // 160
 #define INCLUDED_DISK 0
 
+constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
+
 #define SHOW_IRQS 0
 
 #if OS_LEVEL == 90
-const char Banner[] = "Level 90 Turbos9SIM";
+#define BANNER "Level 90 Turbos9SIM"
 #define FOR_COCO 0  // SAM & VDG & PIAs
 #define FOR_TURBO9SIM 1
 #define IRQS 1
@@ -15,14 +17,14 @@ const char Banner[] = "Level 90 Turbos9SIM";
 #define FOR_COCO 1  // SAM & VDG & PIAs
 #define FOR_TURBO9SIM 0
 #define IRQS 1
-const char Banner[] = "Level 1 NitrOS-9";
+#define BANNER "Level 1 NitrOS-9"
 #endif
 
 #if OS_LEVEL == 200
 #define FOR_COCO 1  // SAM & VDG & PIAs
 #define FOR_TURBO9SIM 0
 #define IRQS 1
-const char Banner[] = "Level 2 NitrOS-9";
+#define BANNER "Level 2 NitrOS-9"
 #endif
 
 
@@ -51,10 +53,12 @@ const char Banner[] = "Level 2 NitrOS-9";
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
 #include <pico/time.h>
-#include "pico/stdlib.h"
+#include <pico/stdlib.h>
+#include <pico/unique_id.h>
 #include <stdio.h>
 
 #include <functional>
+#include <cstring>
 
 #define LED(X) gpio_put(25, (X))
 
@@ -147,6 +151,8 @@ volatile bool TimerFired;
     B = (byte)((X) >> 16), \
     C = (byte)((X) >>  8), \
     D = (byte)((X) >>  0) )
+
+char Buf64[64]; // General use Buffer.
 
 uint interest;
 uint btbug;
@@ -870,7 +876,7 @@ extern void HandleTwo();
 extern void ReaderInit(void);
 
 int main() {
-  set_sys_clock_khz(250000, true);
+  // set_sys_clock_khz(250000, true);
   // set_sys_clock_khz(250000, true); // 0.559099
   // set_sys_clock_khz(260000, true); // 0.516071  0.531793
   // set_sys_clock_khz(270000, true); // NO? YES.
@@ -888,14 +894,14 @@ int main() {
 
   quiet_ram = 0;
 
-  const uint BLINKS = 3;  // Initial LED blink countdown.
   for (uint i = BLINKS; i > 0; i--) {
     LED(1);
     sleep_ms(500);
-    LED(0);
-    sleep_ms(500);
-    printf("+%d+ ", i);
-
+#if 1
+    ShowChar(' ');
+    ShowChar('0' + i);
+    ShowChar('!');
+#else
     char pbuf[10];
     sprintf(pbuf, "+%d+ ", i);
     printf("%s", pbuf);
@@ -903,11 +909,33 @@ int main() {
       putchar(C_PUTCHAR);
       putchar(*p);
     }
+#endif
+    printf(" %d!\n", i);
+    LED(0);
+    sleep_ms(500);
   }
-  ShowChar('+');
-  ShowChar(' ');
-  ShowStr(Banner);
-  ShowChar('\n');
+
+  ShowStr("\nAbout: https://github.com/strickyak/tfr9 <strick@yak.net>");
+  memset(Buf64, 0, sizeof Buf64);
+  pico_get_unique_board_id_string(Buf64, sizeof Buf64);
+  ShowStr("\nBoard-ID: ");
+  ShowStr(Buf64);
+#ifdef PICO_BOARD
+  ShowStr("\nBoard-Type: " PICO_BOARD);
+#endif
+#ifdef BANNER
+  ShowStr("\nFirmware: " BANNER);
+#endif
+#ifdef PICO_PROGRAM_NAME
+  ShowStr("\nProgram-Name: " PICO_PROGRAM_NAME);
+#endif
+#ifdef PICO_PROGRAM_BUILD_DATE
+  ShowStr("\nBuild-Date: " PICO_PROGRAM_BUILD_DATE);
+#endif
+#ifdef __DATE__
+  ShowStr("\nBuild-DATE: " __DATE__);
+#endif
+  ShowStr("\n");
   printf("OS_LEVEL=%d\n", OS_LEVEL);
 
   LED(1);
@@ -915,12 +943,6 @@ int main() {
   the_ram.Reset();
 #if OS_LEVEL == 200
   printf("COCO3: Prepare for Level 2\n");
-#if 0
-    //the_ram.SetEnableMmu(true);
-    //the_ram.SetCurrentTask(1);
-    //Poke(0xFF90, 0x40);
-    //Poke(0xFF91, 0x01);
-#endif
   // Poke(0x5E, 0x39); // RTS for D.BtBug // TODO
   Poke(0x5E, 0x7E);    // RTS for D.BtBug // TODO
   Poke(0x5F, 0xFF);    // RTS for D.BtBug // TODO
