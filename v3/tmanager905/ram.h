@@ -1,6 +1,8 @@
 #ifndef _RAM_H_
 #define _RAM_H_
 
+#define ENABLE_MMU_LOGIC 1
+
 uint quiet_ram;
 inline void Quiet() { quiet_ram++; }
 inline void Noisy() { quiet_ram--; }
@@ -8,21 +10,19 @@ inline void Noisy() { quiet_ram--; }
 extern uint interest;
 
 struct DontLogMmu {
-    force_inline int Logf(const char* fmt, ...) {
-        return 0;
-    }
+  force_inline int Logf(const char* fmt, ...) { return 0; }
 };
 struct DoLogMmu {
-    int Logf(const char* fmt, ...) {
-        if (!interest) return 0;
-        if (quiet_ram > 0) return 0;
+  int Logf(const char* fmt, ...) {
+    if (!interest) return 0;
+    if (quiet_ram > 0) return 0;
 
-        va_list va;
-        va_start(va, fmt);
-        int z = printf(fmt, va);
-        va_end(va);
-        return z;
-    }
+    va_list va;
+    va_start(va, fmt);
+    int z = printf(fmt, va);
+    va_end(va);
+    return z;
+  }
 };
 
 template <class ToLogMmu>
@@ -49,10 +49,10 @@ class SmallRam : public ToLogMmu {
 template <class ToLogMmu>
 class BigRam : public ToLogMmu {
  private:
-const byte mmu_init[16] = {
-    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-};
+  const byte mmu_init[16] = {
+      0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+      0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+  };
 
   const static uint RAM_SIZE = 128 * 1024;
   const static uint RAM_MASK = RAM_SIZE - 1;
@@ -63,7 +63,7 @@ const byte mmu_init[16] = {
 
   byte ram[RAM_SIZE];
 
-#if ENABLE_MMU
+#if ENABLE_MMU_LOGIC
   bool enable_mmu;
 #else
   constexpr static bool enable_mmu = true;
@@ -78,7 +78,7 @@ const byte mmu_init[16] = {
   void Reset() {
     interest += 500;
 
-#if ENABLE_MMU
+#if ENABLE_MMU_LOGIC
     enable_mmu = true;
 #endif
     current_task = 1;
@@ -100,12 +100,13 @@ const byte mmu_init[16] = {
             }
         }
         */
-    ToLogMmu::Logf("RAM_SIZE=$%x=%d. RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n", RAM_SIZE,
-       RAM_SIZE, RAM_MASK, RAM_MASK, OFFSET_MASK, OFFSET_MASK);
+    ToLogMmu::Logf("RAM_SIZE=$%x=%d. RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
+                   RAM_SIZE, RAM_SIZE, RAM_MASK, RAM_MASK, OFFSET_MASK,
+                   OFFSET_MASK);
   }
 
   void SetEnableMmu(bool a) {
-#if ENABLE_MMU
+#if ENABLE_MMU_LOGIC
     if (a != enable_mmu) {
       ToLogMmu::Logf("COCO3: Now MMU is %u\n", a);
     }
@@ -172,9 +173,7 @@ const byte mmu_init[16] = {
     return phys;
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  force_inline byte GetPhys(uint phys_addr) {
-    return ram[phys_addr];
-  }
+  force_inline byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
   force_inline byte Read(uint addr) {
     uint phys = Phys(addr);
     return ram[phys];
@@ -230,14 +229,8 @@ const byte mmu_init[16] = {
           this->WriteMmu(task, slot, data);
         } break;
       }  // switch
-    }    // if
-  }      // Write
-#if 0
-  force_inline void WriteQuietly(uint addr, byte data) {
-    uint phys = Phys(addr);
-    ram[phys] = data;
-  }
-#endif
+    }  // if
+  }  // Write
   void Write(uint addr, byte data) {
     uint phys = Phys(addr);
     ram[phys] = data;
@@ -280,8 +273,8 @@ const byte mmu_init[16] = {
           this->WriteMmu(task, slot, data);
         } break;
       }  // switch
-    }    // if
-  }      // Write
+    }  // if
+  }  // Write
   void FastWrite(uint addr, byte data) {
     uint phys = FastPhys(addr);
     ram[phys] = data;
@@ -327,11 +320,11 @@ const byte mmu_init[16] = {
           this->WriteMmu(task, slot, data);
         } break;
       }  // switch
-    }    // if
-  }      // FastWrite
+    }  // if
+  }  // FastWrite
   byte ReadPhys(uint addr) { return ram[addr]; }
   void WritePhys(uint addr, byte data) { ram[addr] = data; }
   uint PhysSize() { return sizeof ram; }
 };
 
-#endif // _RAM_H_
+#endif  // _RAM_H_
