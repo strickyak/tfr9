@@ -2054,7 +2054,7 @@ int main() {
   printf("OS_LEVEL=%d\n", OS_LEVEL);
 
   LED(1);
-  auto* e = new Engine<BigRam>();
+  auto* e = new Engine<BigRam<DontLogMmu>>();
   e->Start();
 
 }

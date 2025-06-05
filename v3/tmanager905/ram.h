@@ -1,5 +1,5 @@
-#ifndef _RAM_INC_H_
-#define _RAM_INC_H_
+#ifndef _RAM_H_
+#define _RAM_H_
 
 uint quiet_ram;
 inline void Quiet() { quiet_ram++; }
@@ -7,15 +7,26 @@ inline void Noisy() { quiet_ram--; }
 
 extern uint interest;
 
-#define RP \
-  if (interest and not quiet_ram) printf
+struct DontLogMmu {
+    force_inline int Logf(const char* fmt, ...) {
+        return 0;
+    }
+};
+struct DoLogMmu {
+    int Logf(const char* fmt, ...) {
+        if (!interest) return 0;
+        if (quiet_ram > 0) return 0;
 
-const byte mmu_init[16] = {
-    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+        va_list va;
+        va_start(va, fmt);
+        int z = printf(fmt, va);
+        va_end(va);
+        return z;
+    }
 };
 
-class SmallRam {
+template <class ToLogMmu>
+class SmallRam : public ToLogMmu {
  private:
   byte ram[0x10000];
 
@@ -35,8 +46,14 @@ class SmallRam {
   uint PhysSize() { return sizeof ram; }
 };
 
-class BigRam {
+template <class ToLogMmu>
+class BigRam : public ToLogMmu {
  private:
+const byte mmu_init[16] = {
+    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+};
+
   const static uint RAM_SIZE = 128 * 1024;
   const static uint RAM_MASK = RAM_SIZE - 1;
 
@@ -83,14 +100,14 @@ class BigRam {
             }
         }
         */
-    RP("RAM_SIZE=$%x=%d. RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n", RAM_SIZE,
+    ToLogMmu::Logf("RAM_SIZE=$%x=%d. RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n", RAM_SIZE,
        RAM_SIZE, RAM_MASK, RAM_MASK, OFFSET_MASK, OFFSET_MASK);
   }
 
   void SetEnableMmu(bool a) {
 #if ENABLE_MMU
     if (a != enable_mmu) {
-      RP("COCO3: Now MMU is %u\n", a);
+      ToLogMmu::Logf("COCO3: Now MMU is %u\n", a);
     }
     enable_mmu = a;
 #endif
@@ -98,13 +115,13 @@ class BigRam {
   void SetCurrentTask(byte a) {
     assert(a < 2);
     if (a != current_task) {
-      RP("COCO3: Now Task is %u\n", a);
+      ToLogMmu::Logf("COCO3: Now Task is %u\n", a);
     }
     current_task = a;
     current_bases = base[a];
   }
   void WriteMmu(byte task, byte slot, byte blk) {
-    RP("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
+    ToLogMmu::Logf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
     mmu[task][slot] = blk;
     base[task][slot] = (blk << SLOT_SHIFT) & RAM_MASK;
   }
@@ -317,43 +334,4 @@ class BigRam {
   uint PhysSize() { return sizeof ram; }
 };
 
-#if 0
-
-#if OS_LEVEL <= 199
-typedef SmallRam Ram;
-#endif
-#if OS_LEVEL >= 200
-typedef BigRam Ram;
-#endif
-
-Ram the_ram;
-
-force_inline byte FastPeek(uint addr) { return the_ram.FastRead(addr); }
-force_inline byte Peek(uint addr) { return the_ram.Read(addr); }
-
-force_inline void Poke(uint addr, byte data) { the_ram.Write(addr, data); }
-#if 0
-force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr, data); }
-#endif
-force_inline void FastPoke(uint addr, byte data) {
-  the_ram.FastWrite(addr, data);
-}
-
-force_inline void Poke(uint addr, byte data, byte block) {
-  the_ram.Write(addr, data, block);
-}
-
-force_inline uint Peek2(uint addr) {
-  uint hi = Peek(addr);
-  uint lo = Peek(addr + 1);
-  return (hi << 8) | lo;
-}
-force_inline void Poke2(uint addr, uint data) {
-  byte hi = (byte)(data >> 8);
-  byte lo = (byte)data;
-  Poke(addr, hi);
-  Poke(addr + 1, lo);
-}
-#endif // 0
-
-#endif
+#endif // _RAM_H_
