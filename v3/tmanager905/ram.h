@@ -317,6 +317,8 @@ class BigRam {
   uint PhysSize() { return sizeof ram; }
 };
 
+#if 0
+
 #if OS_LEVEL <= 199
 typedef SmallRam Ram;
 #endif
@@ -352,5 +354,6 @@ force_inline void Poke2(uint addr, uint data) {
   Poke(addr, hi);
   Poke(addr + 1, lo);
 }
+#endif // 0
 
 #endif

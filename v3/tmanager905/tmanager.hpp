@@ -867,6 +867,54 @@ void SendEventRam(byte event, byte sz, word base_addr) {
 #endif  // TRACKING
 }
 
+#if PICO_USE_TIMER
+struct repeating_timer TimerData;
+
+bool TimerCallback(repeating_timer_t* rt) {
+  TimerFired = true;
+  return true;
+}
+#endif
+
+const uint kDiskReadSize = 1 + 4 + 256;
+
+bool TryGetUsbByte(char* ptr) {
+      int rc = stdio_usb_in_chars(ptr, 1);
+      return (rc != PICO_ERROR_NO_DATA);
+}
+
+template <class RamT>
+struct Engine {
+
+RamT the_ram;
+
+force_inline byte FastPeek(uint addr) { return the_ram.FastRead(addr); }
+force_inline byte Peek(uint addr) { return the_ram.Read(addr); }
+
+force_inline void Poke(uint addr, byte data) { the_ram.Write(addr, data); }
+#if 0
+force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr, data); }
+#endif
+force_inline void FastPoke(uint addr, byte data) {
+  the_ram.FastWrite(addr, data);
+}
+
+force_inline void Poke(uint addr, byte data, byte block) {
+  the_ram.Write(addr, data, block);
+}
+
+force_inline uint Peek2(uint addr) {
+  uint hi = Peek(addr);
+  uint lo = Peek(addr + 1);
+  return (hi << 8) | lo;
+}
+force_inline void Poke2(uint addr, uint data) {
+  byte hi = (byte)(data >> 8);
+  byte lo = (byte)data;
+  Poke(addr, hi);
+  Poke(addr + 1, lo);
+}
+
 void InitRamFromRom() {
   Quiet();
   uint start = AddressOfRom();
@@ -884,21 +932,6 @@ void InitRamFromRom() {
   }
   Noisy();
 }
-
-#if PICO_USE_TIMER
-struct repeating_timer TimerData;
-
-bool TimerCallback(repeating_timer_t* rt) {
-  TimerFired = true;
-  return true;
-}
-#endif
-
-// extern void HandlePio(uint num_cycles, uint krn_entry);
-// extern void HandleTwo();
-// extern void ReaderInit(void);
-
-// main() was here
 
 void PreRoll() {
   const PIO pio = pio0;
@@ -941,96 +974,10 @@ void PreRoll() {
 CircBuf<1200> usb_input;
 CircBuf<1200> term_input;
 CircBuf<1200> disk_input;
-const uint kDiskReadSize = 1 + 4 + 256;
 
-bool TryGetUsbByte(char* ptr) {
-      int rc = stdio_usb_in_chars(ptr, 1);
-      return (rc != PICO_ERROR_NO_DATA);
-}
 
-bool PeekDiskInput() {
-    int peek = disk_input.HasAtLeast(1) ? (int)disk_input.Peek() : -1;
-    switch (peek) {
-    case C_DISK_READ:
-        if (disk_input.HasAtLeast(kDiskReadSize)) {
-            return true;
-        }
-        break;
-    }
-    return false;
-}
+/////////////
 
-void PollUsbInput() {
-    // Try from USB to `usb_input` object.
-    while (1) {
-        char x = 0;
-        bool ok = TryGetUsbByte(&x);
-        if (ok) {
-            usb_input.Put(x);
-        } else {
-            break;
-        }
-    }
-
-    // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
-    while (1) {
-        int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-        if (1 <= peek && peek <= 126) {
-            byte c = usb_input.Take();
-            assert((int)c == peek);
-            if (c == 10) {
-              c = 13;
-            }
-            term_input.Put(c);
-        } else {
-            break;
-        }
-    }
-
-    // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
-    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-    switch (peek) {
-    case C_DISK_READ:
-        if (usb_input.HasAtLeast(kDiskReadSize)) {
-            for (uint i = 0; i < kDiskReadSize; i++) {
-                byte t = usb_input.Take();
-                disk_input.Put(t);
-            }
-        }
-        break;
-    }
-    return;
-}
-
-void ReadDisk(uint device, uint lsn, byte* buffer) {
-#if INCLUDED_DISK
-        for (uint k = 0; k < 256; k++) {
-            Poke(buffer + k, TODO dp[k]);
-        }
-#else
-    printf("READ SDC SECTOR %x %x\n", device, lsn);
-            putbyte(C_DISK_READ);
-            putbyte(device);
-            putbyte(lsn >> 16);
-            putbyte(lsn >> 8);
-            putbyte(lsn >> 0);
-
-              while (1) {
-                PollUsbInput();
-                if (PeekDiskInput()) {
-                    for (uint k = 0; k < kDiskReadSize - 256; k++) {
-                        (void)disk_input.Take(); // 4-byte device & LSN.
-                    }
-                    for (uint k = 0; k < 256; k++) {
-                        buffer[k] = disk_input.Take();
-                    }
-                    break;
-                }
-              }
-#endif
-}
-
-struct Engine {
 
 #if FOR_TURBO9SIM
 bool sim_timer_irq;
@@ -1558,6 +1505,165 @@ void HandleIOReads(uint addr) {
           // PUT(0x0000);  // pindirs
 }
 
+void Start() {
+  the_ram.Reset();
+#if OS_LEVEL == 200
+  printf("COCO3: Prepare for Level 2\n");
+  // Poke(0x5E, 0x39); // RTS for D.BtBug // TODO
+  Poke(0x5E, 0x7E);    // RTS for D.BtBug // TODO
+  Poke(0x5F, 0xFF);    // RTS for D.BtBug // TODO
+  Poke(0x60, 0xEC);    // RTS for D.BtBug // TODO
+  Poke(0xFFEC, 0x39);  // RTS for D.BtBug // TODO
+#endif
+
+  ShowChar('X');
+  printf("stage-X\n");
+  InitRamFromRom();
+  ShowChar('Y');
+  printf("stage-Y\n");
+  ResetCpu();
+  ShowChar('Z');
+  printf("stage-Z\n");
+
+#if OS_LEVEL <= 199
+  uint a = AddressOfRom();
+  D("AddressOfRom = $%x\n", a);
+  uint krn_start, krn_entry, krn_end;
+  Level1FindKernelEntry(&krn_start, &krn_entry, &krn_end);
+  D("Level1KernelEntry = $%x\n", krn_entry);
+#endif
+
+#if !FOR_TURBO9SIM
+  // Set interrupt vectors
+  for (uint j = 0; j < 8; j++) {
+    Poke2(0xFFF0 + j + j, FFFxVectors[j]);
+  }
+#endif
+
+  ShowChar('+');
+  LED(0);
+  printf("\nStartPio()\n");
+  ShowChar('P');
+  StartPio();
+  ShowChar('I');
+  printf("\nEND StartPio()\n");
+  ShowChar('O');
+
+#if PICO_USE_TIMER
+  //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
+  //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
+  //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
+  //the timer reach 0, it's set to this value)
+  //-- exception_set_exclusive_handler(SYSTICK_EXCEPTION, SysTickINT);
+  ////Interrupt
+
+  // ( pico-sdk/src/common/pico_time/include/pico/time.h )
+  // Note: typedef bool (*repeating_timer_callback_t)(repeating_timer_t *rt);
+  // Note: static inline bool add_repeating_timer_ms(int32_t delay_ms,
+  // repeating_timer_callback_t callback, void *user_data, repeating_timer_t
+  // *out)
+  alarm_pool_init_default();
+
+  add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
+
+  // add_repeating_timer_us(1000 * 1000 /* 1 Hz */, TimerCallback, nullptr, &TimerData);
+
+#endif
+
+  ShowChar('\n');
+  auto e = this;
+  e->ReaderInit();
+  e->HandleTwo();
+
+  sleep_ms(100);
+  D("\nFinished.\n");
+  sleep_ms(100);
+  GET_STUCK();
+
+  } // end Start
+
+bool PeekDiskInput() {
+    int peek = disk_input.HasAtLeast(1) ? (int)disk_input.Peek() : -1;
+    switch (peek) {
+    case C_DISK_READ:
+        if (disk_input.HasAtLeast(kDiskReadSize)) {
+            return true;
+        }
+        break;
+    }
+    return false;
+}
+
+void PollUsbInput() {
+    // Try from USB to `usb_input` object.
+    while (1) {
+        char x = 0;
+        bool ok = TryGetUsbByte(&x);
+        if (ok) {
+            usb_input.Put(x);
+        } else {
+            break;
+        }
+    }
+
+    // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
+    while (1) {
+        int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+        if (1 <= peek && peek <= 126) {
+            byte c = usb_input.Take();
+            assert((int)c == peek);
+            if (c == 10) {
+              c = 13;
+            }
+            term_input.Put(c);
+        } else {
+            break;
+        }
+    }
+
+    // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
+    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+    switch (peek) {
+    case C_DISK_READ:
+        if (usb_input.HasAtLeast(kDiskReadSize)) {
+            for (uint i = 0; i < kDiskReadSize; i++) {
+                byte t = usb_input.Take();
+                disk_input.Put(t);
+            }
+        }
+        break;
+    }
+    return;
+}
+
+void ReadDisk(uint device, uint lsn, byte* buffer) {
+#if INCLUDED_DISK
+        for (uint k = 0; k < 256; k++) {
+            Poke(buffer + k, TODO dp[k]);
+        }
+#else
+    printf("READ SDC SECTOR %x %x\n", device, lsn);
+            putbyte(C_DISK_READ);
+            putbyte(device);
+            putbyte(lsn >> 16);
+            putbyte(lsn >> 8);
+            putbyte(lsn >> 0);
+
+              while (1) {
+                PollUsbInput();
+                if (PeekDiskInput()) {
+                    for (uint k = 0; k < kDiskReadSize - 256; k++) {
+                        (void)disk_input.Take(); // 4-byte device & LSN.
+                    }
+                    for (uint k = 0; k < 256; k++) {
+                        buffer[k] = disk_input.Take();
+                    }
+                    break;
+                }
+              }
+#endif
+}
+
     void HandleTwo() {
       ShowChar('h');
       uint cy = 0;  // This is faster if local.
@@ -1948,78 +2054,7 @@ int main() {
   printf("OS_LEVEL=%d\n", OS_LEVEL);
 
   LED(1);
+  auto* e = new Engine<BigRam>();
+  e->Start();
 
-  the_ram.Reset();
-#if OS_LEVEL == 200
-  printf("COCO3: Prepare for Level 2\n");
-  // Poke(0x5E, 0x39); // RTS for D.BtBug // TODO
-  Poke(0x5E, 0x7E);    // RTS for D.BtBug // TODO
-  Poke(0x5F, 0xFF);    // RTS for D.BtBug // TODO
-  Poke(0x60, 0xEC);    // RTS for D.BtBug // TODO
-  Poke(0xFFEC, 0x39);  // RTS for D.BtBug // TODO
-#endif
-
-  ShowChar('X');
-  printf("stage-X\n");
-  InitRamFromRom();
-  ShowChar('Y');
-  printf("stage-Y\n");
-  ResetCpu();
-  ShowChar('Z');
-  printf("stage-Z\n");
-
-#if OS_LEVEL <= 199
-  uint a = AddressOfRom();
-  D("AddressOfRom = $%x\n", a);
-  uint krn_start, krn_entry, krn_end;
-  Level1FindKernelEntry(&krn_start, &krn_entry, &krn_end);
-  D("Level1KernelEntry = $%x\n", krn_entry);
-#endif
-
-#if !FOR_TURBO9SIM
-  // Set interrupt vectors
-  for (uint j = 0; j < 8; j++) {
-    Poke2(0xFFF0 + j + j, FFFxVectors[j]);
-  }
-#endif
-
-  ShowChar('+');
-  LED(0);
-  printf("\nStartPio()\n");
-  ShowChar('P');
-  StartPio();
-  ShowChar('I');
-  printf("\nEND StartPio()\n");
-  ShowChar('O');
-
-#if PICO_USE_TIMER
-  //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
-  //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
-  //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
-  //the timer reach 0, it's set to this value)
-  //-- exception_set_exclusive_handler(SYSTICK_EXCEPTION, SysTickINT);
-  ////Interrupt
-
-  // ( pico-sdk/src/common/pico_time/include/pico/time.h )
-  // Note: typedef bool (*repeating_timer_callback_t)(repeating_timer_t *rt);
-  // Note: static inline bool add_repeating_timer_ms(int32_t delay_ms,
-  // repeating_timer_callback_t callback, void *user_data, repeating_timer_t
-  // *out)
-  alarm_pool_init_default();
-
-  add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
-
-  // add_repeating_timer_us(1000 * 1000 /* 1 Hz */, TimerCallback, nullptr, &TimerData);
-
-#endif
-
-  ShowChar('\n');
-  Engine* e = new Engine();
-  e->ReaderInit();
-  e->HandleTwo();
-
-  sleep_ms(100);
-  D("\nFinished.\n");
-  sleep_ms(100);
-  GET_STUCK();
 }
