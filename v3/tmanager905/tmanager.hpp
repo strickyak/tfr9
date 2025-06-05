@@ -33,7 +33,7 @@ constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
 
 #define SEEN TRACKING
 #define RECORD TRACKING
-#define ALL_POKES TRACKING
+////// #define ALL_POKES TRACKING
 #define HEURISTICS TRACKING
 #define OPCODES TRACKING
 #define TRACE_RTI TRACKING
@@ -89,9 +89,9 @@ volatile bool TimerFired;
 #include "tpio.pio.h"
 
 ///////////////////////  // LED_W for Pico W:   LED_W(1) for on, LED_W(0) for
-///off.
+/// off.
 ///////////////////////  #define LED_W(X)
-///cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+/// cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 
 #define ATTENTION_SPAN 25  // was 250
 
@@ -2058,8 +2058,8 @@ int main() {
 #endif
   ShowStr("\n");
   printf("OS_LEVEL=%d\n", OS_LEVEL);
+  // LED(1);
 
-  LED(1);
-  auto* e = new Engine<BigRam<DontLogMmu>>();
+  auto* e = new Engine<BigRam<DontLogMmu, DontTracePokes>>();
   e->Start();
 }

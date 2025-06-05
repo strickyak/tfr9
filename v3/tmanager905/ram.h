@@ -1,6 +1,7 @@
 #ifndef _RAM_H_
 #define _RAM_H_
 
+// TODO -- ENABLE_MMU_LOGIC always.
 #define ENABLE_MMU_LOGIC 1
 
 uint quiet_ram;
@@ -8,6 +9,19 @@ inline void Quiet() { quiet_ram++; }
 inline void Noisy() { quiet_ram--; }
 
 extern uint interest;
+
+struct DontTracePokes {
+  force_inline void TraceThePoke(uint addr, byte data) {}
+};
+struct DoTracePokes {
+  force_inline void TraceThePoke(uint addr, byte data) {
+    putbyte(C_POKE);
+    putbyte(addr >> 16);
+    putbyte(addr >> 8);
+    putbyte(addr);
+    putbyte(data);
+  }
+};
 
 struct DontLogMmu {
   force_inline int Logf(const char* fmt, ...) { return 0; }
@@ -25,8 +39,8 @@ struct DoLogMmu {
   }
 };
 
-template <class ToLogMmu>
-class SmallRam : public ToLogMmu {
+template <class ToLogMmu, class ToTracePokes>
+class SmallRam : public ToLogMmu, public ToTracePokes {
  private:
   byte ram[0x10000];
 
@@ -34,11 +48,14 @@ class SmallRam : public ToLogMmu {
   void Reset() {}
   byte Read(uint addr) {
     printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
+    // TODO -- assert the mask is never needed.
     return ram[addr & 0xFFFF];
   }
   void Write(uint addr, byte data, byte block = 0) {
     printf("write %x <- %x\n", addr, data);
+    // TODO -- assert the mask is never needed.
     ram[addr & 0xFFFF] = data;
+    ToTracePokes::TraceThePoke(addr, data);
   }
   byte FastRead(uint addr) { return Read(addr); }
   void FastWrite(uint addr, byte data) { Write(addr, data); }
@@ -46,8 +63,8 @@ class SmallRam : public ToLogMmu {
   uint PhysSize() { return sizeof ram; }
 };
 
-template <class ToLogMmu>
-class BigRam : public ToLogMmu {
+template <class ToLogMmu, class ToTracePokes>
+class BigRam : public ToLogMmu, public ToTracePokes {
  private:
   const byte mmu_init[16] = {
       0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
@@ -191,14 +208,7 @@ class BigRam : public ToLogMmu {
     uint phys = Phys(addr, block);
     ram[phys] = data;
 
-#if ALL_POKES
-    putbyte(C_POKE);
-    // putbyte(the_ram.Block(addr));
-    putbyte(phys >> 16);
-    putbyte(phys >> 8);
-    putbyte(phys);
-    putbyte(data);
-#endif
+    ToTracePokes::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
@@ -235,14 +245,7 @@ class BigRam : public ToLogMmu {
     uint phys = Phys(addr);
     ram[phys] = data;
 
-#if ALL_POKES
-    putbyte(C_POKE);
-    // putbyte(the_ram.Block(addr));
-    putbyte(phys >> 16);
-    putbyte(phys >> 8);
-    putbyte(phys);
-    putbyte(data);
-#endif
+    ToTracePokes::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
@@ -279,17 +282,7 @@ class BigRam : public ToLogMmu {
     uint phys = FastPhys(addr);
     ram[phys] = data;
 
-#if ALL_POKES
-// TODO -- FEWER_POKES
-#endif
-#if ALL_POKES
-    putbyte(C_POKE);
-    // putbyte(the_ram.Block(addr));
-    putbyte(phys >> 16);
-    putbyte(phys >> 8);
-    putbyte(phys);
-    putbyte(data);
-#endif
+    ToTracePokes::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
