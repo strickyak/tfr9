@@ -11,7 +11,7 @@ add_executable(${PROJECT} tmanager.cpp)
 pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/tpio.pio)
 pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/latch.pio)
 
-target_sources(${PROJECT} PRIVATE tmanager.cpp ../ram.h ../level2.rom.h ../tfr9ports.gen.h)
+target_sources(${PROJECT} PRIVATE tmanager.cpp ../ram.h ../turbo9sim.h ../level2.rom.h ../tfr9ports.gen.h)
 target_link_libraries(${PROJECT} PRIVATE pico_stdlib hardware_pio)
 pico_add_extra_outputs(${PROJECT})
 

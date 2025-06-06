@@ -4,7 +4,7 @@
 
 #define IRQS 1
 
-#define TRACKING 0
+#define TRACKING 1
 // #define TRACKING_CYCLE 1124000 // 566750 // 940000
 // #define STOP_CYCLE 2000000 // 652689 // 1139300
 

@@ -1,3 +1,7 @@
+S:=$(shell ( cd ../.. ; /bin/pwd ))
+export COCO_SHELF:=$S
+export PICOTOOL_FETCH_FROM_GIT_PATH:=$(shell $${PICOTOOL_FETCH_FROM_GIT_PATH:-$S/picotool})
+
 all: make_$(BUILD_DIR) cross-compile-tconsoles
 
 $(BUILD_DIR):

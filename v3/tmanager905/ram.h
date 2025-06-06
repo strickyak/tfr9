@@ -47,12 +47,12 @@ class SmallRam : public ToLogMmu, public ToTracePokes {
  public:
   void Reset() {}
   byte Read(uint addr) {
-    printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
+    // printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
     // TODO -- assert the mask is never needed.
     return ram[addr & 0xFFFF];
   }
   void Write(uint addr, byte data, byte block = 0) {
-    printf("write %x <- %x\n", addr, data);
+    // printf("write %x <- %x\n", addr, data);
     // TODO -- assert the mask is never needed.
     ram[addr & 0xFFFF] = data;
     ToTracePokes::TraceThePoke(addr, data);

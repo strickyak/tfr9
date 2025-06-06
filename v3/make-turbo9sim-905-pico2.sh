@@ -1,4 +1,4 @@
-BUILD_DIR=build-turbos9sim-905-pico2
+BUILD_DIR=build-turbo9sim-905-pico2
 
 # Which TFR circuit board number
 TFR_BOARD=905
@@ -7,18 +7,22 @@ TFR_BOARD=905
 RP_CHIP=2350
 
 # Level is 100 for NitrOS9 Level 1, or 200 for NitroOS9 Level 2
-# Level is 90 for Turbos9
+# Level is 90 for Turbo9
 OS_LEVEL=90
 
 # These features are 0 to disable, 1 to enable.
-TRACK_RAM=1
-TRACE_CYCLES=1
-TRACE_SWI2=1
+TRACK_RAM=0
+TRACE_CYCLES=0
+TRACE_SWI2=0
+
+# Device Port starting addresses
+ACIA_PORT=FF06
+EMUDSK_PORT=FF80
 
 # Raspberry Pi Pico SDK
 COCO_SHELF="${COCO_SHELF:-$(cd ../.. && pwd)}"
 export PICO_SDK_PATH="${PICO_SDK_PATH:-$COCO_SHELF/pico-sdk}"
-export PICOTOOL_FETCH_FROM_GIT_PATH="${PICOTOOL_FETCH_FROM_GIT_PATH:-$COCO_SHELF/picotool}"
+PICOTOOL_FETCH_FROM_GIT_PATH="${PICOTOOL_FETCH_FROM_GIT_PATH:-$COCO_SHELF/picotool}"
 
 #####################################
 #### Try not to edit below here. ####

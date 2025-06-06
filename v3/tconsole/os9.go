@@ -22,7 +22,7 @@ func GetMappingFromTable(addr uint) Mapping {
 }
 
 func MemoryModuleOf(addrPhys uint) (name string, offset uint) {
-	beginDir, endDir := PPeek2(D_ModDir), PPeek2(D_ModEnd)
+	beginDir, endDir := PPeek2(D_ModDir), PPeek2(D_ModDir+2)
 
 	datPtr0 := PPeek2(beginDir)
 	if datPtr0 == 0 {
