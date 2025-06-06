@@ -18,17 +18,29 @@ make_$(BUILD_DIR): $(BUILD_DIR)
 	make -C $(BUILD_DIR)
 
 
-GO_BUILD = go build --tags=level2,coco3 -ldflags '-extldflags "-static"'
+GO_BUILD_1 = go build --tags=level1,coco1 -ldflags '-extldflags "-static"'
+GO_BUILD_2 = go build --tags=level2,coco3 -ldflags '-extldflags "-static"'
 
 cross-compile-tconsoles:
-	GOOS=linux GOARCH=amd64       $(GO_BUILD) -o tconsole.linux-amd64.exe $$PWD/tconsole
-	GOOS=linux GOARCH=386         $(GO_BUILD) -o tconsole.linux-386.exe $$PWD/tconsole
-	GOOS=linux GOARCH=arm GOARM=7 $(GO_BUILD) -o tconsole.linux-arm-7.exe $$PWD/tconsole
-	GOOS=linux GOARCH=arm64       $(GO_BUILD) -o tconsole.linux-arm64.exe $$PWD/tconsole
-	GOOS=windows GOARCH=amd64     $(GO_BUILD) -o tconsole.win-amd64.exe $$PWD/tconsole
-	GOOS=windows GOARCH=386       $(GO_BUILD) -o tconsole.win-386.exe $$PWD/tconsole
-	GOOS=darwin GOARCH=arm64      $(GO_BUILD) -o tconsole.mac-arm64.exe $$PWD/tconsole
-	GOOS=darwin GOARCH=amd64      $(GO_BUILD) -o tconsole.mac-amd64.exe $$PWD/tconsole
+	:
+	GOOS=linux GOARCH=amd64       $(GO_BUILD_1) -o tconsole-level1.linux-amd64.exe $$PWD/tconsole
+	GOOS=linux GOARCH=386         $(GO_BUILD_1) -o tconsole-level1.linux-386.exe $$PWD/tconsole
+	GOOS=linux GOARCH=arm GOARM=7 $(GO_BUILD_1) -o tconsole-level1.linux-arm-7.exe $$PWD/tconsole
+	GOOS=linux GOARCH=arm64       $(GO_BUILD_1) -o tconsole-level1.linux-arm64.exe $$PWD/tconsole
+	GOOS=windows GOARCH=amd64     $(GO_BUILD_1) -o tconsole-level1.win-amd64.exe $$PWD/tconsole
+	GOOS=windows GOARCH=386       $(GO_BUILD_1) -o tconsole-level1.win-386.exe $$PWD/tconsole
+	GOOS=darwin GOARCH=arm64      $(GO_BUILD_1) -o tconsole-level1.mac-arm64.exe $$PWD/tconsole
+	GOOS=darwin GOARCH=amd64      $(GO_BUILD_1) -o tconsole-level1.mac-amd64.exe $$PWD/tconsole
+	:
+	GOOS=linux GOARCH=amd64       $(GO_BUILD_2) -o tconsole-level2.linux-amd64.exe $$PWD/tconsole
+	GOOS=linux GOARCH=386         $(GO_BUILD_2) -o tconsole-level2.linux-386.exe $$PWD/tconsole
+	GOOS=linux GOARCH=arm GOARM=7 $(GO_BUILD_2) -o tconsole-level2.linux-arm-7.exe $$PWD/tconsole
+	GOOS=linux GOARCH=arm64       $(GO_BUILD_2) -o tconsole-level2.linux-arm64.exe $$PWD/tconsole
+	GOOS=windows GOARCH=amd64     $(GO_BUILD_2) -o tconsole-level2.win-amd64.exe $$PWD/tconsole
+	GOOS=windows GOARCH=386       $(GO_BUILD_2) -o tconsole-level2.win-386.exe $$PWD/tconsole
+	GOOS=darwin GOARCH=arm64      $(GO_BUILD_2) -o tconsole-level2.mac-arm64.exe $$PWD/tconsole
+	GOOS=darwin GOARCH=amd64      $(GO_BUILD_2) -o tconsole-level2.mac-amd64.exe $$PWD/tconsole
+	:
 
 
 
