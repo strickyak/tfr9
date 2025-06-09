@@ -1,5 +1,5 @@
-#define TRACKING 0
-#define SHOW_IRQS 0
+#define TRACKING 1
+#define SHOW_IRQS 1
 
 #define INCLUDED_DISK 0
 
@@ -195,7 +195,8 @@ byte Disk[] = {
 };
 #endif
 
-#define LEVEL1_PRELUDE_START (0xFF00 - 32)
+// old // #define LEVEL1_PRELUDE_START (0xFF00 - 32)
+#define LEVEL1_LAUNCHER_START 0x2500
 
 uint FFFxVectors[] = {
 #if OS_LEVEL == 100
@@ -207,7 +208,7 @@ uint FFFxVectors[] = {
     0x010c,
     0x0106,
     0x0109,
-    LEVEL1_PRELUDE_START,  //  RESET
+    LEVEL1_LAUNCHER_START,  //  RESET
 #endif
 #if OS_LEVEL == 200
     // From ~/coco-shelf/toolshed/cocoroms/coco3.rom :
@@ -499,7 +500,8 @@ uint AddressOfRom() {
   return 0;
 #endif
 #if OS_LEVEL == 100
-  return 0xFF00 - sizeof(Rom);
+  // old way // return 0xFF00 - sizeof(Rom);
+  return 0x2500;
 #endif
 #if OS_LEVEL == 200
   return 0x2600;
@@ -2002,7 +2004,13 @@ int main() {
   e->Install(PRIMARY_TURBO9SIM, e->IOReaders, e->IOWriters);
   e->Install(SECONDARY_TURBO9SIM, e->IOReaders, e->IOWriters);
 #else
-  auto* e = new Engine<BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
+
+#if OS_LEVEL < 199
+  auto* e = new Engine<SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+#else
+  auto* e = new Engine<BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+#endif
+
 #endif
   e->Start();
 }
