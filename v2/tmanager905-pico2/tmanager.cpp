@@ -825,7 +825,8 @@ extern void HandleTwo();
 extern void ReaderInit(void);
 
 int main() {
-  set_sys_clock_khz(250000, true);
+  set_sys_clock_khz(200000, true);
+
   // set_sys_clock_khz(260000, true); // 0.516071  0.531793
   // set_sys_clock_khz(270000, true); // NO? YES.
   // up to 270(0.509053) with divisor 3.

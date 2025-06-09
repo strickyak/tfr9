@@ -2,9 +2,11 @@
 //#define BORING_SWI2S 9999999  // 200 // 160
 #define INCLUDED_DISK 0
 
+#define OLD_IRQS 0
 #define IRQS 1
+#define SHOW_IRQS 0
 
-#define TRACKING 1
+#define TRACKING 0
 // #define TRACKING_CYCLE 1124000 // 566750 // 940000
 // #define STOP_CYCLE 2000000 // 652689 // 1139300
 
@@ -640,13 +642,7 @@ void StartPio() {
 }
 
 #if IRQS
-void SetInfiniteLoop(bool irq_needed) {
-  // Set a infinite loop.
-  const PIO pio = pio0;
-  pio->instr_mem[1] = 0x1800 + 1;
-  ShowChar(irq_needed ? ':' : '.');
-}
-void CauseInterrupt(bool irq_needed) {
+bool FinishChangeIrq(bool irq_needed) {
   const PIO pio = pio0;
   constexpr uint sm = 0;
 
@@ -672,7 +668,25 @@ void CauseInterrupt(bool irq_needed) {
    pio_clear_instruction_memory(pio);
    pio_add_program_at_offset(pio, &tpio_program, 0);
    tpio_program_init(pio, sm, 0);
-   ShowChar(irq_needed ? ';' : ',');
+
+   if (SHOW_IRQS) ShowChar(irq_needed ? ';' : ',');
+   return true;
+}
+bool NeoIrq(bool irq_needed) {
+  const PIO pio = pio0;
+  constexpr uint sm = 0;
+
+  int attempt = 100;
+  if (SHOW_IRQS) ShowChar('>');
+  while (pio_sm_get_pc(pio, sm) != 2) {
+    if (SHOW_IRQS) ShowChar('^');
+    attempt--;
+    if (!attempt) {
+        // We failed to hit the loop at PC=1.
+        return false;
+    }
+  }
+  return FinishChangeIrq(irq_needed);
 }
 #endif
 
@@ -811,23 +825,14 @@ extern void HandleTwo();
 extern void ReaderInit(void);
 
 int main() {
-  // set_sys_clock_khz(150000, true);
+  // DO NOT CALL set_sys_clock_khz(150000, true)
 
   stdio_usb_init();
   InitializePinsForGpio();
   gpio_init(25);
   gpio_set_dir(25, GPIO_OUT);
   LED(1);
-#if 0
-  for (uint i = 0; i < 26; i++) {
-    ShowChar('a' + i);
-    printf("Hello WORLD(905) : %u\n", i);
-    LED(1);
-    sleep_ms(200);
-    LED(0);
-    sleep_ms(200);
-  }
-#endif
+
   InitializePinsForGpio();
   ReaderInit();
 
@@ -902,7 +907,7 @@ int main() {
   printf("\nEND StartPio()\n");
   ShowChar('O');
 
-#if 0
+#if 1
   //---- thanks https://forums.raspberrypi.com/viewtopic.php?t=349809 ----//
   //-- systick_hw->csr |= 0x00000007;  //Enable timer with interrupt
   //-- systick_hw->rvr = 0x00ffffff;         //Set the max counter value (when
@@ -917,9 +922,9 @@ int main() {
   // *out)
   alarm_pool_init_default();
 
-  // add_repeating_timer_us(16_666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
+  add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr, &TimerData);
 
-  add_repeating_timer_us(10_000_000 /* 0.1 Hz */, TimerCallback, nullptr, &TimerData);
+  // add_repeating_timer_us(1000 * 1000 /* 1 Hz */, TimerCallback, nullptr, &TimerData);
 
 #endif
 
@@ -933,8 +938,15 @@ int main() {
 }
 
 void PreRoll() {
+  const PIO pio = pio0;
+  constexpr uint sm = 0;
+
   while (1) {
+    constexpr uint GO_AHEAD = 0x12345678;
+    pio_sm_put(pio, sm, GO_AHEAD);
+
     const uint got32 = WAIT_GET();
+
     byte junk, alo, ahi, flags;
     QUAD_SPLIT(junk, alo, ahi, flags, got32);
     const uint addr = HL_JOIN(ahi, alo);
@@ -973,7 +985,7 @@ bool TryGetUsbByte(char* ptr) {
       return (rc != PICO_ERROR_NO_DATA);
 }
 
-bool PollDiskInput() {
+bool PeekDiskInput() {
     int peek = disk_input.HasAtLeast(1) ? (int)disk_input.Peek() : -1;
     switch (peek) {
     case C_DISK_READ:
@@ -986,6 +998,7 @@ bool PollDiskInput() {
 }
 
 void PollUsbInput() {
+    // Try from USB to `usb_input` object.
     while (1) {
         char x = 0;
         bool ok = TryGetUsbByte(&x);
@@ -996,6 +1009,7 @@ void PollUsbInput() {
         }
     }
 
+    // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
     while (1) {
         int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
         if (1 <= peek && peek <= 126) {
@@ -1010,6 +1024,7 @@ void PollUsbInput() {
         }
     }
 
+    // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
     int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
     switch (peek) {
     case C_DISK_READ:
@@ -1039,7 +1054,7 @@ void ReadDisk(uint device, uint lsn, byte* buffer) {
 
               while (1) {
                 PollUsbInput();
-                if (PollDiskInput()) {
+                if (PeekDiskInput()) {
                     for (uint k = 0; k < kDiskReadSize - 256; k++) {
                         (void)disk_input.Take(); // 4-byte device & LSN.
                     }
@@ -1149,51 +1164,6 @@ void HandleIOWrites(uint addr, byte data) {
       }
       break;
 
-#if 0
-    case 255 & (BLOCK_PORT + 0):  // Save params for Disk.
-    case 255 & (BLOCK_PORT + 1):
-    case 255 & (BLOCK_PORT + 2):
-    case 255 & (BLOCK_PORT + 3):
-    case 255 & (BLOCK_PORT + 4):
-    case 255 & (BLOCK_PORT + 5):
-    case 255 & (BLOCK_PORT + 6):
-      Q("-BLOCK %x %x %x\n", addr, data, Peek(addr));
-      break;
-    case 255 & (BLOCK_PORT + 7):  // Run Disk Command.
-      if (!reading) {
-        byte command = Peek(BLOCK_PORT + 0);
-
-        Q("-NANDO %x %x %x\n", addr, data, Peek(data));
-        Q("- sector $%02x.%04x bufffer $%04x diskop %x\n", Peek(BLOCK_PORT + 1),
-          Peek2(BLOCK_PORT + 2), Peek2(BLOCK_PORT + 4), command);
-
-        uint lsn = Peek2(BLOCK_PORT + 2);
-        byte* dp = Disk + 256 * lsn;
-        uint buffer = Peek2(BLOCK_PORT + 4);
-
-        Q("- VARS sector $%04x bufffer $%04x diskop %x\n", lsn, buffer,
-          command);
-
-        switch (command) {
-          case 0:  // Disk Read
-            for (uint k = 0; k < 256; k++) {
-              Poke(buffer + k, dp[k]);
-            }
-            break;
-          case 1:  // Disk Write
-            for (uint k = 0; k < 256; k++) {
-              dp[k] = Peek(buffer + k);
-            }
-            break;
-          default: {
-            printf("\nwut command %d.\n", command);
-            DumpRamAndGetStuck("wut");
-          }
-        }
-      }
-      break;
-#endif
-
     case 255 & (EMUDSK_PORT + 0):  // LSN(hi)
     case 255 & (EMUDSK_PORT + 1):  // LSN(mid)
     case 255 & (EMUDSK_PORT + 2):  // LSN(lo)
@@ -1236,7 +1206,7 @@ void HandleIOWrites(uint addr, byte data) {
 
               while (1) {
                 PollUsbInput();
-                if (PollDiskInput()) {
+                if (PeekDiskInput()) {
                     for (uint k = 0; k < kDiskReadSize - 256; k++) {
                         (void)disk_input.Take(); // 4-byte device & LSN.
                     }
@@ -1326,15 +1296,8 @@ void HandleIOWrites(uint addr, byte data) {
       } // switch data
       break;
 
-  }  // switch addr
-}
-
-void LAMBDA_DEMO() {
-  unsigned int rdu = 919;
-  using FN = std::function<void(int cy)>;
-  FN foo = [&rdu](int goose) { printf("\n LAMBDA_DEMO %d %d\n", goose, rdu); };
-  foo(404);
-}
+  }  // switch addr & 255
+} // HandleIOWrites
 
 uint data;
 uint num_resets;
@@ -1584,18 +1547,24 @@ void HandleTwo() {
   bool prev_irq_needed = false;
 
   while (true) {
-#if 0 && IRQS
+#if IRQS
       bool irq_needed =
           (vsync_irq_enabled && vsync_irq_firing) ||
           (acia_irq_enabled && acia_irq_firing) ||
           (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
 
+          if (SHOW_IRQS) if (vsync_irq_enabled && vsync_irq_firing) ShowChar('V');
+          if (SHOW_IRQS) if (acia_irq_enabled && acia_irq_firing) ShowChar('A');
+          if (SHOW_IRQS) if (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing) ShowChar('G');
+
       if (irq_needed != prev_irq_needed) {
-        // The infinite loop will be hit after the
-        // current instruction handling.
-        SetInfiniteLoop(irq_needed);
+        bool ok = NeoIrq(irq_needed);
+        if (ok) {
+          prev_irq_needed = irq_needed;
+          LED(irq_needed);
       }
-#endif
+      }
+#endif // IRQS
 
     PollUsbInput();
 
@@ -1626,44 +1595,9 @@ void HandleTwo() {
       if (gime_irq_enabled && gime_vsync_irq_enabled) {
         gime_vsync_irq_firing = true;
       }
-
-      // GIME Interrupts:
-
-      // INIT0 = $ff90
-      //    Bit 5 of FF90 must be set to enable GIME IRQs.
-      //    Bit 4 of FF90 must be set to enable GIME FIRQs.
-      // Our clock writes 6C to INIT0 (sets bit 5, not bit 4).
-
-      // IRQEN = $ff92
-      //    Bit 5 of FF92 enables TIMER irq.
-      //    Bit 3 of FF92 enables VSYNC irq.
-      //    Bit 1 of FF92 enables KBD/JOY irq.
-      //    Bit 0 of FF92 enables CART irq.
-      //    Reading FF92 clears the IRQs.
-      // Our clock writes 00, 08, and 09 to IRQEN.
-      //    (uses only VSYNC and CART irqs)
-
     }  // end Timer
 
-
     for (uint loop = 0; loop < 256; loop++) {
-// MOVED HERE
-#if IRQS
-      bool irq_needed =
-          (vsync_irq_enabled && vsync_irq_firing) ||
-          (acia_irq_enabled && acia_irq_firing) ||
-          (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
-      if (irq_needed) {
-        ShowChar('*');
-      }
-
-      if (irq_needed != prev_irq_needed) {
-        // The infinite loop will be hit after the
-        // current instruction handling.
-        SetInfiniteLoop(irq_needed);
-      }
-#endif
-
 #if TRACKING
 #if TRACKING_CYCLE
     interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
@@ -1671,6 +1605,9 @@ void HandleTwo() {
     interest = 99999;
 #endif
 #endif
+
+      constexpr uint GO_AHEAD = 0x12345678;
+      pio_sm_put(pio, sm, GO_AHEAD);
 
       const uint get32 = WAIT_GET();
       const uint addr = (0xFF00 & get32) | (get32 >> 16);
@@ -1892,12 +1829,6 @@ void HandleTwo() {
     }
 #endif
       cy++;
-#if IRQS
-      if (irq_needed != prev_irq_needed) {
-        CauseInterrupt(irq_needed);
-        prev_irq_needed = irq_needed;
-      }
-#endif
     }  // next loop
 
   }    // while true

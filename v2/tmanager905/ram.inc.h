@@ -90,7 +90,7 @@ class BigRam {
   void SetEnableMmu(bool a) {
 #if ENABLE_MMU
     if (a != enable_mmu) {
-      RP("COCO3: Now MMU is %u\n", a);
+      // RP("COCO3: Now MMU is %u\n", a);
     }
     enable_mmu = a;
 #endif
@@ -98,13 +98,13 @@ class BigRam {
   void SetCurrentTask(byte a) {
     assert(a < 2);
     if (a != current_task) {
-      RP("COCO3: Now Task is %u\n", a);
+      // RP("COCO3: Now Task is %u\n", a);
     }
     current_task = a;
     current_bases = base[a];
   }
   void WriteMmu(byte task, byte slot, byte blk) {
-    RP("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
+    // RP("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
     mmu[task][slot] = blk;
     base[task][slot] = (blk << SLOT_SHIFT) & RAM_MASK;
   }

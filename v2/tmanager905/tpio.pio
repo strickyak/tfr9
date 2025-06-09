@@ -3,32 +3,13 @@
 ;
 ; SPDX-License-Identifier: MIT
 
-;#########################.define public EBAR    1
-;#########################.define public QBAR    2
-;#########################.define public MODE0   0 ; (0 << 2)
-;#########################.define public MODE1   4 ; (1 << 2)
-;#########################.define public MODE2   8 ; (2 << 2)
-;#########################.define public MODE3  12 ; (3 << 2)
-;#########################.define public MODE4  16 ; (4 << 2)
-;#########################.define public MODE5  20 ; (5 << 2)
-;#########################.define public MODE6  24 ; (6 << 2)
-;#########################.define public MODE7  28 ; (7 << 2)
-
 ; E = 1
 ; Q = 2
-; OLD: Not RecvAddress = 4
-; OLD: Not RecvData = 8
-; OLD: Not SendData = 16 + 8
 
 ; Phase1 : 0 : neither
 ; Phase2 : 2 : just Q
 ; Phase3 : 3 : both
 ; Phase4 : 1 : just E
-
-;   OLD: None = 28
-;   OLD: ReceiveAddress = None - 4 = 24
-;   OLD: ReceiveData = None - 8 = 20
-;   OLD: SendData = ReceiveData - 16 = 4
 
 ;  NEW: 12: CounterReset & CounterClock inactive
 ;  NEW: Subtract 4:   CounterClock active
@@ -42,7 +23,16 @@
 .wrap_target                  ; BEGIN LOOP
 top:
     nop     [1]     side  4 ; Phase1 + CounterReset(-8)  ; Y0: selects A0-7
+;;;;;;;;;
+
+    ; WAIT FOR THE GO_AHEAD
+; offset `2`
+    pull block [1]      side 12 ;
+
     nop     [1]     side 12 ; Phase1 + Neutral
+    ; nop     [0]     side 12 ; Phase1 + Neutral
+
+;;;;;;;;;
     in  null, 8     side 12 ; Phase1 + Neutral
     in  pins, 8     side 10 ; Phase2 + CounterClock(-4)  ; Y1: selects A8-15
     nop   [1]       side 14 ; Phase2 + Neutral
@@ -58,6 +48,7 @@ top:
 write:                        ; IF WRITE CYCLE (Receiving from CPU)
     nop    [1]      side 13 ; Phase4 + Neutral
     nop    [1]      side 13 ; Phase4 + Neutral
+    nop    [0]      side 13 ; Phase4 + Neutral
     in pins, 32     side 13 ; Phase4 + Neutral   ; Receive data.
     jmp top         side 12 ; Phase1 + Neutral 
 
@@ -67,6 +58,7 @@ read:                         ; ELSE READ CYCLE (Sending to CPU)
 
     out pins,8      side 13 ; Phase4 + Neutral   ; output the data.
     nop    [1]      side 13 ; Phase4 + Neutral
+    nop    [0]      side 13 ; Phase4 + Neutral
     out pindirs,8   side 12 ; Phase1 + Neutral   ; change Data Pins to inputs
 
 .wrap                         ; REPEAT LOOP
@@ -75,7 +67,8 @@ read:                         ; ELSE READ CYCLE (Sending to CPU)
 
 void tpio_program_init(PIO pio, uint sm, uint offset) {
 
-   constexpr uint CLOCK_DIVISOR = 2;
+   // THIS CAN BE DIFFERENT FOR Pico1 (and the noops can be different)
+   constexpr uint CLOCK_DIVISOR = 3;
 
    //
    //  pico-examples/pio/hub75/hub75.pio shows order of inits.
