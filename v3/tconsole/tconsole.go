@@ -37,7 +37,7 @@ const (
 	C_DUMP_LINE  = 168
 	C_DUMP_STOP  = 169
 	C_DUMP_PHYS  = 170
-	C_POKE       = 171
+	C_WRITING       = 171
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
@@ -66,7 +66,7 @@ var CommandStrings = map[byte]string{
 	168: "C_DUMP_LINE",
 	169: "C_DUMP_STOP",
 	170: "C_DUMP_PHYS",
-	171: "C_POKE",
+	171: "C_WRITING",
 	172: "C_EVENT",
 	// 238: "EVENT_PC_M8",
 	// 239: "EVENT_GIME",
@@ -337,12 +337,14 @@ func Run(inkey chan byte) {
 
 				case C_DISK_WRITE:
 					EmulateDiskWrite(fromUSB, channelToPico)
+
 				case C_DISK_READ:
 					EmulateDiskRead(fromUSB, channelToPico)
 
 				case C_EVENT:
 					OnEvent(fromUSB, pending)
-				case C_POKE:
+
+				case C_WRITING:
 					hi := getByte(fromUSB)
 					mid := getByte(fromUSB)
 					lo := getByte(fromUSB)
@@ -350,7 +352,7 @@ func Run(inkey chan byte) {
 					longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
 					longaddr &= RAM_MASK
 
-					// Logf("       =C_POKE= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
+					// Logf("       =C_WRITING= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
 					trackRam[longaddr] = data
 
 					if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
