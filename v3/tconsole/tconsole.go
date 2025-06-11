@@ -14,12 +14,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
 	// "github.com/strickyak/gomar/sym"
-
 	// "github.com/strickyak/tfr9/v2/listings"
 	// "github.com/strickyak/tfr9/v2/os9api"
-
 	// "github.com/jacobsa/go-serial/serial"
 )
 
@@ -37,7 +34,7 @@ const (
 	C_DUMP_LINE  = 168
 	C_DUMP_STOP  = 169
 	C_DUMP_PHYS  = 170
-	C_WRITING       = 171
+	C_WRITING    = 171
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
@@ -260,12 +257,13 @@ func MintSerialNum() uint {
 }
 
 func Run(inkey chan byte) {
+	var previousPutChar byte
 	var remember int64
 	var timer_sum int64
 	var timer_count int64
 
 	// Set up options for Serial Port.
-	options := /*serial.*/OpenOptions{
+	options := /*serial.*/ OpenOptions{
 		PortName:        *WIRE,
 		BaudRate:        *BAUD,
 		DataBits:        8,
@@ -276,7 +274,7 @@ func Run(inkey chan byte) {
 	pending := make(map[string]*EventRec)
 
 	// Open the Serial Port.
-	serialPort, err := /*serial.*/Open(options)
+	serialPort, err := /*serial.*/ Open(options)
 	if err != nil {
 		Panicf("serial.Open: %v", err)
 	}
@@ -430,13 +428,13 @@ func Run(inkey chan byte) {
 					case 32 <= ch && ch <= 126:
 						fmt.Printf("%c", ch)
 						cr = false
-						if ch == '{' {
+						if ch == '{' && previousPutChar == '^' {
 							remember = time.Now().UnixMicro()
 						}
 						if ch == '@' {
 							timer_sum, timer_count = 0, 0
 						}
-						if ch == '}' {
+						if ch == '}' && previousPutChar == '^' {
 							now := time.Now().UnixMicro()
 							micros := now - remember
 							fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
@@ -458,6 +456,8 @@ func Run(inkey chan byte) {
 						fmt.Printf("{%d}", ch)
 						cr = false
 					}
+					previousPutChar = ch
+
 					if false {
 						token := "."
 						if cr {
