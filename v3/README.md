@@ -12,6 +12,9 @@ for other platforms.
 
 `git clone git@github.com:strickyak/tfr9.git` onto the coco-shelf.
 
+BUG: After you `git clone` tfr9 into the 
+coco-shelf, you must `mkdir tfr9/v3/generated`
+
 `( cd nitros9 ; NITROS9DIR=$PWD make PORTS=coco1 )`
 
 `( cd nitros9 ; NITROS9DIR=$PWD make PORTS=coco3 )`
@@ -35,6 +38,11 @@ slowly with tconsole, and copious debugging
 into `_log`,
 
 `    sh make-level1-905-pico2.sh slow flash run`
+
+BUG: When you get error 
+`Cannot find source file:    ../../generated/level2.rom.h`
+then run `make-level2-905-pico2.sh flash run`
+and it will make that file.
 
 ## Level 2
 
