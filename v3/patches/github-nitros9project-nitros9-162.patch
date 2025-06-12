@@ -1,0 +1,223 @@
+From 2735483f28637ef935b1fdf656070d37d1b6396b Mon Sep 17 00:00:00 2001
+From: Henry Strickland <strick@yak.net>
+Date: Tue, 10 Jun 2025 19:26:13 -0700
+Subject: [PATCH 1/2] Add TFR9 as a choice within the coco1 port.
+
+This could be its own new PORT=tfr9, and probably
+that will be the right idea later on.
+
+But for now, rather than duplicate a dozen or so files,
+I can "inherit" from coco1 with a much smaller change,
+which essentially does two things:
+    -- It chooses EMUDSK as the /DD.
+    -- It chooses SC6850 at $FF06 as the /TERM.
+
+I'm currently revamping the makefiles from the hasty, kludged /v2/
+to a supported, repeatable /v3/ firmware release inside
+https://github.com/strickyak/tfr9/ and it will depend
+on a configuration like this being in nitros9.
+
+Thanks!
+---
+ level1/coco1/bootfiles/makefile | 23 ++++++++++++++++++++++-
+ level1/coco1/modules/makefile   | 10 +++++++++-
+ 2 files changed, 31 insertions(+), 2 deletions(-)
+
+diff --git a/level1/coco1/bootfiles/makefile b/level1/coco1/bootfiles/makefile
+index ef797911e..da2ca151f 100644
+--- a/level1/coco1/bootfiles/makefile
++++ b/level1/coco1/bootfiles/makefile
+@@ -42,6 +42,9 @@ KERNEL_ARDUINO	= $(MD)/rel $(MD)/krn $(MD)/krnp2 $(MD)/init \
+ KERNEL_COCOSDC	= $(MD)/rel $(MD)/krn $(MD)/krnp2 $(MD)/init \
+ 		$(MD)/boot_sdc
+ 
++KERNEL_TFR9   	= $(MD)/rel $(MD)/krn $(MD)/krnp2 $(MD)/init \
++		$(MD)/boot_emu
++
+ IDE		= $(3PD)/ide
+ SCSI		= $(3PD)/scsisys
+ 
+@@ -932,6 +935,16 @@ BOOTFILE_EMUDSK	= $(MD)/ioman \
+ 		$(MD)/sysgo_dd \
+ 		$(EMUDSK)
+ 
++BOOTFILE_TFR9	= $(MD)/ioman \
++		$(MD)/rbf.mn \
++		$(MD)/scf.mn \
++		$(PIPE) \
++		$(CLOCK60HZ) \
++		$(MD)/sysgo_dd \
++		$(MD)/emudsk.dr $(MD)/ddh0_emudsk.dd $(MD)/h1_emudsk.dd \
++		$(MD)/term_sc6850_ff06.dt $(MD)/sc6850.dr
++
++
+ BOOTFILES	= bootfile_covdg bootfile_cohr bootfile_co42 bootfile_cowprs \
+ 		bootfile_dw_headless bootfile_covdg_becker bootfile_covdg_rs232pak \
+ 		bootfile_covdg_cocolink bootfile_covdg_directmodempak \
+@@ -945,6 +958,7 @@ BOOTFILES	= bootfile_covdg bootfile_cohr bootfile_co42 bootfile_cowprs \
+ 		bootfile_cohr_cocolink bootfile_cocolink_headless \
+ 		bootfile_cohr_directmodempak bootfile_directmodempak_headless \
+ 		bootfile_covdg_arduino bootfile_arduino_headless \
++		bootfile_tfr9 \
+ 		bootfile_cohr_arduino bootfile_covdg_arduino_game \
+ 		bootfile_covga_ds80 bootfile_covga_cocosdc bootfile_covga_dw bootfile_covga_rs232pak \
+ 		bootfile_covga_directmodempak bootfile_covga_cocolink bootfile_covga_dw_game \
+@@ -959,7 +973,7 @@ BOOTFILES	= bootfile_covdg bootfile_cohr bootfile_co42 bootfile_cowprs \
+ 
+ KERNELS		= kernel_1773 kernel_dw kernel_becker kernel_arduino kernel_cocosdc \
+ 			kernel_rs232pak kernel_directmodempak kernel_cocolink \
+-			kernel_mmmpiu1 kernel_mmmpiu2
++			kernel_mmmpiu1 kernel_mmmpiu2 kernel_tfr9
+ 
+ ALLOBJS		= $(BOOTFILES) $(KERNELS)
+ 
+@@ -1160,6 +1174,9 @@ bootfile_cohr_arduino: $(BOOTFILE_COHR_ARDUINO) $(DEPENDS)
+ bootfile_emudsk: $(BOOTFILE_EMUDSK) $(DEPENDS)
+ 	$(MERGE) $(BOOTFILE_EMUDSK)>$@
+ 
++bootfile_tfr9: $(BOOTFILE_TFR9) $(DEPENDS)
++	$(MERGE) $(BOOTFILE_TFR9)>$@
++
+ # WD1773 Kernel
+ kernel_1773: $(KERNEL_1773) $(DEPENDS)
+ 	$(MERGE) $(KERNEL_1773)>$@
+@@ -1202,5 +1219,9 @@ kernel_cocosdc: $(KERNEL_COCOSDC) $(DEPENDS)
+ 	$(MERGE) $(KERNEL_COCOSDC)>$@
+ 	$(PADROM) 4608 $@
+ 
++kernel_tfr9: $(KERNEL_TFR9) $(DEPENDS)
++	$(MERGE) $(KERNEL_TFR9)>$@
++	$(PADROM) 4608 $@
++
+ clean:
+ 	$(RM) $(ALLOBJS)
+diff --git a/level1/coco1/modules/makefile b/level1/coco1/modules/makefile
+index e936ff4f1..d6281e4d5 100644
+--- a/level1/coco1/modules/makefile
++++ b/level1/coco1/modules/makefile
+@@ -64,7 +64,8 @@ SCF		= scf.mn \
+ 		n8_scdwv.dd n9_scdwv.dd n10_scdwv.dd n11_scdwv.dd n12_scdwv.dd \
+ 		n13_scdwv.dd midi_scdwv.dd \
+ 		term_z_scdwv.dt z1_scdwv.dd z2_scdwv.dd z3_scdwv.dd z4_scdwv.dd z5_scdwv.dd \
+-		z6_scdwv.dd z7_scdwv.dd
++			z6_scdwv.dd z7_scdwv.dd \
++		sc6850.dr term_sc6850_ff06.dt
+ 
+ PIPE		= pipeman.mn \
+ 		piper.dr \
+@@ -260,6 +261,13 @@ term_vga.dt: term_vdg.asm
+ term_scdwv.dt: scdwvdesc.asm
+ 	$(AS) $< $(ASOUT)$@ $(AFLAGS) -DAddr=0
+ 
++# TFR9 emulates a sc6850 for /term, tucked away at $FF06.
++term_sc6850_ff06.dt: term_sc6850.asm
++	$(AS) $< $(ASOUT)$@ $(AFLAGS) -DHwBASE=65286 # 0xFF06
++
++sc6850.dr: sc6850.asm
++	$(AS) $< $(ASOUT)$@ $(AFLAGS)
++
+ n_scdwv.dd: scdwvdesc.asm
+ 	$(AS) $< $(ASOUT)$@ $(AFLAGS) -DAddr=255
+ 
+
+From 4320564668a50280246657712995b2bffd72abdc Mon Sep 17 00:00:00 2001
+From: Henry Strickland <strick@yak.net>
+Date: Thu, 12 Jun 2025 02:04:10 -0700
+Subject: [PATCH 2/2] Add tfr9 as a subtype within coco3, for Level 2.
+
+This is just like the previous PR
+(branch try2-add-tfr9-as-coco1)
+that adds tfr9 as a subtype within coco1.
+
+Building firmware for TFR/905 will depend on this.
+---
+ level2/coco3/bootfiles/makefile | 19 +++++++++++++++++--
+ level2/coco3/modules/makefile   |  4 ++++
+ 2 files changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/level2/coco3/bootfiles/makefile b/level2/coco3/bootfiles/makefile
+index b8976b8ed..c99c79c46 100644
+--- a/level2/coco3/bootfiles/makefile
++++ b/level2/coco3/bootfiles/makefile
+@@ -18,6 +18,7 @@ KERNEL_MMMPIU2  = $(MD)/rel_80 $(MD)/boot_dw_mmmpiu2 $(MD)/krn
+ KERNEL_COCOSDC	= $(MD)/rel_80 $(MD)/boot_sdc $(MD)/krn
+ KERNEL_IDE	= $(MD)/rel_80 $(MD)/boot_ide $(MD)/krn
+ KERNEL_DIDE	= $(MD)/rel_80 $(MD)/boot_dide $(MD)/krn
++KERNEL_TFR9	= $(MD)/rel_80 $(MD)/boot_emu $(MD)/krn
+ # these not used yet:
+ KERNEL_RAMPAK	= $(MD)/rel_80 $(MD)/boot_rampak $(MD)/krn
+ KERNEL_KENTON	= $(MD)/rel_80 $(MD)/boot_kenton $(MD)/krn
+@@ -472,6 +473,14 @@ BOOTFILE_EMUDSK	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
+ 		$(CLOCK60HZ) \
+ 		$(EMUDSK)
+ 
++BOOTFILE_TFR9	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
++		$(MD)/rbf.mn \
++		$(MD)/scf.mn \
++		$(PIPE) \
++		$(CLOCK60HZ) \
++		$(MD)/term_sc6850_ff06.dt $(MD)/sc6850.dr \
++        $(MD)/emudsk.dr $(MD)/ddh0_emudsk.dd $(MD)/h1_emudsk.dd
++
+ BOOTFILES	= bootfile_40d bootfile_40d_50hz bootfile_80d \
+ 		bootfile_80d_50hz bootfile_dw bootfile_dw_headless \
+ 		bootfile_becker bootfile_arduino bootfile_becker_headless \
+@@ -480,14 +489,14 @@ BOOTFILES	= bootfile_40d bootfile_40d_50hz bootfile_80d \
+ 		bootfile_coco3fpga_rom bootfile_coco3fpga_rom_dw bootfile_coco3fpga_rom_rtc \
+ 		bootfile_rs232pak bootfile_directmodempak bootfile_rs232pak_headless \
+ 		bootfile_directmodempak_headless bootfile_cocolink_headless bootfile_cocolink \
+-		bootfile_emudsk \
++		bootfile_emudsk bootfile_tfr9 \
+ 		bootfile_mmmpiu1 bootfile_mmmpiu2 \
+ 		bootfile_mmmpiu1_headless bootfile_mmmpiu2_headless
+ 
+ KERNELS		= kernel_1773 kernel_1773_50hz kernel_dw kernel_becker \
+ 		kernel_arduino kernel_cocosdc kernel_ide kernel_dide \
+ 		kernel_rs232pak kernel_directmodempak kernel_cocolink \
+-		kernel_mmmpiu1 kernel_mmmpiu2
++		kernel_mmmpiu1 kernel_mmmpiu2 kernel_tfr9
+ 
+ ALLOBJS		= $(BOOTFILES) $(KERNELS)
+ 
+@@ -581,6 +590,9 @@ bootfile_ide: $(BOOTFILE_IDE) $(DEPENDS)
+ bootfile_emudsk: $(BOOTFILE_EMUDSK) $(DEPENDS)
+ 	$(MERGE) $(BOOTFILE_EMUDSK)>$@
+ 
++bootfile_tfr9: $(BOOTFILE_TFR9) $(DEPENDS)
++	$(MERGE) $(BOOTFILE_TFR9)>$@
++
+ # Kernels
+ kernel_becker: $(KERNEL_BECKER) $(DEPENDS)
+ 	$(MERGE) $(KERNEL_BECKER)>$@
+@@ -621,6 +633,9 @@ kernel_ide: $(KERNEL_IDE) $(DEPENDS)
+ kernel_dide: $(KERNEL_DIDE) $(DEPENDS)
+ 	$(MERGE) $(KERNEL_DIDE)>$@
+ 
++kernel_tfr9: $(KERNEL_TFR9) $(DEPENDS)
++	$(MERGE) $(KERNEL_TFR9)>$@
++
+ clean:
+ 	$(RM) $(ALLOBJS)
+ 
+diff --git a/level2/coco3/modules/makefile b/level2/coco3/modules/makefile
+index 6d786c9f3..905067a82 100644
+--- a/level2/coco3/modules/makefile
++++ b/level2/coco3/modules/makefile
+@@ -78,6 +78,7 @@ SCF		= scf.mn \
+ 		n12_scdwv.dd n13_scdwv.dd midi_scdwv.dd \
+ 		term_z_scdwv.dt z1_scdwv.dd z2_scdwv.dd z3_scdwv.dd \
+ 		z4_scdwv.dd z5_scdwv.dd z6_scdwv.dd z7_scdwv.dd \
++        sc6850.dr term_sc6850_ff06.dt
+ 
+ PIPE		= pipeman.mn pipeman_named.mn \
+ 		piper.dr \
+@@ -320,6 +321,9 @@ h0_emudsk.dd: emudskdesc.asm
+ h1_emudsk.dd: emudskdesc.asm
+ 	$(AS) $< $(ASOUT)$@ $(AFLAGS) -DDNum=1
+ 
++term_sc6850_ff06.dt: term_sc6850.asm
++	$(AS) $< $(ASOUT)$@ $(AFLAGS) -DHwBASE=65286 # 0xFF06
++
+ # DriveWire SCF descriptors
+ term_scdwv.dt: scdwvdesc.asm
+ 	$(AS) $< $(ASOUT)$@ $(AFLAGS) -DAddr=0
