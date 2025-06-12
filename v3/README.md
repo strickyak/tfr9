@@ -2,15 +2,26 @@
 
 Right now, this only supports the pico2.
 
-## Prepare
-
 Probably specific to Linux on amd64,
 even though not much needs to be fixed
 for other platforms.
 
-`make nitros9.done` on the coco-shelf.
+## Prepare
 
-`git clone git@github.com:strickyak/tfr9.git` onto the coco-shelf.
+Use the coco-shelf to make your life easier.
+
+` git clone git@github.com:strickyak/coco-shelf.git `
+
+`cd coco-shelf; git clone git@github.com:strickyak/tfr9.git`
+
+Until a `tfr9` port is ready, it is necessary to
+apply the patch `patches/github-nitros9project-nitros9-162.patch`
+to nitro9.
+
+`(cd nitros9 ; patch -p1 < ../tfr9/v3/patches/github-nitros9project-nitros9-162.patch)`
+
+
+`make nitros9.done` on the coco-shelf.
 
 BUG: After you `git clone` tfr9 into the 
 coco-shelf, you must `mkdir tfr9/v3/generated`
