@@ -1,9 +1,6 @@
 #ifndef _RAM_H_
 #define _RAM_H_
 
-// TODO -- ENABLE_MMU_LOGIC always.
-#define ENABLE_MMU_LOGIC 1
-
 uint quiet_ram;
 inline void Quiet() { quiet_ram++; }
 inline void Noisy() { quiet_ram--; }
@@ -80,11 +77,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
 
   byte ram[RAM_SIZE];
 
-#if ENABLE_MMU_LOGIC
   bool enable_mmu;
-#else
-  constexpr static bool enable_mmu = true;
-#endif
   byte current_task;
   uint* current_bases;
 
@@ -95,9 +88,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
   void Reset() {
     interest += 500;
 
-#if ENABLE_MMU_LOGIC
     enable_mmu = true;
-#endif
     current_task = 1;
 
     Write(0xFF90, 0x40);
@@ -123,12 +114,10 @@ class BigRam : public ToLogMmu, public ToTracePokes {
   }
 
   void SetEnableMmu(bool a) {
-#if ENABLE_MMU_LOGIC
     if (a != enable_mmu) {
       ToLogMmu::Logf("COCO3: Now MMU is %u\n", a);
     }
     enable_mmu = a;
-#endif
   }
   void SetCurrentTask(byte a) {
     assert(a < 2);
@@ -143,7 +132,8 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     mmu[task][slot] = blk;
     base[task][slot] = (blk << SLOT_SHIFT) & RAM_MASK;
   }
-  uint Block(uint addr) {
+  uint Block(uint addr) {  // used by the RECORD feature.
+
 #define DETERMINE_BLOCK                         \
   addr = addr & 0xFFFF;                         \
   uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK; \

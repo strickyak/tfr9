@@ -1,6 +1,6 @@
 S:=$(shell ( cd ../.. ; /bin/pwd ))
 export COCO_SHELF:=$S
-export PICOTOOL_FETCH_FROM_GIT_PATH:=$(shell $${PICOTOOL_FETCH_FROM_GIT_PATH:-$S/picotool})
+export PICOTOOL_FETCH_FROM_GIT_PATH:=$(shell echo $${PICOTOOL_FETCH_FROM_GIT_PATH:-$S/picotool})
 
 all: make_$(BUILD_DIR) cross-compile-tconsoles
 
@@ -11,9 +11,7 @@ $(BUILD_DIR):
 make_$(BUILD_DIR): $(BUILD_DIR)
 	cd $(BUILD_DIR) && cmake \
         -D'OS_LEVEL'='$(OS_LEVEL)' \
-        -D'TRACK_RAM'='$(TRACK_RAM)' \
-        -D'TRACE_CYCLES'='$(TRACE_CYCLES)' \
-        -D'TRACE_SWI2'='$(TRACE_SWI2)' \
+        -D'TRACKING'='$(TRACKING)' \
         ../tmanager905/pico2
 	make -C $(BUILD_DIR)
 

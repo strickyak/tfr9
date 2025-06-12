@@ -1,5 +1,9 @@
-#define TRACKING 1
-#define SHOW_IRQS 1
+#ifdef TRACKING
+#else
+  #define TRACKING 0
+#endif
+
+#define SHOW_IRQS TRACKING
 
 #define INCLUDED_DISK 0
 
@@ -31,8 +35,7 @@ constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
 // #define STOP_CYCLE 2000000 // 652689 // 1139300
 
 #define SEEN TRACKING
-#define RECORD TRACKING
-////// #define ALL_POKES TRACKING
+#define RECORD 0  // Fix me later.
 #define HEURISTICS TRACKING
 #define OPCODES TRACKING
 #define TRACE_RTI TRACKING
@@ -175,10 +178,10 @@ const byte Rom[] = {
 #if FOR_COCO
 
 #if OS_LEVEL <= 199
-#include "level1.rom.h"
+#include "../generated/level1.rom.h"
 #endif
 #if OS_LEVEL >= 200
-#include "level2.rom.h"
+#include "../generated/level2.rom.h"
 #endif
 
 #endif
@@ -195,8 +198,8 @@ byte Disk[] = {
 };
 #endif
 
-// old // #define LEVEL1_PRELUDE_START (0xFF00 - 32)
 #define LEVEL1_LAUNCHER_START 0x2500
+#define LEVEL2_LAUNCHER_START 0x2500
 
 uint FFFxVectors[] = {
 #if OS_LEVEL == 100
@@ -219,7 +222,7 @@ uint FFFxVectors[] = {
     0xFEF7,
     0xFEFA,
     0xFEFD,
-    0x2602,
+    LEVEL2_LAUNCHER_START,
 #endif
 };
 
@@ -333,100 +336,6 @@ class Bitmap64K {
 } Seen;
 #endif
 
-#if SEND_CONFIG
-void SendConfig() {
-  constexpr int sz = (TRACKING ? 1 : 0) + (SEEN ? 1 : 0) + (RECORD ? 1 : 0) +
-                     (HEURISTICS ? 1 : 0) + (OPCODES ? 1 : 0) +
-                     (TRACE_RTI ? 1 : 0) + 0;
-  putbyte(C_CONFIG);
-  putbyte(sz);
-  for (int i = 0; i < sz; i++) {
-    if (TRACKING) putbyte('t');
-    if (SEEN) putbyte('s');
-    if (RECORD) putbyte('r');
-    if (HEURISTICS) putbyte('h');
-    if (OPCODES) putbyte('o');
-    if (TRACE_RTI) putbyte('R');
-  }
-}
-#endif
-
-#if RECORD
-constexpr uint TRACE_SIZE = 1024;
-constexpr uint TRACE_MASK = TRACE_SIZE - 1;
-
-struct TraceRecord {
-  word addr;
-  byte block;
-  byte flags;
-  byte data;
-} Trace[TRACE_SIZE];
-
-uint NextTraceIndex;
-void Record(word addr, byte flags, byte data) {
-  auto* p = Trace + NextTraceIndex;
-  p->addr = addr;
-#if OS_LEVEL >= 200
-  p->block = the_ram.Block(addr);
-#else
-  p->block = 0;
-#endif
-  p->flags = flags;
-  p->data = data;
-  ++NextTraceIndex;
-  NextTraceIndex &= TRACE_MASK;
-}
-
-void DumpTrace() {
-  bool vma = false;  // Valid Memory Address ( = delayed AVMA )
-  bool fic = false;  // First Instruction Cycle ( = delayed LIC )
-
-  printf("\nDumpTrace(((((\n");
-  for (uint i = 0; i < TRACE_SIZE; i++) {
-    auto* p = Trace + ((i + NextTraceIndex) & TRACE_MASK);
-    if (p->addr || p->flags || p->data) {
-      // printf("[%4d] %04d %02d %02d\n", TRACE_SIZE-i, p->addr, p->flags,
-      // p->data);
-      const char* rw = (p->flags & (F_READ >> 8)) ? "r" : "w";
-      printf("%s %04x %02x ^%02x #T:%d\n",
-             (fic   ? "@"
-              : vma ? rw
-                    : "-"),
-             p->addr, p->data, p->flags, i);
-    }
-
-    vma =
-        0 != (p->flags & (F_AVMA >> 8));  // AVMA bit means next cycle is Valid
-    fic =
-        0 !=
-        (p->flags &
-         (F_LIC >> 8));  // LIC bit means next cycle is First Instruction Cycle
-  }
-  printf("DumpTrace)))))\n");
-}
-#endif  // RECORD
-
-void DumpRamText() {
-#if 0
-    Quiet();
-    printf("DumpRamText(((\n");
-    for (uint i = 0; i < 0x10000; i += 16) {
-        for (uint j = 0; j < 16; j++) {
-            if (Peek(i+j)) goto yes;
-        }
-        continue;
-yes:
-        printf(" %06x:", i);
-        for (uint j = 0; j < 16; j++) {
-            printf(" %02x", Peek(i+j));
-        }
-        printf("\n");
-    }
-    printf("DumpRamText)))\n");
-    Noisy();
-#endif
-}
-
 void DumpPhys() {
 #if ALLOW_DUMP_PHYS
   Quiet();
@@ -488,7 +397,6 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 #if RECORD
   DumpTrace();
 #endif  // RECORD
-  DumpRamText();
   DumpPhys();
   DumpRam();
   printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
@@ -496,75 +404,12 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 }
 
 uint AddressOfRom() {
-#if OS_LEVEL == 90
+#if FOR_TURBO9SIM
   return 0;
 #endif
-#if OS_LEVEL == 100
-  // old way // return 0xFF00 - sizeof(Rom);
+#if FOR_COCO
   return 0x2500;
 #endif
-#if OS_LEVEL == 200
-  return 0x2600;
-#endif
-}
-
-bool CheckHeader(uint p) {
-  uint z = 0;
-  for (uint i = 0; i < 9; i++) {
-    z ^= Rom[i + p];
-  }
-  return (z == 255);  // will be 255 if good.
-}
-
-void PrintName(uint p) {
-  D(" ");
-  D("\"");
-  while (1) {
-    byte ch = Rom[p];
-    if ((127 & ch) < 32) break;
-    D("%c", 127 & ch);
-    if (ch & 128) break;
-    ++p;
-  }
-  D("\"");
-  D(" ");
-}
-
-void Level1FindKernelEntry(uint* krn_start, uint* krn_entry, uint* krn_end) {
-  for (uint i = 0; i + 10 < sizeof Rom; i++) {
-    if (Rom[i] == 0x87 && Rom[i + 1] == 0xCD) {
-      if (!(CheckHeader(i))) {
-        D("(Bad header at $%x)\n", i);
-        continue;
-      }
-      uint size = (((uint)Rom[i + 2]) << 8) | Rom[i + 3];
-      uint name = (((uint)Rom[i + 4]) << 8) | Rom[i + 5];
-      uint entry = (((uint)Rom[i + 9]) << 8) | Rom[i + 10];
-      D("Offset %x Addr %x Size %x Entry %x", i, i + AddressOfRom(), size,
-        entry);
-      PrintName(i + name);
-      D("\n");
-      if (
-#if FOR_TURBO9SIM
-          Rom[i + name] == 'k' && Rom[i + name + 1] == 'e' &&
-          Rom[i + name + 2] == 'r' &&
-          Rom[i + name + 3] ==
-              'n'
-#endif
-#if FOR_COCO
-              Rom[i + name] == 'K' &&
-          Rom[i + name + 1] == 'r' && Rom[i + name + 2] == ('n' | 0x80)
-#endif
-      ) {
-        *krn_start = i + AddressOfRom();
-        *krn_entry = i + entry + AddressOfRom();
-        *krn_end = i + size + AddressOfRom();
-      }
-      i +=
-          size -
-          1;  // Skip over the module.  Less 1 because "i++" will still execute.
-    }
-  }
 }
 
 void ViewAt(const char* label, uint hi, uint lo) {
@@ -621,7 +466,7 @@ void InitializePinsForGpio() {
 }
 
 void ResetCpu() {
-  // printf("Resetting CPU ... ");
+  printf("Resetting CPU ... ");
   InitializePinsForGpio();
 
   // Activate the 6309 RESET line
@@ -669,7 +514,7 @@ void ResetCpu() {
     gpio_set_dir(i, GPIO_IN);
   }
   SetY(0);
-  printf("done.\n");
+  printf("... done.\n");
 }
 
 static inline bool hasty_pio_sm_is_rx_fifo_empty(PIO pio, uint sm) {
@@ -1469,15 +1314,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     ShowChar('Z');
     printf("stage-Z\n");
 
-#if OS_LEVEL <= 199
-    uint a = AddressOfRom();
-    D("AddressOfRom = $%x\n", a);
-    uint krn_start, krn_entry, krn_end;
-    Level1FindKernelEntry(&krn_start, &krn_entry, &krn_end);
-    D("Level1KernelEntry = $%x\n", krn_entry);
-#endif
-
-#if !FOR_TURBO9SIM
+#if FOR_COCO
     // Set interrupt vectors
     for (uint j = 0; j < 8; j++) {
       Poke2(0xFFF0 + j + j, FFFxVectors[j]);
@@ -1602,11 +1439,6 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     const PIO pio = pio0;
     constexpr uint sm = 0;
 
-#if SEND_CONFIG
-    ShowStr("* SendConfig\n");
-    printf("* SendConfig\n");
-    SendConfig();
-#endif
     ShowStr("* PreRoll\n");
     printf("* PreRoll\n");
     PreRoll();
@@ -1936,40 +1768,13 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
   }  // end HandleTwo
 };  // end struct Engine
 
-int main() {
-  // set_sys_clock_khz(250000, true);
-  // set_sys_clock_khz(250000, true); // 0.559099
-  // set_sys_clock_khz(260000, true); // 0.516071  0.531793
-  // set_sys_clock_khz(270000, true); // NO? YES.
-  // up to 270(0.509053, 0.517735) with divisor 3.
-  stdio_usb_init();
-  InitializePinsForGpio();
-  gpio_init(25);
-  gpio_set_dir(25, GPIO_OUT);
-  LED(1);
-
-  InitializePinsForGpio();
-
-  interest = MAX_INTEREST;  /// XXX
-
-  quiet_ram = 0;
-
+void InitialBanners() {
   for (uint i = BLINKS; i > 0; i--) {
     LED(1);
     sleep_ms(500);
-#if 1
     ShowChar(' ');
     ShowChar('0' + i);
     ShowChar('!');
-#else
-    char pbuf[10];
-    sprintf(pbuf, "+%d+ ", i);
-    printf("%s", pbuf);
-    for (const char* p = pbuf; *p; p++) {
-      putchar(C_PUTCHAR);
-      putchar(*p);
-    }
-#endif
     printf(" %d!\n", i);
     LED(0);
     sleep_ms(500);
@@ -1997,20 +1802,51 @@ int main() {
 #endif
   ShowStr("\n");
   printf("OS_LEVEL=%d\n", OS_LEVEL);
-  // LED(1);
+}
+
+int main() {
+  set_sys_clock_khz(250000, true);
+  // set_sys_clock_khz(250000, true); // 0.559099
+  // set_sys_clock_khz(260000, true); // 0.516071  0.531793
+  // set_sys_clock_khz(270000, true); // NO? YES.
+  // up to 270(0.509053, 0.517735) with divisor 3.
+  stdio_usb_init();
+
+  gpio_init(25);
+  gpio_set_dir(25, GPIO_OUT);
+
+  InitializePinsForGpio();
+
+  interest = MAX_INTEREST;  /// XXX
+
+  quiet_ram = 0;
+
+  InitialBanners();
 
 #if FOR_TURBO9SIM
-  auto* e = new Engine<SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim>();
-  e->Install(PRIMARY_TURBO9SIM, e->IOReaders, e->IOWriters);
-  e->Install(SECONDARY_TURBO9SIM, e->IOReaders, e->IOWriters);
+  #if TRACKING
+    auto* engine = new Engine<SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim>();
+  #else
+    auto* engine = new Engine<SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim>();
+  #endif
+  engine->Install(PRIMARY_TURBO9SIM, engine->IOReaders, engine->IOWriters);
+  engine->Install(SECONDARY_TURBO9SIM, engine->IOReaders, engine->IOWriters);
 #else
 
 #if OS_LEVEL < 199
-  auto* e = new Engine<SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+  #if TRACKING
+    auto* engine = new Engine<SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+  #else
+    auto* engine = new Engine<SmallRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
+  #endif
 #else
-  auto* e = new Engine<BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+  #if TRACKING
+    auto* engine = new Engine<BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+  #else
+    auto* engine = new Engine<BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
+  #endif
 #endif
 
 #endif
-  e->Start();
+  engine->Start();
 }
