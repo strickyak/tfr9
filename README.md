@@ -4,8 +4,14 @@ The TFR/9 Single Board Computer for Hitachi 6309E or Motorola 6809E CPUs (TFR/90
 
 This represents one approach to mixing retro computers with modern
 attachments: The CPU will be genuine retro, a 6809E or 6309E from the
-era, but all the other parts are replaced, as much as possible, by one or
-more Raspberry Pi Picos, including the RAM and the E/Q clock generation.
+era, but all the other parts are replaced by a Raspberry Pi Picos,
+including the RAM and the E/Q clock generation.
+
+The hope is to make very affordable Single Board Computers running
+Nitros-9 Level 1 or 2 OS, since a 6309 is under $5, a Pi Pico is around $5.
+
+(Another board taking this kind of modern-retro approach is the Olimex Neo6502
+which sells for around 30 Euro.)
 
 ## TFR/905h
 
@@ -18,10 +24,14 @@ https://github.com/strickyak/tfr9/wiki/TFR-905-Hardware-Reference
 Here is the latest software:
 https://github.com/strickyak/tfr9/tree/main/v3
 
-Here are the Kicad design files, and Gerbers and CPL and BOM for JLCPCB.COM:
+Here are the Kicad design files, and Gerbers and CPL and BOM for
+[JLCPCB](https://jlcpcb.com/) :
 https://github.com/strickyak/tfr9/tree/main/tfr905h
 
-It works best with a Hitachi HD63C09EP and a Pi Pico 2.
+It works best with a
+[Hitachi HD63C09EP](https://www.ebay.com/itm/375885991013) and a
+[Pi Pico 2](https://www.digikey.com/en/products/detail/raspberry-pi/SC1631/24627136)
+(and those links are where I got my parts from).
 
 The design goals of the 905h were
  
@@ -35,10 +45,16 @@ The design goals of the 905h were
 interfacing, experimentation ... including all 8 HSTX (high
 speed transmit) pins.
 
-* Anti-goals: Maybe not the fastest or the simplest,
-but it's fast enough and simple enough.
+* All 40 pins on the 6309 and all 40 pins on the Pi Pico
+can have headers attached, for easy interfacing.
 
-## TFR/903
+* Powered and controlled over USB, by a program 
+that runs on any modern PC (Windows, Mac, Linux, Pi).
+
+* Anti-goals: Maybe not the fastest or the simplest
+(but it's fast enough and simple enough).
+
+## TFR/903 (obsolete)
 
 This board should work with either 6809E or 6309E, but hereafter we'll
 just call it the 6309, but we probably mean a Hitachi 63C09E.  The E is
@@ -57,14 +73,7 @@ add more:
 
 * A third Pico could be a Pico W which does wifi internet.
 
-The hope is to make very affordable Single Board Computers running
-Nitros-9 Level 2 OS, since a 6309 is under $5, a Pi Pico is around $4,
-and a Pi Pico W is around $6.
-
-(Another board taking this kind of approach is the Olimex Neo6502 which
-sells for 30 Euro.)
-
-## TFR/901 (2024-07-13)
+## TFR/901 (2024-07-13) (obsolete)
 
 The TFR/901 is the first prototype for the TFR/9 architecture.
 
