@@ -1,3 +1,6 @@
+//go:build coco3
+// +build coco3
+
 package main
 
 import (

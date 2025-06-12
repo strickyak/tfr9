@@ -15,20 +15,18 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-//
 // Grab the constants with the following little program, to avoid using cgo:
 //
 // #include <stdio.h>
 // #include <stdlib.h>
 // #include <linux/termios.h>
 //
-// int main(int argc, const char **argv) {
-//   printf("TCSETS2 = 0x%08X\n", TCSETS2);
-//   printf("BOTHER  = 0x%08X\n", BOTHER);
-//   printf("NCCS    = %d\n",     NCCS);
-//   return 0;
-// }
-//
+//	int main(int argc, const char **argv) {
+//	  printf("TCSETS2 = 0x%08X\n", TCSETS2);
+//	  printf("BOTHER  = 0x%08X\n", BOTHER);
+//	  printf("NCCS    = %d\n",     NCCS);
+//	  return 0;
+//	}
 const (
 	kTCSETS2 = 0x402C542B
 	kBOTHER  = 0x1000
@@ -70,11 +68,9 @@ type serial_rs485 struct {
 	padding               [5]uint32
 }
 
-//
 // Returns a pointer to an instantiates termios2 struct, based on the given
 // OpenOptions. Termios2 is a Linux extension which allows arbitrary baud rates
 // to be specified.
-//
 func makeTermios2(options OpenOptions) (*termios2, error) {
 
 	// Sanity check inter-character timeout and minimum read size options.

@@ -8,7 +8,7 @@ func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
 	var disk_param [4]byte
 	for i := 0; i < 4; i++ {
 		disk_param[i] = <-fromUSB
-		Logf("disk_param: %02x", disk_param[i])
+		//Logf("disk_param: %02x", disk_param[i])
 	}
 	AssertEQ(disk_param[0], 0)
 
@@ -38,7 +38,7 @@ func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
 	var disk_param [4]byte
 	for i := 0; i < 4; i++ {
 		disk_param[i] = <-fromUSB
-		Logf("disk_param: %02x", disk_param[i])
+		//Logf("disk_param: %02x", disk_param[i])
 	}
 	AssertEQ(disk_param[0], 0)
 

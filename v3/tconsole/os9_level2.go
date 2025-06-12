@@ -1,3 +1,6 @@
+//go:build level2
+// +build level2
+
 package main
 
 import (
@@ -160,6 +163,13 @@ func ModuleId(begin uint, m Mapping) string {
 }
 
 func Os9StringWithMapping(addr uint, m Mapping) string {
+	// Logf("Os9StringWithMapping(%x, %v)", addr, m)
+	// Logf("  ... %02x %02x %02x %02x",
+	//    Peek1WithMapping(addr, m),
+	//    Peek1WithMapping(addr+1, m),
+	//    Peek1WithMapping(addr+2, m),
+	//    Peek1WithMapping(addr+3, m))
+
 	var buf bytes.Buffer
 	for {
 		var b byte = Peek1WithMapping(addr, m)
