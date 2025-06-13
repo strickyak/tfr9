@@ -25,19 +25,19 @@ func MemoryModuleOf(addr uint) (name string, offset uint) {
 			}
 
 			modSize := Peek2(begin + 2)
-			Logf("MM? [%02x] %q %04x (%04x) %04x", i, ModuleId(begin), begin, addr, begin+modSize)
+			// Logf("MM? [%02x] %q %04x (%04x) %04x", i, ModuleId(begin), begin, addr, begin+modSize)
 
 			if begin <= addr && addr < begin+modSize {
-				Logf("MM YES %q+%04x", ModuleId(begin), addr-begin)
+				// Logf("MM YES %q+%04x", ModuleId(begin), addr-begin)
 				return ModuleId(begin), addr - begin
 			}
 		}
 	} else {
-		Logf("MM NO ~~")
+		// Logf("MM NO ~~")
 		return "~~", addr
 	}
 
-	Logf("MM NO ==")
+	// Logf("MM NO ==")
 	return "==", addr
 }
 func ModuleId(begin uint) string {

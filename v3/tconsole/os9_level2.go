@@ -57,17 +57,17 @@ func MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 		if 0x0D06 <= p && p < 0x0E30 {
 			sz := ppeek2(z + 0x0D06 + 2)
 			a, b, c := ppeek1(z+0x0D06+sz-3), ppeek1(z+0x0D06+sz-2), ppeek1(z+0x0D06+sz-1)
-			Logf("MMOf/rel: %x -> %x", addrPhys, p)
+			//Logf("MMOf/rel: %x -> %x", addrPhys, p)
 			return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0x0D06
 		} else if 0x0E30 <= p && p < 0x1000 {
 			sz := ppeek2(z + 0x0E30 + 2)
 			a, b, c := ppeek1(z+0x0E30+sz-3), ppeek1(z+0x0E30+sz-2), ppeek1(z+0x0E30+sz-1)
-			Logf("MMOf/boot: %x -> %x", addrPhys, p)
+			//Logf("MMOf/boot: %x -> %x", addrPhys, p)
 			return fmt.Sprintf("boot.%04x%02x%02x%02x", sz, a, b, c), p - 0x0E30
 		} else if 0x1000 <= p && p < 0x1F00 {
 			sz := ppeek2(z + 0x1000 + 2)
 			a, b, c := ppeek1(z+0x1000+sz-3), ppeek1(z+0x1000+sz-2), ppeek1(z+0x1000+sz-1)
-			Logf("MMOf/krn: %x -> %x", addrPhys, p)
+			//Logf("MMOf/krn: %x -> %x", addrPhys, p)
 			return fmt.Sprintf("krn.%04x%02x%02x%02x", sz, a, b, c), p - 0x1000
 		} else {
 			return "=0=", p
