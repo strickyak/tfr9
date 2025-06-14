@@ -1,6 +1,6 @@
 #ifdef TRACKING
 #else
-  #define TRACKING 0
+#define TRACKING 0
 #endif
 
 #define SHOW_IRQS TRACKING
@@ -703,65 +703,60 @@ bool TryGetUsbByte(char* ptr) {
   return (rc != PICO_ERROR_NO_DATA);
 }
 
-  CircBuf<1200> usb_input;
-  CircBuf<1200> term_input;
-  CircBuf<1200> disk_input;
+CircBuf<1200> usb_input;
+CircBuf<1200> term_input;
+CircBuf<1200> disk_input;
 
-  void PollUsbInput() {
-    // Try from USB to `usb_input` object.
-    while (1) {
-      char x = 0;
-      bool ok = TryGetUsbByte(&x);
-      if (ok) {
-        usb_input.Put(x);
-      } else {
-        break;
-      }
+void PollUsbInput() {
+  // Try from USB to `usb_input` object.
+  while (1) {
+    char x = 0;
+    bool ok = TryGetUsbByte(&x);
+    if (ok) {
+      usb_input.Put(x);
+    } else {
+      break;
     }
-
-    // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
-    while (1) {
-      int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-      if (1 <= peek && peek <= 126) {
-        byte c = usb_input.Take();
-        assert((int)c == peek);
-        if (c == 10) {
-          c = 13;
-        }
-        term_input.Put(c);
-      } else {
-        break;
-      }
-    }
-
-    // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
-    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-    switch (peek) {
-      case C_DISK_READ:
-        if (usb_input.HasAtLeast(kDiskReadSize)) {
-          for (uint i = 0; i < kDiskReadSize; i++) {
-            byte t = usb_input.Take();
-            disk_input.Put(t);
-          }
-        }
-        break;
-    }
-    return;
   }
+
+  // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
+  while (1) {
+    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+    if (1 <= peek && peek <= 126) {
+      byte c = usb_input.Take();
+      assert((int)c == peek);
+      if (c == 10) {
+        c = 13;
+      }
+      term_input.Put(c);
+    } else {
+      break;
+    }
+  }
+
+  // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
+  int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+  switch (peek) {
+    case C_DISK_READ:
+      if (usb_input.HasAtLeast(kDiskReadSize)) {
+        for (uint i = 0; i < kDiskReadSize; i++) {
+          byte t = usb_input.Take();
+          disk_input.Put(t);
+        }
+      }
+      break;
+  }
+  return;
+}
 
 // yak1
 
 struct EngineBase {
-  virtual void Run() {
-    printf("EngineBase::Run : subclass responsibility");
-  }
+  virtual void Run() { printf("EngineBase::Run : subclass responsibility"); }
 };
 
 template <class ToLog, class RamT, class ToTurbo9sim>
-struct Engine 
-              : public EngineBase
-              , public ToTurbo9sim
-              , public ToLog {
+struct Engine : public EngineBase, public ToTurbo9sim, public ToLog {
   RamT the_ram;
 
   void SendEventHist(byte event, byte sz) {
@@ -1008,9 +1003,10 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
           if (!reading) {
             byte command = data;
 
-            ToLog::Logf("-EMUDSK device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
-              Peek(EMUDSK_PORT + 6), Peek(EMUDSK_PORT + 0),
-              Peek2(EMUDSK_PORT + 1), Peek2(EMUDSK_PORT + 4), command);
+            ToLog::Logf(
+                "-EMUDSK device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
+                Peek(EMUDSK_PORT + 6), Peek(EMUDSK_PORT + 0),
+                Peek2(EMUDSK_PORT + 1), Peek2(EMUDSK_PORT + 4), command);
 
             uint lsn = Peek2(EMUDSK_PORT + 1);
             emu_disk_buffer = Peek2(EMUDSK_PORT + 4);
@@ -1018,8 +1014,8 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
             byte* dp = Disk + 256 * lsn;
 #endif
 
-            ToLog::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n", lsn,
-              emu_disk_buffer, command);
+            ToLog::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
+                        lsn, emu_disk_buffer, command);
 
             switch (command) {
               case 0:  // Disk Read
@@ -1477,7 +1473,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     ShowStr("============================\n");
     printf("============================\n");
 
-    while (true) { ///////////////////////////////// Outer Machine Loop
+    while (true) {  ///////////////////////////////// Outer Machine Loop
 #if IRQS
       bool irq_needed = false;
 #if FOR_TURBO9SIM
@@ -1555,7 +1551,8 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 #endif
       }  // end Timer
 
-      for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) { /////// Inner Machine Loop
+      for (uint loop = 0; loop < RAPID_BURST_CYCLES;
+           loop++) {  /////// Inner Machine Loop
 #if TRACKING
 #if TRACKING_CYCLE
         interest = (cy > TRACKING_CYCLE) ? 99999 : 0;
@@ -1763,7 +1760,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
           }  // end if reading
           ToLog::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
-            HighFlags(high), cy);
+                      HighFlags(high), cy);
         }  // end if valid cycle
 
 #if SEEN
@@ -1832,32 +1829,32 @@ void InitialBanners() {
 // std::vector<EngineBase*> engines;
 // std::vector<EngineBase*> fast_engines;
 struct harness {
-    EngineBase* engines[5];
-    EngineBase* fast_engines[5];
+  EngineBase* engines[5];
+  EngineBase* fast_engines[5];
 
-    Engine <DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim> t9slow;
-    Engine <DontLog, SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim> t9fast;
+  Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim> t9slow;
+  Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim> t9fast;
 
-    Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim> l1slow;
-    Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, NoTurbo9sim> l1fast;
+  Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim> l1slow;
+  Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, NoTurbo9sim> l1fast;
 
-    Engine<DoLog, BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim> l2slow;
-    Engine<DontLog, BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim> l2fast;
+  Engine<DoLog, BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim> l2slow;
+  Engine<DontLog, BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim> l2fast;
 
-    explicit harness() {
-        t9slow.Install(PRIMARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
-        t9slow.Install(SECONDARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
-        
-        t9fast.Install(PRIMARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
-        t9fast.Install(SECONDARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
+  explicit harness() {
+    t9slow.Install(PRIMARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
+    t9slow.Install(SECONDARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
 
-        engines[0] = &t9slow;
-        engines[1] = &l1slow;
-        engines[2] = &l2slow;
-        fast_engines[0] = &t9fast;
-        fast_engines[1] = &l1fast;
-        fast_engines[2] = &l2fast;
-    }
+    t9fast.Install(PRIMARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
+    t9fast.Install(SECONDARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
+
+    engines[0] = &t9slow;
+    engines[1] = &l1slow;
+    engines[2] = &l2slow;
+    fast_engines[0] = &t9fast;
+    fast_engines[1] = &l1fast;
+    fast_engines[2] = &l2fast;
+  }
 } Harness;
 
 void CreateEngines() {
@@ -1907,40 +1904,40 @@ void CreateEngines() {
  // fast_t9_engine->Run();
  // fast_l1_engine->Run();
  // fast_l2_engine->Run();
- #endif
+#endif
 }
 
 void Shell() {
-    ShowChar('r');
-    while (true) {
-        ShowChar('^');
-        PollUsbInput();
+  ShowChar('r');
+  while (true) {
+    ShowChar('^');
+    PollUsbInput();
 
-        if (term_input.HasAtLeast(1)) {
-          byte ch = term_input.Take();
-          if ('0' <= ch && ch <= '4') {
-            uint num = ch - '0';
-            if (Harness.engines[num]) {
-                Harness.engines[num]->Run();
-            } else {
-                ShowChar('?');
-            }
+    if (term_input.HasAtLeast(1)) {
+      byte ch = term_input.Take();
+      if ('0' <= ch && ch <= '4') {
+        uint num = ch - '0';
+        if (Harness.engines[num]) {
+          Harness.engines[num]->Run();
+        } else {
+          ShowChar('?');
+        }
 
-          } else if ('5' <= ch && ch <= '9') {
-            uint num = ch - '5';
-            if (Harness.fast_engines[num]) {
-                Harness.fast_engines[num]->Run();
-            } else {
-                ShowChar('?');
-            }
-            
-          } else {
-                ShowChar('?');
-          }
-        } // term_input
-        sleep_ms(500);
-    }
-    // Shell never returns.
+      } else if ('5' <= ch && ch <= '9') {
+        uint num = ch - '5';
+        if (Harness.fast_engines[num]) {
+          Harness.fast_engines[num]->Run();
+        } else {
+          ShowChar('?');
+        }
+
+      } else {
+        ShowChar('?');
+      }
+    }  // term_input
+    sleep_ms(500);
+  }
+  // Shell never returns.
 }
 
 int main() {

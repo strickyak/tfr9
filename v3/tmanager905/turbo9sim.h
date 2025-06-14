@@ -24,9 +24,10 @@ struct Turbo9sim {
   constexpr static byte SIM_TIMER_BIT = 0x01;
   constexpr static byte SIM_RX_BIT = 0x02;
 
-  force_inline bool IrqNeeded() { 
+  force_inline bool IrqNeeded() {
     bool z = sim_status_reg & sim_control_reg;
-    printf("yak IrqNeeded? s=%02x c=%02x %x\n", sim_status_reg, sim_control_reg, z);
+    printf("yak IrqNeeded? s=%02x c=%02x %x\n", sim_status_reg, sim_control_reg,
+           z);
     return z;
   }
 
@@ -41,8 +42,8 @@ struct Turbo9sim {
     return z;
   }
   force_inline void SetRx(byte ch) {
-        sim_status_reg |= SIM_RX_BIT;
-        sim_last_char_rx = ch;
+    sim_status_reg |= SIM_RX_BIT;
+    sim_last_char_rx = ch;
     printf("yak SetRx(%02x) s=%02x\n", ch, sim_status_reg);
   }
 

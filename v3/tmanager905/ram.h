@@ -1,10 +1,10 @@
 #ifndef _RAM_H_
 #define _RAM_H_
 
-  const static uint BIG_RAM_SIZE = 128 * 1024;
-  const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
+const static uint BIG_RAM_SIZE = 128 * 1024;
+const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
 
-  byte ram[BIG_RAM_SIZE];
+byte ram[BIG_RAM_SIZE];
 
 struct DontTracePokes {
   force_inline void TraceThePoke(uint addr, byte data) {}
@@ -102,9 +102,10 @@ class BigRam : public ToLogMmu, public ToTracePokes {
             }
         }
         */
-    ToLogMmu::Logf("BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
-                   BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
-                   OFFSET_MASK);
+    ToLogMmu::Logf(
+        "BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
+        BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
+        OFFSET_MASK);
   }
 
   void SetEnableMmu(bool a) {
