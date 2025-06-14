@@ -60,6 +60,7 @@ constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
 
 #include <cstring>
 #include <functional>
+#include <vector>
 
 #define LED(X) gpio_put(25, (X))
 
@@ -82,6 +83,30 @@ extern void SendIn_16(byte* x);
 extern void RecvOut_byte(byte* x);
 
 volatile bool TimerFired;
+
+uint quiet_ram;
+inline void Quiet() { quiet_ram++; }
+inline void Noisy() { quiet_ram--; }
+
+extern uint interest;
+
+bool V2;
+
+struct DontLog {
+  force_inline int Logf(const char* fmt, ...) { return 0; }
+};
+struct DoLog {
+  int Logf(const char* fmt, ...) {
+    if (!interest) return 0;
+    if (quiet_ram > 0) return 0;
+
+    va_list va;
+    va_start(va, fmt);
+    int z = printf(fmt, va);
+    va_end(va);
+    return z;
+  }
+};
 
 // Configuration
 #include "tfr9ports.gen.h"
@@ -114,10 +139,6 @@ volatile bool TimerFired;
 #define PICO_USE_TIMER 0
 #define D \
   if (interest) printf
-#define P \
-  if (interest) printf
-#define V \
-  if (interest) printf
 #define Q \
   if (interest) printf
 
@@ -126,10 +147,6 @@ volatile bool TimerFired;
 #define SHOW_TICKS 0
 #define PICO_USE_TIMER 1
 #define D \
-  if (0) printf
-#define P \
-  if (0) printf
-#define V \
   if (0) printf
 #define Q \
   if (0) printf
@@ -417,23 +434,23 @@ void ViewAt(const char* label, uint hi, uint lo) {
 #if TRACKING
     Quiet();
     uint addr = (hi << 8) | lo;
-    V("=== %s: @%04x: ", label, addr);
+    VIEWF("=== %s: @%04x: ", label, addr);
     for (uint i = 0; i < 8; i++) {
         uint x = Peek2(addr+i+i);
-        V("%04x ", x);
+        VIEWF("%04x ", x);
     }
-    V("|");
+    VIEWF("|");
     for (uint i = 0; i < 16; i++) {
         byte ch = 0x7f & Peek(addr+i);
         if (32 <= ch && ch <= 126) {
-            V("%c", ch);
+            VIEWF("%c", ch);
         } else if (ch==0) {
-            V("-");
+            VIEWF("-");
         } else {
-            V(".");
+            VIEWF(".");
         }
     }
-    V("|\n");
+    VIEWF("|\n");
     Noisy();
 #endif
 #endif
@@ -686,10 +703,65 @@ bool TryGetUsbByte(char* ptr) {
   return (rc != PICO_ERROR_NO_DATA);
 }
 
+  CircBuf<1200> usb_input;
+  CircBuf<1200> term_input;
+  CircBuf<1200> disk_input;
+
+  void PollUsbInput() {
+    // Try from USB to `usb_input` object.
+    while (1) {
+      char x = 0;
+      bool ok = TryGetUsbByte(&x);
+      if (ok) {
+        usb_input.Put(x);
+      } else {
+        break;
+      }
+    }
+
+    // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
+    while (1) {
+      int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+      if (1 <= peek && peek <= 126) {
+        byte c = usb_input.Take();
+        assert((int)c == peek);
+        if (c == 10) {
+          c = 13;
+        }
+        term_input.Put(c);
+      } else {
+        break;
+      }
+    }
+
+    // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
+    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+    switch (peek) {
+      case C_DISK_READ:
+        if (usb_input.HasAtLeast(kDiskReadSize)) {
+          for (uint i = 0; i < kDiskReadSize; i++) {
+            byte t = usb_input.Take();
+            disk_input.Put(t);
+          }
+        }
+        break;
+    }
+    return;
+  }
+
 // yak1
 
-template <class RamT, class ToTurbo9sim>
-struct Engine : public ToTurbo9sim {
+struct EngineBase {
+  virtual void Run() {
+    printf("EngineBase::Run : subclass responsibility");
+  }
+};
+
+template <class ToLog, class RamT, class ToTurbo9sim>
+struct Engine 
+              : public EngineBase
+              , public ToTurbo9sim
+              , public ToLog {
   RamT the_ram;
 
   void SendEventHist(byte event, byte sz) {
@@ -812,10 +884,6 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     }
   }
 
-  CircBuf<1200> usb_input;
-  CircBuf<1200> term_input;
-  CircBuf<1200> disk_input;
-
   /////////////
 
 #if FOR_COCO
@@ -881,11 +949,11 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
         case 0x00:
         case 0x01:
         case 0x02:
-          D("= PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
+          ToLog::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
           break;
         case 0x03:
           // Read PIA0
-          D("= PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
+          ToLog::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
           if (not reading) {
             vsync_irq_enabled = bool((data & 1) != 0);
           }
@@ -934,14 +1002,13 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
         case 255 & (EMUDSK_PORT + 4):  // buffer addr
         case 255 & (EMUDSK_PORT + 5):
         case 255 & (EMUDSK_PORT + 6):  // drive number
-          Q("-EMUDSK %x %x %x\n", addr, data, Peek(addr));
+          ToLog::Logf("-EMUDSK %x %x %x\n", addr, data, Peek(addr));
           break;
         case 255 & (EMUDSK_PORT + 3):  // Run EMUDSK Command.
           if (!reading) {
             byte command = data;
 
-            Q("-NANDO %x %x %x\n", addr, data, Peek(data));
-            Q("- device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
+            ToLog::Logf("-EMUDSK device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
               Peek(EMUDSK_PORT + 6), Peek(EMUDSK_PORT + 0),
               Peek2(EMUDSK_PORT + 1), Peek2(EMUDSK_PORT + 4), command);
 
@@ -951,7 +1018,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
             byte* dp = Disk + 256 * lsn;
 #endif
 
-            Q("- VARS sector $%04x buffer $%04x diskop %x\n", lsn,
+            ToLog::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n", lsn,
               emu_disk_buffer, command);
 
             switch (command) {
@@ -1219,11 +1286,11 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
         // Read PIA0
         case 0x00:
-          D("----- PIA0 Read not Impl: %x\n", addr);
+          ToLog::Logf("-PIA PIA0 Read not Impl: %x\n", addr);
           data = 0xFF;  // say like, no key pressed
           break;
         case 0x01:
-          D("----- PIA0 Read not Impl: %x\n", addr);
+          ToLog::Logf("-PIA PIA0 Read not Impl: %x\n", addr);
           DumpRamAndGetStuck("pia0", addr);
           break;
         case 0x02:
@@ -1294,7 +1361,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     // PUT(0x0000);  // pindirs
   }
 
-  void Start() {
+  void Run() override {
     the_ram.Reset();
 #if OS_LEVEL == 200
     printf("COCO3: Prepare for Level 2\n");
@@ -1341,14 +1408,14 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     ShowChar('\n');
     auto e = this;
     e->ReaderInit();
-    e->HandleTwo();
+    e->RunMachineCycles();
 
     sleep_ms(100);
-    D("\nFinished.\n");
+    printf("\nEngine Finished.\n");
     sleep_ms(100);
     GET_STUCK();
 
-  }  // end Start
+  }  // end Run
 
   bool PeekDiskInput() {
     int peek = disk_input.HasAtLeast(1) ? (int)disk_input.Peek() : -1;
@@ -1360,48 +1427,6 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
         break;
     }
     return false;
-  }
-
-  void PollUsbInput() {
-    // Try from USB to `usb_input` object.
-    while (1) {
-      char x = 0;
-      bool ok = TryGetUsbByte(&x);
-      if (ok) {
-        usb_input.Put(x);
-      } else {
-        break;
-      }
-    }
-
-    // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
-    while (1) {
-      int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-      if (1 <= peek && peek <= 126) {
-        byte c = usb_input.Take();
-        assert((int)c == peek);
-        if (c == 10) {
-          c = 13;
-        }
-        term_input.Put(c);
-      } else {
-        break;
-      }
-    }
-
-    // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
-    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-    switch (peek) {
-      case C_DISK_READ:
-        if (usb_input.HasAtLeast(kDiskReadSize)) {
-          for (uint i = 0; i < kDiskReadSize; i++) {
-            byte t = usb_input.Take();
-            disk_input.Put(t);
-          }
-        }
-        break;
-    }
-    return;
   }
 
   void ReadDisk(uint device, uint lsn, byte* buffer) {
@@ -1432,7 +1457,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 #endif
   }
 
-  void HandleTwo() {
+  void RunMachineCycles() {
     uint cy = 0;  // This is faster if local.
 
     // TOP
@@ -1465,7 +1490,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
           (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
 #endif  // FOR_COCO
       if (SHOW_IRQS)
-        if (vsync_irq_enabled && vsync_irq_firing) ShowChar('V');
+        if (vsync_irq_enabled && vsync_irq_firing) ShowChar('H');
       if (SHOW_IRQS)
         if (acia_irq_enabled && acia_irq_firing) ShowChar('A');
       if (SHOW_IRQS)
@@ -1715,7 +1740,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
 #if TRACKING
         if (reading and (not vma) and (addr == 0xFFFF)) {
-          Q("- ---- --  =%s #%d\n", HighFlags(high), cy);
+          ToLog::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
         } else {
           const char* label = reading ? (vma ? "r" : "-") : "w";
           if (reading) {
@@ -1737,7 +1762,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
             }  // end case Reading but not FIC
 
           }  // end if reading
-          Q("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
+          ToLog::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
             HighFlags(high), cy);
         }  // end if valid cycle
 
@@ -1765,7 +1790,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     }  // while true
 
   bottom: {}
-  }  // end HandleTwo
+  }  // end RunMachineCycles
 };  // end struct Engine
 
 void InitialBanners() {
@@ -1804,8 +1829,122 @@ void InitialBanners() {
   printf("OS_LEVEL=%d\n", OS_LEVEL);
 }
 
+// std::vector<EngineBase*> engines;
+// std::vector<EngineBase*> fast_engines;
+struct harness {
+    EngineBase* engines[5];
+    EngineBase* fast_engines[5];
+
+    Engine <DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim> t9slow;
+    Engine <DontLog, SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim> t9fast;
+
+    Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim> l1slow;
+    Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, NoTurbo9sim> l1fast;
+
+    Engine<DoLog, BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim> l2slow;
+    Engine<DontLog, BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim> l2fast;
+
+    explicit harness() {
+        t9slow.Install(PRIMARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
+        t9slow.Install(SECONDARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
+        
+        t9fast.Install(PRIMARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
+        t9fast.Install(SECONDARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
+
+        engines[0] = &t9slow;
+        engines[1] = &l1slow;
+        engines[2] = &l2slow;
+        fast_engines[0] = &t9fast;
+        fast_engines[1] = &l1fast;
+        fast_engines[2] = &l2fast;
+    }
+} Harness;
+
+void CreateEngines() {
+#if 0
+        ShowChar('a');
+    auto* t9_engine = new Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim>();
+  t9_engine->Install(PRIMARY_TURBO9SIM, t9_engine->IOReaders, t9_engine->IOWriters);
+  t9_engine->Install(SECONDARY_TURBO9SIM, t9_engine->IOReaders, t9_engine->IOWriters);
+
+        ShowChar('a');
+    auto* fast_t9_engine = new Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim>();
+  t9_engine->Install(PRIMARY_TURBO9SIM, t9_engine->IOReaders, t9_engine->IOWriters);
+        ShowChar('a');
+  t9_engine->Install(SECONDARY_TURBO9SIM, t9_engine->IOReaders, t9_engine->IOWriters);
+        ShowChar('a');
+
+    engines[0] = t9_engine;
+    fast_engines[0] = fast_t9_engine;
+
+
+        ShowChar('b');
+    auto* l1_engine = new Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+    auto* fast_l1_engine = new Engine<DontLog, SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
+
+        ShowChar('b');
+    engines[1] = l1_engine;
+        ShowChar('b');
+    fast_engines[1] = fast_l1_engine;
+        ShowChar('b');
+
+        ShowChar('c');
+    auto* l2_engine = new Engine<DoLog, BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
+        ShowChar('c');
+    auto* fast_l2_engine = new Engine<DontLog, BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
+        ShowChar('c');
+
+    engines[2] = l2_engine;
+    fast_engines[2] = fast_l2_engine;
+
+        ShowChar('q');
+        ShowChar('\n');
+
+  // t9_engine->Run();
+  // l1_engine->Run();
+  // l2_engine->Run();
+
+ // fast_t9_engine->Run();
+ // fast_l1_engine->Run();
+ // fast_l2_engine->Run();
+ #endif
+}
+
+void Shell() {
+    ShowChar('r');
+    while (true) {
+        ShowChar('^');
+        PollUsbInput();
+
+        if (term_input.HasAtLeast(1)) {
+          byte ch = term_input.Take();
+          if ('0' <= ch && ch <= '4') {
+            uint num = ch - '0';
+            if (Harness.engines[num]) {
+                Harness.engines[num]->Run();
+            } else {
+                ShowChar('?');
+            }
+
+          } else if ('5' <= ch && ch <= '9') {
+            uint num = ch - '5';
+            if (Harness.fast_engines[num]) {
+                Harness.fast_engines[num]->Run();
+            } else {
+                ShowChar('?');
+            }
+            
+          } else {
+                ShowChar('?');
+          }
+        } // term_input
+        sleep_ms(500);
+    }
+    // Shell never returns.
+}
+
 int main() {
-  set_sys_clock_khz(250000, true);
+  // set_sys_clock_khz(250000, true);
   // set_sys_clock_khz(250000, true); // 0.559099
   // set_sys_clock_khz(260000, true); // 0.516071  0.531793
   // set_sys_clock_khz(270000, true); // NO? YES.
@@ -1823,30 +1962,6 @@ int main() {
 
   InitialBanners();
 
-#if FOR_TURBO9SIM
-  #if TRACKING
-    auto* engine = new Engine<SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim>();
-  #else
-    auto* engine = new Engine<SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim>();
-  #endif
-  engine->Install(PRIMARY_TURBO9SIM, engine->IOReaders, engine->IOWriters);
-  engine->Install(SECONDARY_TURBO9SIM, engine->IOReaders, engine->IOWriters);
-#else
-
-#if OS_LEVEL < 199
-  #if TRACKING
-    auto* engine = new Engine<SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
-  #else
-    auto* engine = new Engine<SmallRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
-  #endif
-#else
-  #if TRACKING
-    auto* engine = new Engine<BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim>();
-  #else
-    auto* engine = new Engine<BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim>();
-  #endif
-#endif
-
-#endif
-  engine->Start();
+  CreateEngines();
+  Shell();
 }

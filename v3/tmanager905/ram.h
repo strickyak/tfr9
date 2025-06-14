@@ -1,11 +1,10 @@
 #ifndef _RAM_H_
 #define _RAM_H_
 
-uint quiet_ram;
-inline void Quiet() { quiet_ram++; }
-inline void Noisy() { quiet_ram--; }
+  const static uint BIG_RAM_SIZE = 128 * 1024;
+  const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
 
-extern uint interest;
+  byte ram[BIG_RAM_SIZE];
 
 struct DontTracePokes {
   force_inline void TraceThePoke(uint addr, byte data) {}
@@ -39,7 +38,7 @@ struct DoLogMmu {
 template <class ToLogMmu, class ToTracePokes>
 class SmallRam : public ToLogMmu, public ToTracePokes {
  private:
-  byte ram[0x10000];
+  // byte ram[0x10000];
 
  public:
   void Reset() {}
@@ -68,14 +67,9 @@ class BigRam : public ToLogMmu, public ToTracePokes {
       0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
   };
 
-  const static uint RAM_SIZE = 128 * 1024;
-  const static uint RAM_MASK = RAM_SIZE - 1;
-
   const static uint SLOT_SHIFT = 13;
   const static uint OFFSET_MASK = (1 << 13) - 1;
   const static uint SLOT_MASK = 7;
-
-  byte ram[RAM_SIZE];
 
   bool enable_mmu;
   byte current_task;
@@ -108,8 +102,8 @@ class BigRam : public ToLogMmu, public ToTracePokes {
             }
         }
         */
-    ToLogMmu::Logf("RAM_SIZE=$%x=%d. RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
-                   RAM_SIZE, RAM_SIZE, RAM_MASK, RAM_MASK, OFFSET_MASK,
+    ToLogMmu::Logf("BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
+                   BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
                    OFFSET_MASK);
   }
 
@@ -130,7 +124,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
   void WriteMmu(byte task, byte slot, byte blk) {
     ToLogMmu::Logf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
     mmu[task][slot] = blk;
-    base[task][slot] = (blk << SLOT_SHIFT) & RAM_MASK;
+    base[task][slot] = (blk << SLOT_SHIFT) & BIG_RAM_MASK;
   }
   uint Block(uint addr) {  // used by the RECORD feature.
 
@@ -149,7 +143,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     DETERMINE_BLOCK
 
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
-    uint phys = ((block << SLOT_SHIFT) | offset) & RAM_MASK;
+    uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
     return phys;
   }
@@ -157,7 +151,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     uint offset = addr & OFFSET_MASK;
 
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
-    uint phys = ((block << SLOT_SHIFT) | offset) & RAM_MASK;
+    uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
     return phys;
   }
@@ -166,7 +160,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     uint offset = addr & OFFSET_MASK;
     uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
     uint basis = current_bases[slot];
-    // uint phys = (basis | offset) & RAM_MASK;
+    // uint phys = (basis | offset) & BIG_RAM_MASK;
     uint phys = basis + offset;
 
     return phys;
@@ -174,7 +168,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
   force_inline uint FastPhys(uint addr, byte block) {
     uint offset = addr & OFFSET_MASK;
     uint basis = current_bases[block];
-    // uint phys = (basis | offset) & RAM_MASK;
+    // uint phys = (basis | offset) & BIG_RAM_MASK;
     uint phys = basis + offset;
 
     return phys;
