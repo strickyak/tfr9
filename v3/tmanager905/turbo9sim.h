@@ -7,9 +7,9 @@
 struct NoTurbo9sim {
   force_inline void Install(uint base, IOReader readers[], IOWriter writers[]) {
   }
-  force_inline bool IrqNeeded() { return false; }
+  constexpr bool IrqNeeded() { return false; }
   force_inline void SetTimerFired() {}
-  force_inline bool CanRx() { return false; }
+  constexpr bool CanRx() { return false; }
   force_inline void SetRx(byte ch) {}
 };
 
