@@ -10,18 +10,15 @@ constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
 #if OS_LEVEL == 90
 #define BANNER "Level 90 Turbo9SIM"
 #define FOR_COCO 0  // SAM & VDG & PIAs
-#define FOR_TURBO9SIM 1
 #endif
 
 #if OS_LEVEL == 100
 #define FOR_COCO 1  // SAM & VDG & PIAs
-#define FOR_TURBO9SIM 0
 #define BANNER "Level 1 NitrOS-9"
 #endif
 
 #if OS_LEVEL == 200
 #define FOR_COCO 1  // SAM & VDG & PIAs
-#define FOR_TURBO9SIM 0
 #define BANNER "Level 2 NitrOS-9"
 #endif
 
@@ -125,9 +122,6 @@ bool gime_irq_enabled;
 bool gime_vsync_irq_enabled;
 bool gime_vsync_irq_firing;
 
-bool vsync_irq_enabled;
-bool vsync_irq_firing;
-
 bool acia_irq_enabled;
 bool acia_irq_firing;
 bool acia_char_in_ready;
@@ -146,55 +140,19 @@ void ShowStr(const char* s) {
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) { putchar_raw(x); }
 
-struct DontLog {
-  constexpr bool DoesLog() { return false; }
-  constexpr bool DoesTrace() { return false; }
-  force_inline int Logf(const char* fmt, ...) { return 0; }
-};
-struct DoLog {
-  constexpr bool DoesLog() { return true; }
-  force_inline bool DoesTrace() { return enable_trace; }
+#include "log.h"
 
-  int Logf(const char* fmt, ...) {
-    if (!interest) return 0;
-    if (quiet_ram > 0) return 0;
-
-    va_list va;
-    va_start(va, fmt);
-    int z = vprintf(fmt, va);
-    va_end(va);
-    return z;
-  }
-};
-
+template <typename T>
 struct DontShowIrqs {
-  force_inline void Show(char ch) {}
+  force_inline static void ShowIrqs(char ch) {}
 };
+template <typename T>
 struct DoShowIrqs {
-  force_inline void Show(char ch) { if (enable_show_irqs) ShowChar(ch); }
+  force_inline static void ShowIrqs(char ch) { if (enable_show_irqs) ShowChar(ch); }
 };
 
-
-struct DontSamVdg {
-  constexpr bool Does() { return false; }
-};
-struct DoSamVdg {
-  constexpr bool Does() { return true; }
-};
-
-struct DontGime {
-  constexpr bool Does() { return false; }
-};
-struct DoGime {
-  constexpr bool Does() { return true; }
-};
-
-struct DontAcia {
-  constexpr bool Does() { return false; }
-};
-struct DoAcia {
-  constexpr bool Does() { return true; }
-};
+#include "acia.h"
+#include "gime.h"
 
 // Configuration
 #include "tfr9ports.gen.h"
@@ -241,24 +199,14 @@ static uint hist_addr[24];
 #define MAX_INTEREST 999999999
 #define getchar(X) NeverUseGetChar
 
-/////////// #include "../generated/rpc.h"
-
-const byte Rom[] = {
-#if FOR_TURBO9SIM
-#include "turbo9sim.rom.h"
-#endif
-
-#if FOR_COCO
-
-#if OS_LEVEL <= 199
+const byte Level1_Rom[] = {
 #include "../generated/level1.rom.h"
-#endif
-#if OS_LEVEL >= 200
-#include "../generated/level2.rom.h"
-#endif
-
-#endif
 };
+
+const byte Level2_Rom[] = {
+#include "../generated/level2.rom.h"
+};
+
 
 #if INCLUDED_DISK
 byte Disk[] = {
@@ -319,6 +267,8 @@ uint Coco3Vectors[] = {
 
 using IOReader = std::function<byte(uint addr, byte data)>;
 using IOWriter = std::function<void(uint addr, byte data)>;
+IOReader IOReaders[256];
+IOWriter IOWriters[256];
 
 extern "C" {
 extern int stdio_usb_in_chars(char* buf, int length);
@@ -337,8 +287,7 @@ const char* HighFlags(uint high) {
   return high_buf;
 }
 
-#include "ram.h"
-#include "turbo9sim.h"
+#include "circbuf.h"
 
 #if SEEN
 class Bitmap64K {
@@ -367,10 +316,10 @@ void DumpPhys() {
 #if ALLOW_DUMP_PHYS
   Quiet();
   putbyte(C_DUMP_PHYS);
-  uint sz = the_ram.PhysSize();
+  uint sz = T::PhysSize();
   for (uint i = 0; i < sz; i += 16) {
     for (uint j = 0; j < 16; j++) {
-      if (the_ram.ReadPhys(i + j)) goto yes;
+      if (T::ReadPhys(i + j)) goto yes;
     }
     continue;
   yes:
@@ -379,7 +328,7 @@ void DumpPhys() {
     putbyte(i >> 8);
     putbyte(i);
     for (uint j = 0; j < 16; j++) {
-      putbyte(the_ram.ReadPhys(i + j));
+      putbyte(T::ReadPhys(i + j));
     }
   }
   putbyte(C_DUMP_STOP);
@@ -393,7 +342,7 @@ void DumpRam() {
   putbyte(C_DUMP_RAM);
   for (uint i = 0; i < 0x10000; i += 16) {
     for (uint j = 0; j < 16; j++) {
-      if (Peek(i + j)) goto yes;
+      if (T::Peek(i + j)) goto yes;
     }
     continue;
   yes:
@@ -402,7 +351,7 @@ void DumpRam() {
     putbyte(i >> 8);
     putbyte(i);
     for (uint j = 0; j < 16; j++) {
-      putbyte(Peek(i + j));
+      putbyte(T::Peek(i + j));
     }
   }
   putbyte(C_DUMP_STOP);
@@ -430,6 +379,23 @@ void DumpRamAndGetStuck(const char* why, uint what) {
   GET_STUCK();
 }
 
+// SmallRam & BigRam
+#include "ram.h"
+
+// Debugging
+#include "event.h"
+
+// I/O devices
+#include "cocosdc.h"
+#include "emudsk.h"
+#include "samvdg.h"
+#include "turbo9sim.h"
+
+// Operating Systems
+#include "turbo9os.h"
+#include "nitros9level1.h"
+#include "nitros9level2.h"
+
 uint AddressOfRom() {
 #if FOR_TURBO9SIM
   return 0;
@@ -446,12 +412,12 @@ void ViewAt(const char* label, uint hi, uint lo) {
     uint addr = (hi << 8) | lo;
     VIEWF("=== %s: @%04x: ", label, addr);
     for (uint i = 0; i < 8; i++) {
-        uint x = Peek2(addr+i+i);
+        uint x = T::Peek2(addr+i+i);
         VIEWF("%04x ", x);
     }
     VIEWF("|");
     for (uint i = 0; i < 16; i++) {
-        byte ch = 0x7f & Peek(addr+i);
+        byte ch = 0x7f & T::Peek(addr+i);
         if (32 <= ch && ch <= 126) {
             VIEWF("%c", ch);
         } else if (ch==0) {
@@ -594,41 +560,6 @@ const char* DecodeCC(byte cc) {
   return buf;
 }
 
-template <uint N>
-class CircBuf {
- private:
-  byte buf[N];
-  uint nextIn, nextOut;
-
-  uint NumBytesAvailable() {
-    if (nextOut <= nextIn)
-      return nextIn - nextOut;
-    else
-      return nextIn + N - nextOut;
-  }
-
- public:
-  CircBuf() : nextIn(0), nextOut(0) {}
-
-  bool HasAtLeast(uint n) {
-    uint ba = NumBytesAvailable();
-    return ba >= n;
-  }
-  byte Peek() { return buf[nextOut]; }
-  byte Take() {
-    byte z = buf[nextOut];
-    ++nextOut;
-    if (nextOut >= N) nextOut = 0;
-    return z;
-  }
-  void Put(byte x) {
-    // ShowChar('`');
-    buf[nextIn] = x;
-    ++nextIn;
-    if (nextIn >= N) nextIn = 0;
-  }
-};
-
 #if 0
 TODO
 void PutIrq(bool activate) {
@@ -645,16 +576,10 @@ bool TimerCallback(repeating_timer_t* rt) {
 }
 #endif
 
-const uint kDiskReadSize = 1 + 4 + 256;
-
 bool TryGetUsbByte(char* ptr) {
   int rc = stdio_usb_in_chars(ptr, 1);
   return (rc != PICO_ERROR_NO_DATA);
 }
-
-CircBuf<1200> usb_input;
-CircBuf<1200> term_input;
-CircBuf<1200> disk_input;
 
 void PollUsbInput() {
   // Try from USB to `usb_input` object.
@@ -700,113 +625,39 @@ void PollUsbInput() {
 
 // yak1
 
+  uint data;
+  uint num_resets;
+  uint event;
+  uint when;
+  uint num_swi2s;
+
+  bool vma;      // Valid Memory Address ( = delayed AVMA )
+  bool fic;      // First Instruction Cycle ( = delayed LIC )
+  uint next_pc;  // for multibyte ops.
+
+  uint TildePowerOf2;
+  uint OuterLoops;
+
+template <typename T>
 struct EngineBase {
-  virtual void Run() { printf("EngineBase::Run : subclass responsibility"); }
-};
 
-template <class ToLog, class RamT, class ToTurbo9sim, class ToSamVdg, class ToGime, class ToAcia, class ToShowIrqs>
-struct Engine : public EngineBase, public ToTurbo9sim, public ToLog,
-    public ToSamVdg, public ToGime, public ToAcia, public ToShowIrqs {
-  RamT the_ram;
-
-  void SendEventHist(byte event, byte sz) {
-#if 1
-    Quiet();
-    putbyte(C_EVENT);
-    putbyte(event);
-    putbyte(sz);
-    putbyte(current_opcode_pc >> 8);
-    putbyte(current_opcode_pc);
-    putbyte(current_opcode_cy >> 24);
-    putbyte(current_opcode_cy >> 16);
-    putbyte(current_opcode_cy >> 8);
-    putbyte(current_opcode_cy);
-    for (byte i = 0; i < sz; i++) {
-      putbyte(hist_data[i]);
-      putbyte(hist_addr[i] >> 8);
-      putbyte(hist_addr[i]);
-    }
-    Noisy();
-#endif  // TRACKING
-  }
-
-  void SendEventRam(byte event, byte sz, word base_addr) {
-    if (ToLog::DoesLog()) {
-        Quiet();
-        putbyte(C_EVENT);
-        putbyte(event);
-        putbyte(sz);
-        putbyte(base_addr >> 8);
-        putbyte(base_addr);
-        for (byte i = 0; i < sz; i++) {
-          putbyte(Peek(base_addr + i));
-        }
-        Noisy();
-    }
-  }
-
-  force_inline byte FastPeek(uint addr) { return the_ram.FastRead(addr); }
-  force_inline byte Peek(uint addr) { return the_ram.Read(addr); }
-
-  force_inline void Poke(uint addr, byte data) { the_ram.Write(addr, data); }
-#if 0
-force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr, data); }
-#endif
-  force_inline void FastPoke(uint addr, byte data) {
-    the_ram.FastWrite(addr, data);
-  }
-
-  force_inline void Poke(uint addr, byte data, byte block) {
-    the_ram.Write(addr, data, block);
-  }
-
-  force_inline uint Peek2(uint addr) {
-    uint hi = Peek(addr);
-    uint lo = Peek(addr + 1);
-    return (hi << 8) | lo;
-  }
-  force_inline void Poke2(uint addr, uint data) {
-    byte hi = (byte)(data >> 8);
-    byte lo = (byte)data;
-    Poke(addr, hi);
-    Poke(addr + 1, lo);
-  }
-
-  void InitRamFromRom() {
-    Quiet();
-    uint start = AddressOfRom();
-    for (uint i = 0; i < sizeof Rom; i++) {
-      uint addr = start + i;
-      Poke(addr, Rom[i]);
-
-#if 0
-        putbyte(C_POKE);
-        putbyte(the_ram.Block(addr));
-        putbyte(addr >> 8);
-        putbyte(addr);
-        putbyte(Rom[i]);
-#endif
-    }
-    Noisy();
-  }
-
-    bool NeoIrq(bool irq_needed) {
+    static bool ChangeInterruptPin(bool irq_needed) {
+      constexpr uint PULL_BLOCK_PC = 2;
       const PIO pio = pio0;
       constexpr uint sm = 0;
 
-      int attempt = 100;
-      ToShowIrqs::Show('>');
-      while (pio_sm_get_pc(pio, sm) != 2) {
-        ToShowIrqs::Show('^');
+      int attempt = 200;
+      T::ShowIrqs('>');
+      while (pio_sm_get_pc(pio, sm) != PULL_BLOCK_PC) {
+        T::ShowIrqs('^');
         attempt--;
         if (!attempt) {
-          // We failed to hit the loop at PC=1.
+          // We failed to hit the PULL_BLOCK_PC
           return false;
         }
       }
 
-      // Assume tpio_program is already stuck at beginning of loop.
-      // Disable it.
+      // Disable the running TPIO program.
       pio_sm_set_enabled(pio, sm, false);
 
       // and switch to the Latch program.
@@ -828,11 +679,11 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
       pio_add_program_at_offset(pio, &tpio_program, 0);
       tpio_program_init(pio, sm, 0);
 
-      ToShowIrqs::Show(irq_needed ? ';' : ',');
+      T::ShowIrqs(irq_needed ? ';' : ',');
       return true;
     }
 
-  void PreRoll() {
+  static void PreRoll() {
     const PIO pio = pio0;
     constexpr uint sm = 0;
 
@@ -849,7 +700,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
       // const uint addr = WAIT_GET();
       // const uint flags = WAIT_GET();
       const bool reading = (flags & F_READ);
-      const byte x = Peek(0xFFFE);
+      const byte x = T::Peek(0xFFFE);
 
       printf(":Preroll: got %08x addr %x flags %x reading %x x %x\n", got32,
              addr, flags, reading, x);
@@ -870,13 +721,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
   /////////////
 
-#if FOR_COCO
-  uint sdc_lsn;
-  uint emu_disk_buffer;
-  byte rtc_value;
-#endif
-
-  void HandleIOWrites(uint addr, byte data) {
+  static void HandleIOWrite(uint addr, byte data) {
     const bool reading = false;
 
     byte dev = addr & 0xFF;  // TODO -- handle f256 with 2 IO pages
@@ -888,35 +733,37 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     } else
       switch (255 & addr) {
 #if FOR_COCO
+
+        #if 0
         case 0x4B:
-          sdc_lsn = (Peek(0xFF49) << 16) | (Peek(0xFF4A) << 8) | (0xFF & data);
+          sdc_lsn = (T::Peek(0xFF49) << 16) | (T::Peek(0xFF4A) << 8) | (0xFF & data);
           printf("SET SDC SECTOR sdc_lsn=%x\n", sdc_lsn);
           break;
 
         case 0x48:             // WD Floppy or CocoSDC command reg.
           if (data == 0xC0) {  // Special CocoSDC Command Mode
-            if (Peek(0xFF40) == 0x43) {
-              byte special_cmd = Peek(0xFF49);
+            if (T::Peek(0xFF40) == 0x43) {
+              byte special_cmd = T::Peek(0xFF49);
               printf("- yak - Special CocoSDC Command Mode: %x %x %x\n",
-                     special_cmd, Peek(0xFF4A), Peek(0xFF4B));
+                     special_cmd, T::Peek(0xFF4A), T::Peek(0xFF4B));
               switch (special_cmd) {
                 case 'Q':
-                  Poke(0xFF49, 0x00);
-                  Poke(0xFF4A, 0x02);
-                  Poke(0xFF4B, 0x10);  // Say size $000210 sectors.
+                  T::Poke(0xFF49, 0x00);
+                  T::Poke(0xFF4A, 0x02);
+                  T::Poke(0xFF4B, 0x10);  // Say size $000210 sectors.
                   break;
                 case 'g':  // Set global flags.
                   // llcocosdc.0250230904: [Secondary command to "Set Global
                   // Flags"] [Disable Floppy Emulation capability in SDC
                   // controller] uses param $FF80
-                  Poke(0xFF49, 0x00);
-                  Poke(0xFF4A, 0x00);
-                  Poke(0xFF4B, 0x00);
+                  T::Poke(0xFF49, 0x00);
+                  T::Poke(0xFF4A, 0x00);
+                  T::Poke(0xFF4B, 0x00);
                   break;
                 default:
-                  Poke(0xFF49, 0x00);
-                  Poke(0xFF4A, 0x00);
-                  Poke(0xFF4B, 0x00);
+                  T::Poke(0xFF49, 0x00);
+                  T::Poke(0xFF4A, 0x00);
+                  T::Poke(0xFF4B, 0x00);
                   break;
               }  // end switch special_cmd
             }  // if data
@@ -933,15 +780,16 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
         case 0x00:
         case 0x01:
         case 0x02:
-          ToLog::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
+          T::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
           break;
         case 0x03:
           // Read PIA0
-          ToLog::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
+          T::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
           if (not reading) {
             vsync_irq_enabled = bool((data & 1) != 0);
           }
           break;
+#endif
 
         case 0x90:  // GIME INIT0
           if (not reading) {
@@ -980,41 +828,34 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
           }
           break;
 
+#if 0
         case 255 & (EMUDSK_PORT + 0):  // LSN(hi)
         case 255 & (EMUDSK_PORT + 1):  // LSN(mid)
         case 255 & (EMUDSK_PORT + 2):  // LSN(lo)
         case 255 & (EMUDSK_PORT + 4):  // buffer addr
         case 255 & (EMUDSK_PORT + 5):
         case 255 & (EMUDSK_PORT + 6):  // drive number
-          ToLog::Logf("-EMUDSK %x %x %x\n", addr, data, Peek(addr));
+          T::Logf("-EMUDSK %x %x %x\n", addr, data, T::Peek(addr));
           break;
         case 255 & (EMUDSK_PORT + 3):  // Run EMUDSK Command.
           if (!reading) {
             byte command = data;
 
-            ToLog::Logf(
+            T::Logf(
                 "-EMUDSK device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
-                Peek(EMUDSK_PORT + 6), Peek(EMUDSK_PORT + 0),
-                Peek2(EMUDSK_PORT + 1), Peek2(EMUDSK_PORT + 4), command);
+                T::Peek(EMUDSK_PORT + 6), T::Peek(EMUDSK_PORT + 0),
+                T::Peek2(EMUDSK_PORT + 1), T::Peek2(EMUDSK_PORT + 4), command);
 
-            uint lsn = Peek2(EMUDSK_PORT + 1);
-            emu_disk_buffer = Peek2(EMUDSK_PORT + 4);
-#if INCLUDED_DISK
-            byte* dp = Disk + 256 * lsn;
-#endif
+            uint lsn = T::Peek2(EMUDSK_PORT + 1);
+            emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
 
-            ToLog::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
+            T::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
                         lsn, emu_disk_buffer, command);
 
             switch (command) {
               case 0:  // Disk Read
-#if INCLUDED_DISK
-                for (uint k = 0; k < 256; k++) {
-                  Poke(emu_disk_buffer + k, dp[k]);
-                }
-#else
                 putbyte(C_DISK_READ);
-                putbyte(Peek(EMUDSK_PORT + 6));  // device
+                putbyte(T::Peek(EMUDSK_PORT + 6));  // device
                 putbyte(lsn >> 16);
                 putbyte(lsn >> 8);
                 putbyte(lsn >> 0);
@@ -1026,39 +867,34 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
                       (void)disk_input.Take();  // 4-byte device & LSN.
                     }
                     for (uint k = 0; k < 256; k++) {
-                      Poke(emu_disk_buffer + k, disk_input.Take());
+                      T::Poke(emu_disk_buffer + k, disk_input.Take());
                     }
                     data = 0;  // Ready
                     break;
                   }
                 }
-#endif
                 break;
 
               case 1:  // Disk Write
-#if INCLUDED_DISK
-                for (uint k = 0; k < 256; k++) {
-                  dp[k] = Peek(emu_disk_buffer + k);
-                }
-#else
                 putbyte(C_DISK_WRITE);
-                putbyte(Peek(EMUDSK_PORT + 6));  // device
+                putbyte(T::Peek(EMUDSK_PORT + 6));  // device
                 putbyte(lsn >> 16);
                 putbyte(lsn >> 8);
                 putbyte(lsn >> 0);
                 for (uint k = 0; k < 256; k++) {
-                  putbyte(Peek(emu_disk_buffer + k));
+                  putbyte(T::Peek(emu_disk_buffer + k));
                 }
                 break;
 
               default:
                 printf("\nwut emudsk command %d.\n", command);
                 DumpRamAndGetStuck("wut emudsk", command);
-#endif
             }
           }
           break;
+#endif
 
+#if 0
         case 0xFF & (TFR_RTC_BASE + 1):
           switch (data) {
             case 0:
@@ -1110,41 +946,28 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
               break;
           }  // switch data
           break;
+#endif
+
 #endif  // FOR_COCO
 
       }  // switch addr & 255
-  }  // HandleIOWrites
-
-  uint data;
-  uint num_resets;
-  uint event;
-  uint when;
-  uint num_swi2s;
-#ifdef TRACKING
-  bool vma;      // Valid Memory Address ( = delayed AVMA )
-  bool fic;      // First Instruction Cycle ( = delayed LIC )
-  uint next_pc;  // for multibyte ops.
-
-#endif
-
-  IOReader IOReaders[256];
-  IOWriter IOWriters[256];
+  }  // HandleIOWrite
 
 #if FOR_COCO
-  byte Reader43(uint addr, byte data) {
-    if ((Peek(0xFF7F) & 3) == 3) {
+  static byte Reader43(uint addr, byte data) {
+    if ((T::Peek(0xFF7F) & 3) == 3) {
       // Respond to MPI slot 3.
       // Return what was saved at 0x42?
       // I don't know why, just guessing, but it works,
       // for this line:
       // "llcocosdc.0250230904"+01e0   lda -5,x ; get value from Flash Ctrl Reg
-      data = 0x60 & Peek(addr - 1);
+      data = 0x60 & T::Peek(addr - 1);
     } else {
       data = 0;
     }
     return data;
   }
-  byte Reader48(uint addr, byte data) {
+  static byte Reader48(uint addr, byte data) {
     if (sdc_disk_pending) {
       data = 3;  // BUSY and READY
       sdc_disk_pending = 0;
@@ -1153,7 +976,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     }
     return data;
   }
-  byte Reader4b(uint addr, byte data) {
+  static byte Reader4b(uint addr, byte data) {
     if (sdc_disk_read_ptr) {
       data = *sdc_disk_read_ptr++;
       if (sdc_disk_read_ptr == (sdc_disk_read_data + 256)) {
@@ -1162,7 +985,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     }
     return data;
   }
-  byte ReaderAcia0(uint addr, byte data) {
+  static byte ReaderAcia0(uint addr, byte data) {
     data = 0x02;  // Transmit buffer always considered empty.
     data |= (acia_irq_firing) ? 0x80 : 0x00;
     data |= (acia_char_in_ready) ? 0x01 : 0x00;
@@ -1171,7 +994,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     return data;
   }
 
-  byte ReaderAcia1(uint addr, byte data) {
+  static byte ReaderAcia1(uint addr, byte data) {
     if (acia_char_in_ready) {
       data = acia_char;
       acia_char_in_ready = false;
@@ -1182,28 +1005,28 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
   }
 #endif  // FOR_COCO
 
-  void ReaderInit() {
+  static void ReaderInit() {
 #if FOR_COCO
-    IOReaders[0x43] = [this](uint addr, byte data) {
-      return this->Reader43(addr, data);
+    IOReaders[0x43] = [](uint addr, byte data) {
+      return Reader43(addr, data);
     };
-    IOReaders[0x48] = [this](uint addr, byte data) {
-      return this->Reader48(addr, data);
+    IOReaders[0x48] = [](uint addr, byte data) {
+      return Reader48(addr, data);
     };
-    IOReaders[0x4b] = [this](uint addr, byte data) {
-      return this->Reader4b(addr, data);
+    IOReaders[0x4b] = [](uint addr, byte data) {
+      return Reader4b(addr, data);
     };
-    IOReaders[(byte)(ACIA_PORT + 0)] = [this](uint addr, byte data) {
-      return this->ReaderAcia0(addr, data);
+    IOReaders[(byte)(ACIA_PORT + 0)] = [](uint addr, byte data) {
+      return ReaderAcia0(addr, data);
     };
-    IOReaders[(byte)(ACIA_PORT + 1)] = [this](uint addr, byte data) {
-      return this->ReaderAcia1(addr, data);
+    IOReaders[(byte)(ACIA_PORT + 1)] = [](uint addr, byte data) {
+      return ReaderAcia1(addr, data);
     };
 #endif  // FOR_COCO
   }
 
-  void HandleIOReads(uint addr) {
-    data = Peek(addr);  // default behavior
+  static void HandleIORead(uint addr) {
+    data = T::Peek(addr);  // default behavior
 
     byte dev = addr & 0xFF;
     // IOReader reader = IOReaders[dev];
@@ -1236,14 +1059,14 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
         case 0x43:  // CocoSDC Flash Control
           assert(0);
-          if ((Peek(0xFF7F) & 3) == 3) {
+          if ((T::Peek(0xFF7F) & 3) == 3) {
             // Respond to MPI slot 3.
             // Return what was saved at 0x42?
             // I don't know why, just guessing, but it works,
             // for this line:
             // "llcocosdc.0250230904"+01e0   lda -5,x ; get value from Flash
             // Ctrl Reg
-            data = 0x60 & Peek(addr - 1);
+            data = 0x60 & T::Peek(addr - 1);
           } else {
             data = 0;
           }
@@ -1267,26 +1090,6 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
               sdc_disk_read_ptr = nullptr;
             }
           }
-          break;
-
-        // Read PIA0
-        case 0x00:
-          ToLog::Logf("-PIA PIA0 Read not Impl: %x\n", addr);
-          data = 0xFF;  // say like, no key pressed
-          break;
-        case 0x01:
-          ToLog::Logf("-PIA PIA0 Read not Impl: %x\n", addr);
-          DumpRamAndGetStuck("pia0", addr);
-          break;
-        case 0x02:
-          Poke(
-              0xFF03,
-              Peek(0xFF03) & 0x7F);  // Clear the bit indicating VSYNC occurred.
-          vsync_irq_firing = false;
-          data = 0xFF;
-          break;
-        case 0x03:
-          // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
           break;
 
         case 0x92:  // GIME IRQEN register
@@ -1330,9 +1133,12 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
           data = 0;                     // always a good status.
           break;
 
+#if 0
         case 0xFF & (TFR_RTC_BASE + 0):
           data = rtc_value;
           break;
+#endif
+
 #endif  // FOR_COCO
 
         default:
@@ -1342,21 +1148,23 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, data, 0xFF /*=outputs*/));
   }
 
-  void InstallVectors(uint* vectors) {
+  static void InstallVectors(uint* vectors) {
     constexpr uint FIRST_VECTOR_ADDRESS = 0xFFF0;
     for (uint j = 0; j < 8; j++) {
-      Poke2(FIRST_VECTOR_ADDRESS + 2 * j, vectors[j]);
+      T::Poke2(FIRST_VECTOR_ADDRESS + 2 * j, vectors[j]);
     }
   }
 
-  void Run() override {
-    MUMBLE("RR");
-    the_ram.Reset();
-    MUMBLE("IR");
-    InitRamFromRom();
+  static void Run() {
+    T::Install();
 
-    if (ToSamVdg::Does()) {
-        if (ToGime::Does()) {
+    MUMBLE("RR");
+    T::Reset();
+    MUMBLE("OS");
+    T::Install_OS();
+
+    if (T::DoesSamvdg()) {
+        if (T::DoesGime()) {
             MUMBLE("IV3");
             InstallVectors(Coco3Vectors);
         } else {
@@ -1395,7 +1203,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
   }  // end Run
 
-  bool PeekDiskInput() {
+  static bool PeekDiskInput() {
     int peek = disk_input.HasAtLeast(1) ? (int)disk_input.Peek() : -1;
     switch (peek) {
       case C_DISK_READ:
@@ -1407,10 +1215,10 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     return false;
   }
 
-  void ReadDisk(uint device, uint lsn, byte* buffer) {
+  static void ReadDisk(uint device, uint lsn, byte* buffer) {
 #if INCLUDED_DISK
     for (uint k = 0; k < 256; k++) {
-      Poke(buffer + k, TODO dp[k]);
+      T::Poke(buffer + k, TODO dp[k]);
     }
 #else
     printf("READ SDC SECTOR %x %x\n", device, lsn);
@@ -1435,10 +1243,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 #endif
   }
 
-  uint TildePowerOf2;
-  uint OuterLoops;
-
-  void RunMachineCycles() {
+  static void RunMachineCycles() {
     uint cy = 0;  // This is faster if local.
     bool prev_irq_needed = false;
 
@@ -1450,7 +1255,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
     PreRoll();
 
     MUMBLE("FFFF");
-    const byte value_FFFF = Peek(0xFFFF);
+    const byte value_FFFF = T::Peek(0xFFFF);
     printf("value_FFFF = %x\n", value_FFFF);
     const uint value_FFFF_shift_8_plus_FF = (value_FFFF << 8) + 0xFF;
 
@@ -1475,25 +1280,25 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
       bool irq_needed = false;
 
-      irq_needed |= ToTurbo9sim::IrqNeeded();  // either Timer or RX
+      irq_needed |= T::Turbo9sim_IrqNeeded();  // either Timer or RX
 
-      if (ToSamVdg::Does()) {
+      if (T::DoesSamvdg()) {
         irq_needed |= (vsync_irq_enabled && vsync_irq_firing);
-        ToShowIrqs::Show('H');
+        T::ShowIrqs('H');
       }
 
-      if (ToAcia::Does()) {
+      if (T::DoesAcia()) {
         irq_needed |= (acia_irq_enabled && acia_irq_firing);
-        ToShowIrqs::Show('A');
+        T::ShowIrqs('A');
       }
 
-      if (ToGime::Does()) {
+      if (T::DoesGime()) {
         irq_needed |= (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
-          ToShowIrqs::Show('G');
+          T::ShowIrqs('G');
       }
 
       if (irq_needed != prev_irq_needed) {
-        bool ok = NeoIrq(irq_needed);
+        bool ok = ChangeInterruptPin(irq_needed);
         if (ok) {
           prev_irq_needed = irq_needed;
           LED(irq_needed);
@@ -1502,14 +1307,13 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
       PollUsbInput();
 
-#if FOR_TURBO9SIM
-      if (ToTurbo9sim::CanRx()) {
+      if (T::Turbo9sim_CanRx()) {
         if (term_input.HasAtLeast(1)) {
           byte ch = term_input.Take();
-          ToTurbo9sim::SetRx(ch);
+          T::Turbo9sim_SetRx(ch);
         }
       }
-#endif
+
 #if FOR_COCO
       if (not acia_char_in_ready) {
         if (term_input.HasAtLeast(1)) {
@@ -1534,12 +1338,10 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
       if (TimerFired) {
         TimerFired = false;
 
-#if FOR_TURBO9SIM
-        ToTurbo9sim::SetTimerFired();
-#endif
+        T::Turbo9sim_SetTimerFired();
 #if FOR_COCO
-        Poke(0xFF03,
-             Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
+        T::Poke(0xFF03,
+             T::Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
         if (vsync_irq_enabled) {
           vsync_irq_firing = true;
         }
@@ -1551,7 +1353,7 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
       for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {  /////// Inner Machine Loop
 
-        if (ToLog::DoesLog()) {
+        if (T::DoesLog()) {
             if (cy >= trace_at_what_cycle) interest = 999999;
         }
 
@@ -1568,14 +1370,14 @@ force_inline void PokeQuietly(uint addr, byte data) { the_ram.WriteQuietly(addr,
 
         if (likely(addr < 0xFE00)) {
           if (reading) {
-            PUT((FastPeek(addr) << 8) + 0xFF);
-if (ToLog::DoesLog()) {
-            data = FastPeek(addr);
+            PUT((T::FastPeek(addr) << 8) + 0xFF);
+if (T::DoesLog()) {
+            data = T::FastPeek(addr);
 }
           } else {
             const uint data_and_more = WAIT_GET();
-            FastPoke(addr, (byte)data_and_more);
-if (ToLog::DoesLog()) {
+            T::FastPoke(addr, (byte)data_and_more);
+if (T::DoesLog()) {
             data = (byte)data_and_more;
 }
           }  // end if reading
@@ -1584,13 +1386,13 @@ if (ToLog::DoesLog()) {
         } else if (addr == 0xFFFF) {
           if (reading) {
             PUT(value_FFFF_shift_8_plus_FF);
-if (ToLog::DoesLog()) {
+if (T::DoesLog()) {
             data = value_FFFF;
 }
           } else {
             const byte foo = WAIT_GET();
             (void)foo;
-if (ToLog::DoesLog()) {
+if (T::DoesLog()) {
             data = foo;
 }
           }
@@ -1598,14 +1400,14 @@ if (ToLog::DoesLog()) {
           // =============================================================
         } else if (addr < 0xFF00) {
           if (reading) {  // if reading FExx
-            PUT((Peek(addr) << 8) + 0xFF);
-if (ToLog::DoesLog()) {
-            data = Peek(addr);
+            PUT((T::Peek(addr) << 8) + 0xFF);
+if (T::DoesLog()) {
+            data = T::Peek(addr);
 }
           } else {  // if writing FExx
             const byte foo = WAIT_GET();
-            Poke(addr, foo, 0x3F);
-if (ToLog::DoesLog()) {
+            T::Poke(addr, foo, 0x3F);
+if (T::DoesLog()) {
             data = foo;
 }
           }  // end if reading
@@ -1613,12 +1415,12 @@ if (ToLog::DoesLog()) {
           // =============================================================
         } else {
           if (reading) {  // CPU reads, Pico Tx
-            HandleIOReads(addr);
+            HandleIORead(addr);
           } else {
             // CPU writes, Pico Rx
             data = WAIT_GET();
-            Poke(addr, data, 0x3F);
-            HandleIOWrites(addr, data);
+            T::Poke(addr, data, 0x3F);
+            HandleIOWrite(addr, data);
           }  // end if read / write
         }  // addr type
 
@@ -1626,7 +1428,7 @@ if (ToLog::DoesLog()) {
         // =============================================================
 
 // #if OPCODES
-        if (ToLog::DoesLog()) {
+        if (T::DoesLog()) {
         if (reading and addr != 0xFFFF and fic) {
           // ShowChar('1');
           current_opcode_cy = cy;
@@ -1664,8 +1466,9 @@ if (ToLog::DoesLog()) {
             }
           }
 #endif
+
 #if 1 // TRACE_RTI
-        if (ToLog::DoesLog()) {
+        if (T::DoesEvent()) {
           if (current_opcode == 0x3B) {  // RTI
             uint age = cy - current_opcode_cy -
                        2 /*one byte opcode, one extra cycle */;
@@ -1679,7 +1482,7 @@ if (ToLog::DoesLog()) {
               hist_data[age] = data;
               hist_addr[age] = addr;
               if (age == RTI_SZ - 1) {
-                SendEventHist(EVENT_RTI, RTI_SZ);
+                T::SendEventHist(EVENT_RTI, RTI_SZ);
               }
             }
           }  // end RTI
@@ -1696,7 +1499,7 @@ if (ToLog::DoesLog()) {
               hist_data[age] = data;
               hist_addr[age] = addr;
               if (age == SWI2_SZ - 1) {
-                SendEventHist(EVENT_SWI2, SWI2_SZ);
+                T::SendEventHist(EVENT_SWI2, SWI2_SZ);
               }
             }
           }
@@ -1705,7 +1508,7 @@ if (ToLog::DoesLog()) {
         }
         if (!reading) {
 #if 1 // TRACE_RTI
-        if (ToLog::DoesLog()) {
+        if (T::DoesLog()) {
           if (current_opcode == 0x103F) {  // SWI2/OS9
             uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
             if (0)
@@ -1721,7 +1524,7 @@ if (ToLog::DoesLog()) {
           }
 #endif
         }
-        } //  ToLog::DoesLog()
+        } //  T::DoesLog()
 // #endif  // OPCODES
 
         uint high = flags & F_HIGH;
@@ -1737,7 +1540,7 @@ if (ToLog::DoesLog()) {
 
 #if TRACKING
         if (reading and (not vma) and (addr == 0xFFFF)) {
-          ToLog::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
+          T::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
         } else {
           const char* label = reading ? (vma ? "r" : "-") : "w";
           if (reading) {
@@ -1759,7 +1562,7 @@ if (ToLog::DoesLog()) {
             }  // end case Reading but not FIC
 
           }  // end if reading
-          ToLog::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
+          T::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
                       HighFlags(high), cy);
         }  // end if valid cycle
 
@@ -1771,7 +1574,7 @@ if (ToLog::DoesLog()) {
 #endif  // TRACKING
 
 // #if OPCODES
-        if (ToLog::DoesLog()) {
+        if (T::DoesLog()) {
             vma = (0 != (flags & F_AVMA));
             fic = (0 != (flags & F_LIC));
         }
@@ -1792,12 +1595,82 @@ if (ToLog::DoesLog()) {
   exit:
           ShowStr("\n<<< TFR9 STOPPING >>>\n");
   }  // end RunMachineCycles
-};  // end struct Engine
+};  // end struct EngineBase
+
+/*
+struct E1:
+    EngineImpl<E1>,
+    DoLog<E1>,
+    DoLogMmu<E1>,
+    DoShowIrqs<E1>,
+    SmallRam<E1>,
+    DoTracePokes<E1>,
+    DoAcia<E1>,
+    DontGime<E1>,
+    DoSamvdg<E1> {
+};
+
+template <
+    class Log,
+    class LogMmu,
+    class ShowIrqs,
+    class Ram,
+    class TracePokes,
+    class Acia,
+    class Gime,
+    class Samvdg
+>
+struct E2: EngineBase,
+    Log,
+    LogMmu,
+    ShowIrqs,
+    Ram,
+    TracePokes,
+    Acia,
+    Gime,
+    Samvdg {
+};
+int main() {
+    E2<
+}
+*/
+
+struct T9_Slow:
+    EngineBase<T9_Slow>,
+    DoLog<T9_Slow>,
+    DoLogMmu<T9_Slow>,
+    DontShowIrqs<T9_Slow>,
+    CommonRam<T9_Slow>,
+    SmallRam<T9_Slow>,
+    DontTracePokes<T9_Slow>,
+    DoEvent<T9_Slow>,
+    DontAcia<T9_Slow>,
+    DontGime<T9_Slow>,
+    DontSamvdg<T9_Slow>,
+    DoTurbo9sim<T9_Slow>,
+    DoTurbo9os<T9_Slow> {
+
+  static void Install() {
+    // TODO // ResetAll();
+    Turbo9sim_Install(PRIMARY_TURBO9SIM);
+    Turbo9sim_Install(SECONDARY_TURBO9SIM);
+  }
+};
+
+
 
 struct harness {
-  EngineBase* engines[5];
-  EngineBase* fast_engines[5];
+  std::function<void(void)> engines[5];
+  std::function<void(void)> fast_engines[5];
 
+  T9_Slow t9_slow;
+
+  harness() {
+    engines[0] = [&](){ t9_slow.Run(); };
+  }
+
+
+/*
   Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim, DontSamVdg, DontGime, DontAcia, DoShowIrqs> t9slow;
   Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim, DontSamVdg, DontGime, DontAcia, DontShowIrqs> t9fast;
 
@@ -1814,6 +1687,12 @@ struct harness {
     t9fast.Install(PRIMARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
     t9fast.Install(SECONDARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
 
+    l1slow.DoSamVdg::Install(l1slow.IOReaders, l1slow.IOWriters);
+    l1fast.DoSamVdg::Install(l1fast.IOReaders, l1fast.IOWriters);
+
+    l2slow.DoSamVdg::Install(l2slow.IOReaders, l2slow.IOWriters);
+    l2fast.DoSamVdg::Install(l2fast.IOReaders, l2fast.IOWriters);
+
     engines[0] = &t9slow;
     engines[1] = &l1slow;
     engines[2] = &l2slow;
@@ -1821,6 +1700,7 @@ struct harness {
     fast_engines[1] = &l1fast;
     fast_engines[2] = &l2fast;
   }
+  */
 } Harness;
 
 void InitialBanners() {
@@ -1870,7 +1750,7 @@ void Shell() {
       if ('0' <= ch && ch <= '4') {
         uint num = ch - '0';
         if (Harness.engines[num]) {
-          Harness.engines[num]->Run();
+          Harness.engines[num]();
         } else {
           ShowChar('?');
         }
@@ -1878,7 +1758,7 @@ void Shell() {
       } else if ('5' <= ch && ch <= '9') {
         uint num = ch - '5';
         if (Harness.fast_engines[num]) {
-          Harness.fast_engines[num]->Run();
+          Harness.fast_engines[num]();
         } else {
           ShowChar('?');
         }

@@ -6,11 +6,13 @@ const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
 
 byte ram[BIG_RAM_SIZE];
 
+template <class T>
 struct DontTracePokes {
-  force_inline void TraceThePoke(uint addr, byte data) {}
+  force_inline static void TraceThePoke(uint addr, byte data) {}
 };
+template <class T>
 struct DoTracePokes {
-  force_inline void TraceThePoke(uint addr, byte data) {
+  force_inline static void TraceThePoke(uint addr, byte data) {
     putbyte(C_POKE);
     putbyte(addr >> 16);
     putbyte(addr >> 8);
@@ -19,9 +21,11 @@ struct DoTracePokes {
   }
 };
 
+template <class T>
 struct DontLogMmu {
   force_inline int Logf(const char* fmt, ...) { return 0; }
 };
+template <class T>
 struct DoLogMmu {
   int Logf(const char* fmt, ...) {
     if (!interest) return 0;
@@ -35,51 +39,84 @@ struct DoLogMmu {
   }
 };
 
-template <class ToLogMmu, class ToTracePokes>
-class SmallRam : public ToLogMmu, public ToTracePokes {
+template <class T>
+struct CommonRam {
+  static force_inline byte FastPeek(uint addr) { return T::FastRead(addr); }
+  static force_inline byte Peek(uint addr) { return T::Read(addr); }
+
+  static force_inline void Poke(uint addr, byte data) { T::Write(addr, data); }
+#if 0
+force_inline void PokeQuietly(uint addr, byte data) { T::WriteQuietly(addr, data); }
+#endif
+  static force_inline void FastPoke(uint addr, byte data) {
+    T::FastWrite(addr, data);
+  }
+
+  static force_inline void Poke(uint addr, byte data, byte block) {
+    T::Write(addr, data, block);
+  }
+
+  static force_inline uint Peek2(uint addr) {
+    uint hi = Peek(addr);
+    uint lo = Peek(addr + 1);
+    return (hi << 8) | lo;
+  }
+  static force_inline void Poke2(uint addr, uint data) {
+    byte hi = (byte)(data >> 8);
+    byte lo = (byte)data;
+    Poke(addr, hi);
+    Poke(addr + 1, lo);
+  }
+};
+
+template <class T>
+class SmallRam {
  private:
   // byte ram[0x10000];
 
  public:
-  void Reset() {}
-  byte Read(uint addr) {
+  static void Reset() {}
+  static byte Read(uint addr) {
     // printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
     // TODO -- assert the mask is never needed.
     return ram[addr & 0xFFFF];
   }
-  void Write(uint addr, byte data, byte block = 0) {
+  static void Write(uint addr, byte data, byte block = 0) {
     // printf("write %x <- %x\n", addr, data);
     // TODO -- assert the mask is never needed.
     ram[addr & 0xFFFF] = data;
-    ToTracePokes::TraceThePoke(addr, data);
+    T::TraceThePoke(addr, data);
   }
-  byte FastRead(uint addr) { return Read(addr); }
-  void FastWrite(uint addr, byte data) { Write(addr, data); }
-  byte ReadPhys(uint addr) { return Read(addr); }
-  uint PhysSize() { return sizeof ram; }
+  static byte FastRead(uint addr) { return Read(addr); }
+  static void FastWrite(uint addr, byte data) { Write(addr, data); }
+  static byte ReadPhys(uint addr) { return Read(addr); }
+  static uint PhysSize() { return sizeof ram; }
 };
 
-template <class ToLogMmu, class ToTracePokes>
-class BigRam : public ToLogMmu, public ToTracePokes {
- private:
-  const byte mmu_init[16] = {
-      0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-      0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-  };
+static byte const BigRam_mmu_init[16] = {
+  0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+  0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+};
 
+template <class T>
+class BigRam {
+ private:
   const static uint SLOT_SHIFT = 13;
   const static uint OFFSET_MASK = (1 << 13) - 1;
   const static uint SLOT_MASK = 7;
 
-  bool enable_mmu;
-  byte current_task;
-  uint* current_bases;
+  static bool enable_mmu;
+  static byte current_task;
+  static uint* current_bases;
 
-  uint base[2][8];
-  byte mmu[2][8];
+  static uint base[2][8];
+  static byte mmu[2][8];
 
  public:
-  void Reset() {
+  static void Reset() {
+    for (byte i = 0; i < 16; i++) {
+    }
+
     interest += 500;
 
     enable_mmu = true;
@@ -93,7 +130,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     // TR=0: map 0-7: $??,$39,$3A,$3B,$3C,$3D,$3E,$3F
     // TR-1: map 0-7: $38,$30,$31,$32,$33,$3D,$35,$3F
     for (byte i = 0; i < 16; i++) {
-      Write(0xFFA0 + i, mmu_init[i]);
+      Write(0xFFA0 + i, BigRam_mmu_init[i]);
     }
     /*
         for (uint task = 0; task < 2; task++) {
@@ -102,32 +139,32 @@ class BigRam : public ToLogMmu, public ToTracePokes {
             }
         }
         */
-    ToLogMmu::Logf(
+    T::Logf(
         "BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
         BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
         OFFSET_MASK);
   }
 
-  void SetEnableMmu(bool a) {
+  static void SetEnableMmu(bool a) {
     if (a != enable_mmu) {
-      ToLogMmu::Logf("COCO3: Now MMU is %u\n", a);
+      T::Logf("COCO3: Now MMU is %u\n", a);
     }
     enable_mmu = a;
   }
-  void SetCurrentTask(byte a) {
+  static void SetCurrentTask(byte a) {
     assert(a < 2);
     if (a != current_task) {
-      ToLogMmu::Logf("COCO3: Now Task is %u\n", a);
+      T::Logf("COCO3: Now Task is %u\n", a);
     }
     current_task = a;
     current_bases = base[a];
   }
-  void WriteMmu(byte task, byte slot, byte blk) {
-    ToLogMmu::Logf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
+  static void WriteMmu(byte task, byte slot, byte blk) {
+    T::Logf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
     mmu[task][slot] = blk;
     base[task][slot] = (blk << SLOT_SHIFT) & BIG_RAM_MASK;
   }
-  uint Block(uint addr) {  // used by the RECORD feature.
+  static uint Block(uint addr) {  // used by the RECORD feature.
 
 #define DETERMINE_BLOCK                         \
   addr = addr & 0xFFFF;                         \
@@ -140,7 +177,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     return block;
   }
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-  force_inline uint Phys(uint addr) {
+  force_inline static uint Phys(uint addr) {
     DETERMINE_BLOCK
 
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
@@ -148,7 +185,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
 
     return phys;
   }
-  force_inline uint Phys(uint addr, byte block) {
+  force_inline static uint Phys(uint addr, byte block) {
     uint offset = addr & OFFSET_MASK;
 
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
@@ -157,7 +194,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     return phys;
   }
   // ==============================================
-  force_inline uint FastPhys(uint addr) {
+  force_inline static uint FastPhys(uint addr) {
     uint offset = addr & OFFSET_MASK;
     uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
     uint basis = current_bases[slot];
@@ -166,7 +203,7 @@ class BigRam : public ToLogMmu, public ToTracePokes {
 
     return phys;
   }
-  force_inline uint FastPhys(uint addr, byte block) {
+  force_inline static uint FastPhys(uint addr, byte block) {
     uint offset = addr & OFFSET_MASK;
     uint basis = current_bases[block];
     // uint phys = (basis | offset) & BIG_RAM_MASK;
@@ -175,12 +212,12 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     return phys;
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  force_inline byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
-  force_inline byte Read(uint addr) {
+  force_inline static byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
+  force_inline static byte Read(uint addr) {
     uint phys = Phys(addr);
     return ram[phys];
   }
-  force_inline byte FastRead(uint addr) {
+  force_inline static byte FastRead(uint addr) {
     // uint phys = Phys(addr);
     uint phys2 = FastPhys(addr);
     // if (phys != phys2) {
@@ -189,19 +226,19 @@ class BigRam : public ToLogMmu, public ToTracePokes {
     return ram[phys2];
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  force_inline void Write(uint addr, byte data, byte block) {
+  force_inline static void Write(uint addr, byte data, byte block) {
     uint phys = Phys(addr, block);
     ram[phys] = data;
 
-    ToTracePokes::TraceThePoke(phys, data);
+    T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
         case 0x90:
-          this->SetEnableMmu((data & 0x40) != 0);
+          SetEnableMmu((data & 0x40) != 0);
           break;
         case 0x91:
-          this->SetCurrentTask(data & 1);
+          SetCurrentTask(data & 1);
           break;
         case 0xA0:
         case 0xA1:
@@ -221,24 +258,24 @@ class BigRam : public ToLogMmu, public ToTracePokes {
         case 0xAF: {
           byte task = (addr >> 3) & 1;
           byte slot = addr & 7;
-          this->WriteMmu(task, slot, data);
+          WriteMmu(task, slot, data);
         } break;
       }  // switch
     }  // if
   }  // Write
-  void Write(uint addr, byte data) {
+  static void Write(uint addr, byte data) {
     uint phys = Phys(addr);
     ram[phys] = data;
 
-    ToTracePokes::TraceThePoke(phys, data);
+    T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
         case 0x90:
-          this->SetEnableMmu((data & 0x40) != 0);
+          SetEnableMmu((data & 0x40) != 0);
           break;
         case 0x91:
-          this->SetCurrentTask(data & 1);
+          SetCurrentTask(data & 1);
           break;
         case 0xA0:
         case 0xA1:
@@ -258,24 +295,24 @@ class BigRam : public ToLogMmu, public ToTracePokes {
         case 0xAF: {
           byte task = (addr >> 3) & 1;
           byte slot = addr & 7;
-          this->WriteMmu(task, slot, data);
+          WriteMmu(task, slot, data);
         } break;
       }  // switch
     }  // if
   }  // Write
-  void FastWrite(uint addr, byte data) {
+  static void FastWrite(uint addr, byte data) {
     uint phys = FastPhys(addr);
     ram[phys] = data;
 
-    ToTracePokes::TraceThePoke(phys, data);
+    T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
         case 0x90:
-          this->SetEnableMmu((data & 0x40) != 0);
+          SetEnableMmu((data & 0x40) != 0);
           break;
         case 0x91:
-          this->SetCurrentTask(data & 1);
+          SetCurrentTask(data & 1);
           break;
         case 0xA0:
         case 0xA1:
@@ -295,14 +332,18 @@ class BigRam : public ToLogMmu, public ToTracePokes {
         case 0xAF: {
           byte task = (addr >> 3) & 1;
           byte slot = addr & 7;
-          this->WriteMmu(task, slot, data);
+          WriteMmu(task, slot, data);
         } break;
       }  // switch
     }  // if
   }  // FastWrite
-  byte ReadPhys(uint addr) { return ram[addr]; }
-  void WritePhys(uint addr, byte data) { ram[addr] = data; }
-  uint PhysSize() { return sizeof ram; }
+  static byte ReadPhys(uint addr) { return ram[addr]; }
+  static void WritePhys(uint addr, byte data) { ram[addr] = data; }
+  static uint PhysSize() { return sizeof ram; }
+
+  ///////// Peek & Poke
+
+  ///////// end Peek & Poke
 };
 
 #endif  // _RAM_H_
