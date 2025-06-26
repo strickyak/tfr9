@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+const ANGLES = false
+
 func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
 	event := getByte(fromUSB)
 	sz := getByte(fromUSB)
@@ -51,7 +53,9 @@ func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
 
 	switch event {
 	case EVENT_SWI2:
-		fmt.Printf("<")
+		if ANGLES {
+		    fmt.Printf("<")
+        }
 
 		os9num := rec.Datas[0]
 		rec.Os9Num = os9num
@@ -74,7 +78,9 @@ func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
 		}
 
 	case EVENT_RTI:
-		fmt.Printf(">")
+		if ANGLES {
+            fmt.Printf(">")
+        }
 
 		// TODO: 6309
 		// TODO: FIRQ

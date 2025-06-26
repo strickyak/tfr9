@@ -2,12 +2,14 @@
 set -ex
 cd $(dirname $0)
 
+Enable_JUST=0
 Enable_SLOW=0
 Enable_FLASH=0
 Enable_RUN=0
 while true
 do
     case "$1" in
+        just ) Enable_JUST=1 ; shift ;;
         slow ) Enable_SLOW=1 ; shift ;;
         flash ) Enable_FLASH=1 ; shift ;;
         run ) Enable_RUN=1 ; shift ;;
@@ -38,18 +40,21 @@ export PATH="$COCO_SHELF/bin:$PATH"
 
 S="${COCO_SHELF}/nitros9/level1/coco1"
 D="generated/level1.dsk"
-sh create-nitros9disk.sh "$S" "$D" "$S/cmds/shell_21"
-make -C launchers
-python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S/bootfiles/kernel_tfr9" > generated/level1.rom.h
 
-make \
-    BUILD_DIR="${BUILD_DIR}" \
-    TFR_BOARD="${TFR_BOARD}" \
-    RP_CHIP="${RP_CHIP}" \
-    OS_LEVEL="${OS_LEVEL}" \
-    TRACKING="${Enable_SLOW}" \
-    "$@"
+if expr 0 = $Enable_JUST
+then
+    sh create-nitros9disk.sh "$S" "$D" "$S/cmds/shell_21"
+    make -C launchers
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S/bootfiles/kernel_tfr9" > generated/level1.rom.h
 
+    make \
+        BUILD_DIR="${BUILD_DIR}" \
+        TFR_BOARD="${TFR_BOARD}" \
+        RP_CHIP="${RP_CHIP}" \
+        OS_LEVEL="${OS_LEVEL}" \
+        TRACKING="${Enable_SLOW}" \
+        "$@"
+fi
 if expr 1 = $Enable_FLASH
 then
     cp -vf $BUILD_DIR/tmanager.uf2 /media/strick/RP*/.

@@ -3,6 +3,8 @@
 
 constexpr uint kDiskReadSize = 1 + 4 + 256;
 
+uint emu_disk_buffer;
+
 template <class T>
 struct DontEmudsk {
   constexpr static bool DoesEmudsk() { return false; }
@@ -12,7 +14,8 @@ template <class T>
 struct DoEmudsk {
   constexpr static bool DoesEmudsk() { return true; }
 
-  void static Install(uint base_addr) {
+  void static Emudsk_Install(uint base_addr) {
+        base_addr &= 0xFF;
 
         // LSN(hi)
         IOWriters[ base_addr + 0]= [](uint addr, byte data) {};
@@ -32,18 +35,19 @@ struct DoEmudsk {
         IOWriters[ base_addr + 3]=   [](uint addr, byte data) {
             byte command = data;
 
-            T::Logf(
+            printf( // T::Logf(
                 "-EMUDSK device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
-                T::peek(EMUDSK_PORT + 6), T::peek(EMUDSK_PORT + 0),
-                T::peek2(EMUDSK_PORT + 1), T::peek2(EMUDSK_PORT + 4), command);
+                T::Peek(EMUDSK_PORT + 6), T::Peek(EMUDSK_PORT + 0),
+                T::Peek2(EMUDSK_PORT + 1), T::Peek2(EMUDSK_PORT + 4), command);
 
-            uint lsn = T::peek2(EMUDSK_PORT + 1);
-            emu_disk_buffer = T::peek2(EMUDSK_PORT + 4);
+            uint lsn = T::Peek2(EMUDSK_PORT + 1);
+            emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
 #if INCLUDED_DISK
             byte* dp = Disk + 256 * lsn;
 #endif
 
-            T::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
+            printf( // T::Logf(
+                "-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
                         lsn, emu_disk_buffer, command);
 
             switch (command) {
@@ -54,13 +58,13 @@ struct DoEmudsk {
                 }
 #else
                 putbyte(C_DISK_READ);
-                putbyte(T::peek(EMUDSK_PORT + 6));  // device
+                putbyte(T::Peek(EMUDSK_PORT + 6));  // device
                 putbyte(lsn >> 16);
                 putbyte(lsn >> 8);
                 putbyte(lsn >> 0);
 
                 while (1) {
-                  T::PollUsbInput();
+                  PollUsbInput();
                   if (T::PeekDiskInput()) {
                     for (uint k = 0; k < kDiskReadSize - 256; k++) {
                       (void)disk_input.Take();  // 4-byte device & LSN.
@@ -78,16 +82,16 @@ struct DoEmudsk {
               case 1:  // Disk Write
 #if INCLUDED_DISK
                 for (uint k = 0; k < 256; k++) {
-                  dp[k] = T::peek(emu_disk_buffer + k);
+                  dp[k] = T::Peek(emu_disk_buffer + k);
                 }
 #else
                 putbyte(C_DISK_WRITE);
-                putbyte(T::peek(EMUDSK_PORT + 6));  // device
+                putbyte(T::Peek(EMUDSK_PORT + 6));  // device
                 putbyte(lsn >> 16);
                 putbyte(lsn >> 8);
                 putbyte(lsn >> 0);
                 for (uint k = 0; k < 256; k++) {
-                  putbyte(T::peek(emu_disk_buffer + k));
+                  putbyte(T::Peek(emu_disk_buffer + k));
                 }
                 break;
 
@@ -97,7 +101,7 @@ struct DoEmudsk {
 #endif
             }
         };
-  } // Install()
+  } // Emudsk_Install()
 
 }; // struct DoEmudsk
 

@@ -15,17 +15,20 @@ struct DoSamvdg {
 
   constexpr static bool DoesSamvdg() { return true; }
 
-  void static Samvdg_Install() {
+  static void Samvdg_Install() {
+ShowChar('s');
 
         // Read PIA0 (0x00 to 0x03)
     IOReaders[0x00] = [](uint addr, byte data) {
           T::Logf("-PIA PIA0 Read not Impl: %x\n", addr);
           data = 0xFF;  // say like, no key pressed
+            return data;
 };
 
     IOReaders[0x01] = [](uint addr, byte data) {
           T::Logf("-PIA PIA0 Read not Impl: %x\n", addr);
           DumpRamAndGetStuck("pia0", addr);
+            return data;
           };
 
     IOReaders[0x02] = [](uint addr, byte data) {
@@ -34,10 +37,12 @@ struct DoSamvdg {
               T::Peek(0xFF03) & 0x7F);  // Clear the bit indicating VSYNC occurred.
           vsync_irq_firing = false;
           data = 0xFF;
+            return data;
           };
 
     IOReaders[0x03] = [](uint addr, byte data) {
           // OK to read, for the HIGH bit, which tells if VSYNC ocurred.
+            return data;
           };
 
 
@@ -53,6 +58,7 @@ struct DoSamvdg {
           vsync_irq_enabled = bool((data & 1) != 0);
     };
 
+ShowChar('t');
   }
 
 };

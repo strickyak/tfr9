@@ -5,13 +5,11 @@
 template <class T>
 struct DontLog {
   static constexpr bool DoesLog() { return false; }
-  static constexpr bool DoesTrace() { return false; }
   static force_inline int Logf(const char* fmt, ...) { return 0; }
 };
 template <class T>
 struct DoLog {
   static constexpr bool DoesLog() { return true; }
-  static force_inline bool DoesTrace() { return enable_trace; }
 
   static int vLogf(const char* fmt, va_list va) {
     if (!interest) return 0;

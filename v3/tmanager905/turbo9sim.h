@@ -1,9 +1,6 @@
 #ifndef _TURBO9SIM_H_
 #define _TURBO9SIM_H_
 
-#define PRIMARY_TURBO9SIM 0xE0
-#define SECONDARY_TURBO9SIM 0x00
-
 bool sim_timer_irq;
 bool sim_rx_ready_irq;
 byte sim_status_reg;
@@ -100,7 +97,7 @@ struct DoTurbo9sim {
   void static simTxWriter(uint addr, byte data) {
     sim_last_char_tx = data;
 
-    // ShowChar('-');
+    ShowChar('+');
     ShowChar(data);
   }
 

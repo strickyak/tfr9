@@ -5,26 +5,27 @@
 
 #define INCLUDED_DISK 0
 
-constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
-
-#if OS_LEVEL == 90
-#define BANNER "Level 90 Turbo9SIM"
-#define FOR_COCO 0  // SAM & VDG & PIAs
-#endif
-
-#if OS_LEVEL == 100
-#define FOR_COCO 1  // SAM & VDG & PIAs
-#define BANNER "Level 1 NitrOS-9"
-#endif
-
-#if OS_LEVEL == 200
-#define FOR_COCO 1  // SAM & VDG & PIAs
-#define BANNER "Level 2 NitrOS-9"
-#endif
+//constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
+//
+//#if OS_LEVEL == 90
+//#define BANNER "Level 90 Turbo9SIM"
+//#define FOR_COCO 0  // SAM & VDG & PIAs
+//#endif
+//
+//#if OS_LEVEL == 100
+//#define FOR_COCO 1  // SAM & VDG & PIAs
+//#define BANNER "Level 1 NitrOS-9"
+//#endif
+//
+//#if OS_LEVEL == 200
+//#define FOR_COCO 1  // SAM & VDG & PIAs
+//#define BANNER "Level 2 NitrOS-9"
+//#endif
 
 #define SEEN TRACKING
 #define RECORD 0  // Fix me later.
-#define HEURISTICS TRACKING
+
+#define HEURISTICS 1
 
 #define ALLOW_DUMP_PHYS 0
 #define ALLOW_DUMP_RAM 0
@@ -113,7 +114,7 @@ byte sdc_disk_read_data[256];
 byte* sdc_disk_read_ptr;
 
 bool enable_show_irqs;
-bool enable_trace;
+bool enable_trace = true;
 uint trace_at_what_cycle;
 uint interest;
 uint stop_at_what_cycle;
@@ -130,6 +131,7 @@ int acia_char;
 void ShowChar(byte ch) {
   putchar(C_PUTCHAR);
   putchar(ch);
+  sleep_ms(20);
 }
 void ShowStr(const char* s) {
   while (*s) {
@@ -141,6 +143,7 @@ void ShowStr(const char* s) {
 void putbyte(byte x) { putchar_raw(x); }
 
 #include "log.h"
+#include "trace.h"
 
 template <typename T>
 struct DontShowIrqs {
@@ -150,6 +153,12 @@ template <typename T>
 struct DoShowIrqs {
   force_inline static void ShowIrqs(char ch) { if (enable_show_irqs) ShowChar(ch); }
 };
+
+using IOReader = std::function<byte(uint addr, byte data)>;
+using IOWriter = std::function<void(uint addr, byte data)>;
+IOReader IOReaders[256];
+IOWriter IOWriters[256];
+void PollUsbInput();
 
 #include "acia.h"
 #include "gime.h"
@@ -219,33 +228,6 @@ byte Disk[] = {
 };
 #endif
 
-#define LEVEL1_LAUNCHER_START 0x2500
-#define LEVEL2_LAUNCHER_START 0x2500
-
-uint Coco2Vectors[] = {
-    // From ~/coco-shelf/toolshed/cocoroms/bas13.rom :
-    0,  //  6309 TRAP
-    0x0100,
-    0x0103,
-    0x010f,
-    0x010c,
-    0x0106,
-    0x0109,
-    LEVEL1_LAUNCHER_START,  //  RESET
-};
-
-uint Coco3Vectors[] = {
-    // From ~/coco-shelf/toolshed/cocoroms/coco3.rom :
-    0x0000,  // 6309 traps
-    0xFEEE,
-    0xFEF1,
-    0xFEF4,
-    0xFEF7,
-    0xFEFA,
-    0xFEFD,
-    LEVEL2_LAUNCHER_START,
-};
-
 #define DELAY sleep_us(1)
 
 #define F_READ 0x01
@@ -264,11 +246,6 @@ uint Coco3Vectors[] = {
 
 #define STATE_Y5_RESET_PIN 0
 #define STATE_Y5_IRQ_PIN 2
-
-using IOReader = std::function<byte(uint addr, byte data)>;
-using IOWriter = std::function<void(uint addr, byte data)>;
-IOReader IOReaders[256];
-IOWriter IOWriters[256];
 
 extern "C" {
 extern int stdio_usb_in_chars(char* buf, int length);
@@ -386,7 +363,7 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 #include "event.h"
 
 // I/O devices
-#include "cocosdc.h"
+/////// #include "cocosdc.h"
 #include "emudsk.h"
 #include "samvdg.h"
 #include "turbo9sim.h"
@@ -395,15 +372,6 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 #include "turbo9os.h"
 #include "nitros9level1.h"
 #include "nitros9level2.h"
-
-uint AddressOfRom() {
-#if FOR_TURBO9SIM
-  return 0;
-#endif
-#if FOR_COCO
-  return 0x2500;
-#endif
-}
 
 void ViewAt(const char* label, uint hi, uint lo) {
 #if 0
@@ -477,7 +445,7 @@ void ResetCpu() {
   }
   SetY(0);
 
-  const uint EnoughCyclesToReset = 12;
+  const uint EnoughCyclesToReset = 32;
   gpio_put(PIN_Q, 0);
   DELAY;
   gpio_put(PIN_E, 0);
@@ -732,50 +700,8 @@ struct EngineBase {
       writer(addr, data);
     } else
       switch (255 & addr) {
-#if FOR_COCO
+#if 0
 
-        #if 0
-        case 0x4B:
-          sdc_lsn = (T::Peek(0xFF49) << 16) | (T::Peek(0xFF4A) << 8) | (0xFF & data);
-          printf("SET SDC SECTOR sdc_lsn=%x\n", sdc_lsn);
-          break;
-
-        case 0x48:             // WD Floppy or CocoSDC command reg.
-          if (data == 0xC0) {  // Special CocoSDC Command Mode
-            if (T::Peek(0xFF40) == 0x43) {
-              byte special_cmd = T::Peek(0xFF49);
-              printf("- yak - Special CocoSDC Command Mode: %x %x %x\n",
-                     special_cmd, T::Peek(0xFF4A), T::Peek(0xFF4B));
-              switch (special_cmd) {
-                case 'Q':
-                  T::Poke(0xFF49, 0x00);
-                  T::Poke(0xFF4A, 0x02);
-                  T::Poke(0xFF4B, 0x10);  // Say size $000210 sectors.
-                  break;
-                case 'g':  // Set global flags.
-                  // llcocosdc.0250230904: [Secondary command to "Set Global
-                  // Flags"] [Disable Floppy Emulation capability in SDC
-                  // controller] uses param $FF80
-                  T::Poke(0xFF49, 0x00);
-                  T::Poke(0xFF4A, 0x00);
-                  T::Poke(0xFF4B, 0x00);
-                  break;
-                default:
-                  T::Poke(0xFF49, 0x00);
-                  T::Poke(0xFF4A, 0x00);
-                  T::Poke(0xFF4B, 0x00);
-                  break;
-              }  // end switch special_cmd
-            }  // if data
-
-          } else if (0x84 <= data && data <= 0x87) {
-            // Read Sector
-            ReadDisk(data & 3, sdc_lsn, sdc_disk_read_data);
-            sdc_disk_read_ptr = sdc_disk_read_data;
-            sdc_disk_pending = data;
-          }
-
-          break;  // case 0x48
 
         case 0x00:
         case 0x01:
@@ -803,30 +729,6 @@ struct EngineBase {
           }
           break;
 
-        case 255 & (ACIA_PORT + 0):  // control port
-          if (reading) {             // reading control port
-            {
-            }
-          } else {  // writing control port:
-            if ((data & 0x03) != 0) {
-              acia_irq_enabled = false;
-            }
-
-            if ((data & 0x80) != 0) {
-              acia_irq_enabled = true;
-            } else {
-              acia_irq_enabled = false;
-            }
-          }
-          break;
-
-        case 255 & (ACIA_PORT + 1):  // data port
-          if (reading) {             // reading data port
-          } else {                   // writing data port:
-            putbyte(C_PUTCHAR);
-            putbyte(data);
-          }
-          break;
 
 #if 0
         case 255 & (EMUDSK_PORT + 0):  // LSN(hi)
@@ -948,150 +850,24 @@ struct EngineBase {
           break;
 #endif
 
-#endif  // FOR_COCO
 
       }  // switch addr & 255
   }  // HandleIOWrite
-
-#if FOR_COCO
-  static byte Reader43(uint addr, byte data) {
-    if ((T::Peek(0xFF7F) & 3) == 3) {
-      // Respond to MPI slot 3.
-      // Return what was saved at 0x42?
-      // I don't know why, just guessing, but it works,
-      // for this line:
-      // "llcocosdc.0250230904"+01e0   lda -5,x ; get value from Flash Ctrl Reg
-      data = 0x60 & T::Peek(addr - 1);
-    } else {
-      data = 0;
-    }
-    return data;
-  }
-  static byte Reader48(uint addr, byte data) {
-    if (sdc_disk_pending) {
-      data = 3;  // BUSY and READY
-      sdc_disk_pending = 0;
-    } else {
-      data = 0;  // NOT BUSY
-    }
-    return data;
-  }
-  static byte Reader4b(uint addr, byte data) {
-    if (sdc_disk_read_ptr) {
-      data = *sdc_disk_read_ptr++;
-      if (sdc_disk_read_ptr == (sdc_disk_read_data + 256)) {
-        sdc_disk_read_ptr = nullptr;
-      }
-    }
-    return data;
-  }
-  static byte ReaderAcia0(uint addr, byte data) {
-    data = 0x02;  // Transmit buffer always considered empty.
-    data |= (acia_irq_firing) ? 0x80 : 0x00;
-    data |= (acia_char_in_ready) ? 0x01 : 0x00;
-
-    acia_irq_firing = false;  // Side effect of reading status.
-    return data;
-  }
-
-  static byte ReaderAcia1(uint addr, byte data) {
-    if (acia_char_in_ready) {
-      data = acia_char;
-      acia_char_in_ready = false;
-    } else {
-      data = 0;
-    }
-    return data;
-  }
-#endif  // FOR_COCO
-
-  static void ReaderInit() {
-#if FOR_COCO
-    IOReaders[0x43] = [](uint addr, byte data) {
-      return Reader43(addr, data);
-    };
-    IOReaders[0x48] = [](uint addr, byte data) {
-      return Reader48(addr, data);
-    };
-    IOReaders[0x4b] = [](uint addr, byte data) {
-      return Reader4b(addr, data);
-    };
-    IOReaders[(byte)(ACIA_PORT + 0)] = [](uint addr, byte data) {
-      return ReaderAcia0(addr, data);
-    };
-    IOReaders[(byte)(ACIA_PORT + 1)] = [](uint addr, byte data) {
-      return ReaderAcia1(addr, data);
-    };
-#endif  // FOR_COCO
-  }
 
   static void HandleIORead(uint addr) {
     data = T::Peek(addr);  // default behavior
 
     byte dev = addr & 0xFF;
     // IOReader reader = IOReaders[dev];
-    IOReader xxreader = IOReaders[dev];
-    if (false) {
+    IOReader r = IOReaders[dev];
+    if (r) {
       // New style, pluggable, not all is converted yet:
       ///// data = (*reader)(addr, data);
-      // data = (reader)(addr, data);
-    } else if (xxreader) {
-      // New style, pluggable, not all is converted yet:
-      ///// data = (*reader)(addr, data);
-      data = (xxreader)(addr, data);
+      data = (r)(addr, data);
     } else
       switch (dev) {
-#if FOR_TURBO9SIM
 
-#endif
-
-#if FOR_COCO
-          // yak
-        case 0x42:  // CocoSDC Flash Data?
-          // We need to emulate just enough of the Flash register behavior
-          // so the initial scan thinks it has found a CocoSDC.
-          // Cycles I see in the scan:
-          // r FF42 <- $64
-          // w FF43 -> 0
-          // clr FF42
-          // r FF43 -> should differ by XOR $60
-          break;
-
-        case 0x43:  // CocoSDC Flash Control
-          assert(0);
-          if ((T::Peek(0xFF7F) & 3) == 3) {
-            // Respond to MPI slot 3.
-            // Return what was saved at 0x42?
-            // I don't know why, just guessing, but it works,
-            // for this line:
-            // "llcocosdc.0250230904"+01e0   lda -5,x ; get value from Flash
-            // Ctrl Reg
-            data = 0x60 & T::Peek(addr - 1);
-          } else {
-            data = 0;
-          }
-          break;
-
-        case 0x48:  // Read SDC Status
-          assert(0);
-          if (sdc_disk_pending) {
-            data = 3;  // BUSY and READY
-            sdc_disk_pending = 0;
-          } else {
-            data = 0;  // NOT BUSY
-          }
-          break;
-
-        case 0x4b:  // Read SDC Data
-          assert(0);
-          if (sdc_disk_read_ptr) {
-            data = *sdc_disk_read_ptr++;
-            if (sdc_disk_read_ptr == (sdc_disk_read_data + 256)) {
-              sdc_disk_read_ptr = nullptr;
-            }
-          }
-          break;
-
+#if TODO
         case 0x92:  // GIME IRQEN register
         {
           if (gime_irq_enabled && gime_vsync_irq_enabled &&
@@ -1159,10 +935,11 @@ struct EngineBase {
     T::Install();
 
     MUMBLE("RR");
-    T::Reset();
+    T::ResetRam();
     MUMBLE("OS");
     T::Install_OS();
 
+#if 0
     if (T::DoesSamvdg()) {
         if (T::DoesGime()) {
             MUMBLE("IV3");
@@ -1172,6 +949,7 @@ struct EngineBase {
             InstallVectors(Coco2Vectors);
         }
     }
+#endif
 
     MUMBLE("RC");
     ResetCpu();
@@ -1190,8 +968,6 @@ struct EngineBase {
                            &TimerData);
 #endif
 
-    MUMBLE("RI");
-    ReaderInit();
     MUMBLE("RMC");
     RunMachineCycles();
 
@@ -1266,7 +1042,7 @@ struct EngineBase {
     TildePowerOf2 = 1;
     for (OuterLoops= 0; true; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
 
-    constexpr uint NumberOfLivenessTildes = 8;
+    constexpr uint NumberOfLivenessTildes = 18; // 8;
       if (OuterLoops <= (1<<(NumberOfLivenessTildes-1))) {
         if (OuterLoops == TildePowerOf2-1) {
             // Draw tildes at cycle 0, 1, 3, 7, 15, ... to show we are up and running.
@@ -1314,19 +1090,19 @@ struct EngineBase {
         }
       }
 
-#if FOR_COCO
-      if (not acia_char_in_ready) {
-        if (term_input.HasAtLeast(1)) {
-          acia_char = term_input.Take();
-          acia_char_in_ready = true;
-          acia_irq_firing = true;
-        } else {
-          acia_char = 0;
-          acia_char_in_ready = false;
-          acia_irq_firing = false;
-        }
+      if (T::DoesAcia()) {
+          if (not acia_char_in_ready) {
+            if (term_input.HasAtLeast(1)) {
+              acia_char = term_input.Take();
+              acia_char_in_ready = true;
+              acia_irq_firing = true;
+            } else {
+              acia_char = 0;
+              acia_char_in_ready = false;
+              acia_irq_firing = false;
+            }
+          }
       }
-#endif
 
 #if !PICO_USE_TIMER
       // Simulate timer firing every so-many cycles,
@@ -1339,17 +1115,18 @@ struct EngineBase {
         TimerFired = false;
 
         T::Turbo9sim_SetTimerFired();
-#if FOR_COCO
-        T::Poke(0xFF03,
-             T::Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
-        if (vsync_irq_enabled) {
-          vsync_irq_firing = true;
+
+        if (T::DoesSamvdg()) {
+            T::Poke(0xFF03,
+                 T::Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
+            if (vsync_irq_enabled) {
+              vsync_irq_firing = true;
+            }
+            if (gime_irq_enabled && gime_vsync_irq_enabled) {
+              gime_vsync_irq_firing = true;
+            }
         }
-        if (gime_irq_enabled && gime_vsync_irq_enabled) {
-          gime_vsync_irq_firing = true;
-        }
-#endif
-      }  // end Timer
+      }  // end TimerFired
 
       for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {  /////// Inner Machine Loop
 
@@ -1427,26 +1204,25 @@ if (T::DoesLog()) {
         // =============================================================
         // =============================================================
 
-// #if OPCODES
         if (T::DoesLog()) {
-        if (reading and addr != 0xFFFF and fic) {
-          // ShowChar('1');
-          current_opcode_cy = cy;
-          current_opcode_pc = addr;
-          current_opcode = data;
-          // printf("1<%d,%d,%d>\n", cy, addr, data);
+            if (reading and addr != 0xFFFF and fic) {
+              // ShowChar('1');
+              current_opcode_cy = cy;
+              current_opcode_pc = addr;
+              current_opcode = data;
+              // printf("1<%d,%d,%d>\n", cy, addr, data);
 
-#if HEURISTICS
-          if (addr < 0x0010) {
-            DumpRamAndGetStuck("PC too low", addr);
-          }
-          if (addr > 0xFF00 && addr < 0xFFF0) {
-            // fic can be asserted during interrupt vector fetch.
-            DumpRamAndGetStuck("PC too high", addr);
-          }
+    #if HEURISTICS
+              if (addr < 0x0010) {
+                DumpRamAndGetStuck("PC too low", addr);
+              }
+              if (addr > 0xFF00 && addr < 0xFFF0) {
+                // fic can be asserted during interrupt vector fetch.
+                DumpRamAndGetStuck("PC too high", addr);
+              }
 
-#endif
-        }
+    #endif
+            }
 
         if (reading and addr != 0xFFFF) {
           if (current_opcode == 0x10 /* prefix */ &&
@@ -1472,7 +1248,7 @@ if (T::DoesLog()) {
           if (current_opcode == 0x3B) {  // RTI
             uint age = cy - current_opcode_cy -
                        2 /*one byte opcode, one extra cycle */;
-            if (0)
+            if (1)
               printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
                      current_opcode_cy, current_opcode_pc, current_opcode, age,
                      addr, data);
@@ -1490,7 +1266,7 @@ if (T::DoesLog()) {
             uint age =
                 cy - current_opcode_cy -
                 2 /*two byte opcode.  extra cycle contains OS9 call number. */;
-            if (0)
+            if (1)
               printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
                      current_opcode_cy, current_opcode_pc, current_opcode, age,
                      addr, data);
@@ -1525,7 +1301,6 @@ if (T::DoesLog()) {
 #endif
         }
         } //  T::DoesLog()
-// #endif  // OPCODES
 
         uint high = flags & F_HIGH;
 
@@ -1538,47 +1313,45 @@ if (T::DoesLog()) {
         }
 #endif
 
-#if TRACKING
-        if (reading and (not vma) and (addr == 0xFFFF)) {
-          T::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
-        } else {
-          const char* label = reading ? (vma ? "r" : "-") : "w";
-          if (reading) {
-            if (fic) {
-              label = "@";
-#if SEEN
-              if (not Seen[addr]) {
-                label = "@@";
-              }
-#endif
-              next_pc = addr + 1;
+    if (T::DoesTrace()) {
+            if (reading and (not vma) and (addr == 0xFFFF)) {
+              T::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
             } else {
-              // case: Reading but not FIC
-              if (next_pc == addr) {
-                label = "&";
-                next_pc++;
-              }
+              const char* label = reading ? (vma ? "r" : "-") : "w";
+              if (reading) {
+                if (fic) {
+                  label = "@";
+#if SEEN
+                  if (not Seen[addr]) {
+                    label = "@@";
+                  }
+#endif
+                  next_pc = addr + 1;
+                } else {
+                  // case: Reading but not FIC
+                  if (next_pc == addr) {
+                    label = "&";
+                    next_pc++;
+                  }
 
-            }  // end case Reading but not FIC
+                }  // end case Reading but not FIC
 
-          }  // end if reading
-          T::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
-                      HighFlags(high), cy);
-        }  // end if valid cycle
+              }  // end if reading
+              T::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
+                          HighFlags(high), cy);
+            }  // end if valid cycle
 
 #if SEEN
-        if (fic) {
-          Seen.Insert(addr);
-        }
+            if (fic) {
+              Seen.Insert(addr);
+            }
 #endif
-#endif  // TRACKING
+        }
 
-// #if OPCODES
         if (T::DoesLog()) {
             vma = (0 != (flags & F_AVMA));
             fic = (0 != (flags & F_LIC));
         }
-// #endif
 
         cy++;
       }  // next loop
@@ -1637,6 +1410,7 @@ int main() {
 
 struct T9_Slow:
     EngineBase<T9_Slow>,
+    DoTrace<T9_Slow>,
     DoLog<T9_Slow>,
     DoLogMmu<T9_Slow>,
     DontShowIrqs<T9_Slow>,
@@ -1651,9 +1425,71 @@ struct T9_Slow:
     DoTurbo9os<T9_Slow> {
 
   static void Install() {
-    // TODO // ResetAll();
-    Turbo9sim_Install(PRIMARY_TURBO9SIM);
-    Turbo9sim_Install(SECONDARY_TURBO9SIM);
+    Install_OS();
+    Turbo9sim_Install(0xFF00);
+    ShowChar('\n');
+  }
+};
+
+struct L1_Slow:
+    EngineBase<L1_Slow>,
+    DontTrace<L1_Slow>,
+    DoLog<L1_Slow>,
+    DoLogMmu<L1_Slow>,
+    DoShowIrqs<L1_Slow>,
+    CommonRam<L1_Slow>,
+    SmallRam<L1_Slow>,
+    DontTracePokes<L1_Slow>,
+    DoEvent<L1_Slow>,
+    DoAcia<L1_Slow>,
+    DoEmudsk<L1_Slow>,
+    DontGime<L1_Slow>,
+    DoSamvdg<L1_Slow>,
+    DontTurbo9sim<L1_Slow>,
+    DoNitros9level1<L1_Slow> {
+
+  static void Install() {
+    ShowChar('A');
+    Install_OS();
+    ShowChar('B');
+    Samvdg_Install();
+    ShowChar('C');
+    Emudsk_Install(0xFF80);
+    ShowChar('D');
+    Acia_Install(0xFF06);
+    ShowChar('E');
+    ShowChar('\n');
+  }
+};
+
+struct L1_Fast:
+    EngineBase<L1_Fast>,
+    DontTrace<L1_Fast>,
+    DontLog<L1_Fast>,
+    DontLogMmu<L1_Fast>,
+    DontShowIrqs<L1_Fast>,
+    CommonRam<L1_Fast>,
+    SmallRam<L1_Fast>,
+    DontTracePokes<L1_Fast>,
+    DontEvent<L1_Fast>,
+    DoAcia<L1_Fast>,
+    DoEmudsk<L1_Fast>,
+    DontGime<L1_Fast>,
+    DoSamvdg<L1_Fast>,
+    DontTurbo9sim<L1_Fast>,
+    DoNitros9level1<L1_Fast> {
+
+  static void Install() {
+    ShowChar('A');
+    Install_OS();
+    ShowChar('B');
+    Samvdg_Install();
+    ShowChar('C');
+    Emudsk_Install(0xFF80);
+    ShowChar('D');
+    Acia_Install(0xFF06);
+    ShowChar('E');
+    ShowChar('\n');
   }
 };
 
@@ -1664,83 +1500,21 @@ struct harness {
   std::function<void(void)> fast_engines[5];
 
   T9_Slow t9_slow;
+  L1_Slow l1_slow;
+  L1_Fast l1_fast;
 
   harness() {
-    engines[0] = [&](){ t9_slow.Run(); };
+    memset(engines, 0, sizeof engines);
+    memset(fast_engines, 0, sizeof fast_engines);
+
+    engines[0] = t9_slow.Run;
+    engines[1] = l1_slow.Run;
+    fast_engines[1] = l1_fast.Run;
   }
-
-
-/*
-  Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, Turbo9sim, DontSamVdg, DontGime, DontAcia, DoShowIrqs> t9slow;
-  Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, Turbo9sim, DontSamVdg, DontGime, DontAcia, DontShowIrqs> t9fast;
-
-  Engine<DoLog, SmallRam<DoLogMmu, DoTracePokes>, NoTurbo9sim, DoSamVdg, DontGime, DoAcia, DoShowIrqs> l1slow;
-  Engine<DontLog, SmallRam<DontLogMmu, DontTracePokes>, NoTurbo9sim, DoSamVdg, DontGime, DoAcia, DontShowIrqs> l1fast;
-
-  Engine<DoLog, BigRam<DoLogMmu, DoTracePokes>, NoTurbo9sim, DoSamVdg, DoGime, DoAcia, DoShowIrqs> l2slow;
-  Engine<DontLog, BigRam<DontLogMmu, DontTracePokes>, NoTurbo9sim, DoSamVdg, DoGime, DoAcia, DontShowIrqs> l2fast;
-
-  explicit harness() {
-    t9slow.Install(PRIMARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
-    t9slow.Install(SECONDARY_TURBO9SIM, t9slow.IOReaders, t9slow.IOWriters);
-
-    t9fast.Install(PRIMARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
-    t9fast.Install(SECONDARY_TURBO9SIM, t9fast.IOReaders, t9fast.IOWriters);
-
-    l1slow.DoSamVdg::Install(l1slow.IOReaders, l1slow.IOWriters);
-    l1fast.DoSamVdg::Install(l1fast.IOReaders, l1fast.IOWriters);
-
-    l2slow.DoSamVdg::Install(l2slow.IOReaders, l2slow.IOWriters);
-    l2fast.DoSamVdg::Install(l2fast.IOReaders, l2fast.IOWriters);
-
-    engines[0] = &t9slow;
-    engines[1] = &l1slow;
-    engines[2] = &l2slow;
-    fast_engines[0] = &t9fast;
-    fast_engines[1] = &l1fast;
-    fast_engines[2] = &l2fast;
-  }
-  */
-} Harness;
-
-void InitialBanners() {
-  for (uint i = BLINKS; i > 0; i--) {
-    LED(1);
-    sleep_ms(500);
-    ShowChar(' ');
-    ShowChar('0' + i);
-    ShowChar('!');
-    printf(" %d!\n", i);
-    LED(0);
-    sleep_ms(500);
-  }
-
-  ShowStr("\nAbout: https://github.com/strickyak/tfr9 <strick@yak.net>");
-  memset(Buf64, 0, sizeof Buf64);
-  pico_get_unique_board_id_string(Buf64, sizeof Buf64);
-  ShowStr("\nBoard-ID: ");
-  ShowStr(Buf64);
-#ifdef PICO_BOARD
-  ShowStr("\nBoard-Type: " PICO_BOARD);
-#endif
-#ifdef BANNER
-  ShowStr("\nFirmware: " BANNER);
-#endif
-#ifdef PICO_PROGRAM_NAME
-  ShowStr("\nProgram-Name: " PICO_PROGRAM_NAME);
-#endif
-#ifdef PICO_PROGRAM_BUILD_DATE
-  ShowStr("\nBuild-Date: " PICO_PROGRAM_BUILD_DATE);
-#endif
-#ifdef __DATE__
-  ShowStr("\nBuild-DATE: " __DATE__);
-#endif
-  ShowStr("\n");
-  printf("OS_LEVEL=%d\n", OS_LEVEL);
-}
+};
 
 void Shell() {
-  ShowChar('r');
+  struct harness harness;
   while (true) {
     ShowChar('^');
     PollUsbInput();
@@ -1749,22 +1523,36 @@ void Shell() {
       byte ch = term_input.Take();
       if ('0' <= ch && ch <= '4') {
         uint num = ch - '0';
-        if (Harness.engines[num]) {
-          Harness.engines[num]();
+        if (harness.engines[num]) {
+          harness.engines[num]();
         } else {
-          ShowChar('?');
+          ShowStr("-S?-");
         }
 
       } else if ('5' <= ch && ch <= '9') {
         uint num = ch - '5';
-        if (Harness.fast_engines[num]) {
-          Harness.fast_engines[num]();
+        if (harness.fast_engines[num]) {
+          harness.fast_engines[num]();
         } else {
-          ShowChar('?');
+          ShowStr("-F?-");
         }
 
+      } else if (ch == 'w') {
+        set_sys_clock_khz(200000, true);
+      } else if (ch == 'x') {
+        set_sys_clock_khz(250000, true);
+      } else if (ch == 'y') {
+        set_sys_clock_khz(260000, true);
+      } else if (ch == 'z') {
+        set_sys_clock_khz(270000, true);
+        // set_sys_clock_khz(250000, true);
+        // set_sys_clock_khz(250000, true); // 0.559099
+        // set_sys_clock_khz(260000, true); // 0.516071  0.531793
+        // set_sys_clock_khz(270000, true); // NO? YES.
+        // up to 270(0.509053, 0.517735) with divisor 3.
+
       } else {
-        ShowChar('?');
+        ShowStr("-#?-");
       }
     }  // term_input
     sleep_ms(500);
@@ -1773,11 +1561,6 @@ void Shell() {
 }
 
 int main() {
-  // set_sys_clock_khz(250000, true);
-  // set_sys_clock_khz(250000, true); // 0.559099
-  // set_sys_clock_khz(260000, true); // 0.516071  0.531793
-  // set_sys_clock_khz(270000, true); // NO? YES.
-  // up to 270(0.509053, 0.517735) with divisor 3.
   stdio_usb_init();
 
   gpio_init(25);
@@ -1788,8 +1571,6 @@ int main() {
   interest = MAX_INTEREST;  /// XXX
 
   quiet_ram = 0;
-
-  InitialBanners();
 
   Shell();
 }

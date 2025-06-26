@@ -9,9 +9,11 @@ template <class T>
 struct DoTurbo9os {
 
   static void Install_OS() {
+    // Copy ROM to RAM.
     for (uint a = 0; a < sizeof Turbo9os_Rom; a++) {
         T::Poke(a, Turbo9os_Rom[a]);
     }
+
   }
 };
 

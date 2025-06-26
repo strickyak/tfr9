@@ -23,19 +23,18 @@ struct DoTracePokes {
 
 template <class T>
 struct DontLogMmu {
-  force_inline int Logf(const char* fmt, ...) { return 0; }
+  force_inline void LogMmuf(const char* fmt, ...) { }
 };
 template <class T>
 struct DoLogMmu {
-  int Logf(const char* fmt, ...) {
-    if (!interest) return 0;
-    if (quiet_ram > 0) return 0;
+  void LogMmuf(const char* fmt, ...) {
+    if (!interest) return;
+    if (quiet_ram > 0) return;
 
     va_list va;
     va_start(va, fmt);
     int z = printf(fmt, va);
     va_end(va);
-    return z;
   }
 };
 
@@ -71,11 +70,11 @@ force_inline void PokeQuietly(uint addr, byte data) { T::WriteQuietly(addr, data
 
 template <class T>
 class SmallRam {
- private:
-  // byte ram[0x10000];
 
  public:
-  static void Reset() {}
+  static void ResetRam() {
+    memset(ram, 0, sizeof ram);
+  }
   static byte Read(uint addr) {
     // printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
     // TODO -- assert the mask is never needed.
@@ -113,11 +112,9 @@ class BigRam {
   static byte mmu[2][8];
 
  public:
-  static void Reset() {
-    for (byte i = 0; i < 16; i++) {
-    }
-
-    interest += 500;
+  static void ResetRam() {
+    memset(ram, 0, sizeof ram);
+    interest = (interest > 500) ? interest : 500;
 
     enable_mmu = true;
     current_task = 1;
@@ -139,7 +136,7 @@ class BigRam {
             }
         }
         */
-    T::Logf(
+    T::LogMmuf(
         "BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
         BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
         OFFSET_MASK);
@@ -147,20 +144,20 @@ class BigRam {
 
   static void SetEnableMmu(bool a) {
     if (a != enable_mmu) {
-      T::Logf("COCO3: Now MMU is %u\n", a);
+      T::LogMmuf("COCO3: Now MMU is %u\n", a);
     }
     enable_mmu = a;
   }
   static void SetCurrentTask(byte a) {
     assert(a < 2);
     if (a != current_task) {
-      T::Logf("COCO3: Now Task is %u\n", a);
+      T::LogMmuf("COCO3: Now Task is %u\n", a);
     }
     current_task = a;
     current_bases = base[a];
   }
   static void WriteMmu(byte task, byte slot, byte blk) {
-    T::Logf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
+    T::LogMmuf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
     mmu[task][slot] = blk;
     base[task][slot] = (blk << SLOT_SHIFT) & BIG_RAM_MASK;
   }
