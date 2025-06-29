@@ -19,48 +19,6 @@ case $N9_LEVEL in
     2) os9 gen -b=n9drivers/_level2.os9boot   "$D" ;;
 esac
 
-cat >/tmp/tfr.startup <<~~~~
-dir
-mdir -e
-free
-mfree
-basic09
-e
-10 FOR I=0 to 1000
-20 FOR J=0 to 100
-30 PRINT I*100 + J;
-40 NEXT J
-50 PRINT
-100 SHELL "DATE -T"
-999 NEXT I
-q
-list
-run
-q
-q
-bye
-bye
-~~~~
-
-# BEGIN STANDARD TIMING ONE
-cat >/tmp/tfr.startup1 <<~~~~
-basic09
-e
-10 for j=1 to 20
-20 x = 0
-50 print "{";
-110 FOR I=0 to 300
-120 x = x + i
-130 next i
-140 print "}"
-210 FOR z=0 to 300
-230 next z
-900 next j
-q
-run
-~~~~
-# END STANDARD TIMING ONE
-
 # BEGIN STANDARD TIMING TWO
 cat >/tmp/tfr.startup2 <<~~~~
 basic09
@@ -108,14 +66,11 @@ else
     #  os9 copy -r $HOME/NEW/nitros9/level1/tfr9/cmds/$f  "$D",CMDS/$f
     #  os9 attr -r -w -e -pr -pe "$D",cmds/$f
     #done
-    ls -1 $HOME/coco-shelf/nitros9/level2/coco3/cmds/ | egrep -v '[.](list|map)$' | while read f
+    ls -1 $HOME/coco-shelf/nitros9/level1/coco1/cmds/ | egrep -v '[.](list|map)$' | while read f
     do
-      os9 copy -r $HOME/coco-shelf/nitros9/level2/coco3/cmds/$f  "$D",CMDS/$f
+      os9 copy -r $HOME/coco-shelf/nitros9/level1/coco1/cmds/$f  "$D",CMDS/$f
       os9 attr -r -w -e -pr -pe "$D",cmds/$f
     done
-
-    os9 copy -r /home/strick/glap/coco-shelf-oct10/mirror/frobio/built/v0extra/CMDS/ncl  "$D",CMDS/ncl
-    os9 attr -r -w -e -pr -pe "$D",cmds/ncl
 fi
 
 # Mon Nov 25 11:53:40 PM EST 2024

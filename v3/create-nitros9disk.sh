@@ -1,4 +1,5 @@
 #!/bin/sh
+set -ex
 
 S="$1"; shift
 D="$1"; shift
@@ -38,5 +39,10 @@ q
 run
 ~~~~
 # END STANDARD TIMING TWO
-os9 copy -l -r /tmp/tfr.startup2  "$D",startup
 
+if test 1 == "$Enable_NOSTARTUP"
+then
+    os9 copy -l -r /dev/null  "$D",startup
+else
+    os9 copy -l -r /tmp/tfr.startup2  "$D",startup
+fi

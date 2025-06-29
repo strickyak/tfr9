@@ -14,6 +14,7 @@ RCS/
 _*
 .*.swp
 a.out
+*.exe
 build/
 generated/
 *.gen.d

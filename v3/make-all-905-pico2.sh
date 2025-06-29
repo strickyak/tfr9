@@ -24,17 +24,13 @@ export Enable_SLOW
 export Enable_FLASH
 export Enable_RUN
 
-BUILD_DIR=build-level1-905-pico2
+BUILD_DIR=build-all-905-pico2
 
 # Which TFR circuit board number
 TFR_BOARD=905
 
 # RPCHIP is 2040 for Pi Pico 1, or 2350 for Pi Pico 2
 RP_CHIP=2350
-
-# Level is 100 for NitrOS9 Level 1, or 200 for NitroOS9 Level 2
-# Level is 90 for Turbo9
-OS_LEVEL=100
 
 # Raspberry Pi Pico SDK
 COCO_SHELF="${COCO_SHELF:-$(cd ../.. && pwd)}"
@@ -45,20 +41,25 @@ export PATH="$COCO_SHELF/bin:$PATH"
 #####################################
 #### Try not to edit below here. ####
 
-S="${COCO_SHELF}/nitros9/level1/coco1"
-D="generated/level1.dsk"
+S1="${COCO_SHELF}/nitros9/level1/coco1"
+D1="generated/level1.dsk"
+
+S2="${COCO_SHELF}/nitros9/level2/coco3"
+D2="generated/level2.dsk"
 
 if expr 0 = $Enable_JUST
 then
-    sh create-nitros9disk.sh "$S" "$D" "$S/cmds/shell_21"
+    sh create-nitros9disk.sh "$S1" "$D1" "$S1/cmds/shell_21"
+    sh create-nitros9disk.sh "$S2" "$D2" "$S2/modules/sysgo_dd" "$S2/cmds/shell"
+
     make -C launchers
-    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S/bootfiles/kernel_tfr9" > generated/level1.rom.h
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S1/bootfiles/kernel_tfr9" > generated/level1.rom.h
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S2/bootfiles/kernel_tfr9" > generated/level2.rom.h
 
     make \
         BUILD_DIR="${BUILD_DIR}" \
         TFR_BOARD="${TFR_BOARD}" \
         RP_CHIP="${RP_CHIP}" \
-        OS_LEVEL="${OS_LEVEL}" \
         TRACKING="${Enable_SLOW}" \
         "$@"
 fi
@@ -69,5 +70,5 @@ fi
 
 if expr 1 = $Enable_RUN
 then
-    ./tconsole-level1.linux-amd64.exe -disks "$D" 2>_log   -borges $HOME/borges
+    ./tconsole-level1.linux-amd64.exe -disks "$D1" 2>_log   -borges $HOME/borges
 fi

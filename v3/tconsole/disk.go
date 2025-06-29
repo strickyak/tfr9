@@ -40,9 +40,11 @@ func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
 		disk_param[i] = <-fromUSB
 		//Logf("disk_param: %02x", disk_param[i])
 	}
+    Logf("EmulateDiskRead disk_param % 3x", disk_param)
 	AssertEQ(disk_param[0], 0)
 
 	lsn := (uint(disk_param[1]) << 16) | (uint(disk_param[2]) << 8) | uint(disk_param[3])
+    Logf("EmulateDiskRead lsn %x", lsn)
 	_, err := Files[0].Seek(Os9SectorSize*int64(lsn), 0)
 	if err != nil {
 		Fatalf("Cannot seek")

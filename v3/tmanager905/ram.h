@@ -6,6 +6,14 @@ const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
 
 byte ram[BIG_RAM_SIZE];
 
+bool enable_mmu;
+byte current_task;
+uint* current_bases;
+
+uint base[2][8];
+byte mmu[2][8];
+
+
 template <class T>
 struct DontTracePokes {
   force_inline static void TraceThePoke(uint addr, byte data) {}
@@ -23,17 +31,17 @@ struct DoTracePokes {
 
 template <class T>
 struct DontLogMmu {
-  force_inline void LogMmuf(const char* fmt, ...) { }
+  static force_inline void LogMmuf(const char* fmt, ...) { }
 };
 template <class T>
 struct DoLogMmu {
-  void LogMmuf(const char* fmt, ...) {
-    if (!interest) return;
+  static void LogMmuf(const char* fmt, ...) {
+    // if (!interest) return;
     if (quiet_ram > 0) return;
 
     va_list va;
     va_start(va, fmt);
-    int z = printf(fmt, va);
+    int z = vprintf(fmt, va);
     va_end(va);
   }
 };
@@ -43,7 +51,10 @@ struct CommonRam {
   static force_inline byte FastPeek(uint addr) { return T::FastRead(addr); }
   static force_inline byte Peek(uint addr) { return T::Read(addr); }
 
-  static force_inline void Poke(uint addr, byte data) { T::Write(addr, data); }
+  static force_inline void Poke(uint addr, byte data) {
+    T::Write(addr, data);
+    // printf("PPOOKKEE %x <- %x\n", addr, data);
+  }
 #if 0
 force_inline void PokeQuietly(uint addr, byte data) { T::WriteQuietly(addr, data); }
 #endif
@@ -95,6 +106,8 @@ class SmallRam {
 static byte const BigRam_mmu_init[16] = {
   0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
   0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+  // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+  // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
 };
 
 template <class T>
@@ -104,15 +117,9 @@ class BigRam {
   const static uint OFFSET_MASK = (1 << 13) - 1;
   const static uint SLOT_MASK = 7;
 
-  static bool enable_mmu;
-  static byte current_task;
-  static uint* current_bases;
-
-  static uint base[2][8];
-  static byte mmu[2][8];
-
  public:
   static void ResetRam() {
+printf("ResetRam\n");
     memset(ram, 0, sizeof ram);
     interest = (interest > 500) ? interest : 500;
 
@@ -144,14 +151,14 @@ class BigRam {
 
   static void SetEnableMmu(bool a) {
     if (a != enable_mmu) {
-      T::LogMmuf("COCO3: Now MMU is %u\n", a);
+      T::LogMmuf("MMU: Now MMU is %u\n", a);
     }
     enable_mmu = a;
   }
   static void SetCurrentTask(byte a) {
     assert(a < 2);
     if (a != current_task) {
-      T::LogMmuf("COCO3: Now Task is %u\n", a);
+      T::LogMmuf("MMU: Now Task is %u\n", a);
     }
     current_task = a;
     current_bases = base[a];
@@ -171,6 +178,8 @@ class BigRam {
   uint block = (use_mmu) ? mmu[current_task][slot] : 0x38 + slot;
 
     DETERMINE_BLOCK
+// printf("DET addr=%x slot=%x off=%x use=%x/%x block=%x\n",
+        // addr, slot, offset, use_mmu, current_task, block);
     return block;
   }
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -180,6 +189,7 @@ class BigRam {
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
+// T::LogMmuf("Phys: %x -> %x\n", addr, phys);
     return phys;
   }
   force_inline static uint Phys(uint addr, byte block) {
@@ -188,6 +198,7 @@ class BigRam {
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
+// T::LogMmuf("Phys: %x(%x) -> %x\n", addr, block, phys);
     return phys;
   }
   // ==============================================
@@ -212,6 +223,7 @@ class BigRam {
   force_inline static byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
   force_inline static byte Read(uint addr) {
     uint phys = Phys(addr);
+// T::LogMmuf("read: %x %x -> %x\n", addr, phys, ram[phys]);
     return ram[phys];
   }
   force_inline static byte FastRead(uint addr) {
@@ -220,6 +232,7 @@ class BigRam {
     // if (phys != phys2) {
     // printf("DIFFERENT(%x) %x vs %x\n", addr, phys, phys2);
     //}
+// T::LogMmuf("fastread: %x %x -> %x\n", addr, phys2, ram[phys2]);
     return ram[phys2];
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -227,6 +240,7 @@ class BigRam {
     uint phys = Phys(addr, block);
     ram[phys] = data;
 
+// T::LogMmuf("write: %x(%x) %x <- %x\n", addr, block, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -261,9 +275,11 @@ class BigRam {
     }  // if
   }  // Write
   static void Write(uint addr, byte data) {
+// printf("write: %x() <- %x\n", addr, data);
     uint phys = Phys(addr);
     ram[phys] = data;
 
+// printf("write: %x() %x <- %x\n", addr, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -301,6 +317,7 @@ class BigRam {
     uint phys = FastPhys(addr);
     ram[phys] = data;
 
+// T::LogMmuf("fastwrite: %x() %x <- %x\n", addr, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {

@@ -23,13 +23,17 @@ template <class T>
 struct DoNitros9level2 {
 
   static void Install_OS() {
+ShowChar('p');
     T::ResetRam();
+ShowChar('q');
     for (uint a = 0; a < sizeof Nitros9level2_Rom; a++) {
         T::Poke(LEVEL2_LAUNCHER_START+a, Nitros9level2_Rom[a]);
     }
+ShowChar('r');
     for (uint i = 0; i < 8; i++) {
         T::Poke2(0xFFF0 + 2*i, Coco3Vectors[i]);
     }
+ShowChar('s');
   }
 };
 

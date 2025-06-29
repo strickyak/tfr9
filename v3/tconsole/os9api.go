@@ -254,6 +254,14 @@ var Os9ApiCalls = []*Os9ApiCall{
 		RY:     "last_char_plus1",
 	},
 	{
+		Name:   "F$CmpNam",
+		Desc:   "Compare Name",
+		Number: 0x11,
+		B:      "name1_length",
+		X:      "$name1",
+		Y:      "$name2",
+	},
+	{
 		Name:   "F$SPrior",
 		Desc:   "Set Process Priority",
 		Number: 0x0d,

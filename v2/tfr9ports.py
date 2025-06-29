@@ -5,7 +5,7 @@ defs = dict(
     # BLOCK_PORT    =     0xFF08,
     EMUDSK_PORT   =     0xFF80,
     USE_ACIA      =     1,
-    N9_LEVEL      =     2,
+    N9_LEVEL      =     1,
 )
 
 if __name__ == '__main__':

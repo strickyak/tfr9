@@ -42,9 +42,6 @@ struct DoEmudsk {
 
             uint lsn = T::Peek2(EMUDSK_PORT + 1);
             emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
-#if INCLUDED_DISK
-            byte* dp = Disk + 256 * lsn;
-#endif
 
             printf( // T::Logf(
                 "-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
@@ -52,16 +49,13 @@ struct DoEmudsk {
 
             switch (command) {
               case 0:  // Disk Read
-#if INCLUDED_DISK
-                for (uint k = 0; k < 256; k++) {
-                  T::Poke(emu_disk_buffer + k, dp[k]);
-                }
-#else
+              ++quiet_ram;
                 putbyte(C_DISK_READ);
                 putbyte(T::Peek(EMUDSK_PORT + 6));  // device
                 putbyte(lsn >> 16);
                 putbyte(lsn >> 8);
                 putbyte(lsn >> 0);
+              --quiet_ram;
 
                 while (1) {
                   PollUsbInput();
@@ -76,15 +70,9 @@ struct DoEmudsk {
                     break;
                   }
                 }
-#endif
                 break;
 
               case 1:  // Disk Write
-#if INCLUDED_DISK
-                for (uint k = 0; k < 256; k++) {
-                  dp[k] = T::Peek(emu_disk_buffer + k);
-                }
-#else
                 putbyte(C_DISK_WRITE);
                 putbyte(T::Peek(EMUDSK_PORT + 6));  // device
                 putbyte(lsn >> 16);
@@ -98,7 +86,6 @@ struct DoEmudsk {
               default:
                 printf("\nwut emudsk command %d.\n", command);
                 DumpRamAndGetStuck("wut emudsk", command);
-#endif
             }
         };
   } // Emudsk_Install()

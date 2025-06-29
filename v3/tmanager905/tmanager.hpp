@@ -5,23 +5,6 @@
 
 #define INCLUDED_DISK 0
 
-//constexpr unsigned BLINKS = 5;  // Initial LED blink countdown.
-//
-//#if OS_LEVEL == 90
-//#define BANNER "Level 90 Turbo9SIM"
-//#define FOR_COCO 0  // SAM & VDG & PIAs
-//#endif
-//
-//#if OS_LEVEL == 100
-//#define FOR_COCO 1  // SAM & VDG & PIAs
-//#define BANNER "Level 1 NitrOS-9"
-//#endif
-//
-//#if OS_LEVEL == 200
-//#define FOR_COCO 1  // SAM & VDG & PIAs
-//#define BANNER "Level 2 NitrOS-9"
-//#endif
-
 #define SEEN TRACKING
 #define RECORD 0  // Fix me later.
 
@@ -131,7 +114,8 @@ int acia_char;
 void ShowChar(byte ch) {
   putchar(C_PUTCHAR);
   putchar(ch);
-  sleep_ms(20);
+  printf("ShowChar  %02x < %c >\n", ch, ch);
+  // sleep_ms(10);
 }
 void ShowStr(const char* s) {
   while (*s) {
@@ -143,6 +127,7 @@ void ShowStr(const char* s) {
 void putbyte(byte x) { putchar_raw(x); }
 
 #include "log.h"
+#include "pcrange.h"
 #include "trace.h"
 
 template <typename T>
@@ -215,18 +200,6 @@ const byte Level1_Rom[] = {
 const byte Level2_Rom[] = {
 #include "../generated/level2.rom.h"
 };
-
-
-#if INCLUDED_DISK
-byte Disk[] = {
-#if OS_LEVEL == 100
-#include "level1.disk.h"
-#endif
-#if OS_LEVEL == 200
-#include "level2.disk.h"
-#endif
-};
-#endif
 
 #define DELAY sleep_us(1)
 
@@ -665,8 +638,6 @@ struct EngineBase {
       QUAD_SPLIT(junk, alo, ahi, flags, got32);
       const uint addr = HL_JOIN(ahi, alo);
 
-      // const uint addr = WAIT_GET();
-      // const uint flags = WAIT_GET();
       const bool reading = (flags & F_READ);
       const byte x = T::Peek(0xFFFE);
 
@@ -700,155 +671,15 @@ struct EngineBase {
       writer(addr, data);
     } else
       switch (255 & addr) {
-#if 0
-
-
-        case 0x00:
-        case 0x01:
-        case 0x02:
-          T::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
-          break;
-        case 0x03:
-          // Read PIA0
-          T::Logf("-PIA PIA0: %04x %c\n", addr, reading ? 'r' : 'w');
-          if (not reading) {
-            vsync_irq_enabled = bool((data & 1) != 0);
-          }
-          break;
-#endif
 
         case 0x90:  // GIME INIT0
-          if (not reading) {
-            gime_irq_enabled = bool((data & 0x20) != 0);
-          }
+          gime_irq_enabled = bool((data & 0x20) != 0);
           break;
 
         case 0x92:  // GIME IRQEN
-          if (not reading) {
-            gime_vsync_irq_enabled = bool((data & 0x08) != 0);
-          }
+          gime_vsync_irq_enabled = bool((data & 0x08) != 0);
           break;
 
-
-#if 0
-        case 255 & (EMUDSK_PORT + 0):  // LSN(hi)
-        case 255 & (EMUDSK_PORT + 1):  // LSN(mid)
-        case 255 & (EMUDSK_PORT + 2):  // LSN(lo)
-        case 255 & (EMUDSK_PORT + 4):  // buffer addr
-        case 255 & (EMUDSK_PORT + 5):
-        case 255 & (EMUDSK_PORT + 6):  // drive number
-          T::Logf("-EMUDSK %x %x %x\n", addr, data, T::Peek(addr));
-          break;
-        case 255 & (EMUDSK_PORT + 3):  // Run EMUDSK Command.
-          if (!reading) {
-            byte command = data;
-
-            T::Logf(
-                "-EMUDSK device %x sector $%02x.%04x bufffer $%04x diskop %x\n",
-                T::Peek(EMUDSK_PORT + 6), T::Peek(EMUDSK_PORT + 0),
-                T::Peek2(EMUDSK_PORT + 1), T::Peek2(EMUDSK_PORT + 4), command);
-
-            uint lsn = T::Peek2(EMUDSK_PORT + 1);
-            emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
-
-            T::Logf("-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n",
-                        lsn, emu_disk_buffer, command);
-
-            switch (command) {
-              case 0:  // Disk Read
-                putbyte(C_DISK_READ);
-                putbyte(T::Peek(EMUDSK_PORT + 6));  // device
-                putbyte(lsn >> 16);
-                putbyte(lsn >> 8);
-                putbyte(lsn >> 0);
-
-                while (1) {
-                  PollUsbInput();
-                  if (PeekDiskInput()) {
-                    for (uint k = 0; k < kDiskReadSize - 256; k++) {
-                      (void)disk_input.Take();  // 4-byte device & LSN.
-                    }
-                    for (uint k = 0; k < 256; k++) {
-                      T::Poke(emu_disk_buffer + k, disk_input.Take());
-                    }
-                    data = 0;  // Ready
-                    break;
-                  }
-                }
-                break;
-
-              case 1:  // Disk Write
-                putbyte(C_DISK_WRITE);
-                putbyte(T::Peek(EMUDSK_PORT + 6));  // device
-                putbyte(lsn >> 16);
-                putbyte(lsn >> 8);
-                putbyte(lsn >> 0);
-                for (uint k = 0; k < 256; k++) {
-                  putbyte(T::Peek(emu_disk_buffer + k));
-                }
-                break;
-
-              default:
-                printf("\nwut emudsk command %d.\n", command);
-                DumpRamAndGetStuck("wut emudsk", command);
-            }
-          }
-          break;
-#endif
-
-#if 0
-        case 0xFF & (TFR_RTC_BASE + 1):
-          switch (data) {
-            case 0:
-              rtc_value = 0;
-              break;  // Sec
-            case 1:
-              rtc_value = 3;
-              break;  // Sec (10)
-            case 2:
-              rtc_value = 5;
-              break;  // Min
-            case 3:
-              rtc_value = 1;
-              break;  // Min (10)
-
-            case 4:
-              rtc_value = 2;
-              break;  // Hour
-            case 5:
-              rtc_value = 1;
-              break;  // Hour (10)
-
-            case 6:
-              rtc_value = 5;
-              break;  // Day of month
-            case 7:
-              rtc_value = 2;
-              break;  // Day of month (10)
-
-            case 8:
-              rtc_value = 2;
-              break;  // Month 1-12
-            case 9:
-              rtc_value = 1;
-              break;  // Month (10)
-
-            case 10:
-              rtc_value = 4;
-              break;  // Year - 1900
-            case 11:
-              rtc_value = 2;
-              break;  // (10)
-            case 12:
-              rtc_value = 1;
-              break;  // (100)
-
-            default:
-              rtc_value = data;
-              break;
-          }  // switch data
-          break;
-#endif
 
 
       }  // switch addr & 255
@@ -867,7 +698,6 @@ struct EngineBase {
     } else
       switch (dev) {
 
-#if TODO
         case 0x92:  // GIME IRQEN register
         {
           if (gime_irq_enabled && gime_vsync_irq_enabled &&
@@ -880,6 +710,7 @@ struct EngineBase {
           }
         } break;
 
+#if TODO
         case 255 & (ACIA_PORT + 0):  // read ACIA control/status port
           assert(0);
           {
@@ -915,14 +746,14 @@ struct EngineBase {
           break;
 #endif
 
-#endif  // FOR_COCO
+#endif  // TODO
 
         default:
           break;
       }  // switch
 
     PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, data, 0xFF /*=outputs*/));
-  }
+  } // HandleIORead
 
   static void InstallVectors(uint* vectors) {
     constexpr uint FIRST_VECTOR_ADDRESS = 0xFFF0;
@@ -934,10 +765,10 @@ struct EngineBase {
   static void Run() {
     T::Install();
 
-    MUMBLE("RR");
-    T::ResetRam();
-    MUMBLE("OS");
-    T::Install_OS();
+    // MUMBLE("RR");
+    // T::ResetRam();
+    // MUMBLE("OS");
+    // T::Install_OS();
 
 #if 0
     if (T::DoesSamvdg()) {
@@ -1126,7 +957,7 @@ struct EngineBase {
               gime_vsync_irq_firing = true;
             }
         }
-      }  // end TimerFired
+      }  // end if TimerFired
 
       for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {  /////// Inner Machine Loop
 
@@ -1193,125 +1024,110 @@ if (T::DoesLog()) {
         } else {
           if (reading) {  // CPU reads, Pico Tx
             HandleIORead(addr);
-          } else {
+          } else { // if writing
             // CPU writes, Pico Rx
             data = WAIT_GET();
             T::Poke(addr, data, 0x3F);
             HandleIOWrite(addr, data);
-          }  // end if read / write
-        }  // addr type
+          }  // end if reading / writing
+        }  // end four addr type cases
 
         // =============================================================
         // =============================================================
 
-        if (T::DoesLog()) {
-            if (reading and addr != 0xFFFF and fic) {
-              // ShowChar('1');
+        if (fic and reading and addr < 0xFFF0) {
               current_opcode_cy = cy;
               current_opcode_pc = addr;
               current_opcode = data;
-              // printf("1<%d,%d,%d>\n", cy, addr, data);
 
-    #if HEURISTICS
-              if (addr < 0x0010) {
-                DumpRamAndGetStuck("PC too low", addr);
-              }
-              if (addr > 0xFF00 && addr < 0xFFF0) {
-                // fic can be asserted during interrupt vector fetch.
-                DumpRamAndGetStuck("PC too high", addr);
-              }
-
-    #endif
+            if (T::BadPc(addr)) {
+                DumpRamAndGetStuck("PC out of range", addr);
             }
-
-        if (reading and addr != 0xFFFF) {
-          if (current_opcode == 0x10 /* prefix */ &&
-              current_opcode_cy + 1 == cy) {
-            current_opcode = 0x1000 | data;
-            // printf("change to opcode %x\n", current_opcode);
-          }
-          if (current_opcode == 0x11 /* prefix */ &&
-              current_opcode_cy + 1 == cy) {
-            current_opcode = 0x1100 | data;
-            // printf("change to opcode %x\n", current_opcode);
-          }
-#if HEURISTICS
-          if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
-            if (data == 0xFE) {
-              DumpRamAndGetStuck("Infinite BRA loop", addr);
-            }
-          }
-#endif
-
-#if 1 // TRACE_RTI
-        if (T::DoesEvent()) {
-          if (current_opcode == 0x3B) {  // RTI
-            uint age = cy - current_opcode_cy -
-                       2 /*one byte opcode, one extra cycle */;
-            if (1)
-              printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
-                     current_opcode_cy, current_opcode_pc, current_opcode, age,
-                     addr, data);
-            interest += 50;
-            // TODO -- recognize E==0 for FIRQ
-            if (age < RTI_SZ) {
-              hist_data[age] = data;
-              hist_addr[age] = addr;
-              if (age == RTI_SZ - 1) {
-                T::SendEventHist(EVENT_RTI, RTI_SZ);
-              }
-            }
-          }  // end RTI
-          if (current_opcode == 0x103F) {  // SWI2/OS9
-            uint age =
-                cy - current_opcode_cy -
-                2 /*two byte opcode.  extra cycle contains OS9 call number. */;
-            if (1)
-              printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
-                     current_opcode_cy, current_opcode_pc, current_opcode, age,
-                     addr, data);
-            interest += 50;
-            if (age < SWI2_SZ) {
-              hist_data[age] = data;
-              hist_addr[age] = addr;
-              if (age == SWI2_SZ - 1) {
-                T::SendEventHist(EVENT_SWI2, SWI2_SZ);
-              }
-            }
-          }
-          }
-#endif
         }
-        if (!reading) {
-#if 1 // TRACE_RTI
+
         if (T::DoesLog()) {
-          if (current_opcode == 0x103F) {  // SWI2/OS9
-            uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
-            if (0)
-              printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
-                     current_opcode_cy, current_opcode_pc, current_opcode, age,
-                     addr, data);
-            interest += 50;
-            if (age < SWI2_SZ) {
-              hist_data[age] = data;
-              hist_addr[age] = addr;
+
+            if (reading and addr != 0xFFFF) {
+              if (current_opcode == 0x10 /* prefix */ &&
+                  current_opcode_cy + 1 == cy) {
+                current_opcode = 0x1000 | data;
+                // printf("change to opcode %x\n", current_opcode);
+              }
+              if (current_opcode == 0x11 /* prefix */ &&
+                  current_opcode_cy + 1 == cy) {
+                current_opcode = 0x1100 | data;
+                // printf("change to opcode %x\n", current_opcode);
+              }
+
+            if (T::DoesEvent()) {
+              if (current_opcode == 0x3B) {  // RTI
+                uint age = cy - current_opcode_cy -
+                           2 /*one byte opcode, one extra cycle */;
+                if (0)
+                  printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
+                         current_opcode_cy, current_opcode_pc, current_opcode, age,
+                         addr, data);
+                interest += 50;
+                // TODO -- recognize E==0 for FIRQ
+                if (age < RTI_SZ) {
+                  hist_data[age] = data;
+                  hist_addr[age] = addr;
+                  if (age == RTI_SZ - 1) {
+                    T::SendEventHist(EVENT_RTI, RTI_SZ);
+                  }
+                }
+              }  // end RTI
+              if (current_opcode == 0x103F) {  // SWI2/OS9
+                uint age =
+                    cy - current_opcode_cy -
+                    2 /*two byte opcode.  extra cycle contains OS9 call number. */;
+                if (0)
+                  printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
+                         current_opcode_cy, current_opcode_pc, current_opcode, age,
+                         addr, data);
+                interest += 50;
+                if (age < SWI2_SZ) {
+                  hist_data[age] = data;
+                  hist_addr[age] = addr;
+                  if (age == SWI2_SZ - 1) {
+                    T::SendEventHist(EVENT_SWI2, SWI2_SZ);
+                  }
+                }
+              }
+              }
             }
-          }
-          }
-#endif
-        }
+
+            if (!reading) {
+
+            if (T::DoesLog()) {
+              if (current_opcode == 0x103F) {  // SWI2/OS9
+                uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
+                if (0)
+                  printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
+                         current_opcode_cy, current_opcode_pc, current_opcode, age,
+                         addr, data);
+                interest += 50;
+                if (age < SWI2_SZ) {
+                  hist_data[age] = data;
+                  hist_addr[age] = addr;
+                }
+              }
+              }
+
+            }
+
+            if (T::DoesPcRange()) {
+              if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
+                if (data == 0xFE) {
+                  DumpRamAndGetStuck("Infinite BRA loop", addr);
+                }
+              }
+            }
+
         } //  T::DoesLog()
 
-        uint high = flags & F_HIGH;
 
-#if HEURISTICS
-        if (loop < 4) {
-          if (0)
-            printf("$%d: #%d$ %04x %02x %02x $$ [ #%d. pc=%04x op=%02x ]\n",
-                   loop, cy, addr, (high >> 8), (255 & data), current_opcode_cy,
-                   current_opcode_pc, current_opcode);
-        }
-#endif
+        uint high = flags & F_HIGH;
 
     if (T::DoesTrace()) {
             if (reading and (not vma) and (addr == 0xFFFF)) {
@@ -1354,7 +1170,7 @@ if (T::DoesLog()) {
         }
 
         cy++;
-      }  // next loop
+      }  // next inner machine loop
 
       if (stop_at_what_cycle) {
           if (cy >= stop_at_what_cycle) {
@@ -1410,13 +1226,14 @@ int main() {
 
 struct T9_Slow:
     EngineBase<T9_Slow>,
+    DoPcRange<T9_Slow, 0x0020, 0xFF01>,
     DoTrace<T9_Slow>,
     DoLog<T9_Slow>,
     DoLogMmu<T9_Slow>,
-    DontShowIrqs<T9_Slow>,
+    DoShowIrqs<T9_Slow>,
     CommonRam<T9_Slow>,
     SmallRam<T9_Slow>,
-    DontTracePokes<T9_Slow>,
+    DoTracePokes<T9_Slow>,
     DoEvent<T9_Slow>,
     DontAcia<T9_Slow>,
     DontGime<T9_Slow>,
@@ -1425,21 +1242,52 @@ struct T9_Slow:
     DoTurbo9os<T9_Slow> {
 
   static void Install() {
+    ShowChar('A');
     Install_OS();
+    ShowChar('B');
     Turbo9sim_Install(0xFF00);
+    ShowChar('C');
+    ShowChar('\n');
+  }
+};
+
+struct T9_Fast:
+    EngineBase<T9_Fast>,
+    DontPcRange<T9_Fast>,
+    DontTrace<T9_Fast>,
+    DontLog<T9_Fast>,
+    DontLogMmu<T9_Fast>,
+    DontShowIrqs<T9_Fast>,
+    CommonRam<T9_Fast>,
+    SmallRam<T9_Fast>,
+    DontTracePokes<T9_Fast>,
+    DontEvent<T9_Fast>,
+    DontAcia<T9_Fast>,
+    DontGime<T9_Fast>,
+    DontSamvdg<T9_Fast>,
+    DoTurbo9sim<T9_Fast>,
+    DoTurbo9os<T9_Fast> {
+
+  static void Install() {
+    ShowChar('A');
+    Install_OS();
+    ShowChar('B');
+    Turbo9sim_Install(0xFF00);
+    ShowChar('C');
     ShowChar('\n');
   }
 };
 
 struct L1_Slow:
     EngineBase<L1_Slow>,
+    DoPcRange<L1_Slow, 0x0020, 0xFF01>,
     DontTrace<L1_Slow>,
     DoLog<L1_Slow>,
     DoLogMmu<L1_Slow>,
     DoShowIrqs<L1_Slow>,
     CommonRam<L1_Slow>,
     SmallRam<L1_Slow>,
-    DontTracePokes<L1_Slow>,
+    DoTracePokes<L1_Slow>,
     DoEvent<L1_Slow>,
     DoAcia<L1_Slow>,
     DoEmudsk<L1_Slow>,
@@ -1464,6 +1312,7 @@ struct L1_Slow:
 
 struct L1_Fast:
     EngineBase<L1_Fast>,
+    DontPcRange<L1_Fast>,
     DontTrace<L1_Fast>,
     DontLog<L1_Fast>,
     DontLogMmu<L1_Fast>,
@@ -1494,14 +1343,49 @@ struct L1_Fast:
 };
 
 
+struct L2_Slow:
+    EngineBase<L2_Slow>,
+    // DoPcRange<L2_Slow, 0x0020, 0xFF01>,
+    DontPcRange<L2_Slow>,
+    DontTrace<L2_Slow>,
+    DoLog<L2_Slow>,
+    DoLogMmu<L2_Slow>,
+    DoShowIrqs<L2_Slow>,
+    CommonRam<L2_Slow>,
+    BigRam<L2_Slow>,
+    DoTracePokes<L2_Slow>,
+    DoEvent<L2_Slow>,
+    DoAcia<L2_Slow>,
+    DoEmudsk<L2_Slow>,
+    DoGime<L2_Slow>,
+    DoSamvdg<L2_Slow>,
+    DontTurbo9sim<L2_Slow>,
+    DoNitros9level2<L2_Slow> {
+
+  static void Install() {
+    ShowChar('A');
+    Install_OS();
+    ShowChar('B');
+    Samvdg_Install();
+    ShowChar('C');
+    Emudsk_Install(0xFF80);
+    ShowChar('D');
+    Acia_Install(0xFF06);
+    ShowChar('E');
+    ShowChar('\n');
+  }
+};
+
 
 struct harness {
   std::function<void(void)> engines[5];
   std::function<void(void)> fast_engines[5];
 
   T9_Slow t9_slow;
+  T9_Fast t9_fast;
   L1_Slow l1_slow;
   L1_Fast l1_fast;
+  L2_Slow l2_slow;
 
   harness() {
     memset(engines, 0, sizeof engines);
@@ -1509,6 +1393,8 @@ struct harness {
 
     engines[0] = t9_slow.Run;
     engines[1] = l1_slow.Run;
+    engines[2] = l2_slow.Run;
+    fast_engines[0] = t9_fast.Run;
     fast_engines[1] = l1_fast.Run;
   }
 };
