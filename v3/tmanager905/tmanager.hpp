@@ -334,6 +334,7 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 
 // Debugging
 #include "event.h"
+#include "reboot.h"
 
 // I/O devices
 /////// #include "cocosdc.h"
@@ -871,7 +872,7 @@ struct EngineBase {
     printf("========\n");
 
     TildePowerOf2 = 1;
-    for (OuterLoops= 0; true; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
+    for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
 
     constexpr uint NumberOfLivenessTildes = 18; // 8;
       if (OuterLoops <= (1<<(NumberOfLivenessTildes-1))) {
@@ -1182,7 +1183,8 @@ if (T::DoesLog()) {
     }  // while true
 
   exit:
-          ShowStr("\n<<< TFR9 STOPPING >>>\n");
+          ShowStr("\n<<< exit: TFR9 STOPPING >>>\n");
+          Reboot();
   }  // end RunMachineCycles
 };  // end struct EngineBase
 
