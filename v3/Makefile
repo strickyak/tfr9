@@ -13,6 +13,7 @@ make_$(BUILD_DIR): $(BUILD_DIR)
         -D'OS_LEVEL'='$(OS_LEVEL)' \
         -D'TRACKING'='$(TRACKING)' \
         ../tmanager905/pico2
+	make -C n9cmds all install
 	make -C $(BUILD_DIR)
 
 

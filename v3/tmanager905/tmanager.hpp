@@ -334,6 +334,7 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 
 // Debugging
 #include "event.h"
+#include "hyper.h"
 #include "reboot.h"
 
 // I/O devices
@@ -872,7 +873,8 @@ struct EngineBase {
     printf("========\n");
 
     TildePowerOf2 = 1;
-    for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
+    for (OuterLoops= 0; true; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
+    // for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
 
     constexpr uint NumberOfLivenessTildes = 18; // 8;
       if (OuterLoops <= (1<<(NumberOfLivenessTildes-1))) {
@@ -1044,6 +1046,8 @@ if (T::DoesLog()) {
             if (T::BadPc(addr)) {
                 DumpRamAndGetStuck("PC out of range", addr);
             }
+
+            T::Hyper(data, addr);
         }
 
         if (T::DoesLog()) {
@@ -1188,44 +1192,6 @@ if (T::DoesLog()) {
   }  // end RunMachineCycles
 };  // end struct EngineBase
 
-/*
-struct E1:
-    EngineImpl<E1>,
-    DoLog<E1>,
-    DoLogMmu<E1>,
-    DoShowIrqs<E1>,
-    SmallRam<E1>,
-    DoTracePokes<E1>,
-    DoAcia<E1>,
-    DontGime<E1>,
-    DoSamvdg<E1> {
-};
-
-template <
-    class Log,
-    class LogMmu,
-    class ShowIrqs,
-    class Ram,
-    class TracePokes,
-    class Acia,
-    class Gime,
-    class Samvdg
->
-struct E2: EngineBase,
-    Log,
-    LogMmu,
-    ShowIrqs,
-    Ram,
-    TracePokes,
-    Acia,
-    Gime,
-    Samvdg {
-};
-int main() {
-    E2<
-}
-*/
-
 struct T9_Slow:
     EngineBase<T9_Slow>,
     DoPcRange<T9_Slow, 0x0020, 0xFF01>,
@@ -1236,6 +1202,7 @@ struct T9_Slow:
     CommonRam<T9_Slow>,
     SmallRam<T9_Slow>,
     DoTracePokes<T9_Slow>,
+    DoHyper<T9_Slow>,
     DoEvent<T9_Slow>,
     DontAcia<T9_Slow>,
     DontGime<T9_Slow>,
@@ -1263,6 +1230,7 @@ struct T9_Fast:
     CommonRam<T9_Fast>,
     SmallRam<T9_Fast>,
     DontTracePokes<T9_Fast>,
+    DontHyper<T9_Fast>,
     DontEvent<T9_Fast>,
     DontAcia<T9_Fast>,
     DontGime<T9_Fast>,
@@ -1290,6 +1258,7 @@ struct L1_Slow:
     CommonRam<L1_Slow>,
     SmallRam<L1_Slow>,
     DoTracePokes<L1_Slow>,
+    DoHyper<L1_Slow>,
     DoEvent<L1_Slow>,
     DoAcia<L1_Slow>,
     DoEmudsk<L1_Slow>,
@@ -1322,6 +1291,7 @@ struct L1_Fast:
     CommonRam<L1_Fast>,
     SmallRam<L1_Fast>,
     DontTracePokes<L1_Fast>,
+    DontHyper<L1_Fast>,
     DontEvent<L1_Fast>,
     DoAcia<L1_Fast>,
     DoEmudsk<L1_Fast>,
@@ -1356,6 +1326,7 @@ struct L2_Slow:
     CommonRam<L2_Slow>,
     BigRam<L2_Slow>,
     DoTracePokes<L2_Slow>,
+    DoHyper<L2_Slow>,
     DoEvent<L2_Slow>,
     DoAcia<L2_Slow>,
     DoEmudsk<L2_Slow>,
