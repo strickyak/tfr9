@@ -59,6 +59,9 @@ then
 
     python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S2/bootfiles/kernel_tfr9" > generated/level2.rom.h
 
+    mkdir -p /tmp/borges
+    go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/
+
     make \
         BUILD_DIR="${BUILD_DIR}" \
         TFR_BOARD="${TFR_BOARD}" \
@@ -73,5 +76,5 @@ fi
 
 if expr 1 = $Enable_RUN
 then
-    ./tconsole-level1.linux-amd64.exe -disks "$D1" 2>_log   -borges $HOME/borges
+    ./tconsole-level1.linux-amd64.exe -disks "/dev/null,$D1,$D2" 2>_log   -borges /tmp/borges
 fi

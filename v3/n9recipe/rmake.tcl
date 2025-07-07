@@ -344,12 +344,12 @@ Platform tfr9 {
     With level1 {
         With coco1 {
             Create_track35_style_primary_boot "tfr9-level1.t35" {
-                @CORE_35 boot_emu
+                @CORE_35 boot_emu_h1=boot_emu,DISKNUM=1
             }
             Create_os9boot_style_secondary_boot "tfr9-level1.o9b" {
                 ioman @CLOCK_60HZ @PIPES
                 scf sc6850 term=term_sc6850,HwBASE=0xFF06
-                rbf emudsk dd=emudskdesc,DNum=0,DD=1
+                rbf emudsk dd_h1=emudskdesc,DNum=1,DD=1
                 [lmap i [Range 2] { string cat "h$i=emudskdesc,DNum=$i" }]
                 sysgo shell_21
             }

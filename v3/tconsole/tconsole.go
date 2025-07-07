@@ -124,24 +124,6 @@ func LookupCocoKey(ascii byte) (row, col, plane byte) {
 	return 0, 0, 0
 }
 
-type DiskFiles []*os.File
-
-var Files DiskFiles
-
-func OpenDisks(disks string) {
-	for _, filename := range strings.Split(disks, ",") {
-		if filename == "" {
-			Files = append(Files, nil)
-			continue
-		}
-		f, err := os.OpenFile(filename, os.O_RDWR, 0)
-		if err != nil {
-			log.Fatalf("Cannot open file %q: %v", filename, err)
-		}
-		Files = append(Files, f)
-	}
-}
-
 // getByte from USB channel, for Binary Data
 func getByte(fromUSB <-chan byte) byte {
 	return <-fromUSB
@@ -549,16 +531,6 @@ func Run(inkey chan byte) {
 			channelFromPico <- v[i]
 		}
 	}
-}
-
-func AssertEQ[T Ordered](a, b T) {
-	if a != b {
-		log.Fatalf("AssertEQ fails: %v vs %v", a, b)
-	}
-}
-
-type Ordered interface {
-	byte | int | uint | int64 | uint64 | rune | string
 }
 
 func HandleWrite(regs *Regs) {
