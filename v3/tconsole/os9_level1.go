@@ -45,7 +45,7 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
             c1, c2, c3 := byt(i+size-3, ram),  byt(i+size-2, ram),  byt(i+size-1, ram)
             fullname := fmt.Sprintf("%s.%04x%02x%02x%02x", strings.ToLower(name), size, c1, c2, c3)
 
-            Logf("ScanRamForMemoryModules: i=%x size=%x namoff=%x=%q check=%x", i, size, namoff, name, check) 
+            // Logf("ScanRamForMemoryModules: i=%x size=%x namoff=%x=%q check=%x", i, size, namoff, name, check) 
             mm = append(mm, &ScannedModuleInfo{
                 Name: name,
                 Addy: i,
@@ -83,9 +83,9 @@ func MemoryModuleOf(addr uint) (name string, offset uint) {
 		}
 	} else if 0x0400 <= addr && addr <= 0xFF00 {
         mm := ScanRamForMemoryModules(trackRam[:])
-        for i, m := range mm {
-            Logf("mm [%d] %x %x %q", i, m.Addy, m.Addy+m.Size, m.Name)
-        }
+        // for i, m := range mm {
+            // Logf("mm [%d] %x %x %q", i, m.Addy, m.Addy+m.Size, m.Name)
+        // }
         for i, m := range mm {
             if m.Addy < addr && addr < m.Addy+m.Size {
                 Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)

@@ -53,7 +53,10 @@ then
     sh create-nitros9disk.sh "$S2" "$D2" "$S2/modules/sysgo_dd" "$S2/cmds/shell"
 
     make -C launchers
-    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S1/bootfiles/kernel_tfr9" > generated/level1.rom.h
+
+    # python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S1/bootfiles/kernel_tfr9" > generated/level1.rom.h
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw n9recipe/tfr9-level1.t35 > generated/level1.rom.h
+
     python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S2/bootfiles/kernel_tfr9" > generated/level2.rom.h
 
     make \

@@ -1251,7 +1251,7 @@ struct T9_Fast:
 struct L1_Slow:
     EngineBase<L1_Slow>,
     DoPcRange<L1_Slow, 0x0020, 0xFF01>,
-    DontTrace<L1_Slow>,
+    DoTrace<L1_Slow>,
     DoLog<L1_Slow>,
     DoLogMmu<L1_Slow>,
     DoShowIrqs<L1_Slow>,
@@ -1349,6 +1349,39 @@ struct L2_Slow:
   }
 };
 
+struct L2_Fast:
+    EngineBase<L2_Fast>,
+    DontPcRange<L2_Fast>,
+    DontTrace<L2_Fast>,
+    DoLog<L2_Fast>,
+    DontLogMmu<L2_Fast>,
+    DontShowIrqs<L2_Fast>,
+    CommonRam<L2_Fast>,
+    BigRam<L2_Fast>,
+    DontTracePokes<L2_Fast>,
+    DoHyper<L2_Fast>,
+    DoEvent<L2_Fast>,
+    DoAcia<L2_Fast>,
+    DoEmudsk<L2_Fast>,
+    DoGime<L2_Fast>,
+    DoSamvdg<L2_Fast>,
+    DontTurbo9sim<L2_Fast>,
+    DoNitros9level2<L2_Fast> {
+
+  static void Install() {
+    ShowChar('A');
+    Install_OS();
+    ShowChar('B');
+    Samvdg_Install();
+    ShowChar('C');
+    Emudsk_Install(0xFF80);
+    ShowChar('D');
+    Acia_Install(0xFF06);
+    ShowChar('E');
+    ShowChar('\n');
+  }
+};
+
 
 struct harness {
   std::function<void(void)> engines[5];
@@ -1359,6 +1392,7 @@ struct harness {
   L1_Slow l1_slow;
   L1_Fast l1_fast;
   L2_Slow l2_slow;
+  L2_Fast l2_fast;
 
   harness() {
     memset(engines, 0, sizeof engines);
@@ -1369,13 +1403,14 @@ struct harness {
     engines[2] = l2_slow.Run;
     fast_engines[0] = t9_fast.Run;
     fast_engines[1] = l1_fast.Run;
+    fast_engines[2] = l2_fast.Run;
   }
 };
 
 void Shell() {
   struct harness harness;
   while (true) {
-    ShowChar('^');
+    ShowChar(';');
     PollUsbInput();
 
     if (term_input.HasAtLeast(1)) {

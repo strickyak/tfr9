@@ -107,7 +107,7 @@ ShowChar('3');
   void static simTxWriter(uint addr, byte data) {
     sim_last_char_tx = data;
 
-    ShowChar('+');
+    // ShowChar('+');
     ShowChar(data);
   }
 

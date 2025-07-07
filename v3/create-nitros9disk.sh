@@ -3,22 +3,37 @@ set -ex
 
 S="$1"; shift
 D="$1"; shift
-# Remaining args are added to OS9Boot:
-T=/tmp/tmp.$$.os9boot
-cat "$@" "$S/bootfiles/bootfile_tfr9" > $T
-trap "rm -f $T" 0 1 2 3
 
-rm -f "$D"
-os9 format -l9999 -e -n'TFR9-DISK' "$D"
-os9 makdir "$D",CMDS
-os9 gen -b="$T" "$D"
-os9 copy -l -r "$S/startup"  "$D",startup
+case "$D" in
+  *level1.dsk )
+    # NEW STYLE for Recipes
+    ( cd n9recipe && tclsh rmake.tcl && make -B )
+    cp -vf n9recipe/tfr9-level1.dsk "$D"
+    os9 copy -r "$S/cmds/basic09"  "$D",CMDS/basic09
+    os9 attr -q -r -w -e -pr -pe   "$D",CMDS/basic09
+  ;;
+  * )
+    # OLD STYLE with "os9 format, gen, copy ..."
 
-ls -1 "$S"/cmds/ | egrep -v '[.](list|map)$' | while read f
-do
-      os9 copy -r "$S/cmds/$f"  "$D",CMDS/$f
-      os9 attr -q -r -w -e -pr -pe "$D",cmds/$f
-done
+    # Remaining args are added to OS9Boot:
+    T=/tmp/tmp.$$.os9boot
+    cat "$@" "$S/bootfiles/bootfile_tfr9" > $T
+    trap "rm -f $T" 0 1 2 3
+
+    rm -f "$D"
+    os9 format -l9999 -e -n'TFR9-DISK' "$D"
+    os9 makdir "$D",CMDS
+    os9 gen -b="$T" "$D"
+    os9 copy -l -r "$S/startup"  "$D",startup
+
+    ls -1 "$S"/cmds/ | egrep -v '[.](list|map)$' | while read f
+    do
+          os9 copy -r "$S/cmds/$f"  "$D",CMDS/$f
+          os9 attr -q -r -w -e -pr -pe "$D",cmds/$f
+    done
+
+  ;;
+esac
 
 # BEGIN STANDARD TIMING TWO
 cat >/tmp/tfr.startup2 <<~~~~
@@ -40,7 +55,7 @@ run
 ~~~~
 # END STANDARD TIMING TWO
 
-if test 1 == "$Enable_NOSTARTUP"
+if test 1 = "$Enable_NOSTARTUP"
 then
     os9 copy -l -r /dev/null  "$D",startup
 else
