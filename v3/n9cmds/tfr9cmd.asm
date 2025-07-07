@@ -1,5 +1,7 @@
- nam hypernop
- ttl HyperNOP for TFR9
+ nam tfr9cmd
+ ttl tfr9cmd
+
+HwAddr equ $FF09
 
 * ifp1
  use defsfile
@@ -12,38 +14,28 @@ edition             set       1
 
 
                     org       0
-                    rmb       64               unused
-hyper               rmb       64               hyper char sender
-                    rmb       128              for the stack
+                    rmb       256
 size                equ       .
 
                     mod       eom,name,tylg,atrv,start,size
 
-name                fcs       /HyperCmd/
+name                fcs       /tfr9cmd/
                     fcb       edition
 
 start:
- * Build the hyper command sequence: NOP, BRN ___, RTS.
- ldb #$12  ; NOP
- stb hyper,u
- ldb #$21  ; BRN
- stb hyper+1,u
- ldb #$39  ; RTS
- stb hyper+3,u
-
 loop:
- * Send chars to hyper and stop after control char.
- ldb ,x+
- stb hyper+2,u
- jsr hyper,u
+ * Send param chars to port and stop after control char.
+ ldb ,x+        ; next param char
+ stb >HwAddr    ; poke to magic hardware port
 
- cmpb #' '
- bhs loop
+ cmpb #' '      ; was it a control char?
+ bhs loop       ; repeat if not.
 
 finalize:
  * All done, exit okay.
  clrb          ; good status
  os9 F$Exit    ; not to return.
+
 not_reached:
  bra not_reached  ; just in case it returned.
   
