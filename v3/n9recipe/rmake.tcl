@@ -1,22 +1,33 @@
 set DEFAULT_CMDS_LEVEL1 {
-    asm             attr            backup          basic09         bawk
+    asm             attr            backup                          bawk
     binex           build           calldbg         cmp             cobbler
     copy            cputype         date            dcheck          debug
     ded             deiniz          del             deldir          devs
     dir             dirsort         disasm          display         dmode
-    dsave           dump            dw              echo            edit
-    error           exbin           format          free            gfx
-    grep            grfdrv          help            httpd           ident
-    inetd           iniz            inkey           irqs            link
+    dsave           dump                            echo            edit
+    error           exbin           format          free
+    grep            grfdrv          help                            ident
+                    iniz                            irqs            link
     list            load            login           makdir
     mdir            megaread        merge           mfree           minted
     more            mpi             os9gen          padrom          park
     printerr        procs           prompt          pwd             pxd
-    rename          runb            save            setime          shell_21
-    shellplus       sleep           syscall         tee             telnet
-    tmode           touch           tsmon           tuneport        unlink
+    rename                          save            setime          shell_21
+    shellplus       sleep                           tee
+                    touch           tsmon           tuneport        unlink
     verify          xmode
+    tmode=xmode,TMODE=1
 }
+
+set BASIC09_CMDS_LEVEL1 {
+    basic09 runb gfx inkey syscall
+}
+
+set LINKED_CMDS_LEVEL1 {
+    dw inetd telnet httpd
+    grep megaread
+}
+
 set DEFAULT_SYS_LEVEL1 {
     errors
 }
@@ -91,10 +102,20 @@ proc LogGlobalVars {{pattern *}} {
 proc FinishMakefile {} {
     LogGlobalVars {[A-Z]*}
 
+    lassign [clock format [clock seconds] -format "%Y %m %d"] Y M D
+
     set w [open "Makefile" "w"]
     puts $w "N9 = [ cd ../../../nitros9 ; pwd ]"
     puts $w "LWASM = lwasm"
-    puts $w "LWASM_FLAGS = --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --format=os9"
+    puts $w "LWLINK = lwlink"
+    puts $w "SIMPLE_LWASM_FLAGS = --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --no-warn=ifp1 --format=os9"
+    puts $w "BASIC09_LWASM_FLAGS = --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --no-warn=ifp1 --format=os9"
+    puts $w "LINKED_LWASM_FLAGS = --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax,export --no-warn=ifp1 --format=os9"
+    puts $w ""
+    puts $w "YEAR=[expr $Y-2000]"
+    puts $w "MONTH=[expr 1$M-100]"
+    puts $w "DAY=[expr 1$D-100]"
+    puts $w "VER=  -D'NOS9VER'=\$(YEAR) -D'NOS9MAJ'=\$(MONTH) -D'NOS9MIN'=\$(DAY) -D'coco1'=1"
     puts $w ""
     puts $w "all: \\"
     foreach p [lsort [array names ::Platforms]] {
@@ -126,11 +147,25 @@ proc FinishMakefile {} {
 
         puts $w ""
         puts $w "$target: $src"
-        puts $w [string cat "\t" {$(LWASM) $(LWASM_FLAGS) -o'$@' $< -I'.' -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' } $flags { } -D'NOS9VER'=0 { } -D'NOS9MAJ'=0 { } -D'NOS9MIN'=0 ]
+
+        if [lsearch $::BASIC09_CMDS_LEVEL1 $target]>=0 {
+            puts $w [tabbed { $(LWASM) $(BASIC09_LWASM_FLAGS) -o'$@' $< -I'.' -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $(VER) } $flags]
+        } elseif [lsearch $::LINKED_CMDS_LEVEL1 $target]>=0 {
+            # lwlink --format=os9 -L /home/strick/modoc/coco-shelf/nitros9/lib -lnet -lcoco -lalib grep.o -ogrep
+            puts $w [tabbed { $(LWASM) $(LINKED_LWASM_FLAGS) --format=obj -o'$@.o' $< -I'.' -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $(VER) } $flags]
+            puts $w [tabbed { $(LWLINK) --format=os9 -L ../../../nitros9/lib  -lnet -lcoco -lalib $@.o -o'$@' } "" ]
+        } else {
+            # # # puts $w \[string cat "\t" $(LWASM) $(SIMPLE_LWASM_FLAGS) -o'$@' $< -I'.' -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $flags \$(VER) \]
+            puts $w [tabbed { $(LWASM) $(SIMPLE_LWASM_FLAGS) -o'$@' $< -I'.' -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $(VER) } $flags]
+        }
     }
     puts $w ""
     puts $w "clean:"
     puts $w [string cat "\t" {find * -type f ! -name '*.tcl' ! -name '*,v' -print0 | xargs -0 rm -f }]
+}
+
+proc tabbed {line flags} {
+    return "\t$line $flags"
 }
 
 proc Assemble {target source flags} {
@@ -179,8 +214,8 @@ proc Create_track35_style_primary_boot {name body} {
     set manifest {}
     foreach it [subst $body] {
         CreateFlagsFromArgs target src flags extra $it
-        Log " + [catch [list FindInWithPath  {modules modules/kernel} $src .asm] result ; set result]"
-        if ![catch [list FindInWithPath  {modules modules/kernel} $src .asm] result] {
+        Log " + [catch [list FindInWithPath  {modules modules/kernel} $src {.asm .as}] result ; set result]"
+        if ![catch [list FindInWithPath  {modules modules/kernel} $src {.asm .as}] result] {
             Assemble $target $result $flags
             lappend manifest $target
         } else {
@@ -204,8 +239,8 @@ proc Create_os9boot_style_secondary_boot {name body} {
     set manifest {}
     foreach it [subst $body] {
         CreateFlagsFromArgs target src flags extra $it
-        Log " + [catch [list FindInWithPath  {modules} $src .asm] result ; set result]"
-        if ![catch [list FindInWithPath  {modules} $src .asm] result] {
+        Log " + [catch [list FindInWithPath  {modules cmds} $src {.asm .as}] result ; set result]"
+        if ![catch [list FindInWithPath  {modules cmds} $src {.asm .as}] result] {
             Assemble $target $result $flags
             lappend manifest $target
         } else {
@@ -241,8 +276,8 @@ Log 223  [subst $cmds_body]
         foreach it [subst $cmds_body] {
 Log 333 $it
             CreateFlagsFromArgs target src flags extra $it
-            Log " + [catch [list FindInWithPath  {cmds} $src .asm] result ; set result]"
-            if ![catch [list FindInWithPath  {cmds} $src .asm] result] {
+            Log " + [catch [list FindInWithPath  {cmds} $src {.asm .as}] result ; set result]"
+            if ![catch [list FindInWithPath  {cmds} $src {.asm .as}] result] {
                 Assemble $target $result $flags
                 lappend manifest $target
             } else {
@@ -267,15 +302,17 @@ proc FindInWithPath {middirs name suffix} {
     set path [Get withpath]
     foreach d [lreverse $path] {
         foreach m $middirs {
-            if [file exists $d/$m/$name$suffix] {
-                return $d/$m/$name$suffix
+            foreach s $suffix {
+                if [file exists $d/$m/$name$s] {
+                    return $d/$m/$name$s
+                }
             }
             #if [file exists $d/$m/$name] {
             #    return $d/$m/$name
             #}
         }
     }
-    error "cannot find `$name` in path `$path`"
+    error "cannot find `$name` in path=`$path` middirs=`$middirs` suffix=`$suffix`"
 }
 
 proc CreateDefsfiles {defs} {
@@ -301,6 +338,8 @@ set CORE_35 { rel krn krnp2 init }
 
 CreateDefsfiles $Defs_coco1
 InitMakefile
+
+
 Platform tfr9 {
     With level1 {
         With coco1 {
@@ -309,25 +348,21 @@ Platform tfr9 {
             }
             Create_os9boot_style_secondary_boot "tfr9-level1.o9b" {
                 ioman @CLOCK_60HZ @PIPES
-                rbf emudsk
-                scf sc6850
-                dd=emudskdesc,DNum=0,DD=1
-
-                [lmap i [Range 8] {
-                    list h$i=emudskdesc,DNum=$i
-                }]
-
-                term=term_sc6850,HwBASE=0xFF06
+                scf sc6850 term=term_sc6850,HwBASE=0xFF06
+                rbf emudsk dd=emudskdesc,DNum=0,DD=1
+                [lmap i [Range 2] { string cat "h$i=emudskdesc,DNum=$i" }]
+                sysgo shell_21
             }
             Create_hard_disk "tfr9-level1.dsk" {
                 -sectors 9999
                 -track35 "tfr9-level1.t35"
                 -os9boot "tfr9-level1.o9b"
-                -cmds @DEFAULT_CMDS_LEVEL1
+                -cmds {@DEFAULT_CMDS_LEVEL1 @BASIC09_CMDS_LEVEL1 @LINKED_CMDS_LEVEL1}
                 -sys @DEFAULT_SYS_LEVEL1
                 -startup "/dev/null"
             }
         }
     }
 }
+
 FinishMakefile
