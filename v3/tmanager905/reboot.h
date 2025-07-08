@@ -20,20 +20,20 @@ uint32_t watchdog_get_time_remaining_ms(void);
 */
 
 void Reboot() {
-    constexpr uint XOSC_RATE_MHZ = 12;
-    constexpr uint DELAY_MS = 100;
-    constexpr bool PAUSE_ON_DEBUG = false;
+  constexpr uint XOSC_RATE_MHZ = 12;
+  constexpr uint DELAY_MS = 100;
+  constexpr bool PAUSE_ON_DEBUG = false;
 
-    watchdog_enable(DELAY_MS, PAUSE_ON_DEBUG);
-    watchdog_start_tick(XOSC_RATE_MHZ);
+  watchdog_enable(DELAY_MS, PAUSE_ON_DEBUG);
+  watchdog_start_tick(XOSC_RATE_MHZ);
 
-    while (true) {
-        uint ms = watchdog_get_time_remaining_ms();
-        char buf[20];
-        sprintf(buf, " [%d]", ms);
-        ShowStr(buf);
-        sleep_ms(1);
-    }
+  while (true) {
+    uint ms = watchdog_get_time_remaining_ms();
+    char buf[20];
+    sprintf(buf, " [%d]", ms);
+    ShowStr(buf);
+    sleep_ms(1);
+  }
 }
 
-#endif // _REBOOT_H_
+#endif  // _REBOOT_H_

@@ -13,7 +13,6 @@ uint* current_bases;
 uint base[2][8];
 byte mmu[2][8];
 
-
 template <class T>
 struct DontTracePokes {
   force_inline static void TraceThePoke(uint addr, byte data) {}
@@ -31,7 +30,7 @@ struct DoTracePokes {
 
 template <class T>
 struct DontLogMmu {
-  static force_inline void LogMmuf(const char* fmt, ...) { }
+  static force_inline void LogMmuf(const char* fmt, ...) {}
 };
 template <class T>
 struct DoLogMmu {
@@ -81,11 +80,8 @@ force_inline void PokeQuietly(uint addr, byte data) { T::WriteQuietly(addr, data
 
 template <class T>
 class SmallRam {
-
  public:
-  static void ResetRam() {
-    memset(ram, 0, sizeof ram);
-  }
+  static void ResetRam() { memset(ram, 0, sizeof ram); }
   static byte Read(uint addr) {
     // printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
     // TODO -- assert the mask is never needed.
@@ -104,10 +100,10 @@ class SmallRam {
 };
 
 static byte const BigRam_mmu_init[16] = {
-  0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-  0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-  // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-  // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
 };
 
 template <class T>
@@ -119,7 +115,7 @@ class BigRam {
 
  public:
   static void ResetRam() {
-printf("ResetRam\n");
+    printf("ResetRam\n");
     memset(ram, 0, sizeof ram);
     interest = (interest > 500) ? interest : 500;
 
@@ -178,8 +174,8 @@ printf("ResetRam\n");
   uint block = (use_mmu) ? mmu[current_task][slot] : 0x38 + slot;
 
     DETERMINE_BLOCK
-// printf("DET addr=%x slot=%x off=%x use=%x/%x block=%x\n",
-        // addr, slot, offset, use_mmu, current_task, block);
+    // printf("DET addr=%x slot=%x off=%x use=%x/%x block=%x\n",
+    // addr, slot, offset, use_mmu, current_task, block);
     return block;
   }
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -189,7 +185,7 @@ printf("ResetRam\n");
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
-// T::LogMmuf("Phys: %x -> %x\n", addr, phys);
+    // T::LogMmuf("Phys: %x -> %x\n", addr, phys);
     return phys;
   }
   force_inline static uint Phys(uint addr, byte block) {
@@ -198,7 +194,7 @@ printf("ResetRam\n");
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
-// T::LogMmuf("Phys: %x(%x) -> %x\n", addr, block, phys);
+    // T::LogMmuf("Phys: %x(%x) -> %x\n", addr, block, phys);
     return phys;
   }
   // ==============================================
@@ -223,7 +219,7 @@ printf("ResetRam\n");
   force_inline static byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
   force_inline static byte Read(uint addr) {
     uint phys = Phys(addr);
-// T::LogMmuf("read: %x %x -> %x\n", addr, phys, ram[phys]);
+    // T::LogMmuf("read: %x %x -> %x\n", addr, phys, ram[phys]);
     return ram[phys];
   }
   force_inline static byte FastRead(uint addr) {
@@ -232,7 +228,7 @@ printf("ResetRam\n");
     // if (phys != phys2) {
     // printf("DIFFERENT(%x) %x vs %x\n", addr, phys, phys2);
     //}
-// T::LogMmuf("fastread: %x %x -> %x\n", addr, phys2, ram[phys2]);
+    // T::LogMmuf("fastread: %x %x -> %x\n", addr, phys2, ram[phys2]);
     return ram[phys2];
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -240,7 +236,7 @@ printf("ResetRam\n");
     uint phys = Phys(addr, block);
     ram[phys] = data;
 
-// T::LogMmuf("write: %x(%x) %x <- %x\n", addr, block, phys, data);
+    // T::LogMmuf("write: %x(%x) %x <- %x\n", addr, block, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -275,11 +271,11 @@ printf("ResetRam\n");
     }  // if
   }  // Write
   static void Write(uint addr, byte data) {
-// printf("write: %x() <- %x\n", addr, data);
+    // printf("write: %x() <- %x\n", addr, data);
     uint phys = Phys(addr);
     ram[phys] = data;
 
-// printf("write: %x() %x <- %x\n", addr, phys, data);
+    // printf("write: %x() %x <- %x\n", addr, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -317,7 +313,7 @@ printf("ResetRam\n");
     uint phys = FastPhys(addr);
     ram[phys] = data;
 
-// T::LogMmuf("fastwrite: %x() %x <- %x\n", addr, phys, data);
+    // T::LogMmuf("fastwrite: %x() %x <- %x\n", addr, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {

@@ -21,21 +21,20 @@ uint const Coco2Vectors[] = {
 
 template <class T>
 struct DoNitros9level1 {
-
   static void Install_OS() {
-ShowChar('p');
+    ShowChar('p');
     T::ResetRam();
-ShowChar('q');
+    ShowChar('q');
     // Copy ROM to RAM
     for (uint a = 0; a < sizeof Nitros9level1_Rom; a++) {
-        T::Poke(LEVEL1_LAUNCHER_START+a, Nitros9level1_Rom[a]);
+      T::Poke(LEVEL1_LAUNCHER_START + a, Nitros9level1_Rom[a]);
     }
-ShowChar('r');
+    ShowChar('r');
     // Fix Vectors
     for (uint i = 0; i < 8; i++) {
-        T::Poke2(0xFFF0 + 2*i, Coco2Vectors[i]);
+      T::Poke2(0xFFF0 + 2 * i, Coco2Vectors[i]);
     }
-ShowChar('s');
+    ShowChar('s');
   }
 };
 

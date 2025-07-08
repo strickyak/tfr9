@@ -1,7 +1,6 @@
 #ifndef _TRACE_H_
 #define _TRACE_H_
 
-
 template <class T>
 struct DontTrace {
   static constexpr bool DoesTrace() { return false; }
@@ -32,6 +31,4 @@ struct DoTrace {
   }
 };
 
-
-
-#endif // _TRACE_H_
+#endif  // _TRACE_H_

@@ -10,30 +10,23 @@ const byte Nitros9level2_Rom[] = {
 uint const Coco3Vectors[] = {
     // From ~/coco-shelf/toolshed/cocoroms/coco3.rom :
     0x0000,  // 6309 traps
-    0xFEEE,
-    0xFEF1,
-    0xFEF4,
-    0xFEF7,
-    0xFEFA,
-    0xFEFD,
-    LEVEL2_LAUNCHER_START,
+    0xFEEE, 0xFEF1, 0xFEF4, 0xFEF7, 0xFEFA, 0xFEFD, LEVEL2_LAUNCHER_START,
 };
 
 template <class T>
 struct DoNitros9level2 {
-
   static void Install_OS() {
-ShowChar('p');
+    ShowChar('p');
     T::ResetRam();
-ShowChar('q');
+    ShowChar('q');
     for (uint a = 0; a < sizeof Nitros9level2_Rom; a++) {
-        T::Poke(LEVEL2_LAUNCHER_START+a, Nitros9level2_Rom[a]);
+      T::Poke(LEVEL2_LAUNCHER_START + a, Nitros9level2_Rom[a]);
     }
-ShowChar('r');
+    ShowChar('r');
     for (uint i = 0; i < 8; i++) {
-        T::Poke2(0xFFF0 + 2*i, Coco3Vectors[i]);
+      T::Poke2(0xFFF0 + 2 * i, Coco3Vectors[i]);
     }
-ShowChar('s');
+    ShowChar('s');
   }
 };
 

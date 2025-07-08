@@ -27,4 +27,4 @@ struct DoPcRange {
   }
 };
 
-#endif // _PCRANGE_H_
+#endif  // _PCRANGE_H_

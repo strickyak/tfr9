@@ -6,12 +6,9 @@
 #define INCLUDED_DISK 0
 
 #define SEEN TRACKING
-#define RECORD 0  // Fix me later.
+#define ENABLE_RECORD 0  // Fix me later.
 
 #define HEURISTICS 1
-
-#define ALLOW_DUMP_PHYS 0
-#define ALLOW_DUMP_RAM 0
 
 #define RAPID_BURST_CYCLES 256  // Without checking IRQs, etc.
 
@@ -39,8 +36,11 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define force_inline inline __attribute__((always_inline))
-#define MUMBLE(X) { ShowStr(X " "); printf("MUMBLE: " X "\n"); }
-
+#define MUMBLE(X)              \
+  {                            \
+    ShowStr(X " ");            \
+    printf("MUMBLE: " X "\n"); \
+  }
 
 typedef unsigned char byte;
 typedef unsigned int word;
@@ -87,7 +87,6 @@ volatile bool TimerFired;
 uint quiet_ram;
 inline void Quiet() { quiet_ram++; }
 inline void Noisy() { quiet_ram--; }
-
 
 uint current_opcode_cy;  // what was the CY of the current opcode?
 uint current_opcode_pc;  // what was the PC of the current opcode?
@@ -136,7 +135,9 @@ struct DontShowIrqs {
 };
 template <typename T>
 struct DoShowIrqs {
-  force_inline static void ShowIrqs(char ch) { if (enable_show_irqs) ShowChar(ch); }
+  force_inline static void ShowIrqs(char ch) {
+    if (enable_show_irqs) ShowChar(ch);
+  }
 };
 
 using IOReader = std::function<byte(uint addr, byte data)>;
@@ -161,15 +162,15 @@ void PollUsbInput();
 /// cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 
 #if TRACKING
-  #define PICO_USE_TIMER 0
-  #define VSYNC_TICK_MASK 0xFFFF  // 0x3FF  // 0xFFFF   // one less than a power of two
+#define PICO_USE_TIMER 0
+#define VSYNC_TICK_MASK \
+  0xFFFF  // 0x3FF  // 0xFFFF   // one less than a power of two
 #else
-  #define PICO_USE_TIMER 1
-  #define VSYNC_TICK_MASK 0x3FFF  // 0xFFFF   // one less than a power of two
+#define PICO_USE_TIMER 1
+#define VSYNC_TICK_MASK 0x3FFF  // 0xFFFF   // one less than a power of two
 #endif
 
 #define TFR_RTC_BASE 0xFF50
-
 
 #define HL_JOIN(H, L) (((255 & (H)) << 8) | ((255 & (L)) << 0))
 
@@ -262,73 +263,6 @@ class Bitmap64K {
 } Seen;
 #endif
 
-void DumpPhys() {
-#if ALLOW_DUMP_PHYS
-  Quiet();
-  putbyte(C_DUMP_PHYS);
-  uint sz = T::PhysSize();
-  for (uint i = 0; i < sz; i += 16) {
-    for (uint j = 0; j < 16; j++) {
-      if (T::ReadPhys(i + j)) goto yes;
-    }
-    continue;
-  yes:
-    putbyte(C_DUMP_LINE);
-    putbyte(i >> 16);
-    putbyte(i >> 8);
-    putbyte(i);
-    for (uint j = 0; j < 16; j++) {
-      putbyte(T::ReadPhys(i + j));
-    }
-  }
-  putbyte(C_DUMP_STOP);
-  Noisy();
-#endif
-}
-
-void DumpRam() {
-#if ALLOW_DUMP_RAM
-  Quiet();
-  putbyte(C_DUMP_RAM);
-  for (uint i = 0; i < 0x10000; i += 16) {
-    for (uint j = 0; j < 16; j++) {
-      if (T::Peek(i + j)) goto yes;
-    }
-    continue;
-  yes:
-    putbyte(C_DUMP_LINE);
-    putbyte(i >> 16);
-    putbyte(i >> 8);
-    putbyte(i);
-    for (uint j = 0; j < 16; j++) {
-      putbyte(T::Peek(i + j));
-    }
-  }
-  putbyte(C_DUMP_STOP);
-  Noisy();
-#endif
-}
-
-void GET_STUCK() {
-  while (1) {
-    putbyte(255);
-    sleep_ms(1000);
-  }
-}
-
-void DumpRamAndGetStuck(const char* why, uint what) {
-  interest = MAX_INTEREST;
-  printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
-  printf("DumpRamAndGetStuck: %s ($%x = %d.)\n", why, what, what);
-#if RECORD
-  DumpTrace();
-#endif  // RECORD
-  DumpPhys();
-  DumpRam();
-  printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
-  GET_STUCK();
-}
-
 // SmallRam & BigRam
 #include "ram.h"
 
@@ -344,9 +278,9 @@ void DumpRamAndGetStuck(const char* why, uint what) {
 #include "turbo9sim.h"
 
 // Operating Systems
-#include "turbo9os.h"
 #include "nitros9level1.h"
 #include "nitros9level2.h"
+#include "turbo9os.h"
 
 void ViewAt(const char* label, uint hi, uint lo) {
 #if 0
@@ -568,63 +502,125 @@ void PollUsbInput() {
 
 // yak1
 
-  uint data;
-  uint num_resets;
-  uint event;
-  uint when;
-  uint num_swi2s;
+uint data;
+uint num_resets;
+uint event;
+uint when;
+uint num_swi2s;
 
-  bool vma;      // Valid Memory Address ( = delayed AVMA )
-  bool fic;      // First Instruction Cycle ( = delayed LIC )
-  uint next_pc;  // for multibyte ops.
+bool vma;      // Valid Memory Address ( = delayed AVMA )
+bool fic;      // First Instruction Cycle ( = delayed LIC )
+uint next_pc;  // for multibyte ops.
 
-  uint TildePowerOf2;
-  uint OuterLoops;
+uint TildePowerOf2;
+uint OuterLoops;
 
 template <typename T>
 struct EngineBase {
-
-    static bool ChangeInterruptPin(bool irq_needed) {
-      constexpr uint PULL_BLOCK_PC = 2;
-      const PIO pio = pio0;
-      constexpr uint sm = 0;
-
-      int attempt = 200;
-      T::ShowIrqs('>');
-      while (pio_sm_get_pc(pio, sm) != PULL_BLOCK_PC) {
-        T::ShowIrqs('^');
-        attempt--;
-        if (!attempt) {
-          // We failed to hit the PULL_BLOCK_PC
-          return false;
-        }
+  static void DumpPhys() {
+    Quiet();
+    putbyte(C_DUMP_PHYS);
+    uint sz = T::PhysSize();
+    for (uint i = 0; i < sz; i += 16) {
+      for (uint j = 0; j < 16; j++) {
+        if (T::ReadPhys(i + j)) goto yes;
       }
-
-      // Disable the running TPIO program.
-      pio_sm_set_enabled(pio, sm, false);
-
-      // and switch to the Latch program.
-      pio_clear_instruction_memory(pio);
-      pio_add_program_at_offset(pio, &latch_program, 0);
-      latch_program_init(pio, sm, 0);
-
-      byte unused = 0x00;
-      byte inputs = 0x00;
-      byte irq_on = irq_needed ? 0xFB : 0xFF;
-      byte outputs = 0xFF;
-      pio_sm_put(pio, sm, QUAD_JOIN(unused, inputs, irq_on, outputs));
-
-      // Wait for Finished signal on FIFO, then stop pio.
-      (void)pio_sm_get_blocking(pio, sm);
-      pio_sm_set_enabled(pio, sm, false);
-
-      pio_clear_instruction_memory(pio);
-      pio_add_program_at_offset(pio, &tpio_program, 0);
-      tpio_program_init(pio, sm, 0);
-
-      T::ShowIrqs(irq_needed ? ';' : ',');
-      return true;
+      continue;
+    yes:
+      putbyte(C_DUMP_LINE);
+      putbyte(i >> 16);
+      putbyte(i >> 8);
+      putbyte(i);
+      for (uint j = 0; j < 16; j++) {
+        putbyte(T::ReadPhys(i + j));
+      }
     }
+    putbyte(C_DUMP_STOP);
+    Noisy();
+  }
+
+  static void DumpRam() {
+    Quiet();
+    putbyte(C_DUMP_RAM);
+    for (uint i = 0; i < 0x10000; i += 16) {
+      for (uint j = 0; j < 16; j++) {
+        if (T::Peek(i + j)) goto yes;
+      }
+      continue;
+    yes:
+      putbyte(C_DUMP_LINE);
+      putbyte(i >> 16);
+      putbyte(i >> 8);
+      putbyte(i);
+      for (uint j = 0; j < 16; j++) {
+        putbyte(T::Peek(i + j));
+      }
+    }
+    putbyte(C_DUMP_STOP);
+    Noisy();
+  }
+
+  static void GET_STUCK() {
+    while (1) {
+      putbyte(255);  // signal for console to hang up.
+      sleep_ms(1000);
+    }
+  }
+
+  static void DumpRamAndGetStuck(const char* why, uint what) {
+    interest = MAX_INTEREST;
+    printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
+    printf("DumpRamAndGetStuck: %s ($%x = %d.)\n", why, what, what);
+#if ENABLE_RECORD
+    DumpTrace();
+#endif
+    if (T::PhysSize() > 0x10000) DumpPhys();
+    DumpRam();
+    printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
+    GET_STUCK();
+  }
+
+  static bool ChangeInterruptPin(bool irq_needed) {
+    constexpr uint PULL_BLOCK_PC = 2;
+    const PIO pio = pio0;
+    constexpr uint sm = 0;
+
+    int attempt = 200;
+    T::ShowIrqs('>');
+    while (pio_sm_get_pc(pio, sm) != PULL_BLOCK_PC) {
+      T::ShowIrqs('^');
+      attempt--;
+      if (!attempt) {
+        // We failed to hit the PULL_BLOCK_PC
+        return false;
+      }
+    }
+
+    // Disable the running TPIO program.
+    pio_sm_set_enabled(pio, sm, false);
+
+    // and switch to the Latch program.
+    pio_clear_instruction_memory(pio);
+    pio_add_program_at_offset(pio, &latch_program, 0);
+    latch_program_init(pio, sm, 0);
+
+    byte unused = 0x00;
+    byte inputs = 0x00;
+    byte irq_on = irq_needed ? 0xFB : 0xFF;
+    byte outputs = 0xFF;
+    pio_sm_put(pio, sm, QUAD_JOIN(unused, inputs, irq_on, outputs));
+
+    // Wait for Finished signal on FIFO, then stop pio.
+    (void)pio_sm_get_blocking(pio, sm);
+    pio_sm_set_enabled(pio, sm, false);
+
+    pio_clear_instruction_memory(pio);
+    pio_add_program_at_offset(pio, &tpio_program, 0);
+    tpio_program_init(pio, sm, 0);
+
+    T::ShowIrqs(irq_needed ? ';' : ',');
+    return true;
+  }
 
   static void PreRoll() {
     const PIO pio = pio0;
@@ -673,7 +669,6 @@ struct EngineBase {
       writer(addr, data);
     } else
       switch (255 & addr) {
-
         case 0x90:  // GIME INIT0
           gime_irq_enabled = bool((data & 0x20) != 0);
           break;
@@ -681,8 +676,6 @@ struct EngineBase {
         case 0x92:  // GIME IRQEN
           gime_vsync_irq_enabled = bool((data & 0x08) != 0);
           break;
-
-
 
       }  // switch addr & 255
   }  // HandleIOWrite
@@ -699,7 +692,6 @@ struct EngineBase {
       data = (r)(addr, data);
     } else
       switch (dev) {
-
         case 0x92:  // GIME IRQEN register
         {
           if (gime_irq_enabled && gime_vsync_irq_enabled &&
@@ -755,7 +747,7 @@ struct EngineBase {
       }  // switch
 
     PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, data, 0xFF /*=outputs*/));
-  } // HandleIORead
+  }  // HandleIORead
 
   static void InstallVectors(uint* vectors) {
     constexpr uint FIRST_VECTOR_ADDRESS = 0xFFF0;
@@ -873,18 +865,21 @@ struct EngineBase {
     printf("========\n");
 
     TildePowerOf2 = 1;
-    for (OuterLoops= 0; true; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
-    // for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
+    for (OuterLoops = 0; true;
+         OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
+      // for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {
+      // ///////////////////////////////// Outer Machine Loop
 
-    constexpr uint NumberOfLivenessTildes = 18; // 8;
-      if (OuterLoops <= (1<<(NumberOfLivenessTildes-1))) {
-        if (OuterLoops == TildePowerOf2-1) {
-            // Draw tildes at cycle 0, 1, 3, 7, 15, ... to show we are up and running.
-            ShowChar('~');
-            TildePowerOf2 <<= 1;
-            if (OuterLoops == (1<<(NumberOfLivenessTildes-1))-1) {
-                ShowChar('\n');
-            }
+      constexpr uint NumberOfLivenessTildes = 18;  // 8;
+      if (OuterLoops <= (1 << (NumberOfLivenessTildes - 1))) {
+        if (OuterLoops == TildePowerOf2 - 1) {
+          // Draw tildes at cycle 0, 1, 3, 7, 15, ... to show we are up and
+          // running.
+          ShowChar('~');
+          TildePowerOf2 <<= 1;
+          if (OuterLoops == (1 << (NumberOfLivenessTildes - 1)) - 1) {
+            ShowChar('\n');
+          }
         }
       }
 
@@ -903,8 +898,9 @@ struct EngineBase {
       }
 
       if (T::DoesGime()) {
-        irq_needed |= (gime_irq_enabled && gime_vsync_irq_enabled && gime_vsync_irq_firing);
-          T::ShowIrqs('G');
+        irq_needed |= (gime_irq_enabled && gime_vsync_irq_enabled &&
+                       gime_vsync_irq_firing);
+        T::ShowIrqs('G');
       }
 
       if (irq_needed != prev_irq_needed) {
@@ -925,17 +921,17 @@ struct EngineBase {
       }
 
       if (T::DoesAcia()) {
-          if (not acia_char_in_ready) {
-            if (term_input.HasAtLeast(1)) {
-              acia_char = term_input.Take();
-              acia_char_in_ready = true;
-              acia_irq_firing = true;
-            } else {
-              acia_char = 0;
-              acia_char_in_ready = false;
-              acia_irq_firing = false;
-            }
+        if (not acia_char_in_ready) {
+          if (term_input.HasAtLeast(1)) {
+            acia_char = term_input.Take();
+            acia_char_in_ready = true;
+            acia_irq_firing = true;
+          } else {
+            acia_char = 0;
+            acia_char_in_ready = false;
+            acia_irq_firing = false;
           }
+        }
       }
 
 #if !PICO_USE_TIMER
@@ -951,21 +947,23 @@ struct EngineBase {
         T::Turbo9sim_SetTimerFired();
 
         if (T::DoesSamvdg()) {
-            T::Poke(0xFF03,
-                 T::Peek(0xFF03) | 0x80);  // Set the bit indicating VSYNC occurred.
-            if (vsync_irq_enabled) {
-              vsync_irq_firing = true;
-            }
-            if (gime_irq_enabled && gime_vsync_irq_enabled) {
-              gime_vsync_irq_firing = true;
-            }
+          T::Poke(0xFF03,
+                  T::Peek(0xFF03) |
+                      0x80);  // Set the bit indicating VSYNC occurred.
+          if (vsync_irq_enabled) {
+            vsync_irq_firing = true;
+          }
+          if (gime_irq_enabled && gime_vsync_irq_enabled) {
+            gime_vsync_irq_firing = true;
+          }
         }
       }  // end if TimerFired
 
-      for (uint loop = 0; loop < RAPID_BURST_CYCLES; loop++) {  /////// Inner Machine Loop
+      for (uint loop = 0; loop < RAPID_BURST_CYCLES;
+           loop++) {  /////// Inner Machine Loop
 
         if (T::DoesLog()) {
-            if (cy >= trace_at_what_cycle) interest = 999999;
+          if (cy >= trace_at_what_cycle) interest = 999999;
         }
 
         constexpr uint GO_AHEAD = 0x12345678;
@@ -982,52 +980,52 @@ struct EngineBase {
         if (likely(addr < 0xFE00)) {
           if (reading) {
             PUT((T::FastPeek(addr) << 8) + 0xFF);
-if (T::DoesLog()) {
-            data = T::FastPeek(addr);
-}
+            if (T::DoesLog()) {
+              data = T::FastPeek(addr);
+            }
           } else {
             const uint data_and_more = WAIT_GET();
             T::FastPoke(addr, (byte)data_and_more);
-if (T::DoesLog()) {
-            data = (byte)data_and_more;
-}
+            if (T::DoesLog()) {
+              data = (byte)data_and_more;
+            }
           }  // end if reading
 
           // =============================================================
         } else if (addr == 0xFFFF) {
           if (reading) {
             PUT(value_FFFF_shift_8_plus_FF);
-if (T::DoesLog()) {
-            data = value_FFFF;
-}
+            if (T::DoesLog()) {
+              data = value_FFFF;
+            }
           } else {
             const byte foo = WAIT_GET();
             (void)foo;
-if (T::DoesLog()) {
-            data = foo;
-}
+            if (T::DoesLog()) {
+              data = foo;
+            }
           }
 
           // =============================================================
         } else if (addr < 0xFF00) {
           if (reading) {  // if reading FExx
             PUT((T::Peek(addr) << 8) + 0xFF);
-if (T::DoesLog()) {
-            data = T::Peek(addr);
-}
+            if (T::DoesLog()) {
+              data = T::Peek(addr);
+            }
           } else {  // if writing FExx
             const byte foo = WAIT_GET();
             T::Poke(addr, foo, 0x3F);
-if (T::DoesLog()) {
-            data = foo;
-}
+            if (T::DoesLog()) {
+              data = foo;
+            }
           }  // end if reading
 
           // =============================================================
         } else {
           if (reading) {  // CPU reads, Pico Tx
             HandleIORead(addr);
-          } else { // if writing
+          } else {  // if writing
             // CPU writes, Pico Rx
             data = WAIT_GET();
             T::Poke(addr, data, 0x3F);
@@ -1039,30 +1037,29 @@ if (T::DoesLog()) {
         // =============================================================
 
         if (fic and reading and addr < 0xFFF0) {
-              current_opcode_cy = cy;
-              current_opcode_pc = addr;
-              current_opcode = data;
+          current_opcode_cy = cy;
+          current_opcode_pc = addr;
+          current_opcode = data;
 
-            if (T::BadPc(addr)) {
-                DumpRamAndGetStuck("PC out of range", addr);
-            }
+          if (T::BadPc(addr)) {
+            DumpRamAndGetStuck("PC out of range", addr);
+          }
 
-            T::Hyper(data, addr);
+          T::Hyper(data, addr);
         }
 
         if (T::DoesLog()) {
-
-            if (reading and addr != 0xFFFF) {
-              if (current_opcode == 0x10 /* prefix */ &&
-                  current_opcode_cy + 1 == cy) {
-                current_opcode = 0x1000 | data;
-                // printf("change to opcode %x\n", current_opcode);
-              }
-              if (current_opcode == 0x11 /* prefix */ &&
-                  current_opcode_cy + 1 == cy) {
-                current_opcode = 0x1100 | data;
-                // printf("change to opcode %x\n", current_opcode);
-              }
+          if (reading and addr != 0xFFFF) {
+            if (current_opcode == 0x10 /* prefix */ &&
+                current_opcode_cy + 1 == cy) {
+              current_opcode = 0x1000 | data;
+              // printf("change to opcode %x\n", current_opcode);
+            }
+            if (current_opcode == 0x11 /* prefix */ &&
+                current_opcode_cy + 1 == cy) {
+              current_opcode = 0x1100 | data;
+              // printf("change to opcode %x\n", current_opcode);
+            }
 
             if (T::DoesEvent()) {
               if (current_opcode == 0x3B) {  // RTI
@@ -1070,8 +1067,8 @@ if (T::DoesLog()) {
                            2 /*one byte opcode, one extra cycle */;
                 if (0)
                   printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
-                         current_opcode_cy, current_opcode_pc, current_opcode, age,
-                         addr, data);
+                         current_opcode_cy, current_opcode_pc, current_opcode,
+                         age, addr, data);
                 interest += 50;
                 // TODO -- recognize E==0 for FIRQ
                 if (age < RTI_SZ) {
@@ -1084,12 +1081,13 @@ if (T::DoesLog()) {
               }  // end RTI
               if (current_opcode == 0x103F) {  // SWI2/OS9
                 uint age =
-                    cy - current_opcode_cy -
-                    2 /*two byte opcode.  extra cycle contains OS9 call number. */;
+                    cy - current_opcode_cy - 2 /*two byte opcode.  extra cycle
+                                                  contains OS9 call number. */
+                    ;
                 if (0)
                   printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
-                         current_opcode_cy, current_opcode_pc, current_opcode, age,
-                         addr, data);
+                         current_opcode_cy, current_opcode_pc, current_opcode,
+                         age, addr, data);
                 interest += 50;
                 if (age < SWI2_SZ) {
                   hist_data[age] = data;
@@ -1099,117 +1097,114 @@ if (T::DoesLog()) {
                   }
                 }
               }
-              }
             }
+          }
 
-            if (!reading) {
-
+          if (!reading) {
             if (T::DoesLog()) {
               if (current_opcode == 0x103F) {  // SWI2/OS9
                 uint age = cy - current_opcode_cy - 2 /*two byte opcode*/;
                 if (0)
                   printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
-                         current_opcode_cy, current_opcode_pc, current_opcode, age,
-                         addr, data);
+                         current_opcode_cy, current_opcode_pc, current_opcode,
+                         age, addr, data);
                 interest += 50;
                 if (age < SWI2_SZ) {
                   hist_data[age] = data;
                   hist_addr[age] = addr;
                 }
               }
-              }
-
             }
+          }
 
-            if (T::DoesPcRange()) {
-              if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
-                if (data == 0xFE) {
-                  DumpRamAndGetStuck("Infinite BRA loop", addr);
-                }
+          if (T::DoesPcRange()) {
+            if (current_opcode == 0x20 /*BRA*/ && current_opcode_cy + 1 == cy) {
+              if (data == 0xFE) {
+                DumpRamAndGetStuck("Infinite BRA loop", addr);
               }
             }
+          }
 
-        } //  T::DoesLog()
-
+        }  //  T::DoesLog()
 
         uint high = flags & F_HIGH;
 
-    if (T::DoesTrace()) {
-            if (reading and (not vma) and (addr == 0xFFFF)) {
-              T::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
-            } else {
-              const char* label = reading ? (vma ? "r" : "-") : "w";
-              if (reading) {
-                if (fic) {
-                  label = "@";
+        if (T::DoesTrace()) {
+          if (reading and (not vma) and (addr == 0xFFFF)) {
+            T::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
+          } else {
+            const char* label = reading ? (vma ? "r" : "-") : "w";
+            if (reading) {
+              if (fic) {
+                label = "@";
 #if SEEN
-                  if (not Seen[addr]) {
-                    label = "@@";
-                  }
+                if (not Seen[addr]) {
+                  label = "@@";
+                }
 #endif
-                  next_pc = addr + 1;
-                } else {
-                  // case: Reading but not FIC
-                  if (next_pc == addr) {
-                    label = "&";
-                    next_pc++;
-                  }
+                next_pc = addr + 1;
+              } else {
+                // case: Reading but not FIC
+                if (next_pc == addr) {
+                  label = "&";
+                  next_pc++;
+                }
 
-                }  // end case Reading but not FIC
+              }  // end case Reading but not FIC
 
-              }  // end if reading
-              T::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
-                          HighFlags(high), cy);
-            }  // end if valid cycle
+            }  // end if reading
+            T::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
+                    HighFlags(high), cy);
+          }  // end if valid cycle
 
 #if SEEN
-            if (fic) {
-              Seen.Insert(addr);
-            }
+          if (fic) {
+            Seen.Insert(addr);
+          }
 #endif
         }
 
         if (T::DoesLog()) {
-            vma = (0 != (flags & F_AVMA));
-            fic = (0 != (flags & F_LIC));
+          vma = (0 != (flags & F_AVMA));
+          fic = (0 != (flags & F_LIC));
         }
 
         cy++;
       }  // next inner machine loop
 
       if (stop_at_what_cycle) {
-          if (cy >= stop_at_what_cycle) {
-              printf("=== TFR9 STOPPING BECAUSE CYCLE %d >= %d\n", cy, stop_at_what_cycle);
-              goto exit;
-          }
+        if (cy >= stop_at_what_cycle) {
+          printf("=== TFR9 STOPPING BECAUSE CYCLE %d >= %d\n", cy,
+                 stop_at_what_cycle);
+          goto exit;
+        }
       }
 
     }  // while true
 
   exit:
-          ShowStr("\n<<< exit: TFR9 STOPPING >>>\n");
-          Reboot();
+    ShowStr("\n<<< exit: TFR9 STOPPING >>>\n");
+    Reboot();
   }  // end RunMachineCycles
 };  // end struct EngineBase
 
-struct T9_Slow:
-    EngineBase<T9_Slow>,
-    DoPcRange<T9_Slow, 0x0020, 0xFF01>,
-    DoTrace<T9_Slow>,
-    DoLog<T9_Slow>,
-    DoLogMmu<T9_Slow>,
-    DoShowIrqs<T9_Slow>,
-    CommonRam<T9_Slow>,
-    SmallRam<T9_Slow>,
-    DoTracePokes<T9_Slow>,
-    DoHyper<T9_Slow>,
-    DoEvent<T9_Slow>,
-    DontAcia<T9_Slow>,
-    DontGime<T9_Slow>,
-    DontSamvdg<T9_Slow>,
-    DoTurbo9sim<T9_Slow>,
-    DoTurbo9os<T9_Slow> {
-
+struct T9_Slow : EngineBase<T9_Slow>,
+                 DoPcRange<T9_Slow, 0x0020, 0xFF01>,
+                 DoTrace<T9_Slow>,
+                 DoLog<T9_Slow>,
+                 DoLogMmu<T9_Slow>,
+                 DoShowIrqs<T9_Slow>,
+                 CommonRam<T9_Slow>,
+                 SmallRam<T9_Slow>,
+                 DoTracePokes<T9_Slow>,
+                 DoHyper<T9_Slow>,
+                 DoEvent<T9_Slow>,
+                 DoDumpRamOnEvent<T9_Slow>,
+                 DontAcia<T9_Slow>,
+                 DontGime<T9_Slow>,
+                 DontSamvdg<T9_Slow>,
+                 DoTurbo9sim<T9_Slow>,
+                 DoTurbo9os<T9_Slow> {
   static void Install() {
     ShowChar('A');
     Install_OS();
@@ -1220,24 +1215,23 @@ struct T9_Slow:
   }
 };
 
-struct T9_Fast:
-    EngineBase<T9_Fast>,
-    DontPcRange<T9_Fast>,
-    DontTrace<T9_Fast>,
-    DontLog<T9_Fast>,
-    DontLogMmu<T9_Fast>,
-    DontShowIrqs<T9_Fast>,
-    CommonRam<T9_Fast>,
-    SmallRam<T9_Fast>,
-    DontTracePokes<T9_Fast>,
-    DontHyper<T9_Fast>,
-    DontEvent<T9_Fast>,
-    DontAcia<T9_Fast>,
-    DontGime<T9_Fast>,
-    DontSamvdg<T9_Fast>,
-    DoTurbo9sim<T9_Fast>,
-    DoTurbo9os<T9_Fast> {
-
+struct T9_Fast : EngineBase<T9_Fast>,
+                 DontPcRange<T9_Fast>,
+                 DontTrace<T9_Fast>,
+                 DontLog<T9_Fast>,
+                 DontLogMmu<T9_Fast>,
+                 DontShowIrqs<T9_Fast>,
+                 CommonRam<T9_Fast>,
+                 SmallRam<T9_Fast>,
+                 DontTracePokes<T9_Fast>,
+                 DontHyper<T9_Fast>,
+                 DontEvent<T9_Fast>,
+                 DontDumpRamOnEvent<T9_Fast>,
+                 DontAcia<T9_Fast>,
+                 DontGime<T9_Fast>,
+                 DontSamvdg<T9_Fast>,
+                 DoTurbo9sim<T9_Fast>,
+                 DoTurbo9os<T9_Fast> {
   static void Install() {
     ShowChar('A');
     Install_OS();
@@ -1248,25 +1242,24 @@ struct T9_Fast:
   }
 };
 
-struct L1_Slow:
-    EngineBase<L1_Slow>,
-    DoPcRange<L1_Slow, 0x0020, 0xFF01>,
-    DoTrace<L1_Slow>,
-    DoLog<L1_Slow>,
-    DoLogMmu<L1_Slow>,
-    DoShowIrqs<L1_Slow>,
-    CommonRam<L1_Slow>,
-    SmallRam<L1_Slow>,
-    DoTracePokes<L1_Slow>,
-    DoHyper<L1_Slow>,
-    DoEvent<L1_Slow>,
-    DoAcia<L1_Slow>,
-    DoEmudsk<L1_Slow>,
-    DontGime<L1_Slow>,
-    DoSamvdg<L1_Slow>,
-    DontTurbo9sim<L1_Slow>,
-    DoNitros9level1<L1_Slow> {
-
+struct L1_Slow : EngineBase<L1_Slow>,
+                 DoPcRange<L1_Slow, 0x0020, 0xFF01>,
+                 DoTrace<L1_Slow>,
+                 DoLog<L1_Slow>,
+                 DoLogMmu<L1_Slow>,
+                 DoShowIrqs<L1_Slow>,
+                 CommonRam<L1_Slow>,
+                 SmallRam<L1_Slow>,
+                 DoTracePokes<L1_Slow>,
+                 DoHyper<L1_Slow>,
+                 DoEvent<L1_Slow>,
+                 DoDumpRamOnEvent<L1_Slow>,
+                 DoAcia<L1_Slow>,
+                 DoEmudsk<L1_Slow>,
+                 DontGime<L1_Slow>,
+                 DoSamvdg<L1_Slow>,
+                 DontTurbo9sim<L1_Slow>,
+                 DoNitros9level1<L1_Slow> {
   static void Install() {
     ShowChar('A');
     Install_OS();
@@ -1281,25 +1274,24 @@ struct L1_Slow:
   }
 };
 
-struct L1_Fast:
-    EngineBase<L1_Fast>,
-    DontPcRange<L1_Fast>,
-    DontTrace<L1_Fast>,
-    DontLog<L1_Fast>,
-    DontLogMmu<L1_Fast>,
-    DontShowIrqs<L1_Fast>,
-    CommonRam<L1_Fast>,
-    SmallRam<L1_Fast>,
-    DontTracePokes<L1_Fast>,
-    DontHyper<L1_Fast>,
-    DontEvent<L1_Fast>,
-    DoAcia<L1_Fast>,
-    DoEmudsk<L1_Fast>,
-    DontGime<L1_Fast>,
-    DoSamvdg<L1_Fast>,
-    DontTurbo9sim<L1_Fast>,
-    DoNitros9level1<L1_Fast> {
-
+struct L1_Fast : EngineBase<L1_Fast>,
+                 DontPcRange<L1_Fast>,
+                 DontTrace<L1_Fast>,
+                 DontLog<L1_Fast>,
+                 DontLogMmu<L1_Fast>,
+                 DontShowIrqs<L1_Fast>,
+                 CommonRam<L1_Fast>,
+                 SmallRam<L1_Fast>,
+                 DontTracePokes<L1_Fast>,
+                 DontHyper<L1_Fast>,
+                 DontEvent<L1_Fast>,
+                 DontDumpRamOnEvent<L1_Slow>,
+                 DoAcia<L1_Fast>,
+                 DoEmudsk<L1_Fast>,
+                 DontGime<L1_Fast>,
+                 DoSamvdg<L1_Fast>,
+                 DontTurbo9sim<L1_Fast>,
+                 DoNitros9level1<L1_Fast> {
   static void Install() {
     ShowChar('A');
     Install_OS();
@@ -1314,27 +1306,25 @@ struct L1_Fast:
   }
 };
 
-
-struct L2_Slow:
-    EngineBase<L2_Slow>,
-    // DoPcRange<L2_Slow, 0x0020, 0xFF01>,
-    DontPcRange<L2_Slow>,
-    DontTrace<L2_Slow>,
-    DoLog<L2_Slow>,
-    DoLogMmu<L2_Slow>,
-    DoShowIrqs<L2_Slow>,
-    CommonRam<L2_Slow>,
-    BigRam<L2_Slow>,
-    DoTracePokes<L2_Slow>,
-    DoHyper<L2_Slow>,
-    DoEvent<L2_Slow>,
-    DoAcia<L2_Slow>,
-    DoEmudsk<L2_Slow>,
-    DoGime<L2_Slow>,
-    DoSamvdg<L2_Slow>,
-    DontTurbo9sim<L2_Slow>,
-    DoNitros9level2<L2_Slow> {
-
+struct L2_Slow : EngineBase<L2_Slow>,
+                 // DoPcRange<L2_Slow, 0x0020, 0xFF01>,
+                 DontPcRange<L2_Slow>,
+                 DontTrace<L2_Slow>,
+                 DoLog<L2_Slow>,
+                 DoLogMmu<L2_Slow>,
+                 DoShowIrqs<L2_Slow>,
+                 CommonRam<L2_Slow>,
+                 BigRam<L2_Slow>,
+                 DoTracePokes<L2_Slow>,
+                 DoHyper<L2_Slow>,
+                 DoEvent<L2_Slow>,
+                 DoDumpRamOnEvent<L1_Slow>,
+                 DoAcia<L2_Slow>,
+                 DoEmudsk<L2_Slow>,
+                 DoGime<L2_Slow>,
+                 DoSamvdg<L2_Slow>,
+                 DontTurbo9sim<L2_Slow>,
+                 DoNitros9level2<L2_Slow> {
   static void Install() {
     ShowChar('A');
     Install_OS();
@@ -1349,25 +1339,24 @@ struct L2_Slow:
   }
 };
 
-struct L2_Fast:
-    EngineBase<L2_Fast>,
-    DontPcRange<L2_Fast>,
-    DontTrace<L2_Fast>,
-    DoLog<L2_Fast>,
-    DontLogMmu<L2_Fast>,
-    DontShowIrqs<L2_Fast>,
-    CommonRam<L2_Fast>,
-    BigRam<L2_Fast>,
-    DontTracePokes<L2_Fast>,
-    DoHyper<L2_Fast>,
-    DoEvent<L2_Fast>,
-    DoAcia<L2_Fast>,
-    DoEmudsk<L2_Fast>,
-    DoGime<L2_Fast>,
-    DoSamvdg<L2_Fast>,
-    DontTurbo9sim<L2_Fast>,
-    DoNitros9level2<L2_Fast> {
-
+struct L2_Fast : EngineBase<L2_Fast>,
+                 DontPcRange<L2_Fast>,
+                 DontTrace<L2_Fast>,
+                 DoLog<L2_Fast>,
+                 DontLogMmu<L2_Fast>,
+                 DontShowIrqs<L2_Fast>,
+                 CommonRam<L2_Fast>,
+                 BigRam<L2_Fast>,
+                 DontTracePokes<L2_Fast>,
+                 DontHyper<L2_Fast>,
+                 DontEvent<L2_Fast>,
+                 DontDumpRamOnEvent<L2_Fast>,
+                 DoAcia<L2_Fast>,
+                 DoEmudsk<L2_Fast>,
+                 DoGime<L2_Fast>,
+                 DoSamvdg<L2_Fast>,
+                 DontTurbo9sim<L2_Fast>,
+                 DoNitros9level2<L2_Fast> {
   static void Install() {
     ShowChar('A');
     Install_OS();
@@ -1381,7 +1370,6 @@ struct L2_Fast:
     ShowChar('\n');
   }
 };
-
 
 struct harness {
   std::function<void(void)> engines[5];

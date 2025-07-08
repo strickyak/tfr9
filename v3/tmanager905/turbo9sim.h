@@ -46,54 +46,54 @@ struct DoTurbo9sim {
 
   void static Turbo9sim_Install(uint base) {
     base &= 0xFF;
-ShowChar('1');
+    ShowChar('1');
     // four readers:
     IOReaders[base + 0] = [](uint addr, byte data) {
       byte z = simTxReader(addr, data);
       printf("turbo read 0 => %02x\n", z);
       return z;
     };
-ShowChar('1');
+    ShowChar('1');
     IOReaders[base + 1] = [](uint addr, byte data) {
       byte z = simRxReader(addr, data);
       printf("turbo read 1 => %02x\n", z);
       return z;
     };
-ShowChar('1');
+    ShowChar('1');
     IOReaders[base + 2] = [](uint addr, byte data) {
       byte z = simStatusReader(addr, data);
       printf("turbo read 2 => %02x\n", z);
       return z;
     };
-ShowChar('1');
+    ShowChar('1');
     IOReaders[base + 3] = [](uint addr, byte data) {
       byte z = simControlReader(addr, data);
       printf("turbo read 3 => %02x\n", z);
       return z;
     };
 
-ShowChar('2');
+    ShowChar('2');
     // four writers:
     IOWriters[base + 0] = [](uint addr, byte data) {
       printf("turbo write 0 <= %02x\n", data);
       simTxWriter(addr, data);
     };
-ShowChar('2');
+    ShowChar('2');
     IOWriters[base + 1] = [](uint addr, byte data) {
       printf("turbo write 1 <= %02x\n", data);
       simRxWriter(addr, data);
     };
-ShowChar('2');
+    ShowChar('2');
     IOWriters[base + 2] = [](uint addr, byte data) {
       printf("turbo write 2 <= %02x\n", data);
       simStatusWriter(addr, data);
     };
-ShowChar('2');
+    ShowChar('2');
     IOWriters[base + 3] = [](uint addr, byte data) {
       printf("turbo write 3 <= %02x\n", data);
       simControlWriter(addr, data);
     };
-ShowChar('3');
+    ShowChar('3');
   }
 
   byte static simTxReader(uint addr, byte data) { return sim_last_char_tx; }

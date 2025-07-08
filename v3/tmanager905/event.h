@@ -2,6 +2,16 @@
 #define _EVENT_H_
 
 template <class T>
+struct DontDumpRamOnEvent {
+  static constexpr bool DoesDumpRamOnEvent() { return false; }
+};
+
+template <class T>
+struct DoDumpRamOnEvent {
+  static constexpr bool DoesDumpRamOnEvent() { return true; }
+};
+
+template <class T>
 struct DontEvent {
   static constexpr bool DoesEvent() { return false; }
   static force_inline void SendEventHist(byte event, byte sz) {}
@@ -13,7 +23,6 @@ struct DoEvent {
   static constexpr bool DoesEvent() { return true; }
 
   static void SendEventHist(byte event, byte sz) {
-#if 1
     Quiet();
     putbyte(C_EVENT);
     putbyte(event);
@@ -30,26 +39,27 @@ struct DoEvent {
       putbyte(hist_addr[i]);
     }
     Noisy();
-#endif  // TRACKING
+
+    if (T::DoesDumpRamOnEvent()) {
+      T::DumpRam();
+    }
   }
 
   // unused?
   static void SendEventRam(byte event, byte sz, word base_addr) {
     if (T::DoesLog()) {
-        Quiet();
-        putbyte(C_EVENT);
-        putbyte(event);
-        putbyte(sz);
-        putbyte(base_addr >> 8);
-        putbyte(base_addr);
-        for (byte i = 0; i < sz; i++) {
-          putbyte(T::Peek(base_addr + i));
-        }
-        Noisy();
+      Quiet();
+      putbyte(C_EVENT);
+      putbyte(event);
+      putbyte(sz);
+      putbyte(base_addr >> 8);
+      putbyte(base_addr);
+      for (byte i = 0; i < sz; i++) {
+        putbyte(T::Peek(base_addr + i));
+      }
+      Noisy();
     }
   }
-
 };
 
-
-#endif // _EVENT_H_
+#endif  // _EVENT_H_

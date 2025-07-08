@@ -1,7 +1,6 @@
 #ifndef _LOG_H_
 #define _LOG_H_
 
-
 template <class T>
 struct DontLog {
   static constexpr bool DoesLog() { return false; }
@@ -30,6 +29,4 @@ struct DoLog {
   }
 };
 
-
-
-#endif // _LOG_H_
+#endif  // _LOG_H_

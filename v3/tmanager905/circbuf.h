@@ -39,4 +39,4 @@ CircBuf<1200> usb_input;
 CircBuf<1200> term_input;
 CircBuf<1200> disk_input;
 
-#endif // _CIRCBUF_H_
+#endif  // _CIRCBUF_H_
