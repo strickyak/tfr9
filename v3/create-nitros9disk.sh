@@ -5,20 +5,36 @@ S="$1"; shift
 D="$1"; shift
 
 case "$D" in
+
   *level1.dsk )
+    B=build/tfr9/level1
+    tclsh rmake.tcl d
+    make -B -C $B
+    cp -vf $B/tfr9-level1.dsk "$D"
+  ;;
+  ZZZZ*level2.dsk )
+    B=build/tfr9/level2
+    tclsh rmake.tcl d
+    make -B -C $B
+    cp -vf $B/tfr9-level2.dsk "$D"
+  ;;
+
+
+  XXXXXXXXXXXXXXXXXXXXXXXXXX*level1.dsk )
     # NEW STYLE for Recipes
     ( cd n9recipe && tclsh rmake.tcl && make -B )
     cp -vf n9recipe/tfr9-level1.dsk "$D"
     #os9 copy -r "$S/cmds/basic09"  "$D",CMDS/basic09
     #os9 attr -q -r -w -e -pr -pe   "$D",CMDS/basic09
   ;;
-  *level2.dsk )
+  XXXXXXXXXXXXXXXXXXXXXXXXXX*level2.dsk )
     # NEW STYLE for Recipes
     ( cd n9recipe && tclsh rmake.tcl && make -B )
     cp -vf n9recipe/tfr9-level2.dsk "$D"
     #os9 copy -r "$S/cmds/basic09"  "$D",CMDS/basic09
     #os9 attr -q -r -w -e -pr -pe   "$D",CMDS/basic09
   ;;
+
   * )
     # OLD STYLE with "os9 format, gen, copy ..."
 
@@ -43,7 +59,7 @@ case "$D" in
 esac
 
 # BEGIN STANDARD TIMING TWO
-cat >/tmp/tfr.startup2 <<~~~~
+cat >/tmp/tfr.startup2 <<'EOR'
 t
 tmode .2 pau=0
 basic09
@@ -59,12 +75,12 @@ e
 900 next j
 q
 run
-~~~~
+EOR
 # END STANDARD TIMING TWO
 
-if test 1 = "$Enable_NOSTARTUP"
+if test 1 = "$T9V3_NOSTARTUP"
 then
-    os9 copy -l -r /dev/null  "$D",startup
+    os9 del "$D",startup || echo Ignore Prevous Error >&2
 else
     os9 copy -l -r /tmp/tfr.startup2  "$D",startup
 fi

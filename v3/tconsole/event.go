@@ -54,8 +54,8 @@ func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
 	switch event {
 	case EVENT_SWI2:
 		if ANGLES {
-		    fmt.Printf("<")
-        }
+			fmt.Printf("<")
+		}
 
 		os9num := rec.Datas[0]
 		rec.Os9Num = os9num
@@ -79,8 +79,8 @@ func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
 
 	case EVENT_RTI:
 		if ANGLES {
-            fmt.Printf(">")
-        }
+			fmt.Printf(">")
+		}
 
 		// TODO: 6309
 		// TODO: FIRQ

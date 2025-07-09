@@ -2,27 +2,27 @@
 set -ex
 cd $(dirname $0)
 
-Enable_NOSTARTUP=0
-Enable_JUST=0
-Enable_SLOW=0
-Enable_FLASH=0
-Enable_RUN=0
+T9V3_NOSTARTUP=0
+T9V3_JUST=0
+T9V3_SLOW=0
+T9V3_FLASH=0
+T9V3_RUN=0
 while true
 do
     case "$1" in
-        -s* ) Enable_NOSTARTUP=1 ; shift ;;
-        just ) Enable_JUST=1 ; shift ;;
-        slow ) Enable_SLOW=1 ; shift ;;
-        flash ) Enable_FLASH=1 ; shift ;;
-        run ) Enable_RUN=1 ; shift ;;
+        -s* ) T9V3_NOSTARTUP=1 ; shift ;;
+        just ) T9V3_JUST=1 ; shift ;;
+        slow ) T9V3_SLOW=1 ; shift ;;
+        flash ) T9V3_FLASH=1 ; shift ;;
+        run ) T9V3_RUN=1 ; shift ;;
         * ) break ;;
     esac
 done
-export Enable_NOSTARTUP
-export Enable_JUST
-export Enable_SLOW
-export Enable_FLASH
-export Enable_RUN
+export T9V3_NOSTARTUP
+export T9V3_JUST
+export T9V3_SLOW
+export T9V3_FLASH
+export T9V3_RUN
 
 BUILD_DIR=build-all-905-pico2
 
@@ -47,7 +47,7 @@ D1="generated/level1.dsk"
 S2="${COCO_SHELF}/nitros9/level2/coco3"
 D2="generated/level2.dsk"
 
-if expr 0 = $Enable_JUST
+if expr 0 = $T9V3_JUST
 then
     sh create-nitros9disk.sh "$S1" "$D1" "$S1/cmds/shell_21"
     sh create-nitros9disk.sh "$S2" "$D2" "$S2/modules/sysgo_dd" "$S2/cmds/shell"
@@ -55,26 +55,34 @@ then
     make -C launchers
 
     # python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S1/bootfiles/kernel_tfr9" > generated/level1.rom.h
-    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw n9recipe/tfr9-level1.t35 > generated/level1.rom.h
+    B=build/tfr9/level1
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level1.t35 > generated/level1.rom.h
 
     python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S2/bootfiles/kernel_tfr9" > generated/level2.rom.h
 
     mkdir -p /tmp/borges
-    go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/
+    go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/ build/
 
     make \
         BUILD_DIR="${BUILD_DIR}" \
         TFR_BOARD="${TFR_BOARD}" \
         RP_CHIP="${RP_CHIP}" \
-        TRACKING="${Enable_SLOW}" \
+        TRACKING="${T9V3_SLOW}" \
         "$@"
 fi
-if expr 1 = $Enable_FLASH
+
+if expr 1 = $T9V3_FLASH
 then
     cp -vf $BUILD_DIR/tmanager.uf2 /media/strick/RP*/.
 fi
 
-if expr 1 = $Enable_RUN
+if expr 1 = $T9V3_RUN
 then
-    ./tconsole-level1.linux-amd64.exe -disks "$D2,$D1,$D2" 2>_log   -borges /tmp/borges
+    for i in 0 3 4 5 6 7
+    do
+        test -s generated/disk$i || os9 format -l99999 -n"disk$i" generated/disk$i
+    done
+    DISKS=$( echo generated/disk0 generated/level1.dsk generated/level2.dsk generated/disk3 generated/disk4 generated/disk5 generated/disk6 generated/disk7 | tr " " "," )
+
+    ./tconsole-level1.linux-amd64.exe  -disks "$DISKS"  -borges /tmp/borges  2>_log
 fi

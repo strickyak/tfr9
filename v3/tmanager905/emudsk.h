@@ -17,6 +17,11 @@ struct DoEmudsk {
   void static Emudsk_Install(uint base_addr) {
     base_addr &= 0xFF;
 
+    IOReaders[base_addr + 3] = [](uint addr, byte data) {
+        // Good status, after command written to base_addr+3.
+        return 0;
+    };
+
     // LSN(hi)
     IOWriters[base_addr + 0] = [](uint addr, byte data) {};
     // LSN(mid)
@@ -42,10 +47,6 @@ struct DoEmudsk {
 
       uint lsn = T::Peek2(EMUDSK_PORT + 1);
       emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
-
-      printf(  // T::Logf(
-          "-EMUDSK VARS sector $%04x buffer $%04x diskop %x\n", lsn,
-          emu_disk_buffer, command);
 
       switch (command) {
         case 0:  // Disk Read

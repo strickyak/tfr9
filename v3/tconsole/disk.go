@@ -1,18 +1,18 @@
 package main
 
 import (
-    "os"
-    "strings"
-    "strconv"
-    "log"
-    "regexp"
+	"log"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 const Os9SectorSize = 256
 const MaxDiskFiles = 16
 
 type DiskFile struct {
-    OsFile *os.File
+	OsFile *os.File
 }
 
 var Files [MaxDiskFiles]DiskFile
@@ -25,30 +25,30 @@ func OpenDisks(disks string) {
 			continue
 		}
 
-        hp := NumberedHPattern.FindStringSubmatch(spec)
-        if hp != nil {
-            filename := hp[2]
-            j, err := strconv.Atoi(hp[1])
-            if err != nil {
-                log.Fatalf("Not a number %q in disks spec %q: %v", hp[1], disks, err)
-            }
-            
-		    f, err := os.OpenFile(filename, os.O_RDWR, 0)
-		    if err != nil {
-			    log.Fatalf("Cannot open [/H%d] file %q: %v", j, filename, err)
-		    }
-		    Files[j].OsFile = f
+		hp := NumberedHPattern.FindStringSubmatch(spec)
+		if hp != nil {
+			filename := hp[2]
+			j, err := strconv.Atoi(hp[1])
+			if err != nil {
+				log.Fatalf("Not a number %q in disks spec %q: %v", hp[1], disks, err)
+			}
+
+			f, err := os.OpenFile(filename, os.O_RDWR, 0)
+			if err != nil {
+				log.Fatalf("Cannot open [/H%d] file %q: %v", j, filename, err)
+			}
+			Files[j].OsFile = f
 			log.Printf("Mounted /H%d on %q", j, filename)
-        } else {
-            filename := spec
-		    f, err := os.OpenFile(filename, os.O_RDWR, 0)
-		    if err != nil {
-			    log.Fatalf("Cannot open [%d] file %q: %v", i, filename, err)
-		    }
-		    Files[i].OsFile = f
+		} else {
+			filename := spec
+			f, err := os.OpenFile(filename, os.O_RDWR, 0)
+			if err != nil {
+				log.Fatalf("Cannot open [%d] file %q: %v", i, filename, err)
+			}
+			Files[i].OsFile = f
 			log.Printf("Cannot open [/H%d] file %q: %v", i, filename, err)
 			log.Printf("Mounted /H%d on %q", i, filename)
-        }
+		}
 	}
 }
 
@@ -92,7 +92,7 @@ func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
 		disk_param[i] = <-fromUSB
 		//Logf("disk_param: %02x", disk_param[i])
 	}
-    Logf("EmulateDiskRead disk_param % 3x", disk_param)
+	Logf("EmulateDiskRead disk_param % 3x", disk_param)
 	hnum := disk_param[0]
 	AssertLT(hnum, MaxDiskFiles)
 

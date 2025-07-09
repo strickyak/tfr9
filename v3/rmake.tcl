@@ -356,7 +356,7 @@ proc Create_hard_disk {name body} {
     }
 
     set ::MakeProduct($name) "\t:
-\t\$(OS9_TOOL) format -l'$params(p-sectors)' $name
+\t\$(OS9_TOOL) format -l'$params(p-sectors)' -n'$name' $name
 \t\$(OS9_TOOL) gen -t'$params(p-track35)' -b'$params(p-os9boot)' $name
 \t\$(OS9_TOOL) makdir $name,CMDS
 "
@@ -400,13 +400,15 @@ Platform tfr9 {
     }
     Create_os9boot_style_secondary_boot "tfr9-level1.o9b" {
         ioman @CLOCK_60HZ @PIPES
-        scf sc6850 term=term_sc6850,HwBASE=0xFF06
-        rbf emudsk dd_h1=emudskdesc,DNum=1,DD=1
-        [lmap i [Range 2] { string cat "h$i=emudskdesc,DNum=$i" }]
-        sysgo shell_21
+        scf sc6850  term=term_sc6850,HwBASE=0xFF06
+        rbf  emudsk_8=emudsk,MaxVhd=8
+        dd_h1=emudskdesc,DNum=1,DD=1
+        [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
+        sysgo_dd=sysgo,dd=1
+        shell_21
     }
     Create_hard_disk "tfr9-level1.dsk" {
-        -sectors 9999
+        -sectors 99999
         -track35 "tfr9-level1.t35"
         -os9boot "tfr9-level1.o9b"
         -cmds {@DEFAULT_CMDS_LEVEL1 @BASIC09_CMDS_LEVEL1 @LINKED_CMDS_LEVEL1}

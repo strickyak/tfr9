@@ -301,7 +301,7 @@ func Run(inkey chan byte) {
 				WriteBytes(channelToPico, inchar)
 
 			case cmd := <-fromUSB:
-                //X// Logf("@@ fromUSB @@ $%x=%d.", cmd, cmd)
+				//X// Logf("@@ fromUSB @@ $%x=%d.", cmd, cmd)
 
 				bogus := 0
 
@@ -407,7 +407,7 @@ func Run(inkey chan byte) {
 
 				case C_PUTCHAR:
 					ch := getByte(fromUSB)
-                    //X// Logf("C_PUTCHAR $%2x=%d. %q", ch, ch, []byte{ch})
+					//X// Logf("C_PUTCHAR $%2x=%d. %q", ch, ch, []byte{ch})
 					switch {
 					case 32 <= ch && ch <= 126:
 						fmt.Printf("%c", ch)
@@ -427,23 +427,23 @@ func Run(inkey chan byte) {
 							fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
 						}
 					case ch == 10 || ch == 13:
-                        if previousPutChar == 10 || previousPutChar == 13 {
-                            // skip extra newline
-                        } else {
-							fmt.Println() // lf skips Println after cr does Println
-                        }
-                        /*
-					case ch == 13:
-						fmt.Println()
-						cr = true
-					case ch == 10:
-						if !cr {
+						if previousPutChar == 10 || previousPutChar == 13 {
+							// skip extra newline
+						} else {
 							fmt.Println() // lf skips Println after cr does Println
 						}
-						cr = false
-					case ch == 255:
-						log.Fatalf("FATAL BECAUSE PUTCHAR 255")
-                        */
+						/*
+							case ch == 13:
+								fmt.Println()
+								cr = true
+							case ch == 10:
+								if !cr {
+									fmt.Println() // lf skips Println after cr does Println
+								}
+								cr = false
+							case ch == 255:
+								log.Fatalf("FATAL BECAUSE PUTCHAR 255")
+						*/
 					default:
 						fmt.Printf("{%d}", ch)
 						cr = false
