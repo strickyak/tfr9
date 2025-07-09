@@ -76,5 +76,5 @@ fi
 
 if expr 1 = $Enable_RUN
 then
-    ./tconsole-level1.linux-amd64.exe -disks "/dev/null,$D1,$D2" 2>_log   -borges /tmp/borges
+    ./tconsole-level1.linux-amd64.exe -disks "$D2,$D1,$D2" 2>_log   -borges /tmp/borges
 fi

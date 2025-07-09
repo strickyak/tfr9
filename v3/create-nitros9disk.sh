@@ -9,8 +9,15 @@ case "$D" in
     # NEW STYLE for Recipes
     ( cd n9recipe && tclsh rmake.tcl && make -B )
     cp -vf n9recipe/tfr9-level1.dsk "$D"
-    os9 copy -r "$S/cmds/basic09"  "$D",CMDS/basic09
-    os9 attr -q -r -w -e -pr -pe   "$D",CMDS/basic09
+    #os9 copy -r "$S/cmds/basic09"  "$D",CMDS/basic09
+    #os9 attr -q -r -w -e -pr -pe   "$D",CMDS/basic09
+  ;;
+  *level2.dsk )
+    # NEW STYLE for Recipes
+    ( cd n9recipe && tclsh rmake.tcl && make -B )
+    cp -vf n9recipe/tfr9-level2.dsk "$D"
+    #os9 copy -r "$S/cmds/basic09"  "$D",CMDS/basic09
+    #os9 attr -q -r -w -e -pr -pe   "$D",CMDS/basic09
   ;;
   * )
     # OLD STYLE with "os9 format, gen, copy ..."
