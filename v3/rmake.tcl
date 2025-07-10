@@ -415,7 +415,6 @@ Platform tfr9 {
   Level level2 {
     Machine coco3
     set ::OsLevel 2
-    set ::DefsDir "\$(N9)/level2/coco3/defs"
     set ::DefsDir "\$(N9)/defs"
 
     # Using level2/coco3/defs level2/coco3 level2 3rdparty/packages/basic09/ level1/coco1 level1
