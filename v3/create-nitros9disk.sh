@@ -4,19 +4,19 @@ set -ex
 S="$1"; shift
 D="$1"; shift
 
-tclsh rmake.tcl
+time tclsh rmake.tcl
 
 case "$D" in
 
   */level1.dsk )
     B=build/tfr9/level1
-    make -B -C $B
+    time make -j4 -C $B
     cp -vf $B/tfr9-level1.dsk "$D"
   ;;
 
   */level2.dsk )
     B=build/tfr9/level2
-    make -B -C $B
+    time make -j4 -C $B
     cp -vf $B/tfr9-level2.dsk "$D"
   ;;
 

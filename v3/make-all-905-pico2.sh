@@ -49,10 +49,10 @@ D2="generated/level2.dsk"
 
 if expr 0 = $T9V3_JUST
 then
-    sh create-nitros9disk.sh "$S1" "$D1" "$S1/cmds/shell_21"
-    sh create-nitros9disk.sh "$S2" "$D2" "$S2/modules/sysgo_dd" "$S2/cmds/shell"
+    time sh create-nitros9disk.sh "$S1" "$D1" "$S1/cmds/shell_21"
+    time sh create-nitros9disk.sh "$S2" "$D2" "$S2/modules/sysgo_dd" "$S2/cmds/shell"
 
-    make -C launchers
+    make -j4 -C launchers
 
     # python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S1/bootfiles/kernel_tfr9" > generated/level1.rom.h
     B=build/tfr9/level1
@@ -65,7 +65,7 @@ then
     mkdir -p /tmp/borges
     go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/ build/
 
-    make \
+    time make -j4 \
         BUILD_DIR="${BUILD_DIR}" \
         TFR_BOARD="${TFR_BOARD}" \
         RP_CHIP="${RP_CHIP}" \

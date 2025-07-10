@@ -1,17 +1,3 @@
-#ifdef TRACKING
-#else
-#define TRACKING 0
-#endif
-
-#define INCLUDED_DISK 0
-
-#define SEEN TRACKING
-#define ENABLE_RECORD 0  // Fix me later.
-
-#define HEURISTICS 1
-
-#define RAPID_BURST_CYCLES 256  // Without checking IRQs, etc.
-
 // tmanager.cpp -- for the TFR/901 -- strick
 //
 // SPDX-License-Identifier: MIT
@@ -31,7 +17,9 @@
 
 #define LED(X) gpio_put(25, (X))
 
-//////////////////////////////////////// #include "pico/cyw43_arch.h"
+// If we use the "W" version of a pico,
+// it requires pico/cyw43_arch.h:
+// #include "pico/cyw43_arch.h"
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -47,6 +35,25 @@ typedef unsigned int word;
 typedef unsigned char T_byte;
 typedef unsigned int T_word;
 typedef unsigned char T_16[16];
+
+// RAPID_BURST_CYCLES is how many cycles
+// to run quickly without checking for IRQs
+// and other stuff that slows us down.
+// For a slower but more accurate simulation,
+// reduce the scale.
+// In order for simulated clock ticks to work,
+// RAPID_BURST_CYCLES must be a power of two,
+// so RAPID_BURST_SCALE is that power.
+constexpr uint RAPID_BURST_SCALE = 8;
+constexpr uint RAPID_BURST_CYCLES = (1u << RAPID_BURST_SCALE);
+
+// POKE EVENTS in Ram can cause USB traffic.
+// Sometimes we don't want that, in the middle of
+// some other USB operations.   So Quiet()
+// and Noisy() can squelch that.
+uint quiet_ram;
+inline void Quiet() { quiet_ram++; }
+inline void Noisy() { quiet_ram--; }
 
 enum {
   // C_NOCHAR=160,
@@ -82,12 +89,6 @@ enum {
 
 extern void putbyte(byte x);
 
-volatile bool TimerFired;
-
-uint quiet_ram;
-inline void Quiet() { quiet_ram++; }
-inline void Noisy() { quiet_ram--; }
-
 uint current_opcode_cy;  // what was the CY of the current opcode?
 uint current_opcode_pc;  // what was the PC of the current opcode?
 uint current_opcode;     // what was the current opcode?
@@ -113,7 +114,7 @@ int acia_char;
 void ShowChar(byte ch) {
   putchar(C_PUTCHAR);
   putchar(ch);
-  printf("ShowChar  %02x < %c >\n", ch, ch);
+  // printf("ShowChar  %02x < %c >\n", ch, ch);
   // sleep_ms(10);
 }
 void ShowStr(const char* s) {
@@ -128,6 +129,8 @@ void putbyte(byte x) { putchar_raw(x); }
 #include "log.h"
 #include "pcrange.h"
 #include "trace.h"
+#include "seen.h"
+#include "picotimer.h"
 
 template <typename T>
 struct DontShowIrqs {
@@ -156,19 +159,10 @@ void PollUsbInput();
 #include "latch.pio.h"
 #include "tpio.pio.h"
 
-///////////////////////  // LED_W for Pico W:   LED_W(1) for on, LED_W(0) for
-/// off.
-///////////////////////  #define LED_W(X)
-/// cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
-
-#if TRACKING
-#define PICO_USE_TIMER 0
-#define VSYNC_TICK_MASK \
-  0xFFFF  // 0x3FF  // 0xFFFF   // one less than a power of two
-#else
-#define PICO_USE_TIMER 1
-#define VSYNC_TICK_MASK 0x3FFF  // 0xFFFF   // one less than a power of two
-#endif
+/*
+  LED_W for Pico W:   LED_W(1) for on, LED_W(0) for off.
+  // #define LED_W(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
+*/
 
 #define TFR_RTC_BASE 0xFF50
 
@@ -184,14 +178,12 @@ void PollUsbInput();
   (A = (byte)((X) >> 24), B = (byte)((X) >> 16), C = (byte)((X) >> 8), \
    D = (byte)((X) >> 0))
 
-char Buf64[64];  // General use Buffer.
-
 constexpr uint RTI_SZ = 12;
 constexpr uint SWI2_SZ = 17;
 static byte hist_data[24];
 static uint hist_addr[24];
 
-#define MAX_INTEREST 999999999
+#define MAX_INTEREST 0x7FFFffff
 #define getchar(X) NeverUseGetChar
 
 const byte Level1_Rom[] = {
@@ -240,29 +232,6 @@ const char* HighFlags(uint high) {
 
 #include "circbuf.h"
 
-#if SEEN
-class Bitmap64K {
-  const static uint SZ = (1u << 16);
-
- public:
-  byte guts[SZ >> 3];
-
-  bool operator[](uint i) const {
-    i &= (SZ - 1);
-    byte mask = 1 << (i & 7);
-    uint sub = i >> 3;
-    return (0 != (mask & guts[sub]));
-  }
-  void Insert(uint i) {
-    i &= (SZ - 1);
-    byte mask = 1 << (i & 7);
-    uint sub = i >> 3;
-    guts[sub] |= mask;
-  }
-
-} Seen;
-#endif
-
 // SmallRam & BigRam
 #include "ram.h"
 
@@ -284,7 +253,6 @@ class Bitmap64K {
 
 void ViewAt(const char* label, uint hi, uint lo) {
 #if 0
-#if TRACKING
     Quiet();
     uint addr = (hi << 8) | lo;
     VIEWF("=== %s: @%04x: ", label, addr);
@@ -306,7 +274,6 @@ void ViewAt(const char* label, uint hi, uint lo) {
     VIEWF("|\n");
     Noisy();
 #endif
-#endif
 }
 
 void StrobePin(uint pin) {
@@ -316,6 +283,12 @@ void StrobePin(uint pin) {
   DELAY;
 }
 
+// Use SetY(uint) to manually change the Multiplex Counter
+// to the specified state, from outisde the PIO state machines.
+// GPIO will have to "own" the COUNTER_RESET and COUNTER_CLOCK
+// pins, instead of PIO owning them (see InitializePinsForGpio()).
+// So really this is only used to reset the CPU
+// (see ResetCpu()) before PIO begins.
 void SetY(uint y) {
   StrobePin(COUNTER_RESET);
   for (uint i = 0; i < y; i++) {
@@ -387,28 +360,30 @@ void ResetCpu() {
   printf("... done.\n");
 }
 
-static inline bool hasty_pio_sm_is_rx_fifo_empty(PIO pio, uint sm) {
+// These were copied from Pico's headers
+// and made "hasty" by removing assertions.
+static force_inline bool hasty_pio_sm_is_rx_fifo_empty(PIO pio, uint sm) {
   return (pio->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + sm))) != 0;
 }
 
-static inline uint32_t hasty_pio_sm_get(PIO pio, uint sm) {
+static force_inline uint32_t hasty_pio_sm_get(PIO pio, uint sm) {
   return pio->rxf[sm];
 }
 
-static inline void hasty_pio_sm_put(PIO pio, uint sm, uint32_t data) {
+static force_inline void hasty_pio_sm_put(PIO pio, uint sm, uint32_t data) {
   pio->txf[sm] = data;
 }
 
-static inline uint WAIT_GET() {
+static force_inline uint WAIT_GET() {
   const PIO pio = pio0;
   constexpr uint sm = 0;
-  // My own loop is fastere than calling get_blocking:
+  // My own loop is faster than calling get_blocking:
   // return pio_sm_get_blocking(pio, sm);
   while (hasty_pio_sm_is_rx_fifo_empty(pio, sm)) continue;
   return hasty_pio_sm_get(pio, sm);
 }
 
-static inline void PUT(uint x) {
+static force_inline void PUT(uint x) {
   const PIO pio = pio0;
   constexpr uint sm = 0;
   hasty_pio_sm_put(pio, sm, x);
@@ -436,22 +411,6 @@ const char* DecodeCC(byte cc) {
   buf[8] = '\0';
   return buf;
 }
-
-#if 0
-TODO
-void PutIrq(bool activate) {
-  gpio_put(IRQ_BAR_PIN, not activate);  // negative logic
-}
-#endif
-
-#if PICO_USE_TIMER
-struct repeating_timer TimerData;
-
-bool TimerCallback(repeating_timer_t* rt) {
-  TimerFired = true;
-  return true;
-}
-#endif
 
 bool TryGetUsbByte(char* ptr) {
   int rc = stdio_usb_in_chars(ptr, 1);
@@ -571,9 +530,6 @@ struct EngineBase {
     interest = MAX_INTEREST;
     printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
     printf("DumpRamAndGetStuck: %s ($%x = %d.)\n", why, what, what);
-#if ENABLE_RECORD
-    DumpTrace();
-#endif
     if (T::PhysSize() > 0x10000) DumpPhys();
     DumpRam();
     printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
@@ -783,15 +739,7 @@ struct EngineBase {
     MUMBLE("PIO");
     StartPio();
 
-#if PICO_USE_TIMER
-    // thanks https://forums.raspberrypi.com/viewtopic.php?t=349809
-    MUMBLE("APID");
-    alarm_pool_init_default();
-
-    MUMBLE("ART");
-    add_repeating_timer_us(16666 /* 60 Hz */, TimerCallback, nullptr,
-                           &TimerData);
-#endif
+    T::StartTimer(16666 /* 60 Hz */);
 
     MUMBLE("RMC");
     RunMachineCycles();
@@ -817,11 +765,6 @@ struct EngineBase {
   }
 
   static void ReadDisk(uint device, uint lsn, byte* buffer) {
-#if INCLUDED_DISK
-    for (uint k = 0; k < 256; k++) {
-      T::Poke(buffer + k, TODO dp[k]);
-    }
-#else
     printf("READ SDC SECTOR %x %x\n", device, lsn);
     putbyte(C_DISK_READ);
     putbyte(device);
@@ -841,7 +784,6 @@ struct EngineBase {
         break;
       }
     }
-#endif
   }
 
   static void RunMachineCycles() {
@@ -934,12 +876,16 @@ struct EngineBase {
         }
       }
 
-#if !PICO_USE_TIMER
-      // Simulate timer firing every so-many cycles,
-      // but not with realtime timer,
-      // because we are running slowly.
-      if ((cy & VSYNC_TICK_MASK) == 0) TimerFired = true;
-#endif
+      if (!T::DoesPicoTimer()) {
+        // Simulate timer firing every so-many cycles,
+        // but not with realtime timer,
+        // because we are running slowly.
+        if ((cy & VSYNC_TICK_MASK) == 0) {
+            TimerFired = true;
+        }
+        // Notice that relies on RAPID_BURST_CYCLES
+        // being a power of two.
+      }
 
       if (TimerFired) {
         TimerFired = false;
@@ -1137,11 +1083,9 @@ struct EngineBase {
             if (reading) {
               if (fic) {
                 label = "@";
-#if SEEN
-                if (not Seen[addr]) {
+                if (!T::WasItSeen(addr)) {
                   label = "@@";
                 }
-#endif
                 next_pc = addr + 1;
               } else {
                 // case: Reading but not FIC
@@ -1157,11 +1101,9 @@ struct EngineBase {
                     HighFlags(high), cy);
           }  // end if valid cycle
 
-#if SEEN
           if (fic) {
-            Seen.Insert(addr);
+            T::SeeIt(addr);
           }
-#endif
         }
 
         if (T::DoesLog()) {
@@ -1191,6 +1133,7 @@ struct EngineBase {
 struct T9_Slow : EngineBase<T9_Slow>,
                  DoPcRange<T9_Slow, 0x0020, 0xFF01>,
                  DoTrace<T9_Slow>,
+                 DoSeen<T9_Slow>,
                  DoLog<T9_Slow>,
                  DoLogMmu<T9_Slow>,
                  DoShowIrqs<T9_Slow>,
@@ -1200,6 +1143,7 @@ struct T9_Slow : EngineBase<T9_Slow>,
                  DoHyper<T9_Slow>,
                  DoEvent<T9_Slow>,
                  DontDumpRamOnEvent<T9_Slow>,
+                 DontPicoTimer<T9_Slow>,
                  DontAcia<T9_Slow>,
                  DontGime<T9_Slow>,
                  DontSamvdg<T9_Slow>,
@@ -1218,6 +1162,7 @@ struct T9_Slow : EngineBase<T9_Slow>,
 struct T9_Fast : EngineBase<T9_Fast>,
                  DontPcRange<T9_Fast>,
                  DontTrace<T9_Fast>,
+                 DontSeen<T9_Fast>,
                  DontLog<T9_Fast>,
                  DontLogMmu<T9_Fast>,
                  DontShowIrqs<T9_Fast>,
@@ -1227,6 +1172,7 @@ struct T9_Fast : EngineBase<T9_Fast>,
                  DontHyper<T9_Fast>,
                  DontEvent<T9_Fast>,
                  DontDumpRamOnEvent<T9_Fast>,
+                 DoPicoTimer<T9_Fast>,
                  DontAcia<T9_Fast>,
                  DontGime<T9_Fast>,
                  DontSamvdg<T9_Fast>,
@@ -1245,6 +1191,7 @@ struct T9_Fast : EngineBase<T9_Fast>,
 struct L1_Slow : EngineBase<L1_Slow>,
                  DoPcRange<L1_Slow, 0x0020, 0xFF01>,
                  DoTrace<L1_Slow>,
+                 DoSeen<L1_Slow>,
                  DoLog<L1_Slow>,
                  DoLogMmu<L1_Slow>,
                  DoShowIrqs<L1_Slow>,
@@ -1254,6 +1201,7 @@ struct L1_Slow : EngineBase<L1_Slow>,
                  DoHyper<L1_Slow>,
                  DoEvent<L1_Slow>,
                  DontDumpRamOnEvent<L1_Slow>,
+                 DontPicoTimer<L1_Slow>,
                  DoAcia<L1_Slow>,
                  DoEmudsk<L1_Slow>,
                  DontGime<L1_Slow>,
@@ -1277,6 +1225,7 @@ struct L1_Slow : EngineBase<L1_Slow>,
 struct L1_Fast : EngineBase<L1_Fast>,
                  DontPcRange<L1_Fast>,
                  DontTrace<L1_Fast>,
+                 DontSeen<L1_Fast>,
                  DontLog<L1_Fast>,
                  DontLogMmu<L1_Fast>,
                  DontShowIrqs<L1_Fast>,
@@ -1286,6 +1235,7 @@ struct L1_Fast : EngineBase<L1_Fast>,
                  DontHyper<L1_Fast>,
                  DontEvent<L1_Fast>,
                  DontDumpRamOnEvent<L1_Slow>,
+                 DoPicoTimer<L1_Fast>,
                  DoAcia<L1_Fast>,
                  DoEmudsk<L1_Fast>,
                  DontGime<L1_Fast>,
@@ -1309,6 +1259,7 @@ struct L1_Fast : EngineBase<L1_Fast>,
 struct L2_Slow : EngineBase<L2_Slow>,
                  DoPcRange<L2_Slow, 0x0020, 0xFF01>,
                  DoTrace<L2_Slow>,
+                 DoSeen<L2_Slow>,
                  DoLog<L2_Slow>,
                  DoLogMmu<L2_Slow>,
                  DoShowIrqs<L2_Slow>,
@@ -1318,6 +1269,7 @@ struct L2_Slow : EngineBase<L2_Slow>,
                  DoHyper<L2_Slow>,
                  DoEvent<L2_Slow>,
                  DontDumpRamOnEvent<L1_Slow>,
+                 DontPicoTimer<L2_Slow>,
                  DoAcia<L2_Slow>,
                  DoEmudsk<L2_Slow>,
                  DoGime<L2_Slow>,
@@ -1341,6 +1293,7 @@ struct L2_Slow : EngineBase<L2_Slow>,
 struct L2_Fast : EngineBase<L2_Fast>,
                  DontPcRange<L2_Fast>,
                  DontTrace<L2_Fast>,
+                 DontSeen<L2_Fast>,
                  DoLog<L2_Fast>,
                  DontLogMmu<L2_Fast>,
                  DontShowIrqs<L2_Fast>,
@@ -1350,6 +1303,7 @@ struct L2_Fast : EngineBase<L2_Fast>,
                  DontHyper<L2_Fast>,
                  DontEvent<L2_Fast>,
                  DontDumpRamOnEvent<L2_Fast>,
+                 DoPicoTimer<L2_Fast>,
                  DoAcia<L2_Fast>,
                  DoEmudsk<L2_Fast>,
                  DoGime<L2_Fast>,
@@ -1396,8 +1350,17 @@ struct harness {
 
 void Shell() {
   struct harness harness;
-  while (true) {
-    ShowChar(';');
+  for (int i = 0; true; i++) {
+#if 1
+    switch (i&3) {
+      case 0: ShowChar('.'); break;
+      case 1: ShowChar(':'); break;
+      case 2: ShowChar(','); break;
+      case 3: ShowChar(';'); break;
+    }
+#else
+    ShowChar('a' + (byte)(i % 26));
+#endif
     PollUsbInput();
 
     if (term_input.HasAtLeast(1)) {
@@ -1436,7 +1399,15 @@ void Shell() {
         ShowStr("-#?-");
       }
     }  // term_input
-    sleep_ms(500);
+
+    if ((i&3)==3) {
+        LED(1); sleep_ms(100);
+        LED(0); sleep_ms(150);
+        LED(1); sleep_ms(100);
+        LED(0); sleep_ms(150);
+    } else {
+        sleep_ms(500);
+    }
   }
   // Shell never returns.
 }
@@ -1446,8 +1417,13 @@ int main() {
 
   gpio_init(25);
   gpio_set_dir(25, GPIO_OUT);
-
+  LED(0);
   InitializePinsForGpio();
+
+  LED(1); sleep_ms(100);
+  LED(0); sleep_ms(150);
+  LED(1); sleep_ms(100);
+  LED(0); sleep_ms(150);
 
   interest = MAX_INTEREST;  /// XXX
 

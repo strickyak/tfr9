@@ -239,6 +239,8 @@ func MintSerialNum() uint {
 }
 
 func Run(inkey chan byte) {
+	const SERIAL_BUFFER_SIZE = 1024
+
 	var previousPutChar byte
 	var remember int64
 	var timer_sum int64
@@ -268,7 +270,7 @@ func Run(inkey chan byte) {
 
 	go ToUsbRoutine(serialPort, channelToPico)
 
-	channelFromPico := make(chan byte, 1024)
+	channelFromPico := make(chan byte, SERIAL_BUFFER_SIZE)
 	var fromUSB <-chan byte = channelFromPico
 
 	go func() {
@@ -411,7 +413,7 @@ func Run(inkey chan byte) {
 					//X// Logf("C_PUTCHAR $%2x=%d. %q", ch, ch, []byte{ch})
 					switch {
 					case 32 <= ch && ch <= 126:
-						fmt.Printf("%c", ch)
+						fmt.Printf("_%c", ch)
 						cr = false
 						if ch == '{' && previousPutChar == '^' {
 							remember = time.Now().UnixMicro()
@@ -520,16 +522,16 @@ func Run(inkey chan byte) {
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.
 	// Panics if it cannot read the serialPort.
+	serialBuffer := make([]byte, SERIAL_BUFFER_SIZE)
 	for {
-		const BUFFER_SIZE = 1024
-		v := make([]byte, BUFFER_SIZE)
-		n, err := serialPort.Read(v)
+		n, err := serialPort.Read(serialBuffer)
 		if err != nil {
 			Panicf("serialPort.Read: %v", err)
 		}
 
 		for i := 0; i < n; i++ {
-			channelFromPico <- v[i]
+			//fmt.Printf("[%02x]", serialBuffer[i])
+			channelFromPico <- serialBuffer[i]
 		}
 	}
 }
