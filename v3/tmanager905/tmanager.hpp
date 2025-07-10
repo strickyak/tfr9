@@ -1199,7 +1199,7 @@ struct T9_Slow : EngineBase<T9_Slow>,
                  DoTracePokes<T9_Slow>,
                  DoHyper<T9_Slow>,
                  DoEvent<T9_Slow>,
-                 DoDumpRamOnEvent<T9_Slow>,
+                 DontDumpRamOnEvent<T9_Slow>,
                  DontAcia<T9_Slow>,
                  DontGime<T9_Slow>,
                  DontSamvdg<T9_Slow>,
@@ -1307,9 +1307,8 @@ struct L1_Fast : EngineBase<L1_Fast>,
 };
 
 struct L2_Slow : EngineBase<L2_Slow>,
-                 // DoPcRange<L2_Slow, 0x0020, 0xFF01>,
-                 DontPcRange<L2_Slow>,
-                 DontTrace<L2_Slow>,
+                 DoPcRange<L2_Slow, 0x0020, 0xFF01>,
+                 DoTrace<L2_Slow>,
                  DoLog<L2_Slow>,
                  DoLogMmu<L2_Slow>,
                  DoShowIrqs<L2_Slow>,
@@ -1318,7 +1317,7 @@ struct L2_Slow : EngineBase<L2_Slow>,
                  DoTracePokes<L2_Slow>,
                  DoHyper<L2_Slow>,
                  DoEvent<L2_Slow>,
-                 DoDumpRamOnEvent<L1_Slow>,
+                 DontDumpRamOnEvent<L1_Slow>,
                  DoAcia<L2_Slow>,
                  DoEmudsk<L2_Slow>,
                  DoGime<L2_Slow>,
@@ -1405,16 +1404,16 @@ void Shell() {
       byte ch = term_input.Take();
       if ('0' <= ch && ch <= '4') {
         uint num = ch - '0';
-        if (harness.engines[num]) {
-          harness.engines[num]();
+        if (harness.fast_engines[num]) {
+          harness.fast_engines[num]();
         } else {
           ShowStr("-S?-");
         }
 
       } else if ('5' <= ch && ch <= '9') {
         uint num = ch - '5';
-        if (harness.fast_engines[num]) {
-          harness.fast_engines[num]();
+        if (harness.engines[num]) {
+          harness.engines[num]();
         } else {
           ShowStr("-F?-");
         }

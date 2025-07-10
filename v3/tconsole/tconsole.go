@@ -358,6 +358,7 @@ func Run(inkey chan byte) {
 							if cmd == C_DUMP_PHYS {
 								for j := uint(0); j < 16; j++ {
 									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+                                    longaddr %= RAM_SIZE
 									if d[j] != trackRam[longaddr] {
 										Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
 									}

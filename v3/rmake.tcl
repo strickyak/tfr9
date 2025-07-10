@@ -16,7 +16,26 @@ set DEFAULT_CMDS_LEVEL1 {
     shellplus       sleep                           tee
                     touch           tsmon           tuneport        unlink
     verify          xmode
+
     tmode=xmode,TMODE=1
+}
+set DEFAULT_CMDS_LEVEL2 {
+asm      debug    dump    httpd       merge     procs      syscall
+attr     ded      dw      ident       mfree     prompt     tee
+backup   deiniz   echo    inetd       minted    pwd        telnet
+basic09  deldir   edit    iniz        mmap      pxd
+bawk     del      error   inkey       modpatch  reboot     touch
+binex    devs     exbin   irqs        montype   rename     tsmon
+build    dir      format  link        more      runb       tuneport
+cmp      dirsort  free    list        mpi       save       unlink
+cobbler  disasm           load        os9gen    setime     verify
+copy     display  gfx     login       padrom    shell_21   wcreate
+cputype  dmem     grep    makdir      park      shellplus  xmode
+date     dmode    grfdrv  mdir        pmap      sleep
+dcheck   dsave    help    megaread    proc      smap
+
+gfx2,include+=level2/coco3/defs
+tmode=xmode,TMODE=1
 }
 
 set BASIC09_CMDS_LEVEL1 {
@@ -28,9 +47,8 @@ set LINKED_CMDS_LEVEL1 {
     grep megaread
 }
 
-set DEFAULT_SYS_LEVEL1 {
-    errors
-}
+set DEFAULT_SYS_LEVEL1 { errors }
+set DEFAULT_SYS_LEVEL2 { errors }
 
 proc Log {args} {
     puts stderr "LOG: $args"
@@ -44,57 +62,6 @@ proc Range {n} {
     return $z
 }
 
-#.  # Queries the names of entries in a global multi-dimensional table
-#.  # (i.e. array) with commas separating dimensions.
-#.  # Returns sorted list of names of the dimension that comes
-#.  # after prefix head.
-#.  proc gnames {gtable head} {
-#.      upvar #0 $gtable T
-#.      set R(0) 0
-#.      unset R(0)
-#.  
-#.      set fix {}
-#.      set search $head,*
-#.      if {$head == ""} {
-#.          set fix F,
-#.          set head F
-#.          set search *
-#.      }
-#.      set pattern "^$head,(.*)$"
-#.  
-#.      foreach path [array names T $search] {
-#.          set path "$fix$path"
-#.          regsub $pattern $path {\1} path
-#.          regsub {^([^,]*),.*$} $path {\1} path
-#.          set R($path) 1
-#.      }
-#.      lsort [array names R]
-#.  }
-#.  
-#.  if 0 {
-#.  # set x(one) 1
-#.  set x(one,two) 1
-#.  set x(one,two,three) 1
-#.  set x(one,two,tres) 1
-#.  set x(one,dos,three) 1
-#.  set x(one,dos,tres) 1
-#.  # set x(uno) 1
-#.  set x(uno,two) 1
-#.  set x(uno,two,three) 1
-#.  set x(uno,two,tres) 1
-#.  set x(uno,dos,three) 1
-#.  set x(uno,dos,tres) 1
-#.  set x(uno,dos,tres,4) 1
-#.  set x(uno,dos,tres,444) 1
-#.  puts [lsort [array names x]]
-#.  puts 0:[gnames x {}]
-#.  puts 1:[gnames x one]
-#.  puts 2:[gnames x uno]
-#.  foreach i [gnames x uno] { puts 3:$i:[gnames x uno,$i] }
-#.  foreach i [gnames x uno,dos] { puts 4:$i:[gnames x uno,dos,$i] }
-#.  exit 0
-#.  }
-
 # Get var value from closest scope it is defined in.
 proc Get {varname} {
     set level [info level]
@@ -107,25 +74,35 @@ proc Get {varname} {
     error "cannot Get variable from any scope: `$varname`"
 }
 
-#set N9Root [ cd ../../nitros9 ; pwd ]
 set N9Root [ exec /bin/sh -c "cd ../../nitros9 ; pwd" ]
 set Build ./build
 set Using __UNSET__
 
-proc Platform {name body} {
-    set ::Platforms($name) 1
-    set ::Platform $name
-    file mkdir $::Build/$name
+proc ~ {args} {
+    puts stderr "==Exec $args"
+    if [catch {uplevel 1 $args} result] {
+        puts stderr "==Error $args -> $result"
+        error $result
+    } else {
+        puts stderr "==Result $args -> $result"
+        return $result
+    }
+}
 
-    InitMakefile
+proc Platform {name body} {
+    puts stderr nando-one
+    set ::Platform $name
+
     eval $body
-    FinishMakefile
 }
 proc Level {name body} {
-    set ::Level $name
-    set ::Levels($::Platform,$name) 1
-    file mkdir $::Build/$::Platform/$name
-    eval $body
+    puts stderr nando-two
+    ~ set ::Level $name
+    ~ file mkdir $::Build/$::Platform/$name
+
+    ~ InitMakefile
+    ~ eval $body
+    ~ FinishMakefile
 }
 proc Machine {name} {
     set ::Machine $name
@@ -168,13 +145,17 @@ proc LogGlobalVars {w {pattern *}} {
     puts $w "#}}}}}}}}}}}}}}}}}}}}"
 }
 
+proc nobraces {s} {
+    regsub -all {[{}]} $s { }
+}
+
 proc FinishMakefile {} {
 
     lassign [clock format [clock seconds] -format "%Y %m %d"] Y M D
 
     file mkdir "$::Build/$::Platform/$::Level"
     set w [open "$::Build/$::Platform/$::Level/Makefile" "w"]
-    LogGlobalVars $w {[A-Z]*}
+    #LogGlobalVars $w {[A-Z]*}
     puts $w "N9 = $::N9Root"
     puts $w "LWASM = \$(N9)/../bin/lwasm"
     puts $w "LWLINK = \$(N9)/../bin/lwlink"
@@ -182,11 +163,14 @@ proc FinishMakefile {} {
     puts $w "SIMPLE_LWASM_FLAGS = --6309 --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --no-warn=ifp1 --format=os9"
     puts $w "BASIC09_LWASM_FLAGS = --6309 --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --no-warn=ifp1 --format=os9"
     puts $w "LINKED_LWASM_FLAGS = --6309 --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax,export --no-warn=ifp1 --format=os9"
+    ###puts $w "USING = [nobraces [lmap i $::Using { list -I'$i/cmds'  -I'$i/modules/kernel'  -I'$i/modules'  -I'$i/' }]]  -I'\$(N9)/defs' "
+    puts $w "USING = [nobraces [lmap i $::Using { list -I'$i/cmds'  -I'$i/modules/kernel'  -I'$i/modules'  -I'$i/' }]]  -I'$::DefsDir' "
     puts $w ""
     puts $w "YEAR=[expr $Y-2000]"
     puts $w "MONTH=[expr 1$M-100]"
     puts $w "DAY=[expr 1$D-100]"
-    puts $w "VER=  -D'NOS9VER'=\$(YEAR) -D'NOS9MAJ'=\$(MONTH) -D'NOS9MIN'=\$(DAY)"
+    puts $w "VER=  -D'NOS9VER'=\$(YEAR) -D'NOS9MAJ'=\$(MONTH) -D'NOS9MIN'=\$(DAY) -D'$::Machine'=1 "
+    # puts $w "VER=  -D'NOS9VER'=\$(YEAR) -D'NOS9MAJ'=\$(MONTH) -D'NOS9MIN'=\$(DAY) -D'$::Machine'=1 -D'Level'=$::OsLevel "
     puts $w ""
 
     puts $w "all: \\"
@@ -198,6 +182,9 @@ proc FinishMakefile {} {
 
     foreach product $::Products {
         puts $w "$product: \\"
+        foreach dep $::ProductDepends($product) {
+            puts $w " $dep \\"
+        }
         foreach target $::ProductTargets($product) {
             puts $w " $target \\"
         }
@@ -214,14 +201,17 @@ proc FinishMakefile {} {
 
         regsub {^(.*)[.]mod$} $target {\1} c
         if [lsearch $::BASIC09_CMDS_LEVEL1 $c]>=0 {
-            puts $w [tabbed { $(LWASM) $(BASIC09_LWASM_FLAGS) -o'$@' $< -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $(VER) } $flags]
+            puts $w [tabbed { $(LWASM) $(BASIC09_LWASM_FLAGS) -o'$@' $< $(USING) $(VER) } $flags]
         } elseif [lsearch $::LINKED_CMDS_LEVEL1 $c]>=0 {
-            # lwlink --format=os9 -L /home/strick/modoc/coco-shelf/nitros9/lib -lnet -lcoco -lalib grep.o -ogrep
-            puts $w [tabbed { $(LWASM) $(LINKED_LWASM_FLAGS) --format=obj -o'$@.o' $< -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $(VER) } $flags]
-            puts $w [tabbed { $(LWLINK) --format=os9 -L $(N9)/lib  -lnet -lcoco -lalib $@.o -o'$@' } "" ]
+            puts $w [tabbed { $(LWASM) $(LINKED_LWASM_FLAGS) --format=obj -o'$@.o' $< $(USING) $(VER) } $flags]
+            # Remove .mod ending, to create plain_name.
+            set plain_name [string range $target 0 end-4]
+            # Link into plain_name, so OS9 module gets correct module name.
+            puts $w [tabbed { $(LWLINK) --format=os9 -L $(N9)/lib  -lnet -lcoco -lalib $@.o } " -o'$plain_name' " ]
+            # But rename the file back to the target name with .mod on it.
+            puts $w [tabbed "mv -fv $plain_name $target" ""]
         } else {
-            # # # puts $w \[string cat "\t" $(LWASM) $(SIMPLE_LWASM_FLAGS) -o'$@' $< -I'.' -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $flags \$(VER) \]
-            puts $w [tabbed { $(LWASM) $(SIMPLE_LWASM_FLAGS) -o'$@' $< -I'$(N9)/level1/coco1/cmds' -I'$(N9)/level1/cmds' -I'$(N9)/level1/modules' -I'$(N9)/defs/' $(VER) } $flags]
+            puts $w [tabbed { $(LWASM) $(SIMPLE_LWASM_FLAGS) -o'$@' $< $(USING) $(VER) } $flags]
         }
     }
     puts $w ""
@@ -235,9 +225,8 @@ proc tabbed {line flags} {
     return "\t$line $flags"
 }
 
-proc Assemble {target source flags} {
-    set flags "-D'$::Machine'=1 $flags"
-    set ::MakeTarget($target) [list lwasm $source $flags]
+proc Assemble {target source flags extra} {
+    set ::MakeTarget($target) [list lwasm $source "$flags $extra"]
 }
 
 proc CreateFlagsFromArgs {targetVar srcVar flagsVar extraVar spec} {
@@ -262,6 +251,9 @@ Log CreateFlagsFromArgs << $targetVar , $srcVar , $flagsVar , $extraVar, $spec
         if [regexp {^([A-Za-z0-9_]+)=(.*)$} $w 0 1 2] {
               append flags " -D'$1'='[expr 0 + $2]'"
         }
+        if [regexp {^include[+]=(.*)$} $w 0 1 2] {
+              append extra " -I'\$(N9)/$1' "
+        }
         #if [regexp {^([A-Za-z0-9_]+)[(]([A-Za-z0-9_]+)[)]=(.*)$} $w 0 1 2 3] {
         #      append extra " Extra-$1 $2 $3 $src $target" 
         #}
@@ -272,6 +264,7 @@ Log CreateFlagsFromArgs $spec >> src = $src , target = $target , flags = $flags 
 proc CreateProduct {name} {
     Log CreateProduct: $name (after $::Products)
     set ::Product $name
+    set ::ProductDepends($name) $::Products  ;# before lappend
     lappend ::Products $name  ;# remember these in order
 }
 
@@ -287,7 +280,7 @@ proc Create_track35_style_primary_boot {name body} {
         CreateFlagsFromArgs target src flags extra $it
         Log " + [catch [list FindViaUsing  {modules modules/kernel} $src {.asm .as}] result ; set result]"
         if ![catch [list FindViaUsing  {modules modules/kernel} $src {.asm .as}] result] {
-            Assemble $target $result $flags
+            Assemble $target $result $flags $extra
             lappend manifest $target
         } else {
             error "CANNOT FIND `$src`: $result"
@@ -311,7 +304,7 @@ proc Create_os9boot_style_secondary_boot {name body} {
         CreateFlagsFromArgs target src flags extra $it
         Log " + [catch [list FindViaUsing  {modules modules/kernel cmds} $src {.asm .as}] result ; set result]"
         if ![catch [list FindViaUsing  {modules modules/kernel cmds} $src {.asm .as}] result] {
-            Assemble $target $result $flags
+            Assemble $target $result $flags $extra
             lappend manifest $target
         } else {
             error "CANNOT FIND `$src`: $result"
@@ -347,7 +340,7 @@ proc Create_hard_disk {name body} {
             CreateFlagsFromArgs target src flags extra $it
             Log " + [catch [list FindViaUsing  {. cmds} $src {.asm .as}] result ; set result]"
             if ![catch [list FindViaUsing  {. cmds} $src {.asm .as}] result] {
-                Assemble $target $result $flags
+                Assemble $target $result $flags $extra
                 lappend manifest $target
             } else {
                 Log "CANNOT FIND `$src`: $result"
@@ -391,6 +384,8 @@ set CLOCK_60HZ { clock_60=clock,PwrLnFrq=60 clock2_soft }
 Platform tfr9 {
   Level level1 {
     Machine coco1
+    set ::OsLevel 1
+    set ::DefsDir "\$(N9)/defs"
 
     Using level1/coco1 level1 3rdparty/packages/basic09/
 
@@ -399,11 +394,12 @@ Platform tfr9 {
         boot_emu_h1=boot_emu,DISKNUM=1
     }
     Create_os9boot_style_secondary_boot "tfr9-level1.o9b" {
-        ioman @CLOCK_60HZ @PIPES
-        scf sc6850  term=term_sc6850,HwBASE=0xFF06
+        ioman clock_60=clock,PwrLnFrq=60 clock2_soft
+        scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06
         rbf  emudsk_8=emudsk,MaxVhd=8
         dd_h1=emudskdesc,DNum=1,DD=1
         [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
+        pipeman piper pipe
         sysgo_dd=sysgo,dd=1
         shell_21
     }
@@ -413,6 +409,39 @@ Platform tfr9 {
         -os9boot "tfr9-level1.o9b"
         -cmds {@DEFAULT_CMDS_LEVEL1 @BASIC09_CMDS_LEVEL1 @LINKED_CMDS_LEVEL1}
         -sys @DEFAULT_SYS_LEVEL1
+        -startup "/dev/null"
+    }
+  }
+  Level level2 {
+    Machine coco3
+    set ::OsLevel 2
+    set ::DefsDir "\$(N9)/level2/coco3/defs"
+    set ::DefsDir "\$(N9)/defs"
+
+    # Using level2/coco3/defs level2/coco3 level2 3rdparty/packages/basic09/ level1/coco1 level1
+    Using level2/coco3 level2 3rdparty/packages/basic09/ level1/coco1 level1
+
+    Create_track35_style_primary_boot "tfr9-level2.t35" {
+        rel_80=rel,Width=80
+        boot_emu_h2=boot_emu,DISKNUM=2
+        krn
+    }
+    Create_os9boot_style_secondary_boot "tfr9-level2.o9b" {
+        init krnp2 ioman clock_60=clock,PwrLnFrq=60 clock2_soft
+        scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06
+        rbf  emudsk_8=emudsk,MaxVhd=8
+        dd_h2=emudskdesc,DNum=2,DD=1
+        [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
+        pipeman piper pipe
+        sysgo_dd=sysgo,dd=1
+        shell_21
+    }
+    Create_hard_disk "tfr9-level2.dsk" {
+        -sectors 99999
+        -track35 "tfr9-level2.t35"
+        -os9boot "tfr9-level2.o9b"
+        -cmds {@DEFAULT_CMDS_LEVEL2 @BASIC09_CMDS_LEVEL1 @LINKED_CMDS_LEVEL1}
+        -sys @DEFAULT_SYS_LEVEL2
         -startup "/dev/null"
     }
   }

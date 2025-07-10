@@ -57,8 +57,10 @@ then
     # python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S1/bootfiles/kernel_tfr9" > generated/level1.rom.h
     B=build/tfr9/level1
     python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level1.t35 > generated/level1.rom.h
+    B=build/tfr9/level2
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level2.t35 > generated/level2.rom.h
 
-    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S2/bootfiles/kernel_tfr9" > generated/level2.rom.h
+    #### python3 binary-header-generator.py launchers/launch-2500-to-2602.raw "$S2/bootfiles/kernel_tfr9" > generated/level2.rom.h
 
     mkdir -p /tmp/borges
     go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/ build/
