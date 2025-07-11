@@ -388,7 +388,7 @@ Platform tfr9 {
     }
     Create_os9boot_style_secondary_boot "tfr9-level1.o9b" {
         ioman clock_60=clock,PwrLnFrq=60 clock2_soft
-        scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06
+        scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06,Pauses=0
         rbf  emudsk_8=emudsk,MaxVhd=8
         dd_h1=emudskdesc,DNum=1,DD=1
         [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
@@ -420,7 +420,7 @@ Platform tfr9 {
     }
     Create_os9boot_style_secondary_boot "tfr9-level2.o9b" {
         init krnp2 ioman clock_60=clock,PwrLnFrq=60 clock2_soft
-        scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06
+        scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06,Pauses=0
         rbf  emudsk_8=emudsk,MaxVhd=8
         dd_h2=emudskdesc,DNum=2,DD=1
         [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
