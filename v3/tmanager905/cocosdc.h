@@ -5,12 +5,12 @@ uint sdc_lsn;
 uint emu_disk_buffer;
 byte rtc_value;
 
-template <class T>
+template <typename T>
 struct DontCocosdc {
   constexpr static bool DoesCocosdc() { return false; }
 };
 
-template <class T>
+template <typename T>
 struct DoCocosdc {
   constexpr static bool DoesCocosdc() { return true; }
 

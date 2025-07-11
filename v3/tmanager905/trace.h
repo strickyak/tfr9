@@ -1,14 +1,14 @@
 #ifndef _TRACE_H_
 #define _TRACE_H_
 
-template <class T>
+template <typename T>
 struct DontTrace {
   static constexpr bool DoesTrace() { return false; }
   static int vTracef(const char* fmt, va_list va) { return 0; }
   static force_inline int Tracef(const char* fmt, ...) { return 0; }
 };
 
-template <class T>
+template <typename T>
 struct DoTrace {
   static force_inline bool DoesTrace() { return enable_trace; }
 

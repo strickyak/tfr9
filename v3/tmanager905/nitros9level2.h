@@ -13,7 +13,7 @@ uint const Coco3Vectors[] = {
     0xFEEE, 0xFEF1, 0xFEF4, 0xFEF7, 0xFEFA, 0xFEFD, LEVEL2_LAUNCHER_START,
 };
 
-template <class T>
+template <typename T>
 struct DoNitros9level2 {
   static void Install_OS() {
     ShowChar('p');

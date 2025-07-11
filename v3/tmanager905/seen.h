@@ -29,7 +29,7 @@ class FixedSizeBitmap {
 };
 FixedSizeBitmap<0x10000> SeenBitmap;
 
-template <class T>
+template <typename T>
 struct DontSeen {
   static constexpr bool DoesSeen() { return false; }
   // WasItSeen returns true, so no special treatment for unseen addresses.
@@ -38,7 +38,7 @@ struct DontSeen {
   static void Reset() {}
 };
 
-template <class T>
+template <typename T>
 struct DoSeen {
   static force_inline bool DoesSeen() { return true; }
 

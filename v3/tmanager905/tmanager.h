@@ -59,24 +59,25 @@ enum {
   // C_NOCHAR=160,
   C_PUTCHAR = 161,
   // C_GETCHAR=162,
-  C_STOP = 163,
-  C_ABORT = 164,
-  C_KEY = 165,
-  C_NOKEY = 166,
+  // C_STOP = 163,
+  // C_ABORT = 164,
+  // C_KEY = 165,
+  // C_NOKEY = 166,
   C_DUMP_RAM = 167,
   C_DUMP_LINE = 168,
   C_DUMP_STOP = 169,
   C_DUMP_PHYS = 170,
-  C_POKE = 171,
-  C_EVENT = 172,
+  C_POKE = 171,  // ram.h
+  C_EVENT = 172, // event.h
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
-  C_CONFIG = 175,
+  // C_CONFIG = 175,
   //
   // EVENT_PC_M8 = 238,
   // EVENT_GIME = 239,
   EVENT_RTI = 240,
   EVENT_SWI2 = 241,
+#if 0
   EVENT_CC = 242,
   EVENT_D = 243,
   EVENT_DP = 244,
@@ -85,6 +86,7 @@ enum {
   EVENT_U = 247,
   EVENT_PC = 248,
   EVENT_SP = 249,
+#endif
 };
 
 extern void putbyte(byte x);
@@ -163,8 +165,6 @@ void PollUsbInput();
   LED_W for Pico W:   LED_W(1) for on, LED_W(0) for off.
   // #define LED_W(X) cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, (X))
 */
-
-#define TFR_RTC_BASE 0xFF50
 
 #define HL_JOIN(H, L) (((255 & (H)) << 8) | ((255 & (L)) << 0))
 
@@ -649,7 +649,6 @@ struct EngineBase {
     } else
       switch (dev) {
         case 0x92:  // GIME IRQEN register
-        {
           if (gime_irq_enabled && gime_vsync_irq_enabled &&
               gime_vsync_irq_firing) {
             data = 0x08;
@@ -658,45 +657,7 @@ struct EngineBase {
           } else {
             data = 0;
           }
-        } break;
-
-#if TODO
-        case 255 & (ACIA_PORT + 0):  // read ACIA control/status port
-          assert(0);
-          {
-            data = 0x02;  // Transmit buffer always considered empty.
-            data |= (acia_irq_firing) ? 0x80 : 0x00;
-            data |= (acia_char_in_ready) ? 0x01 : 0x00;
-
-            acia_irq_firing = false;  // Side effect of reading status.
-          }
           break;
-
-        case 255 & (ACIA_PORT + 1):  // read ACIA data port
-          assert(0);
-          if (acia_char_in_ready) {
-            data = acia_char;
-            acia_char_in_ready = false;
-          } else {
-            data = 0;
-          }
-          break;
-
-        case 0xFF & (BLOCK_PORT + 7):  // read disk status
-          // TODO
-          break;
-
-        case 0xFF & (EMUDSK_PORT + 3):  // read disk status
-          data = 0;                     // always a good status.
-          break;
-
-#if 0
-        case 0xFF & (TFR_RTC_BASE + 0):
-          data = rtc_value;
-          break;
-#endif
-
-#endif  // TODO
 
         default:
           break;
@@ -705,32 +666,9 @@ struct EngineBase {
     PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, data, 0xFF /*=outputs*/));
   }  // HandleIORead
 
-  static void InstallVectors(uint* vectors) {
-    constexpr uint FIRST_VECTOR_ADDRESS = 0xFFF0;
-    for (uint j = 0; j < 8; j++) {
-      T::Poke2(FIRST_VECTOR_ADDRESS + 2 * j, vectors[j]);
-    }
-  }
-
   static void Run() {
+    MUMBLE("IN");
     T::Install();
-
-    // MUMBLE("RR");
-    // T::ResetRam();
-    // MUMBLE("OS");
-    // T::Install_OS();
-
-#if 0
-    if (T::DoesSamvdg()) {
-        if (T::DoesGime()) {
-            MUMBLE("IV3");
-            InstallVectors(Coco3Vectors);
-        } else {
-            MUMBLE("IV2");
-            InstallVectors(Coco2Vectors);
-        }
-    }
-#endif
 
     MUMBLE("RC");
     ResetCpu();
@@ -1130,20 +1068,44 @@ struct EngineBase {
   }  // end RunMachineCycles
 };  // end struct EngineBase
 
+template <typename T>
+struct Slow_Mixins : 
+                 DoPcRange<T, 0x0020, 0xFF01>,
+                 DoTrace<T>,
+                 DoSeen<T>,
+                 DoLog<T>,
+                 DoLogMmu<T>,
+                 DoShowIrqs<T>,
+
+                 DoTracePokes<T>,
+                 DoHyper<T>,
+                 DoEvent<T>,
+                 DontDumpRamOnEvent<T>,
+                 DontPicoTimer<T>
+                 {
+};
+
+template <typename T>
+struct Fast_Mixins : 
+                 DontPcRange<T>,
+                 DontTrace<T>,
+                 DontSeen<T>,
+                 DontLog<T>,
+                 DontLogMmu<T>,
+                 DontShowIrqs<T>,
+
+                 DontTracePokes<T>,
+                 DontHyper<T>,
+                 DontEvent<T>,
+                 DontDumpRamOnEvent<T>,
+                 DoPicoTimer<T>
+                 {
+};
+
 struct T9_Slow : EngineBase<T9_Slow>,
-                 DoPcRange<T9_Slow, 0x0020, 0xFF01>,
-                 DoTrace<T9_Slow>,
-                 DoSeen<T9_Slow>,
-                 DoLog<T9_Slow>,
-                 DoLogMmu<T9_Slow>,
-                 DoShowIrqs<T9_Slow>,
+                 Slow_Mixins<T9_Slow>,
                  CommonRam<T9_Slow>,
                  SmallRam<T9_Slow>,
-                 DoTracePokes<T9_Slow>,
-                 DoHyper<T9_Slow>,
-                 DoEvent<T9_Slow>,
-                 DontDumpRamOnEvent<T9_Slow>,
-                 DontPicoTimer<T9_Slow>,
                  DontAcia<T9_Slow>,
                  DontGime<T9_Slow>,
                  DontSamvdg<T9_Slow>,
@@ -1160,19 +1122,9 @@ struct T9_Slow : EngineBase<T9_Slow>,
 };
 
 struct T9_Fast : EngineBase<T9_Fast>,
-                 DontPcRange<T9_Fast>,
-                 DontTrace<T9_Fast>,
-                 DontSeen<T9_Fast>,
-                 DontLog<T9_Fast>,
-                 DontLogMmu<T9_Fast>,
-                 DontShowIrqs<T9_Fast>,
+                 Fast_Mixins<T9_Fast>,
                  CommonRam<T9_Fast>,
                  SmallRam<T9_Fast>,
-                 DontTracePokes<T9_Fast>,
-                 DontHyper<T9_Fast>,
-                 DontEvent<T9_Fast>,
-                 DontDumpRamOnEvent<T9_Fast>,
-                 DoPicoTimer<T9_Fast>,
                  DontAcia<T9_Fast>,
                  DontGime<T9_Fast>,
                  DontSamvdg<T9_Fast>,
@@ -1189,19 +1141,9 @@ struct T9_Fast : EngineBase<T9_Fast>,
 };
 
 struct L1_Slow : EngineBase<L1_Slow>,
-                 DoPcRange<L1_Slow, 0x0020, 0xFF01>,
-                 DoTrace<L1_Slow>,
-                 DoSeen<L1_Slow>,
-                 DoLog<L1_Slow>,
-                 DoLogMmu<L1_Slow>,
-                 DoShowIrqs<L1_Slow>,
+                 Slow_Mixins<L1_Slow>,
                  CommonRam<L1_Slow>,
                  SmallRam<L1_Slow>,
-                 DoTracePokes<L1_Slow>,
-                 DoHyper<L1_Slow>,
-                 DoEvent<L1_Slow>,
-                 DontDumpRamOnEvent<L1_Slow>,
-                 DontPicoTimer<L1_Slow>,
                  DoAcia<L1_Slow>,
                  DoEmudsk<L1_Slow>,
                  DontGime<L1_Slow>,
@@ -1223,19 +1165,9 @@ struct L1_Slow : EngineBase<L1_Slow>,
 };
 
 struct L1_Fast : EngineBase<L1_Fast>,
-                 DontPcRange<L1_Fast>,
-                 DontTrace<L1_Fast>,
-                 DontSeen<L1_Fast>,
-                 DontLog<L1_Fast>,
-                 DontLogMmu<L1_Fast>,
-                 DontShowIrqs<L1_Fast>,
+                 Fast_Mixins<L1_Fast>,
                  CommonRam<L1_Fast>,
                  SmallRam<L1_Fast>,
-                 DontTracePokes<L1_Fast>,
-                 DontHyper<L1_Fast>,
-                 DontEvent<L1_Fast>,
-                 DontDumpRamOnEvent<L1_Slow>,
-                 DoPicoTimer<L1_Fast>,
                  DoAcia<L1_Fast>,
                  DoEmudsk<L1_Fast>,
                  DontGime<L1_Fast>,
@@ -1257,19 +1189,10 @@ struct L1_Fast : EngineBase<L1_Fast>,
 };
 
 struct L2_Slow : EngineBase<L2_Slow>,
-                 DoPcRange<L2_Slow, 0x0020, 0xFF01>,
-                 DoTrace<L2_Slow>,
-                 DoSeen<L2_Slow>,
-                 DoLog<L2_Slow>,
-                 DoLogMmu<L2_Slow>,
-                 DoShowIrqs<L2_Slow>,
+                 Slow_Mixins<L2_Slow>,
+
                  CommonRam<L2_Slow>,
                  BigRam<L2_Slow>,
-                 DoTracePokes<L2_Slow>,
-                 DoHyper<L2_Slow>,
-                 DoEvent<L2_Slow>,
-                 DontDumpRamOnEvent<L1_Slow>,
-                 DontPicoTimer<L2_Slow>,
                  DoAcia<L2_Slow>,
                  DoEmudsk<L2_Slow>,
                  DoGime<L2_Slow>,
@@ -1291,19 +1214,9 @@ struct L2_Slow : EngineBase<L2_Slow>,
 };
 
 struct L2_Fast : EngineBase<L2_Fast>,
-                 DontPcRange<L2_Fast>,
-                 DontTrace<L2_Fast>,
-                 DontSeen<L2_Fast>,
-                 DoLog<L2_Fast>,
-                 DontLogMmu<L2_Fast>,
-                 DontShowIrqs<L2_Fast>,
+                 Fast_Mixins<L2_Fast>,
                  CommonRam<L2_Fast>,
                  BigRam<L2_Fast>,
-                 DontTracePokes<L2_Fast>,
-                 DontHyper<L2_Fast>,
-                 DontEvent<L2_Fast>,
-                 DontDumpRamOnEvent<L2_Fast>,
-                 DoPicoTimer<L2_Fast>,
                  DoAcia<L2_Fast>,
                  DoEmudsk<L2_Fast>,
                  DoGime<L2_Fast>,

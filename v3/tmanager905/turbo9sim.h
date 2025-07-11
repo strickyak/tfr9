@@ -8,7 +8,7 @@ byte sim_control_reg;
 byte sim_last_char_rx;
 byte sim_last_char_tx;
 
-template <class T>
+template <typename T>
 struct DontTurbo9sim {
   constexpr static bool Turbo9sim_IrqNeeded() { return false; }
   force_inline static void Turbo9sim_SetTimerFired() {}
@@ -16,7 +16,7 @@ struct DontTurbo9sim {
   force_inline static void Turbo9sim_SetRx(byte ch) {}
 };
 
-template <class T>
+template <typename T>
 struct DoTurbo9sim {
   constexpr static byte SIM_TIMER_BIT = 0x01;
   constexpr static byte SIM_RX_BIT = 0x02;

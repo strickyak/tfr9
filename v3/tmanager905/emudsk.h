@@ -5,12 +5,12 @@ constexpr uint kDiskReadSize = 1 + 4 + 256;
 
 uint emu_disk_buffer;
 
-template <class T>
+template <typename T>
 struct DontEmudsk {
   constexpr static bool DoesEmudsk() { return false; }
 };
 
-template <class T>
+template <typename T>
 struct DoEmudsk {
   constexpr static bool DoesEmudsk() { return true; }
 

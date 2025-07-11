@@ -1,24 +1,24 @@
 #ifndef _EVENT_H_
 #define _EVENT_H_
 
-template <class T>
+template <typename T>
 struct DontDumpRamOnEvent {
   static constexpr bool DoesDumpRamOnEvent() { return false; }
 };
 
-template <class T>
+template <typename T>
 struct DoDumpRamOnEvent {
   static constexpr bool DoesDumpRamOnEvent() { return true; }
 };
 
-template <class T>
+template <typename T>
 struct DontEvent {
   static constexpr bool DoesEvent() { return false; }
   static force_inline void SendEventHist(byte event, byte sz) {}
   static force_inline void SendEventRam(byte event, byte sz, word base_addr) {}
 };
 
-template <class T>
+template <typename T>
 struct DoEvent {
   static constexpr bool DoesEvent() { return true; }
 

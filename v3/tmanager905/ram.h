@@ -13,11 +13,11 @@ uint* current_bases;
 uint base[2][8];
 byte mmu[2][8];
 
-template <class T>
+template <typename T>
 struct DontTracePokes {
   force_inline static void TraceThePoke(uint addr, byte data) {}
 };
-template <class T>
+template <typename T>
 struct DoTracePokes {
   force_inline static void TraceThePoke(uint addr, byte data) {
     putbyte(C_POKE);
@@ -28,11 +28,11 @@ struct DoTracePokes {
   }
 };
 
-template <class T>
+template <typename T>
 struct DontLogMmu {
   static force_inline void LogMmuf(const char* fmt, ...) {}
 };
-template <class T>
+template <typename T>
 struct DoLogMmu {
   static void LogMmuf(const char* fmt, ...) {
     // if (!interest) return;
@@ -45,7 +45,7 @@ struct DoLogMmu {
   }
 };
 
-template <class T>
+template <typename T>
 struct CommonRam {
   static force_inline byte FastPeek(uint addr) { return T::FastRead(addr); }
   static force_inline byte Peek(uint addr) { return T::Read(addr); }
@@ -78,7 +78,7 @@ force_inline void PokeQuietly(uint addr, byte data) { T::WriteQuietly(addr, data
   }
 };
 
-template <class T>
+template <typename T>
 class SmallRam {
  public:
   static void ResetRam() { memset(ram, 0, sizeof ram); }
@@ -106,7 +106,7 @@ static byte const BigRam_mmu_init[16] = {
     // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
 };
 
-template <class T>
+template <typename T>
 class BigRam {
  private:
   const static uint SLOT_SHIFT = 13;

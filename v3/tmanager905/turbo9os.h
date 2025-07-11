@@ -5,7 +5,7 @@ const byte Turbo9os_Rom[] = {
 #include "turbo9os.rom.h"
 };
 
-template <class T>
+template <typename T>
 struct DoTurbo9os {
   static void Install_OS() {
     // Copy ROM to RAM.

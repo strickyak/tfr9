@@ -1,12 +1,12 @@
 #ifndef _LOG_H_
 #define _LOG_H_
 
-template <class T>
+template <typename T>
 struct DontLog {
   static constexpr bool DoesLog() { return false; }
   static force_inline int Logf(const char* fmt, ...) { return 0; }
 };
-template <class T>
+template <typename T>
 struct DoLog {
   static constexpr bool DoesLog() { return true; }
 

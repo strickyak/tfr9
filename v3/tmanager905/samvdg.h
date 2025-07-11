@@ -4,12 +4,12 @@
 bool vsync_irq_enabled;
 bool vsync_irq_firing;
 
-template <class T>
+template <typename T>
 struct DontSamvdg {
   constexpr static bool DoesSamvdg() { return false; }
 };
 
-template <class T>
+template <typename T>
 struct DoSamvdg {
   constexpr static bool DoesSamvdg() { return true; }
 

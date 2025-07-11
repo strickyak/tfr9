@@ -17,13 +17,13 @@ bool TimerCallback(repeating_timer_t* rt) {
   return true;
 }
 
-template <class T>
+template <typename T>
 struct DontPicoTimer {
   static constexpr bool DoesPicoTimer() { return false; }
   static void StartTimer(int period_us) {}
 };
 
-template <class T>
+template <typename T>
 struct DoPicoTimer {
   static force_inline bool DoesPicoTimer() { return true; }
 

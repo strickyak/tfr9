@@ -19,7 +19,7 @@ uint const Coco2Vectors[] = {
     LEVEL1_LAUNCHER_START,  //  RESET
 };
 
-template <class T>
+template <typename T>
 struct DoNitros9level1 {
   static void Install_OS() {
     ShowChar('p');
