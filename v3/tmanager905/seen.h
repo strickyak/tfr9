@@ -12,20 +12,18 @@ class FixedSizeBitmap {
 
  public:
   force_inline bool Contains(uint i) const {
-    i &= (SZ - 1); // wrap mod SZ
-    byte mask = 1 << (i & 7); // which bit in the byte
-    uint sub = i >> 3; // which byte
+    i &= (SZ - 1);             // wrap mod SZ
+    byte mask = 1 << (i & 7);  // which bit in the byte
+    uint sub = i >> 3;         // which byte
     return (0 != (mask & guts[sub]));
   }
   force_inline void Insert(uint i) {
-    i &= (SZ - 1); // wrap mod SZ
-    byte mask = 1 << (i & 7); // which bit in the byte
-    uint sub = i >> 3; // which byte
+    i &= (SZ - 1);             // wrap mod SZ
+    byte mask = 1 << (i & 7);  // which bit in the byte
+    uint sub = i >> 3;         // which byte
     guts[sub] |= mask;
   }
-  void Reset() {
-    memset(guts, 0, sizeof guts);
-  }
+  void Reset() { memset(guts, 0, sizeof guts); }
 };
 FixedSizeBitmap<0x10000> SeenBitmap;
 
@@ -46,9 +44,7 @@ struct DoSeen {
     return SeenBitmap.Contains(addr);
   }
 
-  static force_inline void SeeIt(uint addr) {
-    SeenBitmap.Insert(addr);
-  }
+  static force_inline void SeeIt(uint addr) { SeenBitmap.Insert(addr); }
 
   static void Reset() { SeenBitmap.Reset(); }
 };

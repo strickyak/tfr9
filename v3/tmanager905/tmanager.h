@@ -67,8 +67,8 @@ enum {
   C_DUMP_LINE = 168,
   C_DUMP_STOP = 169,
   C_DUMP_PHYS = 170,
-  C_POKE = 171,  // ram.h
-  C_EVENT = 172, // event.h
+  C_POKE = 171,   // ram.h
+  C_EVENT = 172,  // event.h
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
   // C_CONFIG = 175,
@@ -130,9 +130,9 @@ void putbyte(byte x) { putchar_raw(x); }
 
 #include "log.h"
 #include "pcrange.h"
-#include "trace.h"
-#include "seen.h"
 #include "picotimer.h"
+#include "seen.h"
+#include "trace.h"
 
 template <typename T>
 struct DontShowIrqs {
@@ -819,7 +819,7 @@ struct EngineBase {
         // but not with realtime timer,
         // because we are running slowly.
         if ((cy & VSYNC_TICK_MASK) == 0) {
-            TimerFired = true;
+          TimerFired = true;
         }
         // Notice that relies on RAPID_BURST_CYCLES
         // being a power of two.
@@ -1069,173 +1069,111 @@ struct EngineBase {
 };  // end struct EngineBase
 
 template <typename T>
-struct Slow_Mixins : 
-                 DoPcRange<T, 0x0020, 0xFF01>,
-                 DoTrace<T>,
-                 DoSeen<T>,
-                 DoLog<T>,
-                 DoLogMmu<T>,
-                 DoShowIrqs<T>,
+struct Slow_Mixins : DoPcRange<T, 0x0020, 0xFF01>,
+                     DoTrace<T>,
+                     DoSeen<T>,
+                     DoLog<T>,
+                     DoLogMmu<T>,
+                     DoShowIrqs<T>,
 
-                 DoTracePokes<T>,
-                 DoHyper<T>,
-                 DoEvent<T>,
-                 DontDumpRamOnEvent<T>,
-                 DontPicoTimer<T>
-                 {
-};
+                     DoTracePokes<T>,
+                     DoHyper<T>,
+                     DoEvent<T>,
+                     DontDumpRamOnEvent<T>,
+                     DontPicoTimer<T> {};
 
 template <typename T>
-struct Fast_Mixins : 
-                 DontPcRange<T>,
-                 DontTrace<T>,
-                 DontSeen<T>,
-                 DontLog<T>,
-                 DontLogMmu<T>,
-                 DontShowIrqs<T>,
+struct Fast_Mixins : DontPcRange<T>,
+                     DontTrace<T>,
+                     DontSeen<T>,
+                     DontLog<T>,
+                     DontLogMmu<T>,
+                     DontShowIrqs<T>,
 
-                 DontTracePokes<T>,
-                 DontHyper<T>,
-                 DontEvent<T>,
-                 DontDumpRamOnEvent<T>,
-                 DoPicoTimer<T>
-                 {
-};
+                     DontTracePokes<T>,
+                     DontHyper<T>,
+                     DontEvent<T>,
+                     DontDumpRamOnEvent<T>,
+                     DoPicoTimer<T> {};
 
-struct T9_Slow : EngineBase<T9_Slow>,
-                 Slow_Mixins<T9_Slow>,
-                 CommonRam<T9_Slow>,
-                 SmallRam<T9_Slow>,
-                 DontAcia<T9_Slow>,
-                 DontGime<T9_Slow>,
-                 DontSamvdg<T9_Slow>,
-                 DoTurbo9sim<T9_Slow>,
-                 DoTurbo9os<T9_Slow> {
+template <typename T>
+struct Common_Mixins : EngineBase<T>, CommonRam<T> {};
+
+template <typename T>
+struct T9_Mixins : Common_Mixins<T>,
+                   SmallRam<T>,
+                   DontAcia<T>,
+                   DontGime<T>,
+                   DontSamvdg<T>,
+                   DoTurbo9sim<T>,
+                   DoTurbo9os<T> {
   static void Install() {
     ShowChar('A');
-    Install_OS();
+    T::Install_OS();
     ShowChar('B');
-    Turbo9sim_Install(0xFF00);
+    T::Turbo9sim_Install(0xFF00);
     ShowChar('C');
     ShowChar('\n');
   }
 };
 
-struct T9_Fast : EngineBase<T9_Fast>,
-                 Fast_Mixins<T9_Fast>,
-                 CommonRam<T9_Fast>,
-                 SmallRam<T9_Fast>,
-                 DontAcia<T9_Fast>,
-                 DontGime<T9_Fast>,
-                 DontSamvdg<T9_Fast>,
-                 DoTurbo9sim<T9_Fast>,
-                 DoTurbo9os<T9_Fast> {
-  static void Install() {
-    ShowChar('A');
-    Install_OS();
-    ShowChar('B');
-    Turbo9sim_Install(0xFF00);
-    ShowChar('C');
-    ShowChar('\n');
-  }
-};
+struct T9_Slow : T9_Mixins<T9_Slow>, Slow_Mixins<T9_Slow> {};
 
-struct L1_Slow : EngineBase<L1_Slow>,
-                 Slow_Mixins<L1_Slow>,
-                 CommonRam<L1_Slow>,
-                 SmallRam<L1_Slow>,
-                 DoAcia<L1_Slow>,
-                 DoEmudsk<L1_Slow>,
-                 DontGime<L1_Slow>,
-                 DoSamvdg<L1_Slow>,
-                 DontTurbo9sim<L1_Slow>,
-                 DoNitros9level1<L1_Slow> {
+struct T9_Fast : T9_Mixins<T9_Fast>, Fast_Mixins<T9_Fast> {};
+
+template <typename T>
+struct L1_Mixins : Common_Mixins<T>,
+                   SmallRam<T>,
+                   DoAcia<T>,
+                   DoEmudsk<T>,
+                   DontGime<T>,
+                   DoSamvdg<T>,
+                   DontTurbo9sim<T>,
+                   DoNitros9level1<T> {
   static void Install() {
     ShowChar('A');
-    Install_OS();
+    T::Install_OS();
     ShowChar('B');
-    Samvdg_Install();
+    T::Samvdg_Install();
     ShowChar('C');
-    Emudsk_Install(0xFF80);
+    T::Emudsk_Install(0xFF80);
     ShowChar('D');
-    Acia_Install(0xFF06);
+    T::Acia_Install(0xFF06);
     ShowChar('E');
     ShowChar('\n');
   }
 };
 
-struct L1_Fast : EngineBase<L1_Fast>,
-                 Fast_Mixins<L1_Fast>,
-                 CommonRam<L1_Fast>,
-                 SmallRam<L1_Fast>,
-                 DoAcia<L1_Fast>,
-                 DoEmudsk<L1_Fast>,
-                 DontGime<L1_Fast>,
-                 DoSamvdg<L1_Fast>,
-                 DontTurbo9sim<L1_Fast>,
-                 DoNitros9level1<L1_Fast> {
+struct L1_Slow : L1_Mixins<L1_Slow>, Slow_Mixins<L1_Slow> {};
+
+struct L1_Fast : L1_Mixins<L1_Fast>, Fast_Mixins<L1_Fast> {};
+
+template <typename T>
+struct L2_Mixins : Common_Mixins<T>,
+                   BigRam<T>,
+                   DoAcia<T>,
+                   DoEmudsk<T>,
+                   DoGime<T>,
+                   DoSamvdg<T>,
+                   DontTurbo9sim<T>,
+                   DoNitros9level2<T> {
   static void Install() {
     ShowChar('A');
-    Install_OS();
+    T::Install_OS();
     ShowChar('B');
-    Samvdg_Install();
+    T::Samvdg_Install();
     ShowChar('C');
-    Emudsk_Install(0xFF80);
+    T::Emudsk_Install(0xFF80);
     ShowChar('D');
-    Acia_Install(0xFF06);
+    T::Acia_Install(0xFF06);
     ShowChar('E');
     ShowChar('\n');
   }
 };
 
-struct L2_Slow : EngineBase<L2_Slow>,
-                 Slow_Mixins<L2_Slow>,
+struct L2_Slow : L2_Mixins<L2_Slow>, Slow_Mixins<L2_Slow> {};
 
-                 CommonRam<L2_Slow>,
-                 BigRam<L2_Slow>,
-                 DoAcia<L2_Slow>,
-                 DoEmudsk<L2_Slow>,
-                 DoGime<L2_Slow>,
-                 DoSamvdg<L2_Slow>,
-                 DontTurbo9sim<L2_Slow>,
-                 DoNitros9level2<L2_Slow> {
-  static void Install() {
-    ShowChar('A');
-    Install_OS();
-    ShowChar('B');
-    Samvdg_Install();
-    ShowChar('C');
-    Emudsk_Install(0xFF80);
-    ShowChar('D');
-    Acia_Install(0xFF06);
-    ShowChar('E');
-    ShowChar('\n');
-  }
-};
-
-struct L2_Fast : EngineBase<L2_Fast>,
-                 Fast_Mixins<L2_Fast>,
-                 CommonRam<L2_Fast>,
-                 BigRam<L2_Fast>,
-                 DoAcia<L2_Fast>,
-                 DoEmudsk<L2_Fast>,
-                 DoGime<L2_Fast>,
-                 DoSamvdg<L2_Fast>,
-                 DontTurbo9sim<L2_Fast>,
-                 DoNitros9level2<L2_Fast> {
-  static void Install() {
-    ShowChar('A');
-    Install_OS();
-    ShowChar('B');
-    Samvdg_Install();
-    ShowChar('C');
-    Emudsk_Install(0xFF80);
-    ShowChar('D');
-    Acia_Install(0xFF06);
-    ShowChar('E');
-    ShowChar('\n');
-  }
-};
+struct L2_Fast : L2_Mixins<L2_Fast>, Fast_Mixins<L2_Fast> {};
 
 struct harness {
   std::function<void(void)> engines[5];
@@ -1265,11 +1203,19 @@ void Shell() {
   struct harness harness;
   for (int i = 0; true; i++) {
 #if 1
-    switch (i&3) {
-      case 0: ShowChar('.'); break;
-      case 1: ShowChar(':'); break;
-      case 2: ShowChar(','); break;
-      case 3: ShowChar(';'); break;
+    switch (i & 3) {
+      case 0:
+        ShowChar('.');
+        break;
+      case 1:
+        ShowChar(':');
+        break;
+      case 2:
+        ShowChar(',');
+        break;
+      case 3:
+        ShowChar(';');
+        break;
     }
 #else
     ShowChar('a' + (byte)(i % 26));
@@ -1313,13 +1259,17 @@ void Shell() {
       }
     }  // term_input
 
-    if ((i&3)==3) {
-        LED(1); sleep_ms(100);
-        LED(0); sleep_ms(150);
-        LED(1); sleep_ms(100);
-        LED(0); sleep_ms(150);
+    if ((i & 3) == 3) {
+      LED(1);
+      sleep_ms(100);
+      LED(0);
+      sleep_ms(150);
+      LED(1);
+      sleep_ms(100);
+      LED(0);
+      sleep_ms(150);
     } else {
-        sleep_ms(500);
+      sleep_ms(500);
     }
   }
   // Shell never returns.
@@ -1333,10 +1283,14 @@ int main() {
   LED(0);
   InitializePinsForGpio();
 
-  LED(1); sleep_ms(100);
-  LED(0); sleep_ms(150);
-  LED(1); sleep_ms(100);
-  LED(0); sleep_ms(150);
+  LED(1);
+  sleep_ms(100);
+  LED(0);
+  sleep_ms(150);
+  LED(1);
+  sleep_ms(100);
+  LED(0);
+  sleep_ms(150);
 
   interest = MAX_INTEREST;  /// XXX
 

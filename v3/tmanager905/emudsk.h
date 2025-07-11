@@ -18,8 +18,8 @@ struct DoEmudsk {
     base_addr &= 0xFF;
 
     IOReaders[base_addr + 3] = [](uint addr, byte data) {
-        // Good status, after command written to base_addr+3.
-        return 0;
+      // Good status, after command written to base_addr+3.
+      return 0;
     };
 
     // LSN(hi)
