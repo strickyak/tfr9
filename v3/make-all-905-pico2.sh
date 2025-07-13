@@ -65,7 +65,7 @@ then
     mkdir -p /tmp/borges
     go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/ build/
 
-    time make -j4 \
+    time make -j4 _secondary_ \
         BUILD_DIR="${BUILD_DIR}" \
         TFR_BOARD="${TFR_BOARD}" \
         RP_CHIP="${RP_CHIP}" \

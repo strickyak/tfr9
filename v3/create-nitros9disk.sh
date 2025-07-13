@@ -30,15 +30,14 @@ esac
 # BEGIN STANDARD TIMING TWO
 cat >/tmp/tfr.startup2 <<'EOR'
 t
-tmode .2 pau=0
 basic09
 e
 100 for j=1 to 5
-210 print "^{";
+210 print "^";"{";
 220 FOR z=1 to 99
 240 print "*";z;
 250 next z
-290 print "^}"
+290 print "^";"}"
 810 FOR z=0 to 300
 890 next z
 900 next j
@@ -46,6 +45,7 @@ q
 run
 EOR
 # END STANDARD TIMING TWO
+############# tmode .2 pau=0
 
 if test 1 = "$T9V3_NOSTARTUP"
 then
