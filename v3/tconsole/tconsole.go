@@ -10,8 +10,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
-	"strconv"
-	"strings"
+	"runtime"
+	// "strconv"
+	// "strings"
 	"syscall"
 	"time"
 	// "github.com/strickyak/gomar/sym"
@@ -25,6 +26,8 @@ var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "/home/strick/coco-shelf/tfr9/v2/generated/level2.disk", "Comma-separated filepaths to disk files, in order of drive number")
 
 const (
+	C_LOGGING    = 130 // Ten levels, 130 to 139
+	C_CYCLE      = 160 // one machine cycle
 	C_PUTCHAR    = 161
 	C_STOP       = 163
 	C_ABORT      = 164
@@ -43,17 +46,29 @@ const (
 	// EVENT_GIME   = 239
 	EVENT_RTI  = 240
 	EVENT_SWI2 = 241
-	EVENT_CC   = 242
-	EVENT_D    = 243
-	EVENT_DP   = 244
-	EVENT_X    = 245
-	EVENT_Y    = 246
-	EVENT_U    = 247
-	EVENT_PC   = 248
-	EVENT_SP   = 249
+	/*
+		EVENT_CC   = 242
+		EVENT_D    = 243
+		EVENT_DP   = 244
+		EVENT_X    = 245
+		EVENT_Y    = 246
+		EVENT_U    = 247
+		EVENT_PC   = 248
+		EVENT_SP   = 249
+	*/
 )
 
 var CommandStrings = map[byte]string{
+	130: "C_LOGGING_0",
+	131: "C_LOGGING_1",
+	132: "C_LOGGING_2",
+	133: "C_LOGGING_3",
+	134: "C_LOGGING_4",
+	135: "C_LOGGING_5",
+	136: "C_LOGGING_6",
+	137: "C_LOGGING_7",
+	138: "C_LOGGING_8",
+	139: "C_LOGGING_9",
 	161: "C_PUTCHAR",
 	163: "C_STOP",
 	164: "C_ABORT",
@@ -155,10 +170,33 @@ func TryRun(inkey chan byte) {
 	}()
 	Run(inkey)
 }
+
+func SttyCbreakMode() {
+	sttyPath, err := exec.LookPath("stty")
+	if err != nil {
+		log.Fatalf("Cannot find stty: %v", err)
+	}
+	cmd := &exec.Cmd{
+		Path: sttyPath,
+		// Args: []string{"stty", "cbreak", "-echo", "min", "1"},
+		Args:   []string{"stty", "cbreak", "-echo"},
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("Cannot run stty: %v", err)
+	}
+}
+
 func main() {
 	log.SetFlags(0)
-	// log.SetPrefix("!")
 	flag.Parse()
+	InstallLimitedLogWriter()
+	if runtime.GOOS != "windows" {
+		SttyCbreakMode()
+	}
 
 	if false { // Why doesnt this seem to have the effect
 		sttyErr := exec.Command("stty", "cbreak", "min", "-echo", "1").Run()
@@ -274,27 +312,28 @@ func Run(inkey chan byte) {
 	var fromUSB <-chan byte = channelFromPico
 
 	go func() {
-		var bb bytes.Buffer
+		/*
+			var bb bytes.Buffer
 
-		pushBB := func() { // Flush the bytes.Buffer to Logf
-			// DEMO: @ fe9a 6e  =
-			s := bb.String()
-			if strings.HasSuffix(s, "\r") {
-				s = s[:len(s)-1]
+			pushBB := func() { // Flush the bytes.Buffer to Logf
+				// DEMO: @ fe9a 6e  =
+				s := bb.String()
+				if strings.HasSuffix(s, "\r") {
+					s = s[:len(s)-1]
+				}
+				m := MatchFIC.FindStringSubmatch(s)
+				if m != nil {
+					addr, _ := strconv.ParseUint(m[1], 16, 64)
+					// data, _ := strconv.ParseUint(m[2], 16, 64)
+					phys := Physical(uint(addr))
+					modName, modOffset := MemoryModuleOf(phys)
+					s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+				}
+
+				Logf("# %s", s)
+				bb.Reset()
 			}
-			m := MatchFIC.FindStringSubmatch(s)
-			if m != nil {
-				addr, _ := strconv.ParseUint(m[1], 16, 64)
-				// data, _ := strconv.ParseUint(m[2], 16, 64)
-				phys := Physical(uint(addr))
-				modName, modOffset := MemoryModuleOf(phys)
-				s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-			}
-
-			Logf("# %s", s)
-			bb.Reset()
-		}
-
+		*/
 		gap := 1
 		//FOR:
 		for {
@@ -307,7 +346,56 @@ func Run(inkey chan byte) {
 
 				bogus := 0
 
+				var ch byte // Used by default and C_PUTCHAR
+
 				switch cmd {
+
+				case 0:
+					// Ignored.
+					Logf("ZERO")
+
+				case C_CYCLE:
+					sz := GetSize(fromUSB)
+					if sz == 8 {
+						b := make([]byte, sz)
+						for i := uint(0); i < sz; i++ {
+							b[i] = getByte(fromUSB)
+						}
+						_cy := (uint(b[0]) << 24) + (uint(b[1]) << 16) + (uint(b[2]) << 8) + uint(b[3])
+						_fl := b[4] & 31
+						_kind := b[4] >> 5
+						_data := b[5]
+						_addr := (uint(b[6]) << 8) + uint(b[7])
+
+						var s string
+						if _kind == CY_IDLE {
+							s = Format("cy - ---- -- =%x #%d", _fl, _cy)
+						} else {
+							s = Format("cy %s %04x %02x =%x #%d", CycleKindStr[_kind], _addr, _data, _fl, _cy)
+						}
+
+						phys := Physical(uint(_addr))
+						modName, modOffset := MemoryModuleOf(phys)
+						//  s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+						Logf("%s %s:%06x :: %q+%04x %s", s, CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+					}
+
+				case C_LOGGING,
+					C_LOGGING + 1,
+					C_LOGGING + 2,
+					C_LOGGING + 3,
+					C_LOGGING + 4,
+					C_LOGGING + 5,
+					C_LOGGING + 6,
+					C_LOGGING + 7,
+					C_LOGGING + 8,
+					C_LOGGING + 9:
+					sz := GetSize(fromUSB)
+					buf := make([]byte, sz)
+					for i := uint(0); i < sz; i++ {
+						buf[i] = getByte(fromUSB)
+					}
+					Logf("LOG[%d]: %q", cmd-C_LOGGING, buf)
 
 				/*
 					case C_CONFIG:
@@ -360,7 +448,7 @@ func Run(inkey chan byte) {
 							if cmd == C_DUMP_PHYS {
 								for j := uint(0); j < 16; j++ {
 									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-                                    longaddr %= RAM_SIZE
+									longaddr %= RAM_SIZE
 									if d[j] != trackRam[longaddr] {
 										Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
 									}
@@ -377,19 +465,19 @@ func Run(inkey chan byte) {
 							}
 							buf.WriteByte('|')
 							for j := 0; j < 16; j++ {
-								ch := d[j]
-								if ch > 127 {
-									ch = '#'
+								r := d[j]
+								if r > 127 {
+									r = '#'
 								} else {
-									ch = ch & 63
-									if ch < 32 {
-										ch += 64
+									r = r & 63
+									if r < 32 {
+										r += 64
 									}
-									if ch == 64 {
-										ch = '.'
+									if r == 64 {
+										r = '.'
 									}
 								}
-								buf.WriteByte(ch)
+								buf.WriteByte(r)
 							}
 							buf.WriteByte('|')
 							Logf("%s", buf.String())
@@ -408,12 +496,18 @@ func Run(inkey chan byte) {
 					}
 					Logf("}}} %s", CommandStrings[cmd])
 
+				default:
+					ch = cmd
+					fallthrough
+
 				case C_PUTCHAR:
-					ch := getByte(fromUSB)
-					//X// Logf("C_PUTCHAR $%2x=%d. %q", ch, ch, []byte{ch})
+					if cmd == C_PUTCHAR {
+						ch = getByte(fromUSB)
+					} // otherwise ue the ch from default case.
+
 					switch {
 					case 32 <= ch && ch <= 126:
-						fmt.Printf("_%c", ch)
+						fmt.Printf("%c", ch)
 						cr = false
 						if ch == '{' && previousPutChar == '^' {
 							remember = time.Now().UnixMicro()
@@ -435,31 +529,12 @@ func Run(inkey chan byte) {
 						} else {
 							fmt.Println() // lf skips Println after cr does Println
 						}
-						/*
-							case ch == 13:
-								fmt.Println()
-								cr = true
-							case ch == 10:
-								if !cr {
-									fmt.Println() // lf skips Println after cr does Println
-								}
-								cr = false
-							case ch == 255:
-								log.Fatalf("FATAL BECAUSE PUTCHAR 255")
-						*/
+
 					default:
 						fmt.Printf("{%d}", ch)
 						cr = false
-					}
+					} // end inner switch on ch range
 					previousPutChar = ch
-
-					if false {
-						token := "."
-						if cr {
-							token = "+"
-						}
-						fmt.Printf("[%d%s]", ch, token)
-					}
 
 				case C_KEY:
 					{
@@ -494,30 +569,12 @@ func Run(inkey chan byte) {
 					log.Fatalf("go func: Received END MARK 255; exiting")
 					return
 
-				default:
-					switch {
-					case 32 <= cmd && cmd <= 126:
-						bb.WriteByte(cmd)
-					case cmd == 13:
-						// do nothing
-						bb.WriteByte(cmd)
-						//> Logf("# %s", bb.String())
-						//> bb.Reset()
-						pushBB()
-					case cmd == 10:
-						// fmt.Fprintf(&bb, "{%d}", cmd)
-					default:
-						fmt.Fprintf(&bb, "{%d}", cmd)
-					}
-				}
-				if bb.Len() > 250 {
-					//> Logf("# %q\\", bb.String())
-					//> bb.Reset()
-					pushBB()
-				}
+				} // end switch cmd
+				/*
+				 */
 			} // end select
 		} // end for ever
-	}()
+	}() // end go func
 
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.
@@ -605,4 +662,52 @@ func HandleIOPoke(longAddr uint, data byte) {
 		vg.rom_mode = int(data & 0x03)
 	case 0x91:
 	}
+}
+
+func GetSize(fromUSB <-chan byte) uint {
+	a := getByte(fromUSB)
+	if a < 128+64 {
+		return uint(a & 63)
+	}
+
+	b := getByte(fromUSB)
+	return 64*uint(a&63) + uint(b&63)
+}
+
+var CycleKindStr = []string{
+	"?", "@", "@@", "&", "r", "w", "-", "??",
+}
+
+const (
+	CY_UNUSED0 = iota
+	CY_SEEN
+	CY_UNSEEN
+	CY_MORE
+	CY_READ
+	CY_WRITE
+	CY_IDLE
+	CY_UNUSED7
+)
+
+var LogLimit = flag.Uint64("logmax", 1<<30, "maximum bytes to log to stderr")
+
+type LimitedLogWriter struct {
+	Limit   uint64
+	Current uint64
+}
+
+func InstallLimitedLogWriter() {
+	llw := &LimitedLogWriter{
+		Limit: *LogLimit,
+	}
+	log.SetOutput(llw)
+}
+
+func (llw LimitedLogWriter) Write(bb []byte) (int, error) {
+	llw.Current += uint64(len(bb))
+	if llw.Current > llw.Limit {
+		fmt.Fprintf(os.Stderr, "\n***\nFatal: LimitedLogWriter exceeded its limit of %d bytes\n", llw.Limit)
+		os.Exit(13)
+	}
+	return os.Stderr.Write(bb)
 }

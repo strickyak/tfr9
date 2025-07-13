@@ -46,19 +46,15 @@ func OpenDisks(disks string) {
 				log.Fatalf("Cannot open [%d] file %q: %v", i, filename, err)
 			}
 			Files[i].OsFile = f
-			log.Printf("Cannot open [/H%d] file %q: %v", i, filename, err)
 			log.Printf("Mounted /H%d on %q", i, filename)
 		}
 	}
 }
 
 func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
-	//Logf("C_DISK_WRITE START (((")
-
 	var disk_param [4]byte
 	for i := 0; i < 4; i++ {
 		disk_param[i] = <-fromUSB
-		//Logf("disk_param: %02x", disk_param[i])
 	}
 	hnum := disk_param[0]
 	AssertLT(hnum, MaxDiskFiles)
@@ -69,7 +65,7 @@ func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
 	if err != nil {
 		Fatalf("Cannot seek")
 	}
-	Logf("C_DISK_WRITE LSN %x", lsn)
+	Logf("C_DISK_WRITE num %x lsn %x", hnum, lsn)
 
 	sector := make([]byte, Os9SectorSize)
 	for i := 0; i < Os9SectorSize; i++ {
@@ -81,18 +77,14 @@ func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
 		Fatalf("Cannot write")
 	}
 
-	//Logf("C_DISK_WRITE DONE )))")
 }
 
 func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
-	//Logf("C_DISK_READ START (((")
-
 	var disk_param [4]byte
 	for i := 0; i < 4; i++ {
 		disk_param[i] = <-fromUSB
 		//Logf("disk_param: %02x", disk_param[i])
 	}
-	Logf("EmulateDiskRead disk_param % 3x", disk_param)
 	hnum := disk_param[0]
 	AssertLT(hnum, MaxDiskFiles)
 
@@ -102,18 +94,15 @@ func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
 	if err != nil {
 		Fatalf("Cannot seek")
 	}
-	Logf("C_DISK_READ LSN %x", lsn)
+	Logf("C_DISK_READ num %x lsn %x", hnum, lsn)
 
 	sector := make([]byte, Os9SectorSize)
 	_, err = Files[hnum].OsFile.Read(sector)
 	if err != nil {
 		Fatalf("Cannot read")
 	}
-	//Logf("C_DISK_READ SECTOR % 3x ...", sector[:16])
 
 	WriteBytes(channelToPico, C_DISK_READ)
 	WriteBytes(channelToPico, disk_param[:]...)
 	WriteBytes(channelToPico, sector...)
-
-	//Logf("C_DISK_READ DONE )))")
 }
