@@ -48,7 +48,9 @@ struct DoAcia {
     };
 
     IOWriters[sub + 1] = [](uint addr, byte data) {
-      putbyte(C_PUTCHAR);
+      if (data == 0 || data >= 128) {
+        putbyte(C_PUTCHAR);
+      }  // otherwise, normal 7-bit chars don't need the prefix.
       putbyte(data);
     };
   }

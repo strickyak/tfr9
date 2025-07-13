@@ -1,6 +1,17 @@
 #ifndef _COCOSDC_H_
 #define _COCOSDC_H_
 
+// I started writing this, but ended up using EMUDSK instead.
+// At some point we'll come back to this, and try a real
+// emulation of a CocoSDC for some Coco DOS.
+// -- Jul 11, 2025 -- strick
+
+#if 0
+
+uint sdc_disk_pending;
+byte sdc_disk_read_data[256];
+byte* sdc_disk_read_ptr;
+
 uint sdc_lsn;
 uint emu_disk_buffer;
 byte rtc_value;
@@ -112,4 +123,7 @@ struct DoCocosdc {
     return data;
   }
 };  // struct DoCocosdc
+
+#endif  // 0
+
 #endif  // _COCOSDC_H_

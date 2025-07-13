@@ -15,6 +15,8 @@
 #include <functional>
 #include <vector>
 
+#define printf T::Logf
+
 #define LED(X) gpio_put(25, (X))
 
 // If we use the "W" version of a pico,
@@ -55,8 +57,10 @@ uint quiet_ram;
 inline void Quiet() { quiet_ram++; }
 inline void Noisy() { quiet_ram--; }
 
-enum {
-  // C_NOCHAR=160,
+enum message_type : byte {
+  C_LOGGING = 130,  // Ten levels: 130 to 139.
+
+  C_CYCLE = 160,  // tracing one cycle
   C_PUTCHAR = 161,
   // C_GETCHAR=162,
   // C_STOP = 163,
@@ -94,9 +98,6 @@ extern void putbyte(byte x);
 uint current_opcode_cy;  // what was the CY of the current opcode?
 uint current_opcode_pc;  // what was the PC of the current opcode?
 uint current_opcode;     // what was the current opcode?
-uint sdc_disk_pending;
-byte sdc_disk_read_data[256];
-byte* sdc_disk_read_ptr;
 
 bool enable_show_irqs;
 bool enable_trace = true;
@@ -114,7 +115,7 @@ bool acia_char_in_ready;
 int acia_char;
 
 void ShowChar(byte ch) {
-  putchar(C_PUTCHAR);
+  // putchar(C_PUTCHAR);
   putchar(ch);
   // printf("ShowChar  %02x < %c >\n", ch, ch);
   // sleep_ms(10);
@@ -128,7 +129,8 @@ void ShowStr(const char* s) {
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) { putchar_raw(x); }
 
-#include "log.h"
+// Include logging first.
+#include "logging.h"
 #include "pcrange.h"
 #include "picotimer.h"
 #include "seen.h"
@@ -241,7 +243,7 @@ const char* HighFlags(uint high) {
 #include "reboot.h"
 
 // I/O devices
-/////// #include "cocosdc.h"
+// dont include "cocosdc.h"; use emudsk instead.
 #include "emudsk.h"
 #include "samvdg.h"
 #include "turbo9sim.h"
@@ -308,6 +310,7 @@ void InitializePinsForGpio() {
   }
 }
 
+#if 0
 void ResetCpu() {
   printf("Resetting CPU ... ");
   InitializePinsForGpio();
@@ -359,6 +362,7 @@ void ResetCpu() {
   SetY(0);
   printf("... done.\n");
 }
+#endif
 
 // These were copied from Pico's headers
 // and made "hasty" by removing assertions.
@@ -666,6 +670,58 @@ struct EngineBase {
     PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, data, 0xFF /*=outputs*/));
   }  // HandleIORead
 
+  static void ResetCpu() {
+    printf("Resetting CPU ... ");
+    InitializePinsForGpio();
+
+    // Activate the 6309 RESET line
+    SetY(4);
+    for (uint i = 0; i < 8; i++) {
+      gpio_put(i, 1);
+      gpio_set_dir(i, GPIO_OUT);
+      gpio_put(i, 1);
+    }
+    gpio_put(STATE_Y5_RESET_PIN, 0);  // 0 is active
+    StrobePin(COUNTER_CLOCK);         // Y5
+    StrobePin(COUNTER_CLOCK);         // Y6
+    for (uint i = 0; i < 8; i++) {
+      gpio_set_dir(i, GPIO_IN);
+    }
+    SetY(0);
+
+    const uint EnoughCyclesToReset = 32;
+    gpio_put(PIN_Q, 0);
+    DELAY;
+    gpio_put(PIN_E, 0);
+    DELAY;
+    for (uint i = 0; i < EnoughCyclesToReset; i++) {
+      gpio_put(PIN_Q, 1);
+      DELAY;
+      gpio_put(PIN_E, 1);
+      DELAY;
+      gpio_put(PIN_Q, 0);
+      DELAY;
+      gpio_put(PIN_E, 0);
+      DELAY;
+    }
+
+    // Release the 6309 RESET line
+    SetY(4);
+    for (uint i = 0; i < 8; i++) {
+      gpio_put(i, 1);
+      gpio_set_dir(i, GPIO_OUT);
+      gpio_put(i, 1);
+    }
+    gpio_put(STATE_Y5_RESET_PIN, 1);  // 1 is release
+    StrobePin(COUNTER_CLOCK);         // Y5
+    StrobePin(COUNTER_CLOCK);         // Y6
+    for (uint i = 0; i < 8; i++) {
+      gpio_set_dir(i, GPIO_IN);
+    }
+    SetY(0);
+    printf("... done.\n");
+  }
+
   static void Run() {
     MUMBLE("IN");
     T::Install();
@@ -702,7 +758,7 @@ struct EngineBase {
     return false;
   }
 
-  static void ReadDisk(uint device, uint lsn, byte* buffer) {
+  static void ReadDisk(uint device, uint lsn, byte* buf) {
     printf("READ SDC SECTOR %x %x\n", device, lsn);
     putbyte(C_DISK_READ);
     putbyte(device);
@@ -717,7 +773,7 @@ struct EngineBase {
           (void)disk_input.Take();  // 4-byte device & LSN.
         }
         for (uint k = 0; k < 256; k++) {
-          buffer[k] = disk_input.Take();
+          buf[k] = disk_input.Take();
         }
         break;
       }
@@ -1015,28 +1071,31 @@ struct EngineBase {
 
         if (T::DoesTrace()) {
           if (reading and (not vma) and (addr == 0xFFFF)) {
-            T::Logf("- ---- --  =%s #%d\n", HighFlags(high), cy);
+            T::TransmitCycle(cy, high & 31, CY_IDLE, 0, 0);
           } else {
             const char* label = reading ? (vma ? "r" : "-") : "w";
+            byte kind = reading ? (vma ? CY_READ : CY_IDLE) : CY_WRITE;
             if (reading) {
               if (fic) {
                 label = "@";
+                kind = CY_SEEN;
                 if (!T::WasItSeen(addr)) {
                   label = "@@";
+                  kind = CY_UNSEEN;
                 }
                 next_pc = addr + 1;
               } else {
                 // case: Reading but not FIC
                 if (next_pc == addr) {
                   label = "&";
+                  kind = CY_MORE;
                   next_pc++;
                 }
 
               }  // end case Reading but not FIC
 
             }  // end if reading
-            T::Logf("%s %04x %02x  =%s #%d\n", label, addr, 0xFF & data,
-                    HighFlags(high), cy);
+            T::TransmitCycle(cy, high & 31, kind, data, addr);
           }  // end if valid cycle
 
           if (fic) {
@@ -1069,11 +1128,11 @@ struct EngineBase {
 };  // end struct EngineBase
 
 template <typename T>
-struct Slow_Mixins : DoPcRange<T, 0x0020, 0xFF01>,
+struct Slow_Mixins : DoPcRange<T, 0x0010, 0xFF01>,
                      DoTrace<T>,
                      DoSeen<T>,
-                     DoLog<T>,
-                     DoLogMmu<T>,
+                     Logging<T, LIrq>,
+                     // DoLogMmu<T>,
                      DoShowIrqs<T>,
 
                      DoTracePokes<T>,
@@ -1086,8 +1145,8 @@ template <typename T>
 struct Fast_Mixins : DontPcRange<T>,
                      DontTrace<T>,
                      DontSeen<T>,
-                     DontLog<T>,
-                     DontLogMmu<T>,
+                     Logging<T, LHello>,
+                     // DontLogMmu<T>,
                      DontShowIrqs<T>,
 
                      DontTracePokes<T>,
@@ -1201,25 +1260,11 @@ struct harness {
 
 void Shell() {
   struct harness harness;
+  Verbosity = 5;
+  Traceosity = 5;
+
   for (int i = 0; true; i++) {
-#if 1
-    switch (i & 3) {
-      case 0:
-        ShowChar('.');
-        break;
-      case 1:
-        ShowChar(':');
-        break;
-      case 2:
-        ShowChar(',');
-        break;
-      case 3:
-        ShowChar(';');
-        break;
-    }
-#else
-    ShowChar('a' + (byte)(i % 26));
-#endif
+    ShowChar(".:,;"[i & 3]);
     PollUsbInput();
 
     if (term_input.HasAtLeast(1)) {
@@ -1240,19 +1285,38 @@ void Shell() {
           ShowStr("-F?-");
         }
 
+      } else if (ch == 'q') {
+        Traceosity = 6;
       } else if (ch == 'w') {
+        Traceosity = 7;
+      } else if (ch == 'e') {
+        Traceosity = 8;
+      } else if (ch == 'r') {
+        Traceosity = 9;
+
+      } else if (ch == 'j') {
+        Verbosity = 2;
+      } else if (ch == 'k') {
+        Verbosity = 3;
+      } else if (ch == 'l') {
+        Verbosity = 4;
+      } else if (ch == 'a') {
+        Verbosity = 6;
+      } else if (ch == 's') {
+        Verbosity = 7;
+      } else if (ch == 'd') {
+        Verbosity = 8;
+      } else if (ch == 'f') {
+        Verbosity = 9;
+
+      } else if (ch == 'v') {
         set_sys_clock_khz(200000, true);
-      } else if (ch == 'x') {
+      } else if (ch == 'c') {
         set_sys_clock_khz(250000, true);
-      } else if (ch == 'y') {
+      } else if (ch == 'x') {
         set_sys_clock_khz(260000, true);
       } else if (ch == 'z') {
         set_sys_clock_khz(270000, true);
-        // set_sys_clock_khz(250000, true);
-        // set_sys_clock_khz(250000, true); // 0.559099
-        // set_sys_clock_khz(260000, true); // 0.516071  0.531793
-        // set_sys_clock_khz(270000, true); // NO? YES.
-        // up to 270(0.509053, 0.517735) with divisor 3.
 
       } else {
         ShowStr("-#?-");

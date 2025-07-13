@@ -28,6 +28,7 @@ struct DoTracePokes {
   }
 };
 
+#if 0
 template <typename T>
 struct DontLogMmu {
   static force_inline void LogMmuf(const char* fmt, ...) {}
@@ -44,6 +45,7 @@ struct DoLogMmu {
     va_end(va);
   }
 };
+#endif
 
 template <typename T>
 struct CommonRam {
@@ -139,28 +141,27 @@ class BigRam {
             }
         }
         */
-    T::LogMmuf(
-        "BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
-        BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
-        OFFSET_MASK);
+    LOG1("~: BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
+         BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
+         OFFSET_MASK);
   }
 
   static void SetEnableMmu(bool a) {
     if (a != enable_mmu) {
-      T::LogMmuf("MMU: Now MMU is %u\n", a);
+      LOG9("MMU: Now MMU is %u\n", a);
     }
     enable_mmu = a;
   }
   static void SetCurrentTask(byte a) {
     assert(a < 2);
     if (a != current_task) {
-      T::LogMmuf("MMU: Now Task is %u\n", a);
+      LOG9("MMU: Now Task is %u\n", a);
     }
     current_task = a;
     current_bases = base[a];
   }
   static void WriteMmu(byte task, byte slot, byte blk) {
-    T::LogMmuf("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
+    LOG9("WriteMmu: task %x slot %x blk %02x\n", task, slot, blk);
     mmu[task][slot] = blk;
     base[task][slot] = (blk << SLOT_SHIFT) & BIG_RAM_MASK;
   }
@@ -185,7 +186,7 @@ class BigRam {
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
-    // T::LogMmuf("Phys: %x -> %x\n", addr, phys);
+    // LOG9("Phys: %x -> %x\n", addr, phys);
     return phys;
   }
   force_inline static uint Phys(uint addr, byte block) {
@@ -194,7 +195,7 @@ class BigRam {
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
 
-    // T::LogMmuf("Phys: %x(%x) -> %x\n", addr, block, phys);
+    // LOG9("Phys: %x(%x) -> %x\n", addr, block, phys);
     return phys;
   }
   // ==============================================
@@ -219,7 +220,7 @@ class BigRam {
   force_inline static byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
   force_inline static byte Read(uint addr) {
     uint phys = Phys(addr);
-    // T::LogMmuf("read: %x %x -> %x\n", addr, phys, ram[phys]);
+    // LOG9("read: %x %x -> %x\n", addr, phys, ram[phys]);
     return ram[phys];
   }
   force_inline static byte FastRead(uint addr) {
@@ -228,7 +229,7 @@ class BigRam {
     // if (phys != phys2) {
     // printf("DIFFERENT(%x) %x vs %x\n", addr, phys, phys2);
     //}
-    // T::LogMmuf("fastread: %x %x -> %x\n", addr, phys2, ram[phys2]);
+    // LOG9("fastread: %x %x -> %x\n", addr, phys2, ram[phys2]);
     return ram[phys2];
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -236,7 +237,7 @@ class BigRam {
     uint phys = Phys(addr, block);
     ram[phys] = data;
 
-    // T::LogMmuf("write: %x(%x) %x <- %x\n", addr, block, phys, data);
+    // LOG9("write: %x(%x) %x <- %x\n", addr, block, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -313,7 +314,7 @@ class BigRam {
     uint phys = FastPhys(addr);
     ram[phys] = data;
 
-    // T::LogMmuf("fastwrite: %x() %x <- %x\n", addr, phys, data);
+    // LOG9("fastwrite: %x() %x <- %x\n", addr, phys, data);
     T::TraceThePoke(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
