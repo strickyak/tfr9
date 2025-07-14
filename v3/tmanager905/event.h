@@ -24,20 +24,22 @@ struct DoEvent {
 
   static void SendEventHist(byte event, byte sz) {
     Quiet();
-    putbyte(C_EVENT);
-    putbyte(event);
-    putbyte(sz);
-    putbyte(current_opcode_pc >> 8);
-    putbyte(current_opcode_pc);
-    putbyte(current_opcode_cy >> 24);
-    putbyte(current_opcode_cy >> 16);
-    putbyte(current_opcode_cy >> 8);
-    putbyte(current_opcode_cy);
+    char* p = Buffer;
+    // putbyte(C_EVENT);
+    *p++ = (event);
+    *p++ = (sz);
+    *p++ = (current_opcode_pc >> 8);
+    *p++ = (current_opcode_pc);
+    *p++ = (current_opcode_cy >> 24);
+    *p++ = (current_opcode_cy >> 16);
+    *p++ = (current_opcode_cy >> 8);
+    *p++ = (current_opcode_cy);
     for (byte i = 0; i < sz; i++) {
-      putbyte(hist_data[i]);
-      putbyte(hist_addr[i] >> 8);
-      putbyte(hist_addr[i]);
+      *p++ = (hist_data[i]);
+      *p++ = (hist_addr[i] >> 8);
+      *p++ = (hist_addr[i]);
     }
+    T::TransmitMessage(C_EVENT, p - Buffer, Buffer);
     Noisy();
 
     if (T::DoesDumpRamOnEvent()) {
@@ -49,14 +51,16 @@ struct DoEvent {
   static void SendEventRam(byte event, byte sz, word base_addr) {
     if (T::DoesLog()) {
       Quiet();
-      putbyte(C_EVENT);
-      putbyte(event);
-      putbyte(sz);
-      putbyte(base_addr >> 8);
-      putbyte(base_addr);
+      char* p = Buffer;
+      // putbyte(C_EVENT);
+      *p++ = (event);
+      *p++ = (sz);
+      *p++ = (base_addr >> 8);
+      *p++ = (base_addr);
       for (byte i = 0; i < sz; i++) {
-        putbyte(T::Peek(base_addr + i));
+        *p++ = (T::Peek(base_addr + i));
       }
+      T::TransmitMessage(C_EVENT, p - Buffer, Buffer);
       Noisy();
     }
   }

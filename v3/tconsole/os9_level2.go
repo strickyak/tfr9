@@ -350,7 +350,12 @@ func FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) {
 			fmt.Fprintf(&buf, "A=%s=%02x, ", call.A, p[1])
 		}
 		if call.B != "" {
-			fmt.Fprintf(&buf, "B=%s=%02x, ", call.B, p[2])
+			if call.B == "errnum" {
+				errname, _ := Os9ApiErrorNames[p[2]]
+				fmt.Fprintf(&buf, "B=%s=%02x=%q, ", call.B, p[2], errname)
+			} else {
+				fmt.Fprintf(&buf, "B=%s=%02x, ", call.B, p[2])
+			}
 		}
 		if call.D != "" {
 			fmt.Fprintf(&buf, "D=%s=%02x, ", call.D, p[1:3])

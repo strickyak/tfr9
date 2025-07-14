@@ -15,6 +15,8 @@
 #include <functional>
 #include <vector>
 
+constexpr uint NumberOfLivenessTildes = 8;
+
 #define printf T::Logf
 
 #define LED(X) gpio_put(25, (X))
@@ -806,7 +808,6 @@ struct EngineBase {
       // for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {
       // ///////////////////////////////// Outer Machine Loop
 
-      constexpr uint NumberOfLivenessTildes = 18;  // 8;
       if (OuterLoops <= (1 << (NumberOfLivenessTildes - 1))) {
         if (OuterLoops == TildePowerOf2 - 1) {
           // Draw tildes at cycle 0, 1, 3, 7, 15, ... to show we are up and

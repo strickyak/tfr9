@@ -13,6 +13,12 @@ type Os9ApiCall struct {
 
 var Os9ApiCalls = []*Os9ApiCall{
 	{
+		Name:   "F$PErr",
+		Desc:   "Print Error",
+		Number: 0x0F,
+		B:      "errnum",
+	},
+	{
 		Name:   "F$LDABY",
 		Desc:   "Load A from 0,X in task B",
 		Number: 0x49,

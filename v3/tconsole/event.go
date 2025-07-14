@@ -7,26 +7,33 @@ import (
 
 const ANGLES = false
 
-func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
-	event := getByte(fromUSB)
-	sz := getByte(fromUSB)
+func OnEvent(pack []byte, pending map[string]*EventRec) {
+	k := 0
+	takeByte := func() byte {
+		z := pack[k]
+		k++
+		return z
+	}
 
-	pc1 := getByte(fromUSB)
-	pc2 := getByte(fromUSB)
+	event := takeByte()
+	sz := takeByte()
+
+	pc1 := takeByte()
+	pc2 := takeByte()
 	op_pc := (uint(pc1) << 8) | uint(pc2)
 
-	cy1 := getByte(fromUSB)
-	cy2 := getByte(fromUSB)
-	cy3 := getByte(fromUSB)
-	cy4 := getByte(fromUSB)
+	cy1 := takeByte()
+	cy2 := takeByte()
+	cy3 := takeByte()
+	cy4 := takeByte()
 	op_cy := (uint(cy1) << 24) | (uint(cy2) << 16) | (uint(cy3) << 8) | uint(cy4)
 
 	datas := make([]byte, sz)
 	addrs := make([]uint, sz)
 	for i := byte(0); i < sz; i++ {
-		one := getByte(fromUSB)
-		two := getByte(fromUSB)
-		three := getByte(fromUSB)
+		one := takeByte()
+		two := takeByte()
+		three := takeByte()
 		datas[i] = one
 		addrs[i] = (uint(two) << 8) | uint(three)
 	}
@@ -104,4 +111,6 @@ func OnEvent(fromUSB <-chan byte, pending map[string]*EventRec) {
 
 		// DumpRam()
 	} // end switch event
+
+	AssertEQ(k, len(pack)) // should have consumed all of it.
 }

@@ -25,6 +25,8 @@ var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB t
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "/home/strick/coco-shelf/tfr9/v2/generated/level2.disk", "Comma-separated filepaths to disk files, in order of drive number")
 
+const WireVerbose = false
+
 const (
 	C_LOGGING    = 130 // Ten levels, 130 to 139
 	C_CYCLE      = 160 // one machine cycle
@@ -141,7 +143,29 @@ func LookupCocoKey(ascii byte) (row, col, plane byte) {
 
 // getByte from USB channel, for Binary Data
 func getByte(fromUSB <-chan byte) byte {
-	return <-fromUSB
+	x := <-fromUSB
+	logGetByte(x, "   ")
+	return x
+}
+func logGetByte(x byte, why string) {
+	if WireVerbose {
+		out := ""
+		if why == "cmd" {
+			out = ">>>>>"
+		}
+		if 32 <= x && x <= 126 {
+			log.Printf("GetByte %s .... %02x = '%c' %s", why, x, x, out)
+		} else if x == 13 {
+			log.Printf("GetByte %s ---- %02x ------------------- %s", why, x, out)
+		} else if x == 10 {
+			log.Printf("GetByte %s ==== %02x =================== %s", why, x, out)
+		} else if x == 0 {
+			log.Printf("GetByte %s .... %02x 0000000000000000000 %s", why, x, out)
+		} else {
+			s, _ := CommandStrings[x]
+			log.Printf("GetByte %s ---- %02x     (%d. %q)", why, x, x, s)
+		}
+	}
 }
 
 func WriteBytes(channelToPico chan []byte, vec ...byte) {
@@ -237,13 +261,16 @@ func InkeyRoutine(inkey chan byte) {
 	}()
 	for {
 		bb := make([]byte, 1)
-		Logf("InkeyRoutine: reading...")
 		sz, err := os.Stdin.Read(bb)
-		Logf("InkeyRoutine:    ... sz=%d err=%v", sz, err)
 		if err != nil {
 			Panicf("cannot os.Stdin.Read: %v", err)
 		}
-		Logf("INKEY:%d(%q)", bb[0], bb)
+        if bb[0] == 127 {
+            // Change DEL to BS for OS9
+            bb[0] = 8
+		    Logf("Inkey: Changing DEL to BS")
+        }
+		Logf("Inkey: $%02x = %d. = %q", bb[0], bb[0], bb)
 		if sz == 1 {
 			inkey <- bb[0]
 		}
@@ -342,6 +369,7 @@ func Run(inkey chan byte) {
 				WriteBytes(channelToPico, inchar)
 
 			case cmd := <-fromUSB:
+				logGetByte(cmd, "cmd")
 				//X// Logf("@@ fromUSB @@ $%x=%d.", cmd, cmd)
 
 				bogus := 0
@@ -355,17 +383,13 @@ func Run(inkey chan byte) {
 					Logf("ZERO")
 
 				case C_CYCLE:
-					sz := GetSize(fromUSB)
-					if sz == 8 {
-						b := make([]byte, sz)
-						for i := uint(0); i < sz; i++ {
-							b[i] = getByte(fromUSB)
-						}
-						_cy := (uint(b[0]) << 24) + (uint(b[1]) << 16) + (uint(b[2]) << 8) + uint(b[3])
-						_fl := b[4] & 31
-						_kind := b[4] >> 5
-						_data := b[5]
-						_addr := (uint(b[6]) << 8) + uint(b[7])
+					pack := GetPacket(fromUSB)
+					if len(pack) == 8 {
+						_cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
+						_fl := pack[4] & 31
+						_kind := pack[4] >> 5
+						_data := pack[5]
+						_addr := (uint(pack[6]) << 8) + uint(pack[7])
 
 						var s string
 						if _kind == CY_IDLE {
@@ -377,7 +401,11 @@ func Run(inkey chan byte) {
 						phys := Physical(uint(_addr))
 						modName, modOffset := MemoryModuleOf(phys)
 						//  s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-						Logf("%s %s:%06x :: %q+%04x %s", s, CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+						if _kind == CY_SEEN || _kind == CY_UNSEEN {
+							Logf("%s %s:%06x :: %q+%04x %s", s, CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+						} else {
+							Logf("%s %s:%06x", s, CurrentHardwareMMap(), phys)
+						}
 					}
 
 				case C_LOGGING,
@@ -390,21 +418,8 @@ func Run(inkey chan byte) {
 					C_LOGGING + 7,
 					C_LOGGING + 8,
 					C_LOGGING + 9:
-					sz := GetSize(fromUSB)
-					buf := make([]byte, sz)
-					for i := uint(0); i < sz; i++ {
-						buf[i] = getByte(fromUSB)
-					}
-					Logf("LOG[%d]: %q", cmd-C_LOGGING, buf)
-
-				/*
-					case C_CONFIG:
-						sz := <-fromUSB
-						for i := 0; i < int(sz); i++ {
-							ConfigStr += string([]byte{<-fromUSB})
-						}
-						Logf("ConfigStr: %q", ConfigStr)
-				*/
+					pack := GetPacket(fromUSB)
+					Logf("LOG[%d]: %q", cmd-C_LOGGING, pack)
 
 				case C_DISK_WRITE:
 					EmulateDiskWrite(fromUSB, channelToPico)
@@ -413,13 +428,15 @@ func Run(inkey chan byte) {
 					EmulateDiskRead(fromUSB, channelToPico)
 
 				case C_EVENT:
-					OnEvent(fromUSB, pending)
+					pack := GetPacket(fromUSB)
+					OnEvent(pack, pending)
 
 				case C_WRITING:
-					hi := getByte(fromUSB)
-					mid := getByte(fromUSB)
-					lo := getByte(fromUSB)
-					data := getByte(fromUSB)
+					pack := GetPacket(fromUSB)
+					hi := pack[0]
+					mid := pack[1]
+					lo := pack[2]
+					data := pack[3]
 					longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
 					longaddr &= RAM_MASK
 
@@ -523,6 +540,10 @@ func Run(inkey chan byte) {
 							timer_count++
 							fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
 						}
+
+					case ch == 7 || ch == 8: // BEL, BS
+						fmt.Printf("%c", ch)
+
 					case ch == 10 || ch == 13:
 						if previousPutChar == 10 || previousPutChar == 13 {
 							// skip extra newline
@@ -664,14 +685,37 @@ func HandleIOPoke(longAddr uint, data byte) {
 	}
 }
 
+func GetPacket(fromUSB <-chan byte) []byte {
+	sz := GetSize(fromUSB)
+	pack := make([]byte, sz)
+	for i := uint(0); i < sz; i++ {
+		pack[i] = <-fromUSB
+	}
+	if WireVerbose {
+		if sz > 64 {
+			Logf("GetPacket (sz=%d.)  % 3x ...", sz, pack[:64])
+		} else {
+			Logf("GetPacket (sz=%d.)  % 3x", sz, pack)
+		}
+	}
+	return pack
+}
 func GetSize(fromUSB <-chan byte) uint {
-	a := getByte(fromUSB)
+	a := <-(fromUSB)
 	if a < 128+64 {
-		return uint(a & 63)
+		z := uint(a & 63)
+		if WireVerbose {
+			Logf("GetSize.............. [%x] => $%x = %d.", a, z, z)
+		}
+		return z
 	}
 
-	b := getByte(fromUSB)
-	return 64*uint(a&63) + uint(b&63)
+	b := <-(fromUSB)
+	z := 64*uint(a&63) + uint(b&63)
+	if WireVerbose {
+		Logf("GetSize.............. [%x %x] => $%x = %d.", a, b, z, z)
+	}
+	return z
 }
 
 var CycleKindStr = []string{
