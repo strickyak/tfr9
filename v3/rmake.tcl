@@ -51,6 +51,16 @@ set LINKED_CMDS_LEVEL1 {
 set DEFAULT_SYS_LEVEL1 { errors }
 set DEFAULT_SYS_LEVEL2 { errors }
 
+# A pure Tcl implementation of a new builtin `lmap`.
+proc lmap {varName valueList body} {
+    set z {}
+    upvar 1 $varName i
+    foreach i $valueList {
+        lappend z [uplevel 1 $body]
+    }
+    return $z
+}
+
 proc Log {args} {
     puts stderr "LOG: $args"
 }
