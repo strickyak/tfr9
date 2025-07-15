@@ -85,3 +85,11 @@ clean:
 	mkdir -p /tmp/tfr9.v3.generated.backup/
 	rsync -av generated/ /tmp/tfr9.v3.generated.backup/
 	rm -rf generated
+
+create-runtime-bundle:
+	set -ex ; \
+  test -s doc/README.runtime-bundle-`date +%Y-%m-%d`.md && \
+  B=tfr905-runtime-bundle-`date +%Y-%m-%d-%H-%M` && \
+  mkdir $$B && \
+  cp -rv doc/README.runtime-bundle-`date +%Y-%m-%d`.md create-nitros9disk.sh Makefile generated $$B/ && \
+  zip $$B.zip ` find $$B -type f ! -name '*,v' -name '[A-Za-z]*' | LANG=C sort`
