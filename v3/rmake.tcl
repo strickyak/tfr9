@@ -61,6 +61,15 @@ proc lmap {varName valueList body} {
     return $z
 }
 
+# A pure Tcl implementation of a new builtin `string cat`.
+proc string_cat {args} {
+    set z ""
+    foreach i $args {
+        append z $i
+    }
+    return $z
+}
+
 proc Log {args} {
     puts stderr "LOG: $args"
 }
@@ -401,7 +410,7 @@ Platform tfr9 {
         scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06,Pauses=0
         rbf  emudsk_8=emudsk,MaxVhd=8
         dd_h1=emudskdesc,DNum=1,DD=1
-        [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
+        [lmap i [Range 8] { string_cat "h$i=emudskdesc,DNum=$i" }]
         pipeman piper pipe
         sysgo_dd=sysgo,dd=1
         shell_21
@@ -433,7 +442,7 @@ Platform tfr9 {
         scf sc6850  term_FF06=term_sc6850,HwBASE=0xFF06,Pauses=0
         rbf  emudsk_8=emudsk,MaxVhd=8
         dd_h2=emudskdesc,DNum=2,DD=1
-        [lmap i [Range 8] { string cat "h$i=emudskdesc,DNum=$i" }]
+        [lmap i [Range 8] { string_cat "h$i=emudskdesc,DNum=$i" }]
         pipeman piper pipe
         sysgo_dd=sysgo,dd=1
         shell_21
