@@ -1,5 +1,6 @@
 # See help:
 
+PWD:=$(shell /bin/pwd)
 S:=$(shell ( cd ../.. ; /bin/pwd ))
 export COCO_SHELF:=$S
 export PICOTOOL_FETCH_FROM_GIT_PATH:=$(shell echo $${PICOTOOL_FETCH_FROM_GIT_PATH:-$S/picotool})
@@ -8,6 +9,16 @@ DISKS=generated/disk0,generated/level1.dsk,generated/level2.dsk,generated/disk3,
 WHICH_PICO=pico2
 
 all: _primary_
+	:
+	:
+	: tfr9/v3 OKAY.
+	:
+	: FIRMWARE IS IN $(PWD)/generated/tmanager.pico1_or_pico2.uf2
+	:
+	: RESULTS ARE IN $(PWD)/generated/
+	:
+	: HINT: chdir to $(PWD) and "make help"
+	:
 
 flash:
 	cp -vf generated/tmanager.pico1_or_pico2.uf2 /media/$$USER/RP*/.

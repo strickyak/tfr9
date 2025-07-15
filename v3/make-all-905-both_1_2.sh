@@ -20,6 +20,10 @@ D2="generated/level2.dsk"
 (
     time sh create-nitros9disk.sh "$S1" "$D1" "$S1/cmds/shell_21"
     time sh create-nitros9disk.sh "$S2" "$D2" "$S2/modules/sysgo_dd" "$S2/cmds/shell"
+    for i in 0 3 4 5 6 7
+    do
+        test -s generated/disk$i || os9 format -l99999 -n"disk$i" generated/disk$i
+    done
 
     make -j4 -C launchers
 
