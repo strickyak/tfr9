@@ -21,6 +21,7 @@ import (
 	// "github.com/jacobsa/go-serial/serial"
 )
 
+var LOAD = flag.String("load", "", "Decb file to pre-load into 6309 RAM")
 var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "/home/strick/coco-shelf/tfr9/v2/generated/level2.disk", "Comma-separated filepaths to disk files, in order of drive number")
@@ -44,6 +45,8 @@ const (
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
 	C_CONFIG     = 175
+
+	PRE_POKE = 190 // poke bytes packet, tconsole to tmanager: size, 2-byte addr, data[].
 	// EVENT_PC_M8  = 238
 	// EVENT_GIME   = 239
 	EVENT_RTI  = 240
@@ -82,18 +85,8 @@ var CommandStrings = map[byte]string{
 	170: "C_DUMP_PHYS",
 	171: "C_WRITING",
 	172: "C_EVENT",
-	// 238: "EVENT_PC_M8",
-	// 239: "EVENT_GIME",
 	240: "EVENT_RTI",
 	241: "EVENT_SWI2",
-	242: "EVENT_CC",
-	243: "EVENT_D",
-	244: "EVENT_DP",
-	245: "EVENT_X",
-	246: "EVENT_Y",
-	247: "EVENT_U",
-	248: "EVENT_PC",
-	249: "EVENT_SP",
 }
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
@@ -101,10 +94,6 @@ var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\
 
 // MatchFIC DEMO: @ fe9a 6e  =
 var MatchFIC = regexp.MustCompile("^@@? ([0-9a-f]{4}) ([0-9a-f]{2})  =.*")
-
-/*
-var ConfigStr string
-*/
 
 var LastSerialNumber uint
 
@@ -169,6 +158,7 @@ func logGetByte(x byte, why string) {
 }
 
 func WriteBytes(channelToPico chan []byte, vec ...byte) {
+    Logf("WriteBytes: [%d.] { % 3x }", len(vec), vec)
 	channelToPico <- vec
 }
 
@@ -196,13 +186,16 @@ func TryRun(inkey chan byte) {
 }
 
 func SttyCbreakMode() {
+	// HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
+	// exec.Command("stty", "cbreak", "min", "1").Run()
+	// exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
+	// exec.Command("stty", "-echo").Run()
 	sttyPath, err := exec.LookPath("stty")
 	if err != nil {
 		log.Fatalf("Cannot find stty: %v", err)
 	}
 	cmd := &exec.Cmd{
-		Path: sttyPath,
-		// Args: []string{"stty", "cbreak", "-echo", "min", "1"},
+		Path:   sttyPath,
 		Args:   []string{"stty", "cbreak", "-echo"},
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
@@ -220,18 +213,6 @@ func main() {
 	InstallLimitedLogWriter()
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode()
-	}
-
-	if false { // Why doesnt this seem to have the effect
-		sttyErr := exec.Command("stty", "cbreak", "min", "-echo", "1").Run()
-		if sttyErr != nil {
-			Logf("stty failed: %v", sttyErr)
-		}
-
-		// HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
-		// exec.Command("stty", "cbreak", "min", "1").Run()
-		// exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
-		// exec.Command("stty", "-echo").Run()
 	}
 
 	inkey := make(chan byte, 1024)
@@ -265,11 +246,11 @@ func InkeyRoutine(inkey chan byte) {
 		if err != nil {
 			Panicf("cannot os.Stdin.Read: %v", err)
 		}
-        if bb[0] == 127 {
-            // Change DEL to BS for OS9
-            bb[0] = 8
-		    Logf("Inkey: Changing DEL to BS")
-        }
+		if bb[0] == 127 {
+			// Change DEL to BS for OS9
+			bb[0] = 8
+			Logf("Inkey: Changing DEL to BS")
+		}
 		Logf("Inkey: $%02x = %d. = %q", bb[0], bb[0], bb)
 		if sz == 1 {
 			inkey <- bb[0]
@@ -339,34 +320,13 @@ func Run(inkey chan byte) {
 	var fromUSB <-chan byte = channelFromPico
 
 	go func() {
-		/*
-			var bb bytes.Buffer
-
-			pushBB := func() { // Flush the bytes.Buffer to Logf
-				// DEMO: @ fe9a 6e  =
-				s := bb.String()
-				if strings.HasSuffix(s, "\r") {
-					s = s[:len(s)-1]
-				}
-				m := MatchFIC.FindStringSubmatch(s)
-				if m != nil {
-					addr, _ := strconv.ParseUint(m[1], 16, 64)
-					// data, _ := strconv.ParseUint(m[2], 16, 64)
-					phys := Physical(uint(addr))
-					modName, modOffset := MemoryModuleOf(phys)
-					s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-				}
-
-				Logf("# %s", s)
-				bb.Reset()
-			}
-		*/
 		gap := 1
-		//FOR:
 		for {
 			select {
 			case inchar := <-inkey:
-				WriteBytes(channelToPico, inchar)
+				if 1 <= inchar && inchar <= 127 {
+					WriteBytes(channelToPico, inchar)
+				}
 
 			case cmd := <-fromUSB:
 				logGetByte(cmd, "cmd")
@@ -539,6 +499,9 @@ func Run(inkey chan byte) {
 							timer_sum += micros
 							timer_count++
 							fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
+						}
+						if *LOAD != "" && LookForPreSync(ch) {
+							PreUpload(*LOAD, channelToPico)
 						}
 
 					case ch == 7 || ch == 8: // BEL, BS
@@ -754,4 +717,66 @@ func (llw LimitedLogWriter) Write(bb []byte) (int, error) {
 		os.Exit(13)
 	}
 	return os.Stderr.Write(bb)
+}
+
+var syncWindow [4]byte
+
+func LookForPreSync(ch byte) bool {
+	copy(syncWindow[0:3], syncWindow[1:4])
+	syncWindow[3] = ch
+	return string(syncWindow[:]) == ".:,;"
+}
+func PreUpload(filename string, channelToPico chan []byte) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			log.Fatalf("Error during PreUpload(%q): %v", filename, r)
+		}
+	}()
+
+    syncWindow = [4]byte{0, 0, 0, 0}  // Undo pattern.
+
+	bb, err := os.ReadFile(filename)
+	if err != nil {
+		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+	}
+
+	for len(bb) > 0 {
+		switch bb[0] {
+		case 0: // block of data to poke
+			sz := (uint(bb[1]) << 8) + uint(bb[2])
+			addr := (uint(bb[3]) << 8) + uint(bb[4])
+			bb = bb[5:]
+			for sz > 0 {
+				n := sz
+				if n > 60 {
+					n = 60 // max 60 at a time, plus 2-byte addr
+				}
+				out := make([]byte, n+4)
+				out[0] = PRE_POKE
+				out[1] = byte(128 + n+2)
+				out[2] = byte(addr >> 8)
+				out[3] = byte(addr & 255)
+				copy(out[4:], bb[:n])
+                Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
+				WriteBytes(channelToPico, out...)
+				sz -= n
+				bb = bb[n:]
+				addr += n
+			}
+		case 0xFF: // final empty block with start address
+			// TODO: should we load the start value in the reset vector?
+			// Load the start value in the reset vector.
+			addr := (uint(bb[3]) << 8) + uint(bb[4])
+			// 0xFFFE is the address of the reset vector.
+            Logf("PreUpload: reset to %x", addr)
+			WriteBytes(channelToPico, PRE_POKE, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
+			bb = bb[5:]
+
+		default:
+			log.Fatalf("bad control byte $%x, which is %d bytes from end", bb[0], len(bb))
+		}
+	}
+    Logf("PreUpload: end while")
+	LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
 }

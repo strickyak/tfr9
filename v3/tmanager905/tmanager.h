@@ -78,24 +78,17 @@ enum message_type : byte {
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
   // C_CONFIG = 175,
-  //
+
+  C_PRE_LOAD = 190, // Console pokes to Manager
+
   // EVENT_PC_M8 = 238,
   // EVENT_GIME = 239,
   EVENT_RTI = 240,
   EVENT_SWI2 = 241,
-#if 0
-  EVENT_CC = 242,
-  EVENT_D = 243,
-  EVENT_DP = 244,
-  EVENT_X = 245,
-  EVENT_Y = 246,
-  EVENT_U = 247,
-  EVENT_PC = 248,
-  EVENT_SP = 249,
-#endif
 };
 
 extern void putbyte(byte x);
+extern void PreLoadPacket();
 
 uint current_opcode_cy;  // what was the CY of the current opcode?
 uint current_opcode_pc;  // what was the PC of the current opcode?
@@ -132,6 +125,7 @@ void ShowStr(const char* s) {
 void putbyte(byte x) { putchar_raw(x); }
 
 // Include logging first.
+#include "benchmark-cycles.h"
 #include "logging.h"
 #include "pcrange.h"
 #include "picotimer.h"
@@ -423,6 +417,28 @@ bool TryGetUsbByte(char* ptr) {
   return (rc != PICO_ERROR_NO_DATA);
 }
 
+void PollJustUsbInput() {
+  // Try from USB to `usb_input` object.
+  while (1) {
+    char x = 0;
+    bool ok = TryGetUsbByte(&x);
+    if (ok) {
+      usb_input.Put(x);
+    } else {
+      break;
+    }
+  }
+}
+void Fatal(const char* s) {
+    while (*s) {
+        putchar(*s);
+        s++;
+    }
+    while (1) {
+        putchar('#');
+        sleep_ms(2000);
+    }
+}
 void PollUsbInput() {
   // Try from USB to `usb_input` object.
   while (1) {
@@ -452,6 +468,9 @@ void PollUsbInput() {
 
   // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
   int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+  // Do not take, until a full packet is available.
+  // This way, the initial C_DISK_READ byte will clog the buffer
+  // and prevent any of these from ending up on term_input.
   switch (peek) {
     case C_DISK_READ:
       if (usb_input.HasAtLeast(kDiskReadSize)) {
@@ -461,6 +480,24 @@ void PollUsbInput() {
         }
       }
       break;
+
+    case C_PRE_LOAD:
+      if (usb_input.HasAtLeast(2)) {
+        byte sz = 63 & usb_input.Peek(1);
+        if (usb_input.HasAtLeast(2+sz)) {
+          PreLoadPacket();
+        }
+      }
+      break;
+
+    case -1:
+        break;
+    case 0:
+        (void) usb_input.Take();
+        break;
+
+    default:
+        Fatal("PollUsbInput -- default");
   }
   return;
 }
@@ -900,6 +937,8 @@ struct EngineBase {
         }
       }  // end if TimerFired
 
+      T::BenchmarkCycle(cy);
+
       for (uint loop = 0; loop < RAPID_BURST_CYCLES;
            loop++) {  /////// Inner Machine Loop
 
@@ -1162,6 +1201,7 @@ struct Common_Mixins : EngineBase<T>, CommonRam<T> {};
 template <typename T>
 struct T9_Mixins : Common_Mixins<T>,
                    SmallRam<T>,
+                   DontBenchmarkCycles<T>,
                    DontAcia<T>,
                    DontGime<T>,
                    DontSamvdg<T>,
@@ -1182,8 +1222,32 @@ struct T9_Slow : T9_Mixins<T9_Slow>, Slow_Mixins<T9_Slow> {};
 struct T9_Fast : T9_Mixins<T9_Fast>, Fast_Mixins<T9_Fast> {};
 
 template <typename T>
+struct X9_Mixins : Common_Mixins<T>,
+                   DontBenchmarkCycles<T>,
+                   DontAcia<T>,
+                   DontGime<T>,
+                   DontSamvdg<T>,
+                   DoTurbo9sim<T> {
+  static void Install() {
+    // Without OS.  Must use PreLoadPacket() or some other way of loading a program.
+    ShowChar('X');
+    T::Turbo9sim_Install(0xFF00);
+    ShowChar('Y');
+  }
+};
+
+// X1 is a blank machine with no OS, Turbo9Sim-like IO, and a Small Ram.
+struct X1_Slow : SmallRam<X1_Slow>, X9_Mixins<X1_Slow>, Slow_Mixins<X1_Slow> { };
+struct X1_Fast : SmallRam<X1_Fast>, X9_Mixins<X1_Fast>, Fast_Mixins<X1_Fast> { };
+
+// X2 is a blank machine with no OS, Turbo9Sim-like IO, and a Big Ram.
+struct X2_Slow : BigRam<X2_Slow>, X9_Mixins<X2_Slow>, Slow_Mixins<X2_Slow> { };
+struct X2_Fast : BigRam<X2_Fast>, X9_Mixins<X2_Fast>, Fast_Mixins<X2_Fast> { };
+
+template <typename T>
 struct L1_Mixins : Common_Mixins<T>,
                    SmallRam<T>,
+                   DontBenchmarkCycles<T>,
                    DoAcia<T>,
                    DoEmudsk<T>,
                    DontGime<T>,
@@ -1211,6 +1275,7 @@ struct L1_Fast : L1_Mixins<L1_Fast>, Fast_Mixins<L1_Fast> {};
 template <typename T>
 struct L2_Mixins : Common_Mixins<T>,
                    BigRam<T>,
+                   DontBenchmarkCycles<T>,
                    DoAcia<T>,
                    DoEmudsk<T>,
                    DoGime<T>,
@@ -1239,25 +1304,40 @@ struct harness {
   std::function<void(void)> engines[5];
   std::function<void(void)> fast_engines[5];
 
-  T9_Slow t9_slow;
-  T9_Fast t9_fast;
-  L1_Slow l1_slow;
-  L1_Fast l1_fast;
-  L2_Slow l2_slow;
-  L2_Fast l2_fast;
-
   harness() {
     memset(engines, 0, sizeof engines);
     memset(fast_engines, 0, sizeof fast_engines);
 
-    engines[0] = t9_slow.Run;
-    engines[1] = l1_slow.Run;
-    engines[2] = l2_slow.Run;
-    fast_engines[0] = t9_fast.Run;
-    fast_engines[1] = l1_fast.Run;
-    fast_engines[2] = l2_fast.Run;
+    engines[0] = T9_Slow::Run;
+    engines[1] = L1_Slow::Run;
+    engines[2] = L2_Slow::Run;
+    engines[3] = X1_Slow::Run;
+    engines[4] = X2_Slow::Run;
+
+    fast_engines[0] = T9_Fast::Run;
+    fast_engines[1] = L1_Fast::Run;
+    fast_engines[2] = L2_Fast::Run;
+    fast_engines[3] = X1_Fast::Run;
+    fast_engines[4] = X2_Fast::Run;
   }
 };
+
+void PreLoadPacket() {
+    (void) usb_input.Take(); // command byte C_PRE_LOAD
+    uint sz = 63 & usb_input.Take();
+    assert(sz > 2); // sz is packet size (number of bytes that follow sz).
+    uint hi = usb_input.Take();
+    uint lo = usb_input.Take();
+    uint addr = (hi<<8) | lo;
+    uint n = sz - 2; // n is number of following bytes to be poked.
+    putchar('(');
+    for (uint i = 0; i < n; i++) {
+        ram[addr] = ram[addr+0x10000] = usb_input.Take(); // set upper and lower bank.
+        addr++;
+        if ((i&7)==0) putchar('.');
+    }
+    putchar(')');
+}
 
 void Shell() {
   struct harness harness;
@@ -1270,6 +1350,14 @@ void Shell() {
 
     if (term_input.HasAtLeast(1)) {
       byte ch = term_input.Take();
+      ShowChar( '<' );
+      if (32 <= ch && ch <= 126) {
+        ShowChar( ch );
+      } else {
+        ShowChar( '#' );
+      }
+      ShowChar( '>' );
+
       if ('0' <= ch && ch <= '4') {
         uint num = ch - '0';
         if (harness.fast_engines[num]) {

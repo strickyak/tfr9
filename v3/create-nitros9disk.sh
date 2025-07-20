@@ -28,7 +28,7 @@ case "$D" in
 esac
 
 # BEGIN STANDARD TIMING TWO
-cat >/tmp/tfr.startup2 <<'EOR'
+cat >/tmp/tfr.startup2 <<'END'
 t
 basic09
 e
@@ -43,9 +43,8 @@ e
 900 next j
 q
 run
-EOR
+END
 # END STANDARD TIMING TWO
-############# tmode .2 pau=0
 
 if test 1 = "$T9V3_NOSTARTUP"
 then

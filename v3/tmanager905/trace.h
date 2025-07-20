@@ -13,6 +13,8 @@ enum cycle_kind : byte {
   CY_IDLE = 6,
 };
 
+//////////////////////////////////////////////////////////////
+
 template <typename T>
 struct DontTrace {
   static constexpr bool DoesTrace() { return false; }

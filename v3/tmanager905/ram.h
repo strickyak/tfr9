@@ -20,6 +20,7 @@ struct DontTracePokes {
 template <typename T>
 struct DoTracePokes {
   force_inline static void TraceThePoke(uint addr, byte data) {
+    if (quiet_ram) return;
     /*
   TODO -- this is breaking stuff. 2025-07-13
   Repro: Comment this in, boot with "e5", type MDIR, and you get a lot of junk.
