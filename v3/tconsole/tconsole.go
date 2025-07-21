@@ -158,7 +158,7 @@ func logGetByte(x byte, why string) {
 }
 
 func WriteBytes(channelToPico chan []byte, vec ...byte) {
-    Logf("WriteBytes: [%d.] { % 3x }", len(vec), vec)
+	Logf("WriteBytes: [%d.] { % 3x }", len(vec), vec)
 	channelToPico <- vec
 }
 
@@ -185,7 +185,7 @@ func TryRun(inkey chan byte) {
 	Run(inkey)
 }
 
-func SttyCbreakMode() {
+func SttyCbreakMode(turnOn bool) {
 	// HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
 	// exec.Command("stty", "cbreak", "min", "1").Run()
 	// exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
@@ -194,9 +194,17 @@ func SttyCbreakMode() {
 	if err != nil {
 		log.Fatalf("Cannot find stty: %v", err)
 	}
+	// Turn off values:
+	toCbreak := "-cbreak"
+	toEcho := "echo"
+	if turnOn {
+		// Turn on values:
+		toCbreak = "cbreak"
+		toEcho = "-echo"
+	}
 	cmd := &exec.Cmd{
 		Path:   sttyPath,
-		Args:   []string{"stty", "cbreak", "-echo"},
+		Args:   []string{"stty", toCbreak, toEcho},
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
@@ -212,17 +220,20 @@ func main() {
 	flag.Parse()
 	InstallLimitedLogWriter()
 	if runtime.GOOS != "windows" {
-		SttyCbreakMode()
+		SttyCbreakMode(true)
 	}
 
 	inkey := make(chan byte, 1024)
 	go InkeyRoutine(inkey)
 
-	killed := make(chan os.Signal)
+	killed := make(chan os.Signal, 16)
 	signal.Notify(killed, syscall.SIGINT)
 	go func() {
 		sig := <-killed
 		Logf("\n*** STOPPING ON SIGNAL %q", sig)
+		if runtime.GOOS != "windows" {
+			SttyCbreakMode(false)
+		}
 		os.Exit(3)
 	}()
 
@@ -734,7 +745,7 @@ func PreUpload(filename string, channelToPico chan []byte) {
 		}
 	}()
 
-    syncWindow = [4]byte{0, 0, 0, 0}  // Undo pattern.
+	syncWindow = [4]byte{0, 0, 0, 0} // Undo pattern.
 
 	bb, err := os.ReadFile(filename)
 	if err != nil {
@@ -754,11 +765,11 @@ func PreUpload(filename string, channelToPico chan []byte) {
 				}
 				out := make([]byte, n+4)
 				out[0] = PRE_POKE
-				out[1] = byte(128 + n+2)
+				out[1] = byte(128 + n + 2)
 				out[2] = byte(addr >> 8)
 				out[3] = byte(addr & 255)
 				copy(out[4:], bb[:n])
-                Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
+				Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
 				WriteBytes(channelToPico, out...)
 				sz -= n
 				bb = bb[n:]
@@ -769,7 +780,7 @@ func PreUpload(filename string, channelToPico chan []byte) {
 			// Load the start value in the reset vector.
 			addr := (uint(bb[3]) << 8) + uint(bb[4])
 			// 0xFFFE is the address of the reset vector.
-            Logf("PreUpload: reset to %x", addr)
+			Logf("PreUpload: reset to %x", addr)
 			WriteBytes(channelToPico, PRE_POKE, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
 			bb = bb[5:]
 
@@ -777,6 +788,6 @@ func PreUpload(filename string, channelToPico chan []byte) {
 			log.Fatalf("bad control byte $%x, which is %d bytes from end", bb[0], len(bb))
 		}
 	}
-    Logf("PreUpload: end while")
+	Logf("PreUpload: end while")
 	LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
 }
