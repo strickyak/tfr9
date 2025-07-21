@@ -40,7 +40,7 @@ const (
 	C_DUMP_LINE  = 168
 	C_DUMP_STOP  = 169
 	C_DUMP_PHYS  = 170
-	C_WRITING    = 171
+	C_RAM_WRITE    = 171
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
@@ -83,7 +83,7 @@ var CommandStrings = map[byte]string{
 	168: "C_DUMP_LINE",
 	169: "C_DUMP_STOP",
 	170: "C_DUMP_PHYS",
-	171: "C_WRITING",
+	171: "C_RAM_WRITE",
 	172: "C_EVENT",
 	240: "EVENT_RTI",
 	241: "EVENT_SWI2",
@@ -402,16 +402,19 @@ func Run(inkey chan byte) {
 					pack := GetPacket(fromUSB)
 					OnEvent(pack, pending)
 
-				case C_WRITING:
+				case C_RAM_WRITE:
 					pack := GetPacket(fromUSB)
+                    AssertEQ(len(pack), 4)
+
 					hi := pack[0]
 					mid := pack[1]
 					lo := pack[2]
 					data := pack[3]
 					longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
-					longaddr &= RAM_MASK
+					// TODO -- this is what is making the machine 64, this plus we only compile level1 at the moment.
+                    longaddr &= RAM_MASK
 
-					//X// Logf("       =C_WRITING= %06x %02x (was %02x)", longaddr, data, trackRam[longaddr])
+					Logf("       =C_RAM_WRITE= %06x gets %02x (was %02x)", longaddr, data, trackRam[longaddr])
 					trackRam[longaddr] = data
 
 					if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {

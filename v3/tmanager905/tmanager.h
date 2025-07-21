@@ -73,7 +73,7 @@ enum message_type : byte {
   C_DUMP_LINE = 168,
   C_DUMP_STOP = 169,
   C_DUMP_PHYS = 170,
-  C_POKE = 171,   // ram.h
+  C_RAM_WRITE = 171,   // ram.h
   C_EVENT = 172,  // event.h
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
@@ -1175,7 +1175,7 @@ struct Slow_Mixins : DoPcRange<T, 0x0010, 0xFF01>,
                      // DoLogMmu<T>,
                      DoShowIrqs<T>,
 
-                     DoTracePokes<T>,
+                     DoTraceRamWrites<T>,
                      DoHyper<T>,
                      DoEvent<T>,
                      DontDumpRamOnEvent<T>,
@@ -1189,7 +1189,7 @@ struct Fast_Mixins : DontPcRange<T>,
                      // DontLogMmu<T>,
                      DontShowIrqs<T>,
 
-                     DontTracePokes<T>,
+                     DontTraceRamWrites<T>,
                      DontHyper<T>,
                      DontEvent<T>,
                      DontDumpRamOnEvent<T>,

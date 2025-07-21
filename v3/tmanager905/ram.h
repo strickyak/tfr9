@@ -14,27 +14,26 @@ uint base[2][8];
 byte mmu[2][8];
 
 template <typename T>
-struct DontTracePokes {
-  force_inline static void TraceThePoke(uint addr, byte data) {}
+struct DontTraceRamWrites {
+  force_inline static void TraceTheRamWrite(uint addr, byte data) {}
 };
 template <typename T>
-struct DoTracePokes {
-  force_inline static void TraceThePoke(uint addr, byte data) {
+struct DoTraceRamWrites {
+  force_inline static void TraceTheRamWrite(uint addr, byte data) {
     if (quiet_ram) return;
     /*
   TODO -- this is breaking stuff. 2025-07-13
   Repro: Comment this in, boot with "e5", type MDIR, and you get a lot of junk.
   Needs protocol debug.
   Probably called within some packet, without quieting?
+    */
 
-
-      putbyte(C_POKE);
+      putbyte(C_RAM_WRITE);
       putbyte(0x84);  // size is 4 following bytes
       putbyte(addr >> 16);
       putbyte(addr >> 8);
       putbyte(addr);
       putbyte(data);
-    */
   }
 };
 
@@ -103,7 +102,7 @@ class SmallRam {
     // printf("write %x <- %x\n", addr, data);
     // TODO -- assert the mask is never needed.
     ram[addr & 0xFFFF] = data;
-    T::TraceThePoke(addr, data);
+    T::TraceTheRamWrite(addr, data);
   }
   static byte FastRead(uint addr) { return Read(addr); }
   static void FastWrite(uint addr, byte data) { Write(addr, data); }
@@ -248,7 +247,7 @@ class BigRam {
     ram[phys] = data;
 
     // LOG9("write: %x(%x) %x <- %x\n", addr, block, phys, data);
-    T::TraceThePoke(phys, data);
+    T::TraceTheRamWrite(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
@@ -287,7 +286,7 @@ class BigRam {
     ram[phys] = data;
 
     // printf("write: %x() %x <- %x\n", addr, phys, data);
-    T::TraceThePoke(phys, data);
+    T::TraceTheRamWrite(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
@@ -325,7 +324,7 @@ class BigRam {
     ram[phys] = data;
 
     // LOG9("fastwrite: %x() %x <- %x\n", addr, phys, data);
-    T::TraceThePoke(phys, data);
+    T::TraceTheRamWrite(phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
