@@ -1,6 +1,7 @@
 // THIS FILE WAS MODIFIED BY Henry Strickland (github: strickyak)
 // IN THE FOLLOWING WAY:
 //   The package name was chanaged from `serial` to `main`.
+//   Rename type OpenOptions to OpenSerialOptions.
 // See serial.LICENSE
 
 // Copyright 2011 Aaron Jacobs. All Rights Reserved.
@@ -111,7 +112,7 @@ func setTermios(fd uintptr, src *termios) error {
 	return nil
 }
 
-func convertOptions(options OpenOptions) (*termios, error) {
+func convertOptions(options OpenSerialOptions) (*termios, error) {
 	var result termios
 
 	// Ignore modem status lines. We don't want to receive SIGHUP when the serial
@@ -201,7 +202,7 @@ func convertOptions(options OpenOptions) (*termios, error) {
 	return &result, nil
 }
 
-func openInternal(options OpenOptions) (io.ReadWriteCloser, error) {
+func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	// Open the serial port in non-blocking mode, since otherwise the OS will
 	// wait for the CARRIER line to be asserted.
 	file, err :=

@@ -1,6 +1,7 @@
 // THIS FILE WAS MODIFIED BY Henry Strickland (github: strickyak)
 // IN THE FOLLOWING WAY:
 //   The package name was chanaged from `serial` to `main`.
+//   Rename type OpenOptions to OpenSerialOptions.
 // See serial.LICENSE
 
 // Copyright 2011 Aaron Jacobs. All Rights Reserved.
@@ -21,6 +22,6 @@ package main
 
 import "io"
 
-func openInternal(options OpenOptions) (io.ReadWriteCloser, error) {
+func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	return nil, "Not implemented on this OS."
 }

@@ -12,8 +12,6 @@ func CurrentHardwareMMap() string { return "" }
 
 func Physical(addr uint) uint { return addr }
 
-// type Mapping [8]uint
-
 const RAM_SIZE = 64 * 1024 // 64K
 const RAM_MASK = RAM_SIZE - 1
 const IO_PHYS = RAM_SIZE - 256

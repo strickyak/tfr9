@@ -1,6 +1,8 @@
 // THIS FILE WAS MODIFIED BY Henry Strickland (github: strickyak)
 // IN THE FOLLOWING WAY:
 //   The package name was chanaged from `serial` to `main`.
+//   Rename func Open to OpenSerial.
+//   Rename type OpenOptions to OpenSerialOptions.
 // See serial.LICENSE
 
 // Copyright 2011 Aaron Jacobs. All Rights Reserved.
@@ -70,9 +72,9 @@ var (
 // additional IOCTL.
 func IsStandardBaudRate(baudRate uint) bool { return StandardBaudRates[baudRate] }
 
-// OpenOptions is the struct containing all of the options necessary for
+// OpenSerialOptions is the struct containing all of the options necessary for
 // opening a serial port.
-type OpenOptions struct {
+type OpenSerialOptions struct {
 	// The name of the port, e.g. "/dev/tty.usbserial-A8008HlV".
 	PortName string
 
@@ -165,7 +167,7 @@ type OpenOptions struct {
 }
 
 // Open creates an io.ReadWriteCloser based on the supplied options struct.
-func Open(options OpenOptions) (io.ReadWriteCloser, error) {
+func OpenSerial(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	// Redirect to the OS-specific function.
 	return openInternal(options)
 }

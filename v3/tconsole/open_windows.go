@@ -1,6 +1,7 @@
 // THIS FILE WAS MODIFIED BY Henry Strickland (github: strickyak)
 // IN THE FOLLOWING WAY:
 //   The package name was chanaged from `serial` to `main`.
+//   Rename type OpenOptions to OpenSerialOptions.
 // See serial.LICENSE
 
 // Copyright 2011 Aaron Jacobs. All Rights Reserved.
@@ -54,7 +55,7 @@ type structTimeouts struct {
 	WriteTotalTimeoutConstant   uint32
 }
 
-func openInternal(options OpenOptions) (io.ReadWriteCloser, error) {
+func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	if len(options.PortName) > 0 && options.PortName[0] != '\\' {
 		options.PortName = "\\\\.\\" + options.PortName
 	}
@@ -178,7 +179,7 @@ func getProcAddr(lib syscall.Handle, name string) uintptr {
 	return addr
 }
 
-func setCommState(h syscall.Handle, options OpenOptions) error {
+func setCommState(h syscall.Handle, options OpenSerialOptions) error {
 	var params structDCB
 	params.DCBlength = uint32(unsafe.Sizeof(params))
 
@@ -211,7 +212,7 @@ func setCommState(h syscall.Handle, options OpenOptions) error {
 	return nil
 }
 
-func setCommTimeouts(h syscall.Handle, options OpenOptions) error {
+func setCommTimeouts(h syscall.Handle, options OpenSerialOptions) error {
 	var timeouts structTimeouts
 	const MAXDWORD = 1<<32 - 1
 	timeoutConstant := uint32(round(float64(options.InterCharacterTimeout) / 100.0))

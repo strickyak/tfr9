@@ -296,42 +296,13 @@ func MintSerialNum() uint {
 	return serialNumCounter
 }
 
-func Run(inkey chan byte) {
-	const SERIAL_BUFFER_SIZE = 1024
-
+func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte) {
 	var previousPutChar byte
 	var remember int64
 	var timer_sum int64
 	var timer_count int64
-
-	// Set up options for Serial Port.
-	options := /*serial.*/ OpenOptions{
-		PortName:        *WIRE,
-		BaudRate:        *BAUD,
-		DataBits:        8,
-		StopBits:        1,
-		MinimumReadSize: 1,
-	}
-
 	pending := make(map[string]*EventRec)
 
-	// Open the Serial Port.
-	serialPort, err := /*serial.*/ Open(options)
-	if err != nil {
-		Panicf("serial.Open: %v", err)
-	}
-
-	// Make sure to close it later.
-	defer serialPort.Close()
-
-	channelToPico := make(chan []byte, 1024)
-
-	go ToUsbRoutine(serialPort, channelToPico)
-
-	channelFromPico := make(chan byte, SERIAL_BUFFER_SIZE)
-	var fromUSB <-chan byte = channelFromPico
-
-	go func() {
 		gap := 1
 		for {
 			select {
@@ -577,7 +548,294 @@ func Run(inkey chan byte) {
 				 */
 			} // end select
 		} // end for ever
-	}() // end go func
+} // RunSelect
+
+func Run(inkey chan byte) {
+	const SERIAL_BUFFER_SIZE = 1024
+
+	//var previousPutChar byte
+	//var remember int64
+	//var timer_sum int64
+	//var timer_count int64
+
+	// Set up options for Serial Port.
+	serialOptions := OpenSerialOptions{
+		PortName:        *WIRE,
+		BaudRate:        *BAUD,
+		DataBits:        8,
+		StopBits:        1,
+		MinimumReadSize: 1,
+	}
+
+	//pending := make(map[string]*EventRec)
+
+	// Open the Serial Port.
+	serialPort, err := OpenSerial(serialOptions)
+	if err != nil {
+		Panicf("serial.Open: %v", err)
+	}
+
+	// Make sure to close it later.
+	defer serialPort.Close()
+
+	channelToPico := make(chan []byte, 1024)
+
+	go ToUsbRoutine(serialPort, channelToPico)
+
+	channelFromPico := make(chan byte, SERIAL_BUFFER_SIZE)
+	var fromUSB <-chan byte = channelFromPico
+
+    go RunSelect(inkey, fromUSB, channelToPico, channelFromPico)
+
+/*
+    if false {
+        go func() {
+            gap := 1
+            for {
+                select {
+                case inchar := <-inkey:
+                    if 1 <= inchar && inchar <= 127 {
+                        WriteBytes(channelToPico, inchar)
+                    }
+
+                case cmd := <-fromUSB:
+                    logGetByte(cmd, "cmd")
+                    //X// Logf("@@ fromUSB @@ $%x=%d.", cmd, cmd)
+
+                    bogus := 0
+
+                    var ch byte // Used by default and C_PUTCHAR
+
+                    switch cmd {
+
+                    case 0:
+                        // Ignored.
+                        Logf("ZERO")
+
+                    case C_CYCLE:
+                        pack := GetPacket(fromUSB)
+                        if len(pack) == 8 {
+                            _cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
+                            _fl := pack[4] & 31
+                            _kind := pack[4] >> 5
+                            _data := pack[5]
+                            _addr := (uint(pack[6]) << 8) + uint(pack[7])
+
+                            var s string
+                            if _kind == CY_IDLE {
+                                s = Format("cy - ---- -- =%x #%d", _fl, _cy)
+                            } else {
+                                s = Format("cy %s %04x %02x =%x #%d", CycleKindStr[_kind], _addr, _data, _fl, _cy)
+                            }
+
+                            phys := Physical(uint(_addr))
+                            modName, modOffset := MemoryModuleOf(phys)
+                            //  s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+                            if _kind == CY_SEEN || _kind == CY_UNSEEN {
+                                Logf("%s %s:%06x :: %q+%04x %s", s, CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+                            } else {
+                                Logf("%s %s:%06x", s, CurrentHardwareMMap(), phys)
+                            }
+                        }
+
+                    case C_LOGGING,
+                        C_LOGGING + 1,
+                        C_LOGGING + 2,
+                        C_LOGGING + 3,
+                        C_LOGGING + 4,
+                        C_LOGGING + 5,
+                        C_LOGGING + 6,
+                        C_LOGGING + 7,
+                        C_LOGGING + 8,
+                        C_LOGGING + 9:
+                        pack := GetPacket(fromUSB)
+                        Logf("LOG[%d]: %q", cmd-C_LOGGING, pack)
+
+                    case C_DISK_WRITE:
+                        EmulateDiskWrite(fromUSB, channelToPico)
+
+                    case C_DISK_READ:
+                        EmulateDiskRead(fromUSB, channelToPico)
+
+                    case C_EVENT:
+                        pack := GetPacket(fromUSB)
+                        OnEvent(pack, pending)
+
+                    case C_RAM_WRITE:
+                        pack := GetPacket(fromUSB)
+                        AssertEQ(len(pack), 4)
+
+                        hi := pack[0]
+                        mid := pack[1]
+                        lo := pack[2]
+                        data := pack[3]
+                        longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
+                        // TODO -- this is what is making the machine 64, this plus we only compile level1 at the moment.
+                        longaddr &= RAM_MASK
+
+                        Logf("       =C_RAM_WRITE= %06x gets %02x (was %02x)", longaddr, data, trackRam[longaddr])
+                        trackRam[longaddr] = data
+
+                        if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
+                            HandleIOPoke(longaddr, data)
+                        }
+
+                    case C_DUMP_RAM, C_DUMP_PHYS:
+                        Logf("{{{ %s", CommandStrings[cmd])
+                    DUMPING:
+                        for {
+                            what := getByte(fromUSB)
+                            switch what {
+                            case C_DUMP_LINE:
+                                a := getByte(fromUSB)
+                                b := getByte(fromUSB)
+                                c := getByte(fromUSB)
+                                var d [16]byte
+                                for j := uint(0); j < 16; j++ {
+                                    d[j] = getByte(fromUSB)
+                                }
+
+                                if cmd == C_DUMP_PHYS {
+                                    for j := uint(0); j < 16; j++ {
+                                        longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+                                        longaddr %= RAM_SIZE
+                                        if d[j] != trackRam[longaddr] {
+                                            Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
+                                        }
+                                    }
+                                }
+
+                                var buf bytes.Buffer
+                                fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
+                                for j := 0; j < 16; j++ {
+                                    fmt.Fprintf(&buf, "%02x ", d[j])
+                                    if j == 7 {
+                                        buf.WriteByte(' ')
+                                    }
+                                }
+                                buf.WriteByte('|')
+                                for j := 0; j < 16; j++ {
+                                    r := d[j]
+                                    if r > 127 {
+                                        r = '#'
+                                    } else {
+                                        r = r & 63
+                                        if r < 32 {
+                                            r += 64
+                                        }
+                                        if r == 64 {
+                                            r = '.'
+                                        }
+                                    }
+                                    buf.WriteByte(r)
+                                }
+                                buf.WriteByte('|')
+                                Logf("%s", buf.String())
+                                break
+
+                            case C_DUMP_STOP:
+                                break DUMPING
+                            default:
+                                Logf("FUNNY CHAR: %d.", what)
+                                bogus++
+                                if bogus > 10 {
+                                    bogus = 0
+                                    break DUMPING
+                                }
+                            }
+                        }
+                        Logf("}}} %s", CommandStrings[cmd])
+
+                    default:
+                        ch = cmd
+                        fallthrough
+
+                    case C_PUTCHAR:
+                        if cmd == C_PUTCHAR {
+                            ch = getByte(fromUSB)
+                        } // otherwise ue the ch from default case.
+
+                        switch {
+                        case 32 <= ch && ch <= 126:
+                            fmt.Printf("%c", ch)
+                            cr = false
+                            if ch == '{' && previousPutChar == '^' {
+                                remember = time.Now().UnixMicro()
+                            }
+                            if ch == '@' {
+                                timer_sum, timer_count = 0, 0
+                            }
+                            if ch == '}' && previousPutChar == '^' {
+                                now := time.Now().UnixMicro()
+                                micros := now - remember
+                                fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
+                                timer_sum += micros
+                                timer_count++
+                                fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
+                            }
+                            if *LOAD != "" && LookForPreSync(ch) {
+                                PreUpload(*LOAD, channelToPico)
+                            }
+
+                        case ch == 7 || ch == 8: // BEL, BS
+                            fmt.Printf("%c", ch)
+
+                        case ch == 10 || ch == 13:
+                            if previousPutChar == 10 || previousPutChar == 13 {
+                                // skip extra newline
+                            } else {
+                                fmt.Println() // lf skips Println after cr does Println
+                            }
+
+                        default:
+                            if *CURLYDEC {
+                                fmt.Printf("{%d}", ch)
+                            } else {
+                                fmt.Printf("%c", ch)
+                            }
+                            cr = false
+                        } // end inner switch on ch range
+                        previousPutChar = ch
+
+                    case C_KEY:
+                        {
+                            if gap > 0 {
+                                gap--
+                                WriteBytes(channelToPico, C_NOKEY)
+                            } else {
+                                b1 := make([]byte, 1)
+                                sz, err := os.Stdin.Read(b1)
+                                if err != nil {
+                                    Panicf("cannot os.Stdin.Read: %v", err)
+                                }
+                                if sz == 1 {
+                                    x := b1[0]
+                                    if x == 10 { // if LF
+                                        x = 13 // use CR
+                                    }
+
+                                    row, col, plane := LookupCocoKey(x)
+
+                                    WriteBytes(channelToPico, C_KEY, row, col, plane)
+                                } else {
+                                    WriteBytes(channelToPico, C_NOKEY)
+                                }
+                            }
+                        }
+
+                    case 255:
+                        fmt.Printf("\n[255: finished]\n")
+                        Logf("go func: Received END MARK 255; exiting")
+                        close(channelFromPico)
+                        log.Fatalf("go func: Received END MARK 255; exiting")
+                        return
+
+                    } // end switch cmd
+                } // end select
+            } // end for ever
+        }() // end go func
+    }
+    */
 
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.

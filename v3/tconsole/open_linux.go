@@ -1,6 +1,7 @@
 // THIS FILE WAS MODIFIED BY Henry Strickland (github: strickyak)
 // IN THE FOLLOWING WAY:
 //   The package name was chanaged from `serial` to `main`.
+//   Rename type OpenOptions to OpenSerialOptions.
 // See serial.LICENSE
 
 package main
@@ -69,9 +70,9 @@ type serial_rs485 struct {
 }
 
 // Returns a pointer to an instantiates termios2 struct, based on the given
-// OpenOptions. Termios2 is a Linux extension which allows arbitrary baud rates
+// OpenSerialOptions. Termios2 is a Linux extension which allows arbitrary baud rates
 // to be specified.
-func makeTermios2(options OpenOptions) (*termios2, error) {
+func makeTermios2(options OpenSerialOptions) (*termios2, error) {
 
 	// Sanity check inter-character timeout and minimum read size options.
 
@@ -139,7 +140,7 @@ func makeTermios2(options OpenOptions) (*termios2, error) {
 	return t2, nil
 }
 
-func openInternal(options OpenOptions) (io.ReadWriteCloser, error) {
+func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 
 	file, openErr :=
 		os.OpenFile(
