@@ -51,10 +51,10 @@ func OpenDisks(disks string) {
 	}
 }
 
-func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
+func EmulateDiskWrite(pack []byte, channelToPico chan []byte) {
 	var disk_param [4]byte
 	for i := 0; i < 4; i++ {
-		disk_param[i] = <-fromUSB
+		disk_param[i] = pack[i]
 	}
 	hnum := disk_param[0]
 	AssertLT(hnum, MaxDiskFiles)
@@ -69,7 +69,7 @@ func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
 
 	sector := make([]byte, Os9SectorSize)
 	for i := 0; i < Os9SectorSize; i++ {
-		sector[i] = <-fromUSB
+		sector[i] = pack[i+4]
 	}
 
 	_, err = Files[hnum].OsFile.Write(sector)
@@ -79,10 +79,10 @@ func EmulateDiskWrite(fromUSB <-chan byte, channelToPico chan []byte) {
 
 }
 
-func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
+func EmulateDiskRead(pack []byte, channelToPico chan []byte) {
 	var disk_param [4]byte
 	for i := 0; i < 4; i++ {
-		disk_param[i] = <-fromUSB
+		disk_param[i] = pack[i]
 		//Logf("disk_param: %02x", disk_param[i])
 	}
 	hnum := disk_param[0]
@@ -103,6 +103,7 @@ func EmulateDiskRead(fromUSB <-chan byte, channelToPico chan []byte) {
 	}
 
 	WriteBytes(channelToPico, C_DISK_READ)
+	PutSize(channelToPico, 4+256)
 	WriteBytes(channelToPico, disk_param[:]...)
 	WriteBytes(channelToPico, sector...)
 }

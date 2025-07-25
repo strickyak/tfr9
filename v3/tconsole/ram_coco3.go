@@ -1,5 +1,5 @@
-//go:build coco3
-// +build coco3
+//XXX//go:build coco3
+//XXX// +build coco3
 
 package main
 
@@ -8,21 +8,29 @@ import (
 	"fmt"
 )
 
+type Coco3Ram struct {
+	trackRam [COCO3_RAM_SIZE]byte
+}
+
+var c3r = new(Coco3Ram)
+
 type Mapping [8]uint
 
-const RAM_SIZE = 128 * 1024 // 128K
-const RAM_MASK = RAM_SIZE - 1
-const IO_PHYS = RAM_SIZE - 256
+const COCO3_RAM_SIZE = 128 * 1024 // 128K
+const COCO3_RAM_MASK = COCO3_RAM_SIZE - 1
+const COCO3_IO_PHYS = COCO3_RAM_SIZE - 256
 
-var trackRam [RAM_SIZE]byte
+func (o *Coco3Ram) RamSize() uint { return COCO3_RAM_SIZE }
+func (o *Coco3Ram) RamMask() uint { return COCO3_RAM_MASK }
+func (o *Coco3Ram) IoPhys() uint  { return COCO3_IO_PHYS }
 
-func DumpRam() {
+func (o *Coco3Ram) DumpRam() {
 	serial := MintSerial()
 	Logf("DumpRam_%d (((((", serial)
-	for i := uint(0); i < RAM_SIZE; i += 16 {
+	for i := uint(0); i < COCO3_RAM_SIZE; i += 16 {
 		dirty := false
 		for j := uint(i); j < i+16; j++ {
-			if trackRam[j] != 0 {
+			if o.trackRam[j] != 0 {
 				dirty = true
 			}
 		}
@@ -35,12 +43,12 @@ func DumpRam() {
 			if (j & 3) == 0 {
 				buf.WriteByte(' ')
 			}
-			fmt.Fprintf(&buf, "%02x ", trackRam[j])
+			fmt.Fprintf(&buf, "%02x ", o.trackRam[j])
 		}
 		buf.WriteByte(' ')
 		buf.WriteByte('|')
 		for j := uint(i); j < i+16; j++ {
-			x := trackRam[j]
+			x := o.trackRam[j]
 			y := x & 0x7F
 			if 32 <= y && y <= 126 {
 				buf.WriteByte(y)
@@ -60,35 +68,59 @@ func DumpRam() {
 }
 
 // PPeek1: Physical Memory Peek
-func PPeek1(addr uint) byte {
-	return trackRam[addr&RAM_MASK]
+func (o *Coco3Ram) PPeek1(addr uint) byte {
+	return o.trackRam[addr&COCO3_RAM_MASK]
 }
-func PPeek2(addr uint) uint {
-	hi := PPeek1(addr)
-	lo := PPeek1(addr + 1)
+func (o *Coco3Ram) PPeek2(addr uint) uint {
+	hi := o.PPeek1(addr)
+	lo := o.PPeek1(addr + 1)
 	return (uint(hi) << 8) | uint(lo)
+}
+
+func (o *Coco3Ram) Poke1(addr uint, data byte) {
+	longaddr := o.Physical(addr)
+	o.trackRam[longaddr&COCO3_RAM_MASK] = data
+}
+
+func (o *Coco3Ram) GetTrackRam() []byte {
+	return o.trackRam[:]
+}
+
+func (o *Coco3Ram) Peek1(addr uint) byte {
+	longaddr := o.Physical(addr)
+	return o.trackRam[longaddr&COCO3_RAM_MASK]
+}
+func (o *Coco3Ram) Peek2(addr uint) uint {
+	hi := o.PPeek1(addr)
+	lo := o.PPeek1(addr + 1)
+	return (uint(hi) << 8) | uint(lo)
+}
+
+func (o *Coco3Ram) LPeek1(addr uint) byte {
+	return o.Peek1(addr)
+}
+func (o *Coco3Ram) LPeek2(addr uint) uint {
+	return o.Peek2(addr)
 }
 
 // SECOND IMPLEMENTATION
 
-func PhysicalAddrAtBlock(addr uint, block uint) uint {
+func (o *Coco3Ram) PhysicalAddrAtBlock(addr uint, block uint) uint {
 	addr &= 0x1FFF        // Use bottom 13 bits of address.
 	region := block << 13 // block provides the higher bits.
-	z := (addr | region) & (RAM_SIZE - 1)
+	z := (addr | region) & COCO3_RAM_MASK
 	//Logf("PhysicalAddrAtBlock: %04x %x -> %04x", addr, block, z)
 	return z
 }
-func Peek1AtBlock(addr uint, block uint) byte {
-	p := PhysicalAddrAtBlock(addr, block)
-	z := trackRam[p]
+func (o *Coco3Ram) Peek1AtBlock(addr uint, block uint) byte {
+	p := o.PhysicalAddrAtBlock(addr, block)
+	z := o.trackRam[p]
 	//Logf("Peek1AtBlock: %04x %x -> %04x %02x", addr, block, p, z)
 	return z
 }
 
-func PhysicalAddrWithMmu(logical uint) uint {
-	if (logical &^ 0xFFFF) != 0 {
-		Panicf("bad logical: %x", logical)
-	}
+func (o *Coco3Ram) PhysicalAddrWithMmu(logical uint) uint {
+	AssertLT(logical, 0x10000)
 
 	const DefaultBlock = 0x38
 	const IOBlock = 0x3F
@@ -101,51 +133,47 @@ func PhysicalAddrWithMmu(logical uint) uint {
 	slot := logical >> 13
 	offset := logical & 0x1FFF
 
-	e := Peek1AtBlock(MmuEnableAddr, IOBlock)
+	e := o.Peek1AtBlock(MmuEnableAddr, IOBlock)
 	enabled := (e & MmuEnableBit) != 0
 	if !enabled {
-		z := PhysicalAddrAtBlock(offset, DefaultBlock+slot)
+		z := o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
 		//Logf("PhysicalAddrWithMmu(%04x) => No %06x", uint, z)
 		return z
 	}
 
 	if 0xFF00 <= logical {
-		z := PhysicalAddrAtBlock(offset, DefaultBlock+slot)
+		z := o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
 		//Logf("PhysicalAddrWithMmu(%04x) => (FF) %06x", z)
 		return z
 	}
 
 	fexx := (e & FExxEnableBit) != 0
 	if fexx && 0xFE00 <= logical {
-		z := PhysicalAddrAtBlock(offset, DefaultBlock+slot)
+		z := o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
 		//Logf("PhysicalAddrWithMmu(%04x) => (FE) %06x", z)
 		return z
 	}
 
-	task := uint(Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
-	mapbyte := Peek1AtBlock(0xFFA0+slot+8*task, IOBlock)
-	z := PhysicalAddrAtBlock(offset, uint(mapbyte))
+	task := uint(o.Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
+	mapbyte := o.Peek1AtBlock(0xFFA0+slot+8*task, IOBlock)
+	z := o.PhysicalAddrAtBlock(offset, uint(mapbyte))
 	//Logf("PhysicalAddrWithMmu(%04x) => %x %x %06x", task, mapbyte, z)
 	return z
 }
 
-func LPeek1(addr uint) byte {
-	return trackRam[PhysicalAddrWithMmu(addr)]
-}
-
-func Who() string {
-	init1 := PPeek1(0x3ff91)
+func (o *Coco3Ram) Who() string {
+	init1 := o.PPeek1(0x3ff91)
 	mmuTask := init1 & 1
 	if mmuTask == 0 {
 		return ""
 	}
-	dProc := Peek2WithHalf(D_Proc, 0)
+	dProc := o.Peek2WithHalf(L2_D_Proc, 0)
 	if dProc == 0 {
 		return ""
 	}
-	procID := Peek1WithHalf(dProc+P_ID, 0)
-	pModul := Peek2WithHalf(dProc+P_PModul, 0)
-	mName := Peek2WithHalf(pModul+M_Name, 1)
+	procID := o.Peek1WithHalf(dProc+L2_P_ID, 0)
+	pModul := o.Peek2WithHalf(dProc+L2_P_PModul, 0)
+	mName := o.Peek2WithHalf(pModul+L2_M_Name, 1)
 	s := pModul + mName
 
 	// Logf("dP=%x pM=%x mN=%x s=%x", dProc, pModul, mName, s)
@@ -153,7 +181,7 @@ func Who() string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%x:", procID)
 	for {
-		ch := Peek1WithHalf(s, 1)
+		ch := o.Peek1WithHalf(s, 1)
 		s++
 		a := ch & 0x7f
 		if '!' <= a && a <= '~' {
@@ -171,7 +199,7 @@ func Who() string {
 	return buf.String()
 }
 
-func CurrentMapString() string {
+func (o *Coco3Ram) CurrentMapString() string {
 	const DefaultBlock = 0x38
 	const IOBlock = 0x3F
 	const MmuEnableAddr = 0xFF90
@@ -180,26 +208,26 @@ func CurrentMapString() string {
 	const MmuTaskAddr = 0xFF91
 	const MmuTaskBit = 0x01
 
-	e := Peek1AtBlock(MmuEnableAddr, IOBlock)
+	e := o.Peek1AtBlock(MmuEnableAddr, IOBlock)
 	enabled := (e & MmuEnableBit) != 0
 
 	if !enabled {
 		return "No"
 	}
 
-	task := uint(Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
+	task := uint(o.Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
 
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "T%x[", task)
 	for a := uint(0); a < 8; a++ {
-		fmt.Fprintf(&buf, "%x ", LPeek1(a+0xFFA0+8*task))
+		fmt.Fprintf(&buf, "%x ", o.LPeek1(a+0xFFA0+8*task))
 	}
 	fmt.Fprintf(&buf, "]")
 
 	return buf.String()
 }
 
-func Peek1WithMapping(addr uint, m Mapping) byte {
+func (o *Coco3Ram) Peek1WithMapping(addr uint, m Mapping) byte {
 	logBlock := (addr >> 13) & 7
 	physBlock := m[logBlock]
 	if addr >= 0xFF00 {
@@ -208,60 +236,63 @@ func Peek1WithMapping(addr uint, m Mapping) byte {
 		physBlock = 0x3F
 	}
 	ptr := (addr & 0x1FFF) | (uint(physBlock) << 13)
-	return PPeek1(ptr)
+	return o.PPeek1(ptr)
 }
-func Peek2WithMapping(addr uint, m Mapping) uint {
-	hi := Peek1WithMapping(addr, m)
-	lo := Peek1WithMapping(addr+1, m)
+func (o *Coco3Ram) Peek2WithMapping(addr uint, m Mapping) uint {
+	hi := o.Peek1WithMapping(addr, m)
+	lo := o.Peek1WithMapping(addr+1, m)
 	return (uint(hi) << 8) | uint(lo)
 }
-func MapAddrWithMapping(logical uint, m Mapping) uint {
+func (o *Coco3Ram) MapAddrWithMapping(logical uint, m Mapping) uint {
 	slot := 7 & (logical >> 13)
 	low13 := uint(logical & 0x1FFF)
 	physicalPage := m[slot]
 	return (uint(physicalPage) << 13) | low13
 }
 
-func HalfNumberToMapping(half byte) Mapping {
-	base := IO_PHYS + 0xA0 + (8 * uint(half))
+func (o *Coco3Ram) HalfNumberToMapping(half byte) Mapping {
+	base := COCO3_IO_PHYS + 0xA0 + (8 * uint(half))
 	var m Mapping
 	for i := uint(0); i < 8; i++ {
-		m[i] = uint(PPeek1(base + i))
+		m[i] = uint(o.PPeek1(base + i))
 	}
 	// Log("Half %x %x => %x", half, base, m)
 	return m
 }
-func Peek1WithHalf(addr uint, half byte) byte {
-	m := HalfNumberToMapping(half)
-	return Peek1WithMapping(addr, m)
+func (o *Coco3Ram) Peek1WithHalf(addr uint, half byte) byte {
+	m := o.HalfNumberToMapping(half)
+	return o.Peek1WithMapping(addr, m)
 }
-func Peek2WithHalf(addr uint, half byte) uint {
-	m := HalfNumberToMapping(half)
-	return Peek2WithMapping(addr, m)
+func (o *Coco3Ram) Peek2WithHalf(addr uint, half byte) uint {
+	m := o.HalfNumberToMapping(half)
+	return o.Peek2WithMapping(addr, m)
 }
-func Physical(logical uint) uint {
-	block := byte(0x3F) // tentative
-	low13 := uint(logical & 0x1FFF)
+func (o *Coco3Ram) Physical(logical uint) uint {
+	return o.PhysicalAddrWithMmu(logical)
+	/*
+		block := byte(0x3F) // tentative
+		low13 := uint(logical & 0x1FFF)
 
-	if logical < 0xFFE0 { // must compute block
-		mapHW := uint(0x3FFA0) // Task 0 map hardware
-		if (PPeek1(0x3FF91) & 1) != 0 {
-			mapHW += 8 // task 1 map hardware
+		if logical < 0xFE00 { // must compute block
+			mapHW := uint(0x3FFA0) // Task 0 map hardware
+			if (o.PPeek1(0x3FF91) & 1) != 0 {
+				mapHW += 8 // task 1 map hardware
+			}
+			//log.Printf("mapHW: %x %x %x %x %x %x %x %x",
+			//o.PPeek1(mapHW+0),
+			//o.PPeek1(mapHW+1),
+			//o.PPeek1(mapHW+2),
+			//o.PPeek1(mapHW+3),
+			//o.PPeek1(mapHW+4),
+			//o.PPeek1(mapHW+5),
+			//o.PPeek1(mapHW+6),
+			//o.PPeek1(mapHW+7))
+
+			slot := 7 & (logical >> 13)
+			block = o.PPeek1(mapHW + slot)
+			//log.Printf("Physical: a=%x b=%x p=%x", logical, block, (uint(block) << 13) | low13)
 		}
-		//log.Printf("mapHW: %x %x %x %x %x %x %x %x",
-		//PPeek1(mapHW+0),
-		//PPeek1(mapHW+1),
-		//PPeek1(mapHW+2),
-		//PPeek1(mapHW+3),
-		//PPeek1(mapHW+4),
-		//PPeek1(mapHW+5),
-		//PPeek1(mapHW+6),
-		//PPeek1(mapHW+7))
 
-		slot := 7 & (logical >> 13)
-		block = PPeek1(mapHW + slot)
-		//log.Printf("Physical: a=%x b=%x p=%x", logical, block, (uint(block) << 13) | low13)
-	}
-
-	return (uint(block) << 13) | low13
+		return (uint(block) << 13) | low13
+	*/
 }

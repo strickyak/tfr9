@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	// "strconv"
 	// "strings"
 	"syscall"
@@ -21,73 +22,71 @@ import (
 	// "github.com/jacobsa/go-serial/serial"
 )
 
-var CURLYDEC = flag.Bool("curlydec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
+var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
 var LOAD = flag.String("load", "", "Decb file to pre-load into 6309 RAM")
 var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "/home/strick/coco-shelf/tfr9/v2/generated/level2.disk", "Comma-separated filepaths to disk files, in order of drive number")
-
-const WireVerbose = false
+var USB_VERBOSE = flag.Bool("usb_verbose", false, "enable verbose debugging output of bytes over the USB")
 
 const (
-	C_LOGGING    = 130 // Ten levels, 130 to 139
-	C_CYCLE      = 160 // one machine cycle
-	C_PUTCHAR    = 161
-	C_STOP       = 163
-	C_ABORT      = 164
-	C_KEY        = 165
-	C_NOKEY      = 166
-	C_DUMP_RAM   = 167
-	C_DUMP_LINE  = 168
-	C_DUMP_STOP  = 169
-	C_DUMP_PHYS  = 170
-	C_RAM_WRITE  = 171
+	// Long form codes, 128 to 191.
+	// Followed by a 1-byte or 2-byte Size value.
+	// If following byte in 128 to 191, it is 1-byte, use low 6 bits for size.
+	// If following byte in 192 to 255, it is 2-byte, use low 6 bits times 64, plus low 6 bits of next byte.
+	C_LOGGING = 130 // Ten levels, 130 to 139
+
+	C_PRE_LOAD = 163 // poke bytes packet, tconsole to tmanager: size, 2-byte addr, data[].
+
+	C_DUMP_RAM  = 167
+	C_DUMP_LINE = 168
+	C_DUMP_STOP = 169
+	C_DUMP_PHYS = 170
+
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
 	C_CONFIG     = 175
+	EVENT_RTI    = 176
+	EVENT_SWI2   = 177
 
-	PRE_POKE = 190 // poke bytes packet, tconsole to tmanager: size, 2-byte addr, data[].
-	// EVENT_PC_M8  = 238
-	// EVENT_GIME   = 239
-	EVENT_RTI  = 240
-	EVENT_SWI2 = 241
-	/*
-		EVENT_CC   = 242
-		EVENT_D    = 243
-		EVENT_DP   = 244
-		EVENT_X    = 245
-		EVENT_Y    = 246
-		EVENT_U    = 247
-		EVENT_PC   = 248
-		EVENT_SP   = 249
-	*/
+	// Short form codes, 192 to 255.
+	// The packet length does not follow,
+	// but is in the low nybble.
+	C_PUTCHAR    = 193 // low nybble is 1.  Payload is "Data"
+	C_RAM2_WRITE = 195 // low nybble is 3.  Payload is "AHi ALo Data"
+	C_RAM3_WRITE = 196 // low nybble is 4.  Payload is "AHighest AHi ALo Data"
+	C_CYCLE      = 200 // one machine cycle. low nybble is 8. Payload is "cycle4 kind_fl1 data1 addr2"
+
+	// C_NOKEY = 208  // low nybble is 0.
+	// C_KEY = 211  // low nybble is 3.  Payload is { row, col, plane }
 )
 
 var CommandStrings = map[byte]string{
-	130: "C_LOGGING_0",
-	131: "C_LOGGING_1",
-	132: "C_LOGGING_2",
-	133: "C_LOGGING_3",
-	134: "C_LOGGING_4",
-	135: "C_LOGGING_5",
-	136: "C_LOGGING_6",
-	137: "C_LOGGING_7",
-	138: "C_LOGGING_8",
-	139: "C_LOGGING_9",
-	161: "C_PUTCHAR",
-	163: "C_STOP",
-	164: "C_ABORT",
-	165: "C_KEY",
-	166: "C_NOKEY",
-	167: "C_DUMP_RAM",
-	168: "C_DUMP_LINE",
-	169: "C_DUMP_STOP",
-	170: "C_DUMP_PHYS",
-	171: "C_RAM_WRITE",
-	172: "C_EVENT",
-	240: "EVENT_RTI",
-	241: "EVENT_SWI2",
+	C_LOGGING + 0: "C_LOGGING_0",
+	C_LOGGING + 1: "C_LOGGING_1",
+	C_LOGGING + 2: "C_LOGGING_2",
+	C_LOGGING + 3: "C_LOGGING_3",
+	C_LOGGING + 4: "C_LOGGING_4",
+	C_LOGGING + 5: "C_LOGGING_5",
+	C_LOGGING + 6: "C_LOGGING_6",
+	C_LOGGING + 7: "C_LOGGING_7",
+	C_LOGGING + 8: "C_LOGGING_8",
+	C_LOGGING + 9: "C_LOGGING_9",
+	C_PUTCHAR:     "C_PUTCHAR",
+	// C_STOP: "C_STOP",
+	// C_ABORT: "C_ABORT",
+	// C_KEY: "C_KEY",
+	// C_NOKEY: "C_NOKEY",
+	C_DUMP_RAM:   "C_DUMP_RAM",
+	C_DUMP_LINE:  "C_DUMP_LINE",
+	C_DUMP_STOP:  "C_DUMP_STOP",
+	C_DUMP_PHYS:  "C_DUMP_PHYS",
+	C_RAM2_WRITE: "C_RAM2_WRITE",
+	C_RAM3_WRITE: "C_RAM3_WRITE",
+	C_EVENT:      "C_EVENT",
+	EVENT_RTI:    "EVENT_RTI",
+	EVENT_SWI2:   "EVENT_SWI2",
 }
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
@@ -101,6 +100,37 @@ var LastSerialNumber uint
 func MintSerial() uint {
 	LastSerialNumber++
 	return LastSerialNumber
+}
+
+// CpuFlags are the five extra bits on bus G1 to G5
+// when the counter is in State 2.  G0 is R/W but
+// we don't need to show that, because it's already
+// been printed on the trace line.
+var LookupCpuFlags [64]string
+
+func init() {
+	for i := 0; i < 64; i++ {
+		s := ""
+		if (i & 0x01) != 0 {
+			// don't show the R/W bit.
+		}
+		if (i & 0x02) != 0 {
+			s += "V" // AVMA -> V
+		}
+		if (i & 0x04) != 0 {
+			s += "L" // LIC -> L
+		}
+		if (i & 0x08) != 0 {
+			s += "A" // BA -> A
+		}
+		if (i & 0x10) != 0 {
+			s += "S" // BS -> S
+		}
+		if (i & 0x20) != 0 {
+			s += "Y" // BUSY -> Y
+		}
+		LookupCpuFlags[i] = s
+	}
 }
 
 // plane: 0=no key 1=normal 2=shifted
@@ -138,7 +168,7 @@ func getByte(fromUSB <-chan byte) byte {
 	return x
 }
 func logGetByte(x byte, why string) {
-	if WireVerbose {
+	if *USB_VERBOSE {
 		out := ""
 		if why == "cmd" {
 			out = ">>>>>"
@@ -187,10 +217,7 @@ func TryRun(inkey chan byte) {
 }
 
 func SttyCbreakMode(turnOn bool) {
-	// HINT FROM https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
-	// exec.Command("stty", "cbreak", "min", "1").Run()
-	// exec.Command("stty", "-f", "/dev/tty", "-echo").Run()
-	// exec.Command("stty", "-echo").Run()
+	// See also https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
 	sttyPath, err := exec.LookPath("stty")
 	if err != nil {
 		log.Fatalf("Cannot find stty: %v", err)
@@ -303,260 +330,267 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	var timer_count int64
 	pending := make(map[string]*EventRec)
 
-		gap := 1
-		for {
-			select {
-			case inchar := <-inkey:
-				if 1 <= inchar && inchar <= 127 {
-					WriteBytes(channelToPico, inchar)
+	// gap := 1 // was for C_KEY, C_NOKEY
+	for {
+		select {
+		case inchar := <-inkey: // SELECT CASE user typed a character
+			if 1 <= inchar && inchar <= 127 {
+				WriteBytes(channelToPico, inchar)
+			}
+
+		case cmd := <-fromUSB: // SELECT CASE Pico sent a byte over the USB.
+			logGetByte(cmd, "cmd")
+
+			bogus := 0
+
+			var ch byte // Used by default and C_PUTCHAR
+
+			switch cmd {
+
+			case 0:
+				// NO OP.
+				Logf("ZERO")
+
+			case C_CYCLE:
+				pack := GetPacket(fromUSB, cmd)
+				if len(pack) == 8 {
+					_cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
+					_fl := pack[4] & 31
+					_kind := pack[4] >> 5
+					_data := pack[5]
+					_addr := (uint(pack[6]) << 8) + uint(pack[7])
+
+					var s string
+					if _kind == CY_IDLE {
+						s = Format("cy - ---- -- %s#%d", LookupCpuFlags[_fl], _cy)
+					} else {
+						s = Format("cy %s %04x %02x %s#%d", CycleKindStr[_kind], _addr, _data, LookupCpuFlags[_fl], _cy)
+					}
+
+					phys := ram.Physical(uint(_addr))
+					modName, modOffset := os9.MemoryModuleOf(phys)
+					if _kind == CY_SEEN || _kind == CY_UNSEEN {
+						Logf("%s %s%%%06x :%q+%04x %s", s, os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+					} else {
+						Logf("%s %s%%%06x", s, os9.CurrentHardwareMMap(), phys)
+					}
 				}
 
-			case cmd := <-fromUSB:
-				logGetByte(cmd, "cmd")
-				//X// Logf("@@ fromUSB @@ $%x=%d.", cmd, cmd)
+			case C_LOGGING,
+				C_LOGGING + 1,
+				C_LOGGING + 2,
+				C_LOGGING + 3,
+				C_LOGGING + 4,
+				C_LOGGING + 5,
+				C_LOGGING + 6,
+				C_LOGGING + 7,
+				C_LOGGING + 8,
+				C_LOGGING + 9:
+				pack := GetPacket(fromUSB, cmd)
+				Logf("LOG[%d]: %q", cmd-C_LOGGING, pack)
 
-				bogus := 0
+			case C_DISK_WRITE:
+				//Logf("C_DISK_WRITE[%d]: ...", 111)
+				pack := GetPacket(fromUSB, cmd)
+				//Logf("C_DISK_WRITE[%d]: %q ...", 222, pack)
+				EmulateDiskWrite(pack, channelToPico)
+				//Logf("C_DISK_WRITE[%d]: %q", 333, pack)
 
-				var ch byte // Used by default and C_PUTCHAR
+			case C_DISK_READ:
+				pack := GetPacket(fromUSB, cmd)
+				EmulateDiskRead(pack, channelToPico)
 
-				switch cmd {
+			case C_EVENT:
+				pack := GetPacket(fromUSB, cmd)
+				OnEvent(pack, pending)
 
-				case 0:
-					// Ignored.
-					Logf("ZERO")
+			case C_RAM3_WRITE:
+				panic("C_RAM3_WRITE not imp")
 
-				case C_CYCLE:
-					pack := GetPacket(fromUSB)
-					if len(pack) == 8 {
-						_cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
-						_fl := pack[4] & 31
-						_kind := pack[4] >> 5
-						_data := pack[5]
-						_addr := (uint(pack[6]) << 8) + uint(pack[7])
+			case C_RAM2_WRITE:
+				pack := GetPacket(fromUSB, cmd)
+				AssertEQ(len(pack), 3)
 
-						var s string
-						if _kind == CY_IDLE {
-							s = Format("cy - ---- -- =%x #%d", _fl, _cy)
-						} else {
-							s = Format("cy %s %04x %02x =%x #%d", CycleKindStr[_kind], _addr, _data, _fl, _cy)
+				hi := pack[0]
+				lo := pack[1]
+				data := pack[2]
+				addr := (uint(hi) << 8) | uint(lo)
+
+				Logf("       =C_RAM_WRITE= %04x %%%06x gets %02x (was %02x)", addr, ram.Physical(addr), data, ram.Peek1(addr))
+				ram.Poke1(addr, data)
+
+				if (addr & 0xFF00) == 0xFF00 {
+					HandleIOPoke(addr, data)
+				}
+
+			case C_DUMP_RAM, C_DUMP_PHYS:
+				Logf("{{{ %s", CommandStrings[cmd])
+			DUMPING:
+				for {
+					what := getByte(fromUSB)
+					switch what {
+					case C_DUMP_LINE:
+						a := getByte(fromUSB)
+						b := getByte(fromUSB)
+						c := getByte(fromUSB)
+						var d [16]byte
+						for j := uint(0); j < 16; j++ {
+							d[j] = getByte(fromUSB)
 						}
 
-						phys := Physical(uint(_addr))
-						modName, modOffset := MemoryModuleOf(phys)
-						//  s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-						if _kind == CY_SEEN || _kind == CY_UNSEEN {
-							Logf("%s %s:%06x :: %q+%04x %s", s, CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-						} else {
-							Logf("%s %s:%06x", s, CurrentHardwareMMap(), phys)
-						}
-					}
-
-				case C_LOGGING,
-					C_LOGGING + 1,
-					C_LOGGING + 2,
-					C_LOGGING + 3,
-					C_LOGGING + 4,
-					C_LOGGING + 5,
-					C_LOGGING + 6,
-					C_LOGGING + 7,
-					C_LOGGING + 8,
-					C_LOGGING + 9:
-					pack := GetPacket(fromUSB)
-					Logf("LOG[%d]: %q", cmd-C_LOGGING, pack)
-
-				case C_DISK_WRITE:
-					EmulateDiskWrite(fromUSB, channelToPico)
-
-				case C_DISK_READ:
-					EmulateDiskRead(fromUSB, channelToPico)
-
-				case C_EVENT:
-					pack := GetPacket(fromUSB)
-					OnEvent(pack, pending)
-
-				case C_RAM_WRITE:
-					pack := GetPacket(fromUSB)
-					AssertEQ(len(pack), 4)
-
-					hi := pack[0]
-					mid := pack[1]
-					lo := pack[2]
-					data := pack[3]
-					longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
-					// TODO -- this is what is making the machine 64, this plus we only compile level1 at the moment.
-					longaddr &= RAM_MASK
-
-					Logf("       =C_RAM_WRITE= %06x gets %02x (was %02x)", longaddr, data, trackRam[longaddr])
-					trackRam[longaddr] = data
-
-					if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
-						HandleIOPoke(longaddr, data)
-					}
-
-				case C_DUMP_RAM, C_DUMP_PHYS:
-					Logf("{{{ %s", CommandStrings[cmd])
-				DUMPING:
-					for {
-						what := getByte(fromUSB)
-						switch what {
-						case C_DUMP_LINE:
-							a := getByte(fromUSB)
-							b := getByte(fromUSB)
-							c := getByte(fromUSB)
-							var d [16]byte
+						if cmd == C_DUMP_PHYS {
 							for j := uint(0); j < 16; j++ {
-								d[j] = getByte(fromUSB)
-							}
-
-							if cmd == C_DUMP_PHYS {
-								for j := uint(0); j < 16; j++ {
-									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-									longaddr %= RAM_SIZE
-									if d[j] != trackRam[longaddr] {
-										Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
-									}
+								longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+								longaddr %= ram.RamSize()
+								if d[j] != ram.GetTrackRam()[longaddr] {
+									Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], ram.GetTrackRam()[longaddr])
 								}
-							}
-
-							var buf bytes.Buffer
-							fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
-							for j := 0; j < 16; j++ {
-								fmt.Fprintf(&buf, "%02x ", d[j])
-								if j == 7 {
-									buf.WriteByte(' ')
-								}
-							}
-							buf.WriteByte('|')
-							for j := 0; j < 16; j++ {
-								r := d[j]
-								if r > 127 {
-									r = '#'
-								} else {
-									r = r & 63
-									if r < 32 {
-										r += 64
-									}
-									if r == 64 {
-										r = '.'
-									}
-								}
-								buf.WriteByte(r)
-							}
-							buf.WriteByte('|')
-							Logf("%s", buf.String())
-							break
-
-						case C_DUMP_STOP:
-							break DUMPING
-						default:
-							Logf("FUNNY CHAR: %d.", what)
-							bogus++
-							if bogus > 10 {
-								bogus = 0
-								break DUMPING
 							}
 						}
+
+						var buf bytes.Buffer
+						fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
+						for j := 0; j < 16; j++ {
+							fmt.Fprintf(&buf, "%02x ", d[j])
+							if j == 7 {
+								buf.WriteByte(' ')
+							}
+						}
+						buf.WriteByte('|')
+						for j := 0; j < 16; j++ {
+							r := d[j]
+							if r > 127 {
+								r = '#'
+							} else {
+								r = r & 63
+								if r < 32 {
+									r += 64
+								}
+								if r == 64 {
+									r = '.'
+								}
+							}
+							buf.WriteByte(r)
+						}
+						buf.WriteByte('|')
+						Logf("%s", buf.String())
+						break
+
+					case C_DUMP_STOP:
+						break DUMPING
+					default:
+						Logf("FUNNY CHAR: %d.", what)
+						bogus++
+						if bogus > 10 {
+							bogus = 0
+							break DUMPING
+						}
 					}
-					Logf("}}} %s", CommandStrings[cmd])
+				}
+				Logf("}}} %s", CommandStrings[cmd])
+
+			default:
+				if 1 <= cmd && cmd <= 127 {
+					ch = cmd
+				} else {
+					log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ X")
+					debug.PrintStack()
+					log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Y")
+					log.Fatalf("cmd == %d", cmd)
+					panic(cmd)
+				}
+				fallthrough
+
+			case C_PUTCHAR:
+				if cmd == C_PUTCHAR {
+					ch = getByte(fromUSB)
+				} // otherwise use the ch from default case.
+
+				switch {
+				case 32 <= ch && ch <= 126:
+					fmt.Printf("%c", ch)
+					cr = false
+					if ch == '{' && previousPutChar == '^' {
+						remember = time.Now().UnixMicro()
+					}
+					if ch == '@' {
+						timer_sum, timer_count = 0, 0
+					}
+					if ch == '}' && previousPutChar == '^' {
+						now := time.Now().UnixMicro()
+						micros := now - remember
+						fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
+						timer_sum += micros
+						timer_count++
+						fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
+					}
+					if *LOAD != "" && LookForPreSync(ch) {
+						PreUpload(*LOAD, channelToPico)
+					}
+
+				case ch == 7 || ch == 8: // BEL, BS
+					fmt.Printf("%c", ch)
+
+				case ch == 10 || ch == 13:
+					if previousPutChar == 10 || previousPutChar == 13 {
+						// skip extra newline
+					} else {
+						fmt.Println() // lf skips Println after cr does Println
+					}
 
 				default:
-					ch = cmd
-					fallthrough
-
-				case C_PUTCHAR:
-					if cmd == C_PUTCHAR {
-						ch = getByte(fromUSB)
-					} // otherwise ue the ch from default case.
-
-					switch {
-					case 32 <= ch && ch <= 126:
-						fmt.Printf("%c", ch)
-						cr = false
-						if ch == '{' && previousPutChar == '^' {
-							remember = time.Now().UnixMicro()
-						}
-						if ch == '@' {
-							timer_sum, timer_count = 0, 0
-						}
-						if ch == '}' && previousPutChar == '^' {
-							now := time.Now().UnixMicro()
-							micros := now - remember
-							fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
-							timer_sum += micros
-							timer_count++
-							fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
-						}
-						if *LOAD != "" && LookForPreSync(ch) {
-							PreUpload(*LOAD, channelToPico)
-						}
-
-					case ch == 7 || ch == 8: // BEL, BS
-						fmt.Printf("%c", ch)
-
-					case ch == 10 || ch == 13:
-						if previousPutChar == 10 || previousPutChar == 13 {
-							// skip extra newline
-						} else {
-							fmt.Println() // lf skips Println after cr does Println
-						}
-
-					default:
-						if *CURLYDEC {
-							fmt.Printf("{%d}", ch)
-						} else {
-							fmt.Printf("%c", ch)
-						}
-						cr = false
-					} // end inner switch on ch range
-					previousPutChar = ch
-
-				case C_KEY:
-					{
-						if gap > 0 {
-							gap--
-							WriteBytes(channelToPico, C_NOKEY)
-						} else {
-							b1 := make([]byte, 1)
-							sz, err := os.Stdin.Read(b1)
-							if err != nil {
-								Panicf("cannot os.Stdin.Read: %v", err)
-							}
-							if sz == 1 {
-								x := b1[0]
-								if x == 10 { // if LF
-									x = 13 // use CR
-								}
-
-								row, col, plane := LookupCocoKey(x)
-
-								WriteBytes(channelToPico, C_KEY, row, col, plane)
-							} else {
-								WriteBytes(channelToPico, C_NOKEY)
-							}
-						}
+					if *CURLY_DEC {
+						fmt.Printf("{%d}", ch) // Use curly decimal to make it printable.
+					} else {
+						fmt.Printf("%c", ch) // control sequences allowed.
 					}
+					cr = false
+				} // end inner switch on ch range
+				previousPutChar = ch
 
-				case 255:
-					fmt.Printf("\n[255: finished]\n")
-					Logf("go func: Received END MARK 255; exiting")
-					close(channelFromPico)
-					log.Fatalf("go func: Received END MARK 255; exiting")
-					return
-
-				} // end switch cmd
 				/*
-				 */
-			} // end select
-		} // end for ever
+					case C_KEY:
+						{
+							if gap > 0 {
+								gap--
+								WriteBytes(channelToPico, C_NOKEY)
+							} else {
+								b1 := make([]byte, 1)
+								sz, err := os.Stdin.Read(b1)
+								if err != nil {
+									Panicf("cannot os.Stdin.Read: %v", err)
+								}
+								if sz == 1 {
+									x := b1[0]
+									if x == 10 { // if LF
+										x = 13 // use CR
+									}
+
+									row, col, plane := LookupCocoKey(x)
+
+									WriteBytes(channelToPico, C_KEY, row, col, plane)
+								} else {
+									WriteBytes(channelToPico, C_NOKEY)
+								}
+							}
+						}
+				*/
+			case 255:
+				fmt.Printf("\n[255: finished]\n")
+				Logf("go func: Received END MARK 255; exiting")
+				close(channelFromPico)
+				log.Fatalf("go func: Received END MARK 255; exiting")
+				return
+
+			} // end switch cmd
+			/*
+			 */
+		} // end select
+	} // end for ever
 } // RunSelect
 
 func Run(inkey chan byte) {
 	const SERIAL_BUFFER_SIZE = 1024
-
-	//var previousPutChar byte
-	//var remember int64
-	//var timer_sum int64
-	//var timer_count int64
 
 	// Set up options for Serial Port.
 	serialOptions := OpenSerialOptions{
@@ -566,9 +600,6 @@ func Run(inkey chan byte) {
 		StopBits:        1,
 		MinimumReadSize: 1,
 	}
-
-	//pending := make(map[string]*EventRec)
-
 	// Open the Serial Port.
 	serialPort, err := OpenSerial(serialOptions)
 	if err != nil {
@@ -578,6 +609,11 @@ func Run(inkey chan byte) {
 	// Make sure to close it later.
 	defer serialPort.Close()
 
+	ram = c3r
+	os9 = l2
+	ram = c1r
+	os9 = l1
+
 	channelToPico := make(chan []byte, 1024)
 
 	go ToUsbRoutine(serialPort, channelToPico)
@@ -585,257 +621,7 @@ func Run(inkey chan byte) {
 	channelFromPico := make(chan byte, SERIAL_BUFFER_SIZE)
 	var fromUSB <-chan byte = channelFromPico
 
-    go RunSelect(inkey, fromUSB, channelToPico, channelFromPico)
-
-/*
-    if false {
-        go func() {
-            gap := 1
-            for {
-                select {
-                case inchar := <-inkey:
-                    if 1 <= inchar && inchar <= 127 {
-                        WriteBytes(channelToPico, inchar)
-                    }
-
-                case cmd := <-fromUSB:
-                    logGetByte(cmd, "cmd")
-                    //X// Logf("@@ fromUSB @@ $%x=%d.", cmd, cmd)
-
-                    bogus := 0
-
-                    var ch byte // Used by default and C_PUTCHAR
-
-                    switch cmd {
-
-                    case 0:
-                        // Ignored.
-                        Logf("ZERO")
-
-                    case C_CYCLE:
-                        pack := GetPacket(fromUSB)
-                        if len(pack) == 8 {
-                            _cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
-                            _fl := pack[4] & 31
-                            _kind := pack[4] >> 5
-                            _data := pack[5]
-                            _addr := (uint(pack[6]) << 8) + uint(pack[7])
-
-                            var s string
-                            if _kind == CY_IDLE {
-                                s = Format("cy - ---- -- =%x #%d", _fl, _cy)
-                            } else {
-                                s = Format("cy %s %04x %02x =%x #%d", CycleKindStr[_kind], _addr, _data, _fl, _cy)
-                            }
-
-                            phys := Physical(uint(_addr))
-                            modName, modOffset := MemoryModuleOf(phys)
-                            //  s += fmt.Sprintf(" %s:%06x :: %q+%04x %s", CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-                            if _kind == CY_SEEN || _kind == CY_UNSEEN {
-                                Logf("%s %s:%06x :: %q+%04x %s", s, CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-                            } else {
-                                Logf("%s %s:%06x", s, CurrentHardwareMMap(), phys)
-                            }
-                        }
-
-                    case C_LOGGING,
-                        C_LOGGING + 1,
-                        C_LOGGING + 2,
-                        C_LOGGING + 3,
-                        C_LOGGING + 4,
-                        C_LOGGING + 5,
-                        C_LOGGING + 6,
-                        C_LOGGING + 7,
-                        C_LOGGING + 8,
-                        C_LOGGING + 9:
-                        pack := GetPacket(fromUSB)
-                        Logf("LOG[%d]: %q", cmd-C_LOGGING, pack)
-
-                    case C_DISK_WRITE:
-                        EmulateDiskWrite(fromUSB, channelToPico)
-
-                    case C_DISK_READ:
-                        EmulateDiskRead(fromUSB, channelToPico)
-
-                    case C_EVENT:
-                        pack := GetPacket(fromUSB)
-                        OnEvent(pack, pending)
-
-                    case C_RAM_WRITE:
-                        pack := GetPacket(fromUSB)
-                        AssertEQ(len(pack), 4)
-
-                        hi := pack[0]
-                        mid := pack[1]
-                        lo := pack[2]
-                        data := pack[3]
-                        longaddr := (uint(hi) << 16) | (uint(mid) << 8) | uint(lo)
-                        // TODO -- this is what is making the machine 64, this plus we only compile level1 at the moment.
-                        longaddr &= RAM_MASK
-
-                        Logf("       =C_RAM_WRITE= %06x gets %02x (was %02x)", longaddr, data, trackRam[longaddr])
-                        trackRam[longaddr] = data
-
-                        if IO_PHYS <= longaddr && longaddr <= IO_PHYS+255 {
-                            HandleIOPoke(longaddr, data)
-                        }
-
-                    case C_DUMP_RAM, C_DUMP_PHYS:
-                        Logf("{{{ %s", CommandStrings[cmd])
-                    DUMPING:
-                        for {
-                            what := getByte(fromUSB)
-                            switch what {
-                            case C_DUMP_LINE:
-                                a := getByte(fromUSB)
-                                b := getByte(fromUSB)
-                                c := getByte(fromUSB)
-                                var d [16]byte
-                                for j := uint(0); j < 16; j++ {
-                                    d[j] = getByte(fromUSB)
-                                }
-
-                                if cmd == C_DUMP_PHYS {
-                                    for j := uint(0); j < 16; j++ {
-                                        longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-                                        longaddr %= RAM_SIZE
-                                        if d[j] != trackRam[longaddr] {
-                                            Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], trackRam[longaddr])
-                                        }
-                                    }
-                                }
-
-                                var buf bytes.Buffer
-                                fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
-                                for j := 0; j < 16; j++ {
-                                    fmt.Fprintf(&buf, "%02x ", d[j])
-                                    if j == 7 {
-                                        buf.WriteByte(' ')
-                                    }
-                                }
-                                buf.WriteByte('|')
-                                for j := 0; j < 16; j++ {
-                                    r := d[j]
-                                    if r > 127 {
-                                        r = '#'
-                                    } else {
-                                        r = r & 63
-                                        if r < 32 {
-                                            r += 64
-                                        }
-                                        if r == 64 {
-                                            r = '.'
-                                        }
-                                    }
-                                    buf.WriteByte(r)
-                                }
-                                buf.WriteByte('|')
-                                Logf("%s", buf.String())
-                                break
-
-                            case C_DUMP_STOP:
-                                break DUMPING
-                            default:
-                                Logf("FUNNY CHAR: %d.", what)
-                                bogus++
-                                if bogus > 10 {
-                                    bogus = 0
-                                    break DUMPING
-                                }
-                            }
-                        }
-                        Logf("}}} %s", CommandStrings[cmd])
-
-                    default:
-                        ch = cmd
-                        fallthrough
-
-                    case C_PUTCHAR:
-                        if cmd == C_PUTCHAR {
-                            ch = getByte(fromUSB)
-                        } // otherwise ue the ch from default case.
-
-                        switch {
-                        case 32 <= ch && ch <= 126:
-                            fmt.Printf("%c", ch)
-                            cr = false
-                            if ch == '{' && previousPutChar == '^' {
-                                remember = time.Now().UnixMicro()
-                            }
-                            if ch == '@' {
-                                timer_sum, timer_count = 0, 0
-                            }
-                            if ch == '}' && previousPutChar == '^' {
-                                now := time.Now().UnixMicro()
-                                micros := now - remember
-                                fmt.Printf("[%.6f : ", float64(micros)/1000000.0)
-                                timer_sum += micros
-                                timer_count++
-                                fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
-                            }
-                            if *LOAD != "" && LookForPreSync(ch) {
-                                PreUpload(*LOAD, channelToPico)
-                            }
-
-                        case ch == 7 || ch == 8: // BEL, BS
-                            fmt.Printf("%c", ch)
-
-                        case ch == 10 || ch == 13:
-                            if previousPutChar == 10 || previousPutChar == 13 {
-                                // skip extra newline
-                            } else {
-                                fmt.Println() // lf skips Println after cr does Println
-                            }
-
-                        default:
-                            if *CURLYDEC {
-                                fmt.Printf("{%d}", ch)
-                            } else {
-                                fmt.Printf("%c", ch)
-                            }
-                            cr = false
-                        } // end inner switch on ch range
-                        previousPutChar = ch
-
-                    case C_KEY:
-                        {
-                            if gap > 0 {
-                                gap--
-                                WriteBytes(channelToPico, C_NOKEY)
-                            } else {
-                                b1 := make([]byte, 1)
-                                sz, err := os.Stdin.Read(b1)
-                                if err != nil {
-                                    Panicf("cannot os.Stdin.Read: %v", err)
-                                }
-                                if sz == 1 {
-                                    x := b1[0]
-                                    if x == 10 { // if LF
-                                        x = 13 // use CR
-                                    }
-
-                                    row, col, plane := LookupCocoKey(x)
-
-                                    WriteBytes(channelToPico, C_KEY, row, col, plane)
-                                } else {
-                                    WriteBytes(channelToPico, C_NOKEY)
-                                }
-                            }
-                        }
-
-                    case 255:
-                        fmt.Printf("\n[255: finished]\n")
-                        Logf("go func: Received END MARK 255; exiting")
-                        close(channelFromPico)
-                        log.Fatalf("go func: Received END MARK 255; exiting")
-                        return
-
-                    } // end switch cmd
-                } // end select
-            } // end for ever
-        }() // end go func
-    }
-    */
+	go RunSelect(inkey, fromUSB, channelToPico, channelFromPico)
 
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.
@@ -855,17 +641,20 @@ func Run(inkey chan byte) {
 }
 
 func HandleWrite(regs *Regs) {
-	if regs.y == 256 {
-		return // It's a BLOCK operation
-	}
-	for i := uint(0); i < regs.y; i++ {
-		ch := LPeek1(regs.x + i)
-		if ch == 10 || ch == 13 {
-			ShowChar('\n')
-		} else {
-			ShowChar(127 & ch)
+	/*
+		if regs.y == 256 {
+			return // It's a BLOCK operation
 		}
-	}
+
+		for i := uint(0); i < regs.y; i++ {
+			ch := ram.LPeek1(regs.x + i)
+			if ch == 10 || ch == 13 {
+				ShowChar('\n')
+			} else {
+				ShowChar(127 & ch)
+			}
+		}
+	*/
 }
 
 func ShowChar(b byte) {
@@ -873,25 +662,28 @@ func ShowChar(b byte) {
 }
 
 func HandleWritLn(regs *Regs) {
-	switch vg.Task() {
-	case 0: // Level 2, Kernel
-	case 1: // Level 2, User
-	case -1: // Level 1
-	}
-	for i := uint(0); i < regs.y; i++ {
-		ch := LPeek1(regs.x + i)
-		if ch == 0 {
-			break
-		}
-		if ch == 10 || ch == 13 {
-			ShowChar('\n')
-		} else {
-			ShowChar(127 & ch)
-		}
-		if 128 <= ch {
-			break
-		}
-	}
+	/*
+	   switch vg.Task() {
+	   case 0: // Level 2, Kernel
+	   case 1: // Level 2, User
+	   case -1: // Level 1
+	   }
+
+	   	for i := uint(0); i < regs.y; i++ {
+	   		ch := ram.LPeek1(regs.x + i)
+	   		if ch == 0 {
+	   			break
+	   		}
+	   		if ch == 10 || ch == 13 {
+	   			ShowChar('\n')
+	   		} else {
+	   			ShowChar(127 & ch)
+	   		}
+	   		if 128 <= ch {
+	   			break
+	   		}
+	   	}
+	*/
 }
 
 type VgaGime struct {
@@ -911,7 +703,7 @@ func (o *VgaGime) Task() int {
 }
 
 func HandleIOPoke(longAddr uint, data byte) {
-	a := longAddr - IO_PHYS
+	a := longAddr - ram.IoPhys()
 	switch a {
 	case 0x90:
 		vg.compat = (data & 0x80) != 0
@@ -925,13 +717,17 @@ func HandleIOPoke(longAddr uint, data byte) {
 	}
 }
 
-func GetPacket(fromUSB <-chan byte) []byte {
-	sz := GetSize(fromUSB)
+func GetPacket(fromUSB <-chan byte, cmd byte) []byte {
+	AssertGE(cmd, 0x80)
+	sz := uint(cmd) & 0x0F // low nybble
+	if 0x80 <= cmd && cmd <= 0xC0 {
+		sz = GetSize(fromUSB)
+	}
 	pack := make([]byte, sz)
 	for i := uint(0); i < sz; i++ {
 		pack[i] = <-fromUSB
 	}
-	if WireVerbose {
+	if *USB_VERBOSE {
 		if sz > 64 {
 			Logf("GetPacket (sz=%d.)  % 3x ...", sz, pack[:64])
 		} else {
@@ -944,7 +740,7 @@ func GetSize(fromUSB <-chan byte) uint {
 	a := <-(fromUSB)
 	if a < 128+64 {
 		z := uint(a & 63)
-		if WireVerbose {
+		if *USB_VERBOSE {
 			Logf("GetSize.............. [%x] => $%x = %d.", a, z, z)
 		}
 		return z
@@ -952,10 +748,18 @@ func GetSize(fromUSB <-chan byte) uint {
 
 	b := <-(fromUSB)
 	z := 64*uint(a&63) + uint(b&63)
-	if WireVerbose {
+	if *USB_VERBOSE {
 		Logf("GetSize.............. [%x %x] => $%x = %d.", a, b, z, z)
 	}
 	return z
+}
+func PutSize(channelToPico chan []byte, sz uint) {
+	AssertLT(sz, 4096)
+	if sz < 64 {
+		WriteBytes(channelToPico, byte(128+sz))
+	} else {
+		WriteBytes(channelToPico, byte(192+(sz>>6)), byte(128+(sz&63))) // div 64, mod 64
+	}
 }
 
 var CycleKindStr = []string{
@@ -981,16 +785,18 @@ type LimitedLogWriter struct {
 }
 
 func InstallLimitedLogWriter() {
-	llw := &LimitedLogWriter{
-		Limit: *LogLimit,
+	if *LogLimit > 0 {
+		llw := &LimitedLogWriter{
+			Limit: *LogLimit,
+		}
+		log.SetOutput(llw)
 	}
-	log.SetOutput(llw)
 }
 
-func (llw LimitedLogWriter) Write(bb []byte) (int, error) {
+func (llw *LimitedLogWriter) Write(bb []byte) (int, error) {
 	llw.Current += uint64(len(bb))
 	if llw.Current > llw.Limit {
-		fmt.Fprintf(os.Stderr, "\n***\nFatal: LimitedLogWriter exceeded its limit of %d bytes\n", llw.Limit)
+		fmt.Fprintf(os.Stderr, "\n*** FATAL: LimitedLogWriter exceeded its limit of %d bytes (use --logmax=B to change the limit to B bytes)\n", llw.Limit)
 		os.Exit(13)
 	}
 	return os.Stderr.Write(bb)
@@ -1030,7 +836,7 @@ func PreUpload(filename string, channelToPico chan []byte) {
 					n = 60 // max 60 at a time, plus 2-byte addr
 				}
 				out := make([]byte, n+4)
-				out[0] = PRE_POKE
+				out[0] = C_PRE_LOAD
 				out[1] = byte(128 + n + 2)
 				out[2] = byte(addr >> 8)
 				out[3] = byte(addr & 255)
@@ -1041,13 +847,12 @@ func PreUpload(filename string, channelToPico chan []byte) {
 				bb = bb[n:]
 				addr += n
 			}
-		case 0xFF: // final empty block with start address
-			// TODO: should we load the start value in the reset vector?
+		case 0xFF: // final block with start address
 			// Load the start value in the reset vector.
 			addr := (uint(bb[3]) << 8) + uint(bb[4])
 			// 0xFFFE is the address of the reset vector.
 			Logf("PreUpload: reset to %x", addr)
-			WriteBytes(channelToPico, PRE_POKE, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
+			WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
 			bb = bb[5:]
 
 		default:

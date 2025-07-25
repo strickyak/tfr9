@@ -1,5 +1,5 @@
-//go:build level1
-// +build level1
+///XXX//go:build level1
+///XXX// +build level1
 
 package main
 
@@ -9,6 +9,21 @@ import (
 	"strings"
 )
 
+type Os9Level1 struct {
+}
+
+var l1 = new(Os9Level1)
+
+type Os9er interface {
+	FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs)
+	FormatReturn(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs)
+	Os9String(addr uint) string
+	MemoryModuleOf(addrPhys uint) (name string, offset uint)
+	CurrentHardwareMMap() string
+}
+
+var os9 Os9er
+
 type ScannedModuleInfo struct {
 	Name     string
 	Addy     uint
@@ -16,33 +31,35 @@ type ScannedModuleInfo struct {
 	FullName string
 }
 
-func byt(i uint, ram []byte) byte {
+func (o *Os9Level1) CurrentHardwareMMap() string { return "" }
+
+func (o *Os9Level1) byt(i uint, ram []byte) byte {
 	if i >= uint(len(ram)) {
 		return 0
 	}
 	return ram[i]
 }
 
-func wrd(i uint, ram []byte) uint {
-	return (uint(byt(i, ram)) << 8) | uint(byt(i+1, ram))
+func (o *Os9Level1) wrd(i uint, ram []byte) uint {
+	return (uint(o.byt(i, ram)) << 8) | uint(o.byt(i+1, ram))
 }
 
-func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
+func (o *Os9Level1) ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 	var mm []*ScannedModuleInfo
 	for i := uint(0); i < uint(len(ram))-12; i++ {
 		if ram[i] == 0x87 && ram[i+1] == 0xCD {
-			size := wrd(i+2, ram)
-			namoff := wrd(i+4, ram)
-			check := byt(i+9, ram)
-			name := FormatOs9StringFromSlice(i+namoff, ram)
+			size := o.wrd(i+2, ram)
+			namoff := o.wrd(i+4, ram)
+			check := o.byt(i+9, ram)
+			name := o.FormatOs9StringFromSlice(i+namoff, ram)
 			for j := uint(0); j < 9; j++ {
-				check ^= byt(i+j, ram)
+				check ^= o.byt(i+j, ram)
 			}
 			if check != 255 {
 				continue
 			}
 
-			c1, c2, c3 := byt(i+size-3, ram), byt(i+size-2, ram), byt(i+size-1, ram)
+			c1, c2, c3 := o.byt(i+size-3, ram), o.byt(i+size-2, ram), o.byt(i+size-1, ram)
 			fullname := fmt.Sprintf("%s.%04x%02x%02x%02x", strings.ToLower(name), size, c1, c2, c3)
 
 			// Logf("ScanRamForMemoryModules: i=%x size=%x namoff=%x=%q check=%x", i, size, namoff, name, check)
@@ -58,38 +75,38 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 	return mm
 }
 
-func MemoryModuleOf(addr uint) (name string, offset uint) {
-	beginDir, endDir := PPeek2(D_ModDir), PPeek2(D_ModDir+2)
+func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
+	beginDir, endDir := ram.PPeek2(L1_D_ModDir), ram.PPeek2(L1_D_ModDir+2)
 
 	if beginDir != 0 && endDir != 0 {
 		for i := beginDir; i < endDir; i += 4 {
-			begin := PPeek2(i)
+			begin := ram.PPeek2(i)
 			if begin < 0x100 {
 				continue
 			}
 
-			magic := Peek2(begin)
+			magic := ram.Peek2(begin)
 			if magic != 0x87CD {
 				continue
 			}
 
-			modSize := Peek2(begin + 2)
-			// Logf("MM? [%02x] %q %04x (%04x) %04x", i, ModuleId(begin), begin, addr, begin+modSize)
+			modSize := ram.Peek2(begin + 2)
+			// Logf("MM? [%02x] %q %04x (%04x) %04x", i, o.ModuleId(begin), begin, addr, begin+modSize)
 
 			if begin <= addr && addr < begin+modSize {
-				// Logf("MM YES %q+%04x", ModuleId(begin), addr-begin)
-				return ModuleId(begin), addr - begin
+				// Logf("MM YES %q+%04x", o.ModuleId(begin), addr-begin)
+				return o.ModuleId(begin), addr - begin
 			}
 		}
 	} else if 0x0400 <= addr && addr <= 0xFF00 {
-		mm := ScanRamForMemoryModules(trackRam[:])
+		mm := o.ScanRamForMemoryModules(ram.GetTrackRam())
 		// for i, m := range mm {
 		// Logf("mm [%d] %x %x %q", i, m.Addy, m.Addy+m.Size, m.Name)
 		// }
 		for i, m := range mm {
 			if m.Addy < addr && addr < m.Addy+m.Size {
 				Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
-				return ModuleId(m.Addy), addr - m.Addy
+				return o.ModuleId(m.Addy), addr - m.Addy
 			}
 		}
 		Logf("MM NO ScanRam ^^")
@@ -102,20 +119,20 @@ func MemoryModuleOf(addr uint) (name string, offset uint) {
 	// Logf("MM NO ==")
 	return "==", addr
 }
-func ModuleId(begin uint) string {
-	namePtr := begin + Peek2(begin+4)
-	modname := strings.ToLower(Os9String(namePtr))
-	sz := Peek2(begin + 2)
-	crc1 := Peek1(begin + sz - 3)
-	crc2 := Peek1(begin + sz - 2)
-	crc3 := Peek1(begin + sz - 1)
+func (o *Os9Level1) ModuleId(begin uint) string {
+	namePtr := begin + ram.Peek2(begin+4)
+	modname := strings.ToLower(o.Os9String(namePtr))
+	sz := ram.Peek2(begin + 2)
+	crc1 := ram.Peek1(begin + sz - 3)
+	crc2 := ram.Peek1(begin + sz - 2)
+	crc3 := ram.Peek1(begin + sz - 1)
 	return fmt.Sprintf("%s.%04x%02x%02x%02x", modname, sz, crc1, crc2, crc3)
 }
 
-func Os9String(addr uint) string {
+func (o *Os9Level1) Os9String(addr uint) string {
 	var buf bytes.Buffer
 	for {
-		var b byte = Peek1(addr)
+		var b byte = ram.Peek1(addr)
 		var ch byte = 0x7F & b
 		if '!' <= ch && ch <= '~' {
 			buf.WriteByte(ch)
@@ -130,7 +147,7 @@ func Os9String(addr uint) string {
 	return buf.String()
 }
 
-func FormatOs9Chars(vec []byte) string {
+func (o *Os9Level1) FormatOs9Chars(vec []byte) string {
 	var buf bytes.Buffer
 	buf.WriteByte('|')
 	for _, x := range vec {
@@ -150,12 +167,12 @@ func FormatOs9Chars(vec []byte) string {
 	return buf.String()
 }
 
-func FormatOs9StringFromSlice(addr uint, ram []byte) string {
+func (o *Os9Level1) FormatOs9StringFromSlice(addr uint, ram []byte) string {
 	a := addr
 	var buf bytes.Buffer
 
 	for {
-		x := byt(a, ram)
+		x := o.byt(a, ram)
 		if x == 0 || x == 10 || x == 13 {
 			break
 		}
@@ -178,12 +195,12 @@ func FormatOs9StringFromSlice(addr uint, ram []byte) string {
 
 	return buf.String()
 }
-func FormatOs9StringFromRam(addr uint) string {
+func (o *Os9Level1) FormatOs9StringFromRam(addr uint) string {
 	a := addr
 	var buf bytes.Buffer
 	//buf.WriteByte('`')
 	for {
-		x := Peek1(a)
+		x := ram.Peek1(a)
 		if x == 0 || x == 10 || x == 13 {
 			break
 		}
@@ -212,7 +229,7 @@ type Regs struct {
 	d, x, y, u   uint
 }
 
-func FormatReturn(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) {
+func (o *Os9Level1) FormatReturn(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) {
 	p := rec.Datas
 	cc, rb := p[0], p[2]
 	regs := &Regs{
@@ -250,7 +267,7 @@ func FormatReturn(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) 
 		if call.RX != "" {
 			rx := 256*uint(p[4]) + uint(p[5])
 			if call.X[0] == '$' {
-				fmt.Fprintf(&buf, "RX=%s=%04x=%q, ", call.RX, rx, FormatOs9StringFromRam(rx))
+				fmt.Fprintf(&buf, "RX=%s=%04x=%q, ", call.RX, rx, o.FormatOs9StringFromRam(rx))
 			} else {
 				fmt.Fprintf(&buf, "RX=%s=%04x, ", call.RX, rx)
 			}
@@ -266,7 +283,7 @@ func FormatReturn(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) 
 	return buf.String(), regs
 }
 
-func FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) {
+func (o *Os9Level1) FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) {
 	var buf bytes.Buffer
 	a := rec.Datas[2:]
 	var p [12]byte
@@ -309,7 +326,7 @@ func FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs) {
 		if call.X != "" {
 			x := 256*uint(p[4]) + uint(p[5])
 			if call.X[0] == '$' {
-				fmt.Fprintf(&buf, "X=%s=%04x=%q, ", call.X, x, FormatOs9StringFromRam(x))
+				fmt.Fprintf(&buf, "X=%s=%04x=%q, ", call.X, x, o.FormatOs9StringFromRam(x))
 			} else {
 				fmt.Fprintf(&buf, "X=%s=%02x, ", call.X, x)
 			}

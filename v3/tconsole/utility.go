@@ -30,3 +30,9 @@ func AssertLT[T Ordered](a, b T) {
 		log.Fatalf("AssertLT fails: %v vs %v", a, b)
 	}
 }
+
+func AssertGE[T Ordered](a, b T) {
+	if a < b {
+		log.Fatalf("AssertGE fails: %v vs %v", a, b)
+	}
+}

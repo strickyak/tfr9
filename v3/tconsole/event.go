@@ -68,12 +68,12 @@ func OnEvent(pack []byte, pending map[string]*EventRec) {
 		rec.Os9Num = os9num
 		call, _ := Os9ApiCallOf[os9num]
 		rec.SerialNum = MintSerialNum()
-		callString, regs := FormatCall(os9num, call, rec)
+		callString, regs := os9.FormatCall(os9num, call, rec)
 		rec.Call = callString
 
 		lastPC := op_pc
 		key := Format("%04x_%04x", lastPC, addrs[2])
-		Logf("\n%q === OS9_CALL _%d_ %q:  %s #%d ...... %s\n\n", Who(), rec.SerialNum, key, rec.Call, op_cy, CurrentMapString())
+		Logf("\n%q === OS9_CALL _%d_ %q:  %s #%d ...... %s\n\n", ram.Who(), rec.SerialNum, key, rec.Call, op_cy, ram.CurrentMapString())
 		pending[key] = rec
 
 		if os9num == 0x8A /* I$Write */ {
@@ -101,12 +101,12 @@ func OnEvent(pack []byte, pending map[string]*EventRec) {
 		if ok {
 			os9num := caller.Os9Num
 			call, _ := Os9ApiCallOf[os9num]
-			returnString, regs := FormatReturn(caller.Os9Num, call, rec)
+			returnString, regs := os9.FormatReturn(caller.Os9Num, call, rec)
 			_ = regs
-			Logf("\n%q === OS9_RETURN _%d_ %q:  %s #%d --> %s #%d %s\n\n", Who(), caller.SerialNum, key, caller.Call, caller.Cycle, returnString, op_cy, CurrentMapString())
+			Logf("\n%q === OS9_RETURN _%d_ %q:  %s #%d --> %s #%d %s\n\n", ram.Who(), caller.SerialNum, key, caller.Call, caller.Cycle, returnString, op_cy, ram.CurrentMapString())
 			delete(pending, key)
 		} else {
-			Logf("\n%q === OS9_RETURN _%d_ %q:xxxxxxx #%d \n\n", Who(), rec.SerialNum, key, op_cy)
+			Logf("\n%q === OS9_RETURN _%d_ %q:xxxxxxx #%d \n\n", ram.Who(), rec.SerialNum, key, op_cy)
 		}
 
 		// DumpRam()
