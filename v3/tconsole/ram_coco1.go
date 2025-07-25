@@ -1,6 +1,3 @@
-//XXX//go:build coco1
-//XXX// +build coco1
-
 package main
 
 import (
@@ -35,10 +32,6 @@ type Rammer interface {
 	IoPhys() uint
 	Poke1(addr uint, data byte)
 }
-
-var ram Rammer
-
-var c1r = new(Coco1Ram)
 
 func (o *Coco1Ram) Physical(addr uint) uint { return addr }
 

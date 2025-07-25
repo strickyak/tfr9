@@ -28,6 +28,10 @@ var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB t
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "/home/strick/coco-shelf/tfr9/v2/generated/level2.disk", "Comma-separated filepaths to disk files, in order of drive number")
 var USB_VERBOSE = flag.Bool("usb_verbose", false, "enable verbose debugging output of bytes over the USB")
+var RAM_VERBOSE = flag.Bool("ram_verbose", false, "enable verbose debugging output of ram being written (if the pico is telling us)")
+
+var the_ram Rammer
+var the_os9 Os9er
 
 const (
 	// Long form codes, 128 to 191.
@@ -36,7 +40,8 @@ const (
 	// If following byte in 192 to 255, it is 2-byte, use low 6 bits times 64, plus low 6 bits of next byte.
 	C_LOGGING = 130 // Ten levels, 130 to 139
 
-	C_PRE_LOAD = 163 // poke bytes packet, tconsole to tmanager: size, 2-byte addr, data[].
+	C_PRE_LOAD   = 163 // poke bytes packet, tconsole to tmanager: size, 2-byte addr, data[].
+	C_RAM_CONFIG = 164 // Pico tells tconsole.
 
 	C_DUMP_RAM  = 167
 	C_DUMP_LINE = 168
@@ -46,9 +51,9 @@ const (
 	C_EVENT      = 172
 	C_DISK_READ  = 173
 	C_DISK_WRITE = 174
-	C_CONFIG     = 175
-	EVENT_RTI    = 176
-	EVENT_SWI2   = 177
+
+	EVENT_RTI  = 176
+	EVENT_SWI2 = 177
 
 	// Short form codes, 192 to 255.
 	// The packet length does not follow,
@@ -74,19 +79,17 @@ var CommandStrings = map[byte]string{
 	C_LOGGING + 8: "C_LOGGING_8",
 	C_LOGGING + 9: "C_LOGGING_9",
 	C_PUTCHAR:     "C_PUTCHAR",
-	// C_STOP: "C_STOP",
-	// C_ABORT: "C_ABORT",
-	// C_KEY: "C_KEY",
-	// C_NOKEY: "C_NOKEY",
-	C_DUMP_RAM:   "C_DUMP_RAM",
-	C_DUMP_LINE:  "C_DUMP_LINE",
-	C_DUMP_STOP:  "C_DUMP_STOP",
-	C_DUMP_PHYS:  "C_DUMP_PHYS",
-	C_RAM2_WRITE: "C_RAM2_WRITE",
-	C_RAM3_WRITE: "C_RAM3_WRITE",
-	C_EVENT:      "C_EVENT",
-	EVENT_RTI:    "EVENT_RTI",
-	EVENT_SWI2:   "EVENT_SWI2",
+	C_PRE_LOAD:    "C_PRE_LOAD",
+	C_RAM_CONFIG:  "C_RAM_CONFIG",
+	C_DUMP_RAM:    "C_DUMP_RAM",
+	C_DUMP_LINE:   "C_DUMP_LINE",
+	C_DUMP_STOP:   "C_DUMP_STOP",
+	C_DUMP_PHYS:   "C_DUMP_PHYS",
+	C_RAM2_WRITE:  "C_RAM2_WRITE",
+	C_RAM3_WRITE:  "C_RAM3_WRITE",
+	C_EVENT:       "C_EVENT",
+	EVENT_RTI:     "EVENT_RTI",
+	EVENT_SWI2:    "EVENT_SWI2",
 }
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
@@ -250,6 +253,9 @@ func main() {
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode(true)
 	}
+	// Fill in with some default.
+	the_ram = new(Coco1Ram)
+	the_os9 = new(Os9Level1)
 
 	inkey := make(chan byte, 1024)
 	go InkeyRoutine(inkey)
@@ -351,6 +357,25 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				// NO OP.
 				Logf("ZERO")
 
+			case C_RAM_CONFIG:
+				pack := GetPacket(fromUSB, cmd)
+				if len(pack) == 1 {
+					switch pack[0] {
+					case '1':
+						the_ram = new(Coco1Ram)
+						the_os9 = new(Os9Level1)
+
+					case '2':
+						the_ram = new(Coco3Ram)
+						the_os9 = new(Os9Level2)
+
+					default:
+						log.Panicf("C_RAM_CONFIG size %d unknown value: % 3x", len(pack), pack)
+					}
+				} else {
+					log.Panicf("C_RAM_CONFIG unknown size %d: % 3x", len(pack), pack)
+				}
+
 			case C_CYCLE:
 				pack := GetPacket(fromUSB, cmd)
 				if len(pack) == 8 {
@@ -367,12 +392,12 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						s = Format("cy %s %04x %02x %s#%d", CycleKindStr[_kind], _addr, _data, LookupCpuFlags[_fl], _cy)
 					}
 
-					phys := ram.Physical(uint(_addr))
-					modName, modOffset := os9.MemoryModuleOf(phys)
+					phys := the_ram.Physical(uint(_addr))
+					modName, modOffset := the_os9.MemoryModuleOf(phys)
 					if _kind == CY_SEEN || _kind == CY_UNSEEN {
-						Logf("%s %s%%%06x :%q+%04x %s", s, os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+						Logf("%s %s%%%06x :%q+%04x %s", s, the_os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
 					} else {
-						Logf("%s %s%%%06x", s, os9.CurrentHardwareMMap(), phys)
+						Logf("%s %s%%%06x", s, the_os9.CurrentHardwareMMap(), phys)
 					}
 				}
 
@@ -416,8 +441,10 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				data := pack[2]
 				addr := (uint(hi) << 8) | uint(lo)
 
-				Logf("       =C_RAM_WRITE= %04x %%%06x gets %02x (was %02x)", addr, ram.Physical(addr), data, ram.Peek1(addr))
-				ram.Poke1(addr, data)
+				if *RAM_VERBOSE {
+					Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
+				}
+				the_ram.Poke1(addr, data)
 
 				if (addr & 0xFF00) == 0xFF00 {
 					HandleIOPoke(addr, data)
@@ -441,9 +468,9 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						if cmd == C_DUMP_PHYS {
 							for j := uint(0); j < 16; j++ {
 								longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-								longaddr %= ram.RamSize()
-								if d[j] != ram.GetTrackRam()[longaddr] {
-									Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], ram.GetTrackRam()[longaddr])
+								longaddr %= the_ram.RamSize()
+								if d[j] != the_ram.GetTrackRam()[longaddr] {
+									Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], the_ram.GetTrackRam()[longaddr])
 								}
 							}
 						}
@@ -532,11 +559,14 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					fmt.Printf("%c", ch)
 
 				case ch == 10 || ch == 13:
-					if previousPutChar == 10 || previousPutChar == 13 {
-						// skip extra newline
-					} else {
-						fmt.Println() // lf skips Println after cr does Println
-					}
+					fmt.Printf("%c", ch)
+					/*
+						if previousPutChar == 10 || previousPutChar == 13 {
+							// skip extra newline
+						} else {
+							fmt.Println() // lf skips Println after cr does Println
+						}
+					*/
 
 				default:
 					if *CURLY_DEC {
@@ -609,11 +639,6 @@ func Run(inkey chan byte) {
 	// Make sure to close it later.
 	defer serialPort.Close()
 
-	ram = c3r
-	os9 = l2
-	ram = c1r
-	os9 = l1
-
 	channelToPico := make(chan []byte, 1024)
 
 	go ToUsbRoutine(serialPort, channelToPico)
@@ -647,7 +672,7 @@ func HandleWrite(regs *Regs) {
 		}
 
 		for i := uint(0); i < regs.y; i++ {
-			ch := ram.LPeek1(regs.x + i)
+			ch := the_ram.LPeek1(regs.x + i)
 			if ch == 10 || ch == 13 {
 				ShowChar('\n')
 			} else {
@@ -670,7 +695,7 @@ func HandleWritLn(regs *Regs) {
 	   }
 
 	   	for i := uint(0); i < regs.y; i++ {
-	   		ch := ram.LPeek1(regs.x + i)
+	   		ch := the_ram.LPeek1(regs.x + i)
 	   		if ch == 0 {
 	   			break
 	   		}
@@ -703,7 +728,7 @@ func (o *VgaGime) Task() int {
 }
 
 func HandleIOPoke(longAddr uint, data byte) {
-	a := longAddr - ram.IoPhys()
+	a := longAddr - the_ram.IoPhys()
 	switch a {
 	case 0x90:
 		vg.compat = (data & 0x80) != 0

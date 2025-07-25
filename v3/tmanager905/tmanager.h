@@ -63,11 +63,12 @@ enum message_type : byte {
   // Long form codes, 128 to 191.
   // Followed by a 1-byte or 2-byte Size value.
   // If following byte in 128 to 191, it is 1-byte, use low 6 bits for size.
-  // If following byte in 192 to 255, it is 2-byte, use low 6 bits times 64, plus low 6 bits of next byte.
+  // If following byte in 192 to 255, it is 2-byte, use low 6 bits times 64,
+  // plus low 6 bits of next byte.
   C_LOGGING = 130,  // Ten levels: 130 to 139.
 
-  C_PRE_LOAD = 163, // Console pokes to Manager
-
+  C_PRE_LOAD = 163,    // Console pokes to Manager
+  C_RAM_CONFIG = 164,  // Pico tells tconsole.
   C_DUMP_RAM = 167,
   C_DUMP_LINE = 168,
   C_DUMP_STOP = 169,
@@ -75,7 +76,7 @@ enum message_type : byte {
   C_EVENT = 172,  // event.h
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
-  C_CONFIG = 175,
+
   EVENT_RTI = 176,
   EVENT_SWI2 = 177,
 
@@ -130,13 +131,13 @@ void putbyte(byte x) { putchar_raw(x); }
 
 // Put Size with 1-byte / 2-byte encoding
 void putsz(uint n) {
-    assert( n < 4096 );
-    if (n < 64) {
-        putbyte(0x80 + n);
-    } else {
-        putbyte(0xC0 + (n>>6));  // div 64
-        putbyte(0x80 + (n&63));  // mod 64
-    }
+  assert(n < 4096);
+  if (n < 64) {
+    putbyte(0x80 + n);
+  } else {
+    putbyte(0xC0 + (n >> 6));  // div 64
+    putbyte(0x80 + (n & 63));  // mod 64
+  }
 }
 
 // Include logging first.
@@ -445,14 +446,14 @@ void PollJustUsbInput() {
   }
 }
 void Fatal(const char* s) {
-    while (*s) {
-        putchar(*s);
-        s++;
-    }
-    while (1) {
-        putchar('#');
-        sleep_ms(2000);
-    }
+  while (*s) {
+    putchar(*s);
+    s++;
+  }
+  while (1) {
+    putchar('#');
+    sleep_ms(2000);
+  }
 }
 void PollUsbInput() {
   // Try from USB to `usb_input` object.
@@ -499,20 +500,20 @@ void PollUsbInput() {
     case C_PRE_LOAD:
       if (usb_input.HasAtLeast(2)) {
         byte sz = 63 & usb_input.Peek(1);
-        if (usb_input.HasAtLeast(2+sz)) {
+        if (usb_input.HasAtLeast(2 + sz)) {
           PreLoadPacket();
         }
       }
       break;
 
     case -1:
-        break;
+      break;
     case 0:
-        (void) usb_input.Take();
-        break;
+      (void)usb_input.Take();
+      break;
 
     default:
-        Fatal("PollUsbInput -- default");
+      Fatal("PollUsbInput -- default");
   }
   return;
 }
@@ -777,7 +778,10 @@ struct EngineBase {
   }
 
   static void Run() {
-    MUMBLE("IN");
+    MUMBLE("CF");
+    T::SendRamConfigOverUSB();
+
+    MUMBLE("INS");
     T::Install();
 
     MUMBLE("RC");
@@ -1244,7 +1248,8 @@ struct X9_Mixins : Common_Mixins<T>,
                    DontSamvdg<T>,
                    DoTurbo9sim<T> {
   static void Install() {
-    // Without OS.  Must use PreLoadPacket() or some other way of loading a program.
+    // Without OS.  Must use PreLoadPacket() or some other way of loading a
+    // program.
     ShowChar('X');
     T::Turbo9sim_Install(0xFF00);
     ShowChar('Y');
@@ -1252,12 +1257,12 @@ struct X9_Mixins : Common_Mixins<T>,
 };
 
 // X1 is a blank machine with no OS, Turbo9Sim-like IO, and a Small Ram.
-struct X1_Slow : SmallRam<X1_Slow>, X9_Mixins<X1_Slow>, Slow_Mixins<X1_Slow> { };
-struct X1_Fast : SmallRam<X1_Fast>, X9_Mixins<X1_Fast>, Fast_Mixins<X1_Fast> { };
+struct X1_Slow : SmallRam<X1_Slow>, X9_Mixins<X1_Slow>, Slow_Mixins<X1_Slow> {};
+struct X1_Fast : SmallRam<X1_Fast>, X9_Mixins<X1_Fast>, Fast_Mixins<X1_Fast> {};
 
 // X2 is a blank machine with no OS, Turbo9Sim-like IO, and a Big Ram.
-struct X2_Slow : BigRam<X2_Slow>, X9_Mixins<X2_Slow>, Slow_Mixins<X2_Slow> { };
-struct X2_Fast : BigRam<X2_Fast>, X9_Mixins<X2_Fast>, Fast_Mixins<X2_Fast> { };
+struct X2_Slow : BigRam<X2_Slow>, X9_Mixins<X2_Slow>, Slow_Mixins<X2_Slow> {};
+struct X2_Fast : BigRam<X2_Fast>, X9_Mixins<X2_Fast>, Fast_Mixins<X2_Fast> {};
 
 template <typename T>
 struct L1_Mixins : Common_Mixins<T>,
@@ -1338,20 +1343,21 @@ struct harness {
 };
 
 void PreLoadPacket() {
-    (void) usb_input.Take(); // command byte C_PRE_LOAD
-    uint sz = 63 & usb_input.Take();
-    assert(sz > 2); // sz is packet size (number of bytes that follow sz).
-    uint hi = usb_input.Take();
-    uint lo = usb_input.Take();
-    uint addr = (hi<<8) | lo;
-    uint n = sz - 2; // n is number of following bytes to be poked.
-    putchar('(');
-    for (uint i = 0; i < n; i++) {
-        ram[addr] = ram[addr+0x10000] = usb_input.Take(); // set upper and lower bank.
-        addr++;
-        if ((i&7)==0) putchar('.');
-    }
-    putchar(')');
+  (void)usb_input.Take();  // command byte C_PRE_LOAD
+  uint sz = 63 & usb_input.Take();
+  assert(sz > 2);  // sz is packet size (number of bytes that follow sz).
+  uint hi = usb_input.Take();
+  uint lo = usb_input.Take();
+  uint addr = (hi << 8) | lo;
+  uint n = sz - 2;  // n is number of following bytes to be poked.
+  putchar('(');
+  for (uint i = 0; i < n; i++) {
+    ram[addr] = ram[addr + 0x10000] =
+        usb_input.Take();  // set upper and lower bank.
+    addr++;
+    if ((i & 7) == 0) putchar('.');
+  }
+  putchar(')');
 }
 
 void Shell() {
@@ -1365,13 +1371,13 @@ void Shell() {
 
     if (term_input.HasAtLeast(1)) {
       byte ch = term_input.Take();
-      ShowChar( '<' );
+      ShowChar('<');
       if (32 <= ch && ch <= 126) {
-        ShowChar( ch );
+        ShowChar(ch);
       } else {
-        ShowChar( '#' );
+        ShowChar('#');
       }
-      ShowChar( '>' );
+      ShowChar('>');
 
       if ('0' <= ch && ch <= '4') {
         uint num = ch - '0';

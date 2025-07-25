@@ -1,6 +1,3 @@
-//XXX//go:build coco3
-//XXX// +build coco3
-
 package main
 
 import (
@@ -11,8 +8,6 @@ import (
 type Coco3Ram struct {
 	trackRam [COCO3_RAM_SIZE]byte
 }
-
-var c3r = new(Coco3Ram)
 
 type Mapping [8]uint
 

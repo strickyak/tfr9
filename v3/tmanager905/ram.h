@@ -1,4 +1,4 @@
-#ifndef _RAM_H_
+#ifndef _L2_RAM_H_
 #define _RAM_H_
 
 const static uint BIG_RAM_SIZE = 128 * 1024;
@@ -28,10 +28,10 @@ struct DoTraceRamWrites {
   Probably called within some packet, without quieting?
     */
 
-      putbyte(C_RAM2_WRITE);
-      putbyte(addr >> 8);
-      putbyte(addr);
-      putbyte(data);
+    putbyte(C_RAM2_WRITE);
+    putbyte(addr >> 8);
+    putbyte(addr);
+    putbyte(data);
   }
 };
 
@@ -106,6 +106,11 @@ class SmallRam {
   static void FastWrite(uint addr, byte data) { Write(addr, data); }
   static byte ReadPhys(uint addr) { return Read(addr); }
   static uint PhysSize() { return sizeof ram; }
+  static void SendRamConfigOverUSB() {
+    putbyte(C_RAM_CONFIG);
+    putsz(1);
+    putbyte('1');
+  }
 };
 
 static byte const BigRam_mmu_init[16] = {
@@ -359,9 +364,11 @@ class BigRam {
   static void WritePhys(uint addr, byte data) { ram[addr] = data; }
   static uint PhysSize() { return sizeof ram; }
 
-  ///////// Peek & Poke
-
-  ///////// end Peek & Poke
+  static void SendRamConfigOverUSB() {
+    putbyte(C_RAM_CONFIG);
+    putsz(1);
+    putbyte('2');
+  }
 };
 
 #endif  // _RAM_H_

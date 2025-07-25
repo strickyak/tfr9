@@ -27,19 +27,19 @@
 
 template <typename T>
 struct DontBenchmarkCycles {
-    static force_inline void BenchmarkCycle(uint cy) {}
+  static force_inline void BenchmarkCycle(uint cy) {}
 };
 
 template <typename T>
 struct DoBenchmarkCycles {
-    static force_inline void BenchmarkCycle(uint cy) {
-        uint c = 0x3FFFFF & cy;
-        if (c == 0x100000) {
-            ShowStr("^{"); // start timer in tconsole
-        } else if (c == 0x300000) {
-            ShowStr("^}"); // end timer in tconsole
-        }
+  static force_inline void BenchmarkCycle(uint cy) {
+    uint c = 0x3FFFFF & cy;
+    if (c == 0x100000) {
+      ShowStr("^{");  // start timer in tconsole
+    } else if (c == 0x300000) {
+      ShowStr("^}");  // end timer in tconsole
     }
+  }
 };
 
-#endif // _BENCHMARK_CYCLES_H_
+#endif  // _BENCHMARK_CYCLES_H_

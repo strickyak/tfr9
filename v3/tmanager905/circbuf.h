@@ -22,9 +22,7 @@ class CircBuf {
     uint ba = NumBytesAvailable();
     return ba >= n;
   }
-  byte Peek(uint i = 0) {
-    return buf[(nextOut+i)&MASK];
-  }
+  byte Peek(uint i = 0) { return buf[(nextOut + i) & MASK]; }
   byte Take() {
     byte z = buf[nextOut];
     ++nextOut;

@@ -1,7 +1,8 @@
 #ifndef _EMUDSK_H_
 #define _EMUDSK_H_
 
-constexpr uint kDiskReadSize = 1/*cmd*/ + 2/*sz*/ + 4/*drivenum, lsn3*/ + 256 /*sector*/;
+constexpr uint kDiskReadSize =
+    1 /*cmd*/ + 2 /*sz*/ + 4 /*drivenum, lsn3*/ + 256 /*sector*/;
 
 uint emu_disk_buffer;
 
@@ -45,7 +46,7 @@ struct DoEmudsk {
           T::Peek(EMUDSK_PORT + 6), T::Peek(EMUDSK_PORT + 0),
           T::Peek2(EMUDSK_PORT + 1), T::Peek2(EMUDSK_PORT + 4), command);
 
-// TODO -- 3 byte sector!
+      // TODO -- 3 byte sector!
       uint lsn = T::Peek2(EMUDSK_PORT + 1);
       emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
 
@@ -77,7 +78,7 @@ struct DoEmudsk {
 
         case 1:  // Disk Write
           putbyte(C_DISK_WRITE);
-          putsz(4+256);
+          putsz(4 + 256);
           putbyte(T::Peek(EMUDSK_PORT + 6));  // device
           putbyte(lsn >> 16);
           putbyte(lsn >> 8);

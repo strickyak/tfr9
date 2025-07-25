@@ -1,6 +1,3 @@
-///XXX//go:build level2
-///XXX// +build level2
-
 package main
 
 import (
@@ -12,39 +9,37 @@ import (
 type Os9Level2 struct {
 }
 
-var l2 = new(Os9Level2)
-
 func (o *Os9Level2) GetMappingFromTable(addr uint) Mapping {
 	// Mappings are always in block 0?
 	return Mapping{
 		// TODO: drop the "0x3F &".
-		0x3F & ram.PPeek2(addr),
-		0x3F & ram.PPeek2(addr+2),
-		0x3F & ram.PPeek2(addr+4),
-		0x3F & ram.PPeek2(addr+6),
-		0x3F & ram.PPeek2(addr+8),
-		0x3F & ram.PPeek2(addr+10),
-		0x3F & ram.PPeek2(addr+12),
-		0x3F & ram.PPeek2(addr+14),
+		0x3F & the_ram.PPeek2(addr),
+		0x3F & the_ram.PPeek2(addr+2),
+		0x3F & the_ram.PPeek2(addr+4),
+		0x3F & the_ram.PPeek2(addr+6),
+		0x3F & the_ram.PPeek2(addr+8),
+		0x3F & the_ram.PPeek2(addr+10),
+		0x3F & the_ram.PPeek2(addr+12),
+		0x3F & the_ram.PPeek2(addr+14),
 	}
 }
 
 func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
-	beginDir, endDir := ram.PPeek2(L2_D_ModDir), ram.PPeek2(L2_D_ModDir+2)
+	beginDir, endDir := the_ram.PPeek2(L2_D_ModDir), the_ram.PPeek2(L2_D_ModDir+2)
 
-	datPtr0 := ram.PPeek2(beginDir)
+	datPtr0 := the_ram.PPeek2(beginDir)
 	if datPtr0 == 0 {
 		var p uint
 		var z uint
 
 		ppeek1 := func(a uint) byte {
-			z := ram.PPeek1(a)
+			z := the_ram.PPeek1(a)
 			// Logf("ppeek1: %x -> %x", a, z)
 			return z
 		}
 
 		ppeek2 := func(a uint) uint {
-			z := ram.PPeek2(a)
+			z := the_ram.PPeek2(a)
 			// Logf("ppeek2: %x -> %x", a, z)
 			return z
 		}
@@ -80,15 +75,15 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 
 		/*
 		   if 0xED06 <= p && p < 0xEE30 {
-		       sz := ram.PPeek2(0xED08)
+		       sz := the_ram.PPeek2(0xED08)
 		       a, b, c := PPeek1(0xED06+sz-3), PPeek1(0xED06+sz-2), PPeek1(0xED06+sz-1)
 		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xED06
 		   } else if 0xEE30 <= p && p < 0xF000 {
-		       sz := ram.PPeek2(0xEE32)
+		       sz := the_ram.PPeek2(0xEE32)
 		       a, b, c := PPeek1(0xEE30+sz-3), PPeek1(0xEE30+sz-2), PPeek1(0xEE30+sz-1)
 		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xEE30
 		   } else if 0xF000 <= p && p < 0xFF00 {
-		       sz := ram.PPeek2(0xF002)
+		       sz := the_ram.PPeek2(0xF002)
 		       a, b, c := PPeek1(0xF000+sz-3), PPeek1(0xF000+sz-2), PPeek1(0xF000+sz-1)
 		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xF000
 		   } else {
@@ -100,34 +95,34 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 
 	if beginDir != 0 && endDir != 0 {
 		for i := beginDir; i < endDir; i += 8 {
-			datPtr := ram.PPeek2(i)
+			datPtr := the_ram.PPeek2(i)
 			if datPtr == 0 {
 				continue
 			}
 			mapping := o.GetMappingFromTable(datPtr)
 
-			begin := ram.PPeek2(i + 4)
+			begin := the_ram.PPeek2(i + 4)
 			//if begin == 0 {
 			//continue
 			//}
 
-			magic := ram.Peek2WithMapping(begin, mapping)
+			magic := the_ram.Peek2WithMapping(begin, mapping)
 			if magic != 0x87CD {
 				return "=m=", addrPhys
 			}
 			// Logf("DDT: magic i=%x datPtr=%x begin=%x mapping=% 03x", i, datPtr, begin, mapping)
 
-			modSize := ram.Peek2WithMapping(begin+2, mapping)
-			//modNamePtr := ram.Peek2WithMapping(begin+4, mapping)
+			modSize := the_ram.Peek2WithMapping(begin+2, mapping)
+			//modNamePtr := the_ram.Peek2WithMapping(begin+4, mapping)
 			//_ = modNamePtr
-			//links := ram.Peek2WithMapping(begin+6, mapping)
+			//links := the_ram.Peek2WithMapping(begin+6, mapping)
 
 			remaining := modSize
 			region := begin
 			offset := uint(0)
 			for remaining > 0 {
 				// If module crosses paged blocks, it has more than one region.
-				regionP := ram.MapAddrWithMapping(region, mapping)
+				regionP := the_ram.MapAddrWithMapping(region, mapping)
 				endOfRegionBlockP := 1 + (regionP | 0x1FFF)
 				regionSize := remaining
 				if regionSize > endOfRegionBlockP-regionP {
@@ -158,26 +153,26 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 	return "==", addrPhys
 }
 func (o *Os9Level2) ModuleId(begin uint, m Mapping) string {
-	namePtr := begin + ram.Peek2WithMapping(begin+4, m)
+	namePtr := begin + the_ram.Peek2WithMapping(begin+4, m)
 	modname := strings.ToLower(o.Os9StringWithMapping(namePtr, m))
-	sz := ram.Peek2WithMapping(begin+2, m)
-	crc1 := ram.Peek1WithMapping(begin+sz-3, m)
-	crc2 := ram.Peek1WithMapping(begin+sz-2, m)
-	crc3 := ram.Peek1WithMapping(begin+sz-1, m)
+	sz := the_ram.Peek2WithMapping(begin+2, m)
+	crc1 := the_ram.Peek1WithMapping(begin+sz-3, m)
+	crc2 := the_ram.Peek1WithMapping(begin+sz-2, m)
+	crc3 := the_ram.Peek1WithMapping(begin+sz-1, m)
 	return fmt.Sprintf("%s.%04x%02x%02x%02x", modname, sz, crc1, crc2, crc3)
 }
 
 func (o *Os9Level2) Os9StringWithMapping(addr uint, m Mapping) string {
 	// Logf("Os9StringWithMapping(%x, %v)", addr, m)
 	// Logf("  ... %02x %02x %02x %02x",
-	//    ram.Peek1WithMapping(addr, m),
-	//    ram.Peek1WithMapping(addr+1, m),
-	//    ram.Peek1WithMapping(addr+2, m),
-	//    ram.Peek1WithMapping(addr+3, m))
+	//    the_ram.Peek1WithMapping(addr, m),
+	//    the_ram.Peek1WithMapping(addr+1, m),
+	//    the_ram.Peek1WithMapping(addr+2, m),
+	//    the_ram.Peek1WithMapping(addr+3, m))
 
 	var buf bytes.Buffer
 	for {
-		var b byte = ram.Peek1WithMapping(addr, m)
+		var b byte = the_ram.Peek1WithMapping(addr, m)
 		var ch byte = 0x7F & b
 		if '!' <= ch && ch <= '~' {
 			buf.WriteByte(ch)
@@ -194,7 +189,7 @@ func (o *Os9Level2) Os9StringWithMapping(addr uint, m Mapping) string {
 func (o *Os9Level2) Os9String(addr uint) string {
 	var buf bytes.Buffer
 	for {
-		var b byte = ram.Peek1(addr)
+		var b byte = the_ram.Peek1(addr)
 		var ch byte = 0x7F & b
 		if '!' <= ch && ch <= '~' {
 			buf.WriteByte(ch)
@@ -210,7 +205,7 @@ func (o *Os9Level2) Os9String(addr uint) string {
 }
 
 func (o *Os9Level2) CurrentHardwareMMap() string {
-	init0, init1 := ram.PPeek1(0x3ff90), ram.PPeek1(0x3ff91)
+	init0, init1 := the_ram.PPeek1(0x3ff90), the_ram.PPeek1(0x3ff91)
 	mmuEnable := (init0 & 0x40) != 0
 	if !mmuEnable {
 		return "No"
@@ -224,14 +219,14 @@ func (o *Os9Level2) CurrentHardwareMMap() string {
 
 	return fmt.Sprintf("T%x(%x %x %x %x  %x %x %x %x)",
 		mmuTask,
-		ram.PPeek1(mapHW+0),
-		ram.PPeek1(mapHW+1),
-		ram.PPeek1(mapHW+2),
-		ram.PPeek1(mapHW+3),
-		ram.PPeek1(mapHW+4),
-		ram.PPeek1(mapHW+5),
-		ram.PPeek1(mapHW+6),
-		ram.PPeek1(mapHW+7))
+		the_ram.PPeek1(mapHW+0),
+		the_ram.PPeek1(mapHW+1),
+		the_ram.PPeek1(mapHW+2),
+		the_ram.PPeek1(mapHW+3),
+		the_ram.PPeek1(mapHW+4),
+		the_ram.PPeek1(mapHW+5),
+		the_ram.PPeek1(mapHW+6),
+		the_ram.PPeek1(mapHW+7))
 }
 
 func (o *Os9Level2) FormatOs9Chars(vec []byte) string {
@@ -259,7 +254,7 @@ func (o *Os9Level2) FormatOs9StringFromRam(addr uint) string {
 	var buf bytes.Buffer
 	//buf.WriteByte('`')
 	for {
-		x := ram.LPeek1(a)
+		x := the_ram.LPeek1(a)
 		if x == 0 || x == 10 || x == 13 {
 			break
 		}
