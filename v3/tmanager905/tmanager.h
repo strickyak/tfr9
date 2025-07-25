@@ -60,31 +60,35 @@ inline void Quiet() { quiet_ram++; }
 inline void Noisy() { quiet_ram--; }
 
 enum message_type : byte {
+  // Long form codes, 128 to 191.
+  // Followed by a 1-byte or 2-byte Size value.
+  // If following byte in 128 to 191, it is 1-byte, use low 6 bits for size.
+  // If following byte in 192 to 255, it is 2-byte, use low 6 bits times 64, plus low 6 bits of next byte.
   C_LOGGING = 130,  // Ten levels: 130 to 139.
 
-  C_CYCLE = 160,  // tracing one cycle
-  C_PUTCHAR = 161,
-  // C_GETCHAR=162,
-  // C_STOP = 163,
-  // C_ABORT = 164,
-  // C_KEY = 165,
-  // C_NOKEY = 166,
+  C_PRE_LOAD = 163, // Console pokes to Manager
+
   C_DUMP_RAM = 167,
   C_DUMP_LINE = 168,
   C_DUMP_STOP = 169,
   C_DUMP_PHYS = 170,
-  C_RAM_WRITE = 171,   // ram.h
   C_EVENT = 172,  // event.h
   C_DISK_READ = 173,
   C_DISK_WRITE = 174,
-  // C_CONFIG = 175,
+  C_CONFIG = 175,
+  EVENT_RTI = 176,
+  EVENT_SWI2 = 177,
 
-  C_PRE_LOAD = 190, // Console pokes to Manager
+  // Short form codes, 192 to 255.
+  // The packet length does not follow,
+  // but is in the low nybble.
+  C_PUTCHAR = 192,
+  C_RAM2_WRITE = 195,
+  C_RAM3_WRITE = 196,
+  C_CYCLE = 200,  // tracing one cycle
 
-  // EVENT_PC_M8 = 238,
-  // EVENT_GIME = 239,
-  EVENT_RTI = 240,
-  EVENT_SWI2 = 241,
+  //? C_NOKEY = 208,
+  //? C_KEY = 211,
 };
 
 extern void putbyte(byte x);
@@ -123,6 +127,17 @@ void ShowStr(const char* s) {
 
 // putbyte does CR/LF escaping for Binary Data
 void putbyte(byte x) { putchar_raw(x); }
+
+// Put Size with 1-byte / 2-byte encoding
+void putsz(uint n) {
+    assert( n < 4096 );
+    if (n < 64) {
+        putbyte(0x80 + n);
+    } else {
+        putbyte(0xC0 + (n>>6));  // div 64
+        putbyte(0x80 + (n&63));  // mod 64
+    }
+}
 
 // Include logging first.
 #include "benchmark-cycles.h"

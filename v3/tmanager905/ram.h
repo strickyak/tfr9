@@ -28,9 +28,7 @@ struct DoTraceRamWrites {
   Probably called within some packet, without quieting?
     */
 
-      putbyte(C_RAM_WRITE);
-      putbyte(0x84);  // size is 4 following bytes
-      putbyte(addr >> 16);
+      putbyte(C_RAM2_WRITE);
       putbyte(addr >> 8);
       putbyte(addr);
       putbyte(data);
