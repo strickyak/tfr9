@@ -6,6 +6,7 @@
 #include <hardware/pio.h>
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
+#include <pico/bootrom.h>
 #include <pico/stdlib.h>
 #include <pico/time.h>
 #include <pico/unique_id.h>
@@ -83,7 +84,8 @@ enum message_type : byte {
   // Short form codes, 192 to 255.
   // The packet length does not follow,
   // but is in the low nybble.
-  C_PUTCHAR = 192,
+  C_REBOOT = 192,      // n=0
+  C_PUTCHAR = 193,     // n=1
   C_RAM2_WRITE = 195,  // n=3
   C_RAM3_WRITE = 196,  // n=4
   C_RAM5_WRITE = 198,  // n=6
@@ -113,10 +115,10 @@ bool acia_char_in_ready;
 int acia_char;
 
 void ShowChar(byte ch) {
-  // putchar(C_PUTCHAR);
+  if (ch < 1 || ch > 127) {
+    putchar(C_PUTCHAR);
+  }
   putchar(ch);
-  // printf("ShowChar  %02x < %c >\n", ch, ch);
-  // sleep_ms(10);
 }
 void ShowStr(const char* s) {
   while (*s) {
@@ -486,6 +488,23 @@ void PollUsbInput() {
   // This way, the initial C_DISK_READ byte will clog the buffer
   // and prevent any of these from ending up on term_input.
   switch (peek) {
+    case C_REBOOT:
+      ShowStr("\n*** REBOOTING ***\n");
+#if 0
+      delay_ms(200);
+      rom_REBOOT(REBOOT_TYPE_NORMAL | REBOOT_TO_ARM | NO_RETURN_UNTIL_SUCCESS,
+                 200 /* delay_ms */,
+                 0 /* p0 */
+                 0 /* p1 */);
+#else
+      Reboot();
+#endif
+      while (1) {
+        sleep_ms(50);
+        ShowChar('.');
+      }
+      break;
+
     case C_DISK_READ:
       if (usb_input.HasAtLeast(kDiskReadSize)) {
         for (uint i = 0; i < kDiskReadSize; i++) {

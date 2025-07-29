@@ -58,6 +58,7 @@ const (
 	// Short form codes, 192 to 255.
 	// The packet length does not follow,
 	// but is in the low nybble.
+	C_REBOOT     = 192 // low nybble is 0.  No payload.
 	C_PUTCHAR    = 193 // low nybble is 1.  Payload is "Data"
 	C_RAM2_WRITE = 195 // low nybble is 3.  Payload is "AHi ALo Data"
 	C_RAM3_WRITE = 196 // low nybble is 4.  Payload is "AHighest AHi ALo Data"
@@ -342,6 +343,11 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	for {
 		select {
 		case inchar := <-inkey: // SELECT CASE user typed a character
+			switch inchar {
+			case 31: // Control Underscore (^_)
+				fmt.Printf("\n*** REBOOT PICO ***\n")
+				WriteBytes(channelToPico, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT)
+			}
 			if 1 <= inchar && inchar <= 127 {
 				WriteBytes(channelToPico, inchar)
 			}

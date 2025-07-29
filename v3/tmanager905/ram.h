@@ -25,13 +25,16 @@ struct DoTraceRamWrites {
     if (quiet_ram) return;
 
 #if 1
-    // Recording CPU Writes with 2-byte logical address is sufficient, if all writes are recorded.
+    // Recording CPU Writes with 2-byte logical address is sufficient, if all
+    // writes are recorded.
     putbyte(C_RAM2_WRITE);
     putbyte(addr >> 8);
     putbyte(addr);
     putbyte(data);
 #else
-    // Recording CPU Writes with 5-byte logical + physical address is for debugging, to assert that TConsole & TManager both compute the same physical address.
+    // Recording CPU Writes with 5-byte logical + physical address is for
+    // debugging, to assert that TConsole & TManager both compute the same
+    // physical address.
     putbyte(C_RAM5_WRITE);
     putbyte(phys >> 16);
     putbyte(phys >> 8);
@@ -77,9 +80,7 @@ template <typename T>
 class SmallRam {
  public:
   static void ResetRam() { memset(ram, 0, sizeof ram); }
-  static byte Read(uint addr) {
-    return ram[addr];
-  }
+  static byte Read(uint addr) { return ram[addr]; }
   static void Write(uint addr, byte data, byte block = 0) {
     ram[addr] = data;
     T::TraceTheRamWrite(addr, 0, data);
@@ -91,7 +92,7 @@ class SmallRam {
   static void SendRamConfigOverUSB() {
     putbyte(C_RAM_CONFIG);
     putsz(1);
-    putbyte('1'); // Ascii '1' for Small Ram.
+    putbyte('1');  // Ascii '1' for Small Ram.
   }
 };
 
@@ -122,7 +123,7 @@ class BigRam {
     current_task = 1;
 
     Write(0xFF90, 0x40);
-    Write(0xFF91, 0x01); // not sure about initially $0 or $1 !?
+    Write(0xFF91, 0x01);  // not sure about initially $0 or $1 !?
 
     for (byte i = 0; i < 16; i++) {
       Write(0xFFA0 + i, BigRam_mmu_init[i]);
@@ -324,7 +325,7 @@ class BigRam {
   static void SendRamConfigOverUSB() {
     putbyte(C_RAM_CONFIG);
     putsz(1);
-    putbyte('2'); // Ascii '2' for Big Ram.
+    putbyte('2');  // Ascii '2' for Big Ram.
   }
 };
 
