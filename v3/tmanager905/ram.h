@@ -15,11 +15,11 @@ byte mmu[2][8];
 
 template <typename T>
 struct DontTraceRamWrites {
-  force_inline static void TraceTheRamWrite(uint addr, byte data) {}
+  force_inline static void TraceTheRamWrite(uint addr, uint phys, byte data) {}
 };
 template <typename T>
 struct DoTraceRamWrites {
-  force_inline static void TraceTheRamWrite(uint addr, byte data) {
+  force_inline static void TraceTheRamWrite(uint addr, uint phys, byte data) {
     if (quiet_ram) return;
     /*
   TODO -- this is breaking stuff. 2025-07-13
@@ -28,10 +28,22 @@ struct DoTraceRamWrites {
   Probably called within some packet, without quieting?
     */
 
-    putbyte(C_RAM2_WRITE);
+    //... putbyte(C_RAM2_WRITE);
+    //... putbyte(addr >> 8);
+    //... putbyte(addr);
+    //... putbyte(data);
+
+    // TODO -- extra log
+    putbyte(C_RAM5_WRITE);
+    putbyte(phys >> 16);
+    putbyte(phys >> 8);
+    putbyte(phys);
     putbyte(addr >> 8);
     putbyte(addr);
     putbyte(data);
+
+    // TODO -- extra log
+    printf("TTRW << %x < %x > %d >>", addr, phys, data);
   }
 };
 
@@ -100,7 +112,7 @@ class SmallRam {
     // printf("write %x <- %x\n", addr, data);
     // TODO -- assert the mask is never needed.
     ram[addr & 0xFFFF] = data;
-    T::TraceTheRamWrite(addr, data);
+    T::TraceTheRamWrite(addr, 0, data);
   }
   static byte FastRead(uint addr) { return Read(addr); }
   static void FastWrite(uint addr, byte data) { Write(addr, data); }
@@ -250,7 +262,7 @@ class BigRam {
     ram[phys] = data;
 
     // LOG9("write: %x(%x) %x <- %x\n", addr, block, phys, data);
-    T::TraceTheRamWrite(phys, data);
+    T::TraceTheRamWrite(addr, phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
@@ -289,7 +301,7 @@ class BigRam {
     ram[phys] = data;
 
     // printf("write: %x() %x <- %x\n", addr, phys, data);
-    T::TraceTheRamWrite(phys, data);
+    T::TraceTheRamWrite(addr, phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {
@@ -327,7 +339,7 @@ class BigRam {
     ram[phys] = data;
 
     // LOG9("fastwrite: %x() %x <- %x\n", addr, phys, data);
-    T::TraceTheRamWrite(phys, data);
+    T::TraceTheRamWrite(addr, phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
       switch (addr & 0x00FF) {

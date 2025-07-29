@@ -61,6 +61,7 @@ const (
 	C_PUTCHAR    = 193 // low nybble is 1.  Payload is "Data"
 	C_RAM2_WRITE = 195 // low nybble is 3.  Payload is "AHi ALo Data"
 	C_RAM3_WRITE = 196 // low nybble is 4.  Payload is "AHighest AHi ALo Data"
+	C_RAM5_WRITE = 198 // low nybble is 6.  Payload is "PHighest PHi PLo AHi ALo Data"
 	C_CYCLE      = 200 // one machine cycle. low nybble is 8. Payload is "cycle4 kind_fl1 data1 addr2"
 
 	// C_NOKEY = 208  // low nybble is 0.
@@ -87,6 +88,7 @@ var CommandStrings = map[byte]string{
 	C_DUMP_PHYS:   "C_DUMP_PHYS",
 	C_RAM2_WRITE:  "C_RAM2_WRITE",
 	C_RAM3_WRITE:  "C_RAM3_WRITE",
+	C_RAM5_WRITE:  "C_RAM5_WRITE",
 	C_EVENT:       "C_EVENT",
 	EVENT_RTI:     "EVENT_RTI",
 	EVENT_SWI2:    "EVENT_SWI2",
@@ -393,8 +395,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					}
 
 					phys := the_ram.Physical(uint(_addr))
-					modName, modOffset := the_os9.MemoryModuleOf(phys)
 					if _kind == CY_SEEN || _kind == CY_UNSEEN {
+						modName, modOffset := the_os9.MemoryModuleOf(phys)
 						Logf("%s %s%%%06x :%q+%04x %s", s, the_os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
 					} else {
 						Logf("%s %s%%%06x", s, the_os9.CurrentHardwareMMap(), phys)
@@ -432,14 +434,47 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			case C_RAM3_WRITE:
 				panic("C_RAM3_WRITE not imp")
 
+			case C_RAM5_WRITE:
+				pack := GetPacket(fromUSB, cmd)
+				AssertEQ(len(pack), 6)
+
+				ptop := pack[0]
+				phi := pack[1]
+				plo := pack[2]
+				phys := (uint(ptop) << 16) | (uint(phi) << 8) | uint(plo)
+
+				hi := pack[3]
+				lo := pack[4]
+				addr := (uint(hi) << 8) | uint(lo)
+
+				data := pack[5]
+
+				if *RAM_VERBOSE {
+					mapped := the_ram.Physical(addr)
+					Logf("  =PRAM= %04x <m %06x =d %06x >p %06x gets %02x (was %02x)", addr, mapped, phys-mapped, phys, data, the_ram.Peek1(addr))
+					if mapped != phys {
+						log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ W5")
+						debug.PrintStack()
+						log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ W5")
+						AssertEQ(mapped, phys)
+					}
+				}
+
+				the_ram.Poke1(addr, data)
+
+				if (addr & 0xFF00) == 0xFF00 {
+					HandleIOPoke(addr, data)
+				}
+
 			case C_RAM2_WRITE:
 				pack := GetPacket(fromUSB, cmd)
 				AssertEQ(len(pack), 3)
 
 				hi := pack[0]
 				lo := pack[1]
-				data := pack[2]
 				addr := (uint(hi) << 8) | uint(lo)
+
+				data := pack[2]
 
 				if *RAM_VERBOSE {
 					Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))

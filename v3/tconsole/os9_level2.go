@@ -24,7 +24,40 @@ func (o *Os9Level2) GetMappingFromTable(addr uint) Mapping {
 	}
 }
 
+const (
+	l2stateNew = iota
+	l2state_2xxx
+	l2state_Exxx
+	l2state_ModDir
+)
+
+var l2state int
+var l2bootModules []*ScannedModuleInfo
+
 func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
+	ram := the_ram.GetTrackRam()
+	switch l2state {
+	case l2stateNew:
+		println(11111, addrPhys)
+		l2bootModules = ScanRamForMemoryModules(ram)
+		l2state = l2state_2xxx
+		return
+	case l2state_2xxx:
+		if (addrPhys & 0xffff) > 0xE000 {
+			println(22222, addrPhys, addrPhys&0xffff)
+			l2state = l2state_Exxx
+			l2bootModules = ScanRamForMemoryModules(ram)
+		}
+		name, offset = SearchScannedModuleInfo(l2bootModules, addrPhys, ram)
+		return
+	case l2state_Exxx:
+		name, offset = SearchScannedModuleInfo(l2bootModules, addrPhys, ram)
+		return
+	case l2state_ModDir:
+		{
+		}
+	}
+
 	beginDir, endDir := the_ram.PPeek2(L2_D_ModDir), the_ram.PPeek2(L2_D_ModDir+2)
 
 	datPtr0 := the_ram.PPeek2(beginDir)
@@ -47,9 +80,11 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 		if 0x072600 <= addrPhys && addrPhys <= 0x074000 {
 			p = addrPhys - 0x072600 + 0x0D00
 			z = 0x072600 - 0x0D00
+			println("yes", beginDir, p, z)
 		} else if true {
 			p = addrPhys
 			z = 0
+			println("no", beginDir, p, z)
 		}
 
 		p = (p & 0x1fff)
@@ -57,17 +92,20 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 		if 0x0D06 <= p && p < 0x0E30 {
 			sz := ppeek2(z + 0x0D06 + 2)
 			a, b, c := ppeek1(z+0x0D06+sz-3), ppeek1(z+0x0D06+sz-2), ppeek1(z+0x0D06+sz-1)
-			//Logf("MMOf/rel: %x -> %x", addrPhys, p)
+			println(sz, a, b, c)
+			Logf("MMOf/rel: %x -> %x", addrPhys, p)
 			return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0x0D06
 		} else if 0x0E30 <= p && p < 0x1000 {
 			sz := ppeek2(z + 0x0E30 + 2)
 			a, b, c := ppeek1(z+0x0E30+sz-3), ppeek1(z+0x0E30+sz-2), ppeek1(z+0x0E30+sz-1)
-			//Logf("MMOf/boot: %x -> %x", addrPhys, p)
+			println(sz, a, b, c)
+			Logf("MMOf/boot: %x -> %x", addrPhys, p)
 			return fmt.Sprintf("boot.%04x%02x%02x%02x", sz, a, b, c), p - 0x0E30
 		} else if 0x1000 <= p && p < 0x1F00 {
 			sz := ppeek2(z + 0x1000 + 2)
 			a, b, c := ppeek1(z+0x1000+sz-3), ppeek1(z+0x1000+sz-2), ppeek1(z+0x1000+sz-1)
-			//Logf("MMOf/krn: %x -> %x", addrPhys, p)
+			println(sz, a, b, c)
+			Logf("MMOf/krn: %x -> %x", addrPhys, p)
 			return fmt.Sprintf("krn.%04x%02x%02x%02x", sz, a, b, c), p - 0x1000
 		} else {
 			return "=0=", p

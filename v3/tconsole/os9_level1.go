@@ -24,38 +24,49 @@ type ScannedModuleInfo struct {
 	FullName string
 }
 
+func SearchScannedModuleInfo(mm []*ScannedModuleInfo, addr uint, ram []byte) (name string, offset uint) {
+	for i, m := range mm {
+		if m.Addy < addr && addr < m.Addy+m.Size {
+			Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
+			return ModuleId(m.Addy, ram), addr - m.Addy
+		}
+	}
+	return // empty, 0
+}
+
 func (o *Os9Level1) CurrentHardwareMMap() string { return "" }
 
-func (o *Os9Level1) byt(i uint, ram []byte) byte {
+func byt(i uint, ram []byte) byte {
 	if i >= uint(len(ram)) {
 		return 0
 	}
 	return ram[i]
 }
 
-func (o *Os9Level1) wrd(i uint, ram []byte) uint {
-	return (uint(o.byt(i, ram)) << 8) | uint(o.byt(i+1, ram))
+func wrd(i uint, ram []byte) uint {
+	return (uint(byt(i, ram)) << 8) | uint(byt(i+1, ram))
 }
 
-func (o *Os9Level1) ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
+func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
+	Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
 	var mm []*ScannedModuleInfo
 	for i := uint(0); i < uint(len(ram))-12; i++ {
 		if ram[i] == 0x87 && ram[i+1] == 0xCD {
-			size := o.wrd(i+2, ram)
-			namoff := o.wrd(i+4, ram)
-			check := o.byt(i+9, ram)
-			name := o.FormatOs9StringFromSlice(i+namoff, ram)
+			size := wrd(i+2, ram)
+			namoff := wrd(i+4, ram)
+			check := byt(i+9, ram)
+			name := FormatOs9StringFromSlice(i+namoff, ram)
 			for j := uint(0); j < 9; j++ {
-				check ^= o.byt(i+j, ram)
+				check ^= byt(i+j, ram)
 			}
 			if check != 255 {
 				continue
 			}
 
-			c1, c2, c3 := o.byt(i+size-3, ram), o.byt(i+size-2, ram), o.byt(i+size-1, ram)
+			c1, c2, c3 := byt(i+size-3, ram), byt(i+size-2, ram), byt(i+size-1, ram)
 			fullname := fmt.Sprintf("%s.%04x%02x%02x%02x", strings.ToLower(name), size, c1, c2, c3)
 
-			// Logf("ScanRamForMemoryModules: i=%x size=%x namoff=%x=%q check=%x", i, size, namoff, name, check)
+			Logf("ScanRamForMemoryModules: i=$%x size=$%x namoff=$%x=%q check=$%x", i, size, namoff, name, check)
 			mm = append(mm, &ScannedModuleInfo{
 				Name:     name,
 				Addy:     i,
@@ -65,6 +76,7 @@ func (o *Os9Level1) ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 
 		}
 	}
+	Logf("ScanRamForMemoryModules: returning %d. modules", len(mm))
 	return mm
 }
 
@@ -92,7 +104,7 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 			}
 		}
 	} else if 0x0400 <= addr && addr <= 0xFF00 {
-		mm := o.ScanRamForMemoryModules(the_ram.GetTrackRam())
+		mm := ScanRamForMemoryModules(the_ram.GetTrackRam())
 		// for i, m := range mm {
 		// Logf("mm [%d] %x %x %q", i, m.Addy, m.Addy+m.Size, m.Name)
 		// }
@@ -113,19 +125,25 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 	return "==", addr
 }
 func (o *Os9Level1) ModuleId(begin uint) string {
-	namePtr := begin + the_ram.Peek2(begin+4)
-	modname := strings.ToLower(o.Os9String(namePtr))
-	sz := the_ram.Peek2(begin + 2)
-	crc1 := the_ram.Peek1(begin + sz - 3)
-	crc2 := the_ram.Peek1(begin + sz - 2)
-	crc3 := the_ram.Peek1(begin + sz - 1)
+	return ModuleId(begin, the_ram.GetTrackRam())
+}
+func ModuleId(begin uint, ram []byte) string {
+	namePtr := begin + wrd(begin+4, ram)
+	modname := strings.ToLower(Os9String(namePtr, ram))
+	sz := wrd(begin+2, ram)
+	crc1 := byt(begin+sz-3, ram)
+	crc2 := byt(begin+sz-2, ram)
+	crc3 := byt(begin+sz-1, ram)
 	return fmt.Sprintf("%s.%04x%02x%02x%02x", modname, sz, crc1, crc2, crc3)
 }
 
 func (o *Os9Level1) Os9String(addr uint) string {
+	return Os9String(addr, the_ram.GetTrackRam())
+}
+func Os9String(addr uint, ram []byte) string {
 	var buf bytes.Buffer
 	for {
-		var b byte = the_ram.Peek1(addr)
+		var b byte = byt(addr, ram)
 		var ch byte = 0x7F & b
 		if '!' <= ch && ch <= '~' {
 			buf.WriteByte(ch)
@@ -160,12 +178,12 @@ func (o *Os9Level1) FormatOs9Chars(vec []byte) string {
 	return buf.String()
 }
 
-func (o *Os9Level1) FormatOs9StringFromSlice(addr uint, ram []byte) string {
+func FormatOs9StringFromSlice(addr uint, ram []byte) string {
 	a := addr
 	var buf bytes.Buffer
 
 	for {
-		x := o.byt(a, ram)
+		x := byt(a, ram)
 		if x == 0 || x == 10 || x == 13 {
 			break
 		}

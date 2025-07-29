@@ -84,12 +84,10 @@ enum message_type : byte {
   // The packet length does not follow,
   // but is in the low nybble.
   C_PUTCHAR = 192,
-  C_RAM2_WRITE = 195,
-  C_RAM3_WRITE = 196,
+  C_RAM2_WRITE = 195, // n=3
+  C_RAM3_WRITE = 196, // n=4
+  C_RAM5_WRITE = 198, // n=6
   C_CYCLE = 200,  // tracing one cycle
-
-  //? C_NOKEY = 208,
-  //? C_KEY = 211,
 };
 
 extern void putbyte(byte x);

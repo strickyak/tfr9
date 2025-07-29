@@ -87,11 +87,15 @@ struct Logging {
   }
 
   static void TransmitMessage(byte messtype, uint sz, char* buf) {
-    TransmitHeader(messtype, sz);
+    if (messtype < 0xC0) {
+        TransmitHeader(messtype, sz);
+    } else {
+        putbyte(messtype);
+        assert((messtype & 15) == sz);
+    }
     for (uint i = 0; i < sz; i++) {
       putbyte(buf[i]);
     }
-    // putbyte(0);
   }
 
   static void TransmitHeader(byte messtype, uint sz) {
