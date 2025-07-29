@@ -34,102 +34,53 @@ const (
 var l2state int
 var l2bootModules []*ScannedModuleInfo
 
-func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
+const (
+	KernelTablesBelowHere = 0x0400
+	Track35BootAddress    = 0xED00
+)
+
+func (o *Os9Level2) MemoryModuleOf(phys uint) (name string, offset uint) {
 	ram := the_ram.GetTrackRam()
+	a16 := phys & 0xFFFF
 	switch l2state {
 	case l2stateNew:
-		println(11111, addrPhys)
+		// println(11111, phys)
+		// First scan, to find modules in low memory, starting at $2600
 		l2bootModules = ScanRamForMemoryModules(ram)
 		l2state = l2state_2xxx
 		return
 	case l2state_2xxx:
-		if (addrPhys & 0xffff) > 0xE000 {
-			println(22222, addrPhys, addrPhys&0xffff)
-			l2state = l2state_Exxx
+		if a16 > Track35BootAddress {
+			// println(22222, phys, a16)
+			// Second scan, to find them copied up to $ED00
 			l2bootModules = ScanRamForMemoryModules(ram)
+			l2state = l2state_Exxx
 		}
-		name, offset = SearchScannedModuleInfo(l2bootModules, addrPhys, ram)
+		name, offset = SearchScannedModuleInfo(l2bootModules, phys, ram)
 		return
 	case l2state_Exxx:
-		name, offset = SearchScannedModuleInfo(l2bootModules, addrPhys, ram)
+		if KernelTablesBelowHere < a16 && a16 < Track35BootAddress {
+			// println(33333, phys, a16)
+			// Third scan, to find krnp2 and everything else.
+			l2bootModules = ScanRamForMemoryModules(ram)
+			l2state = l2state_ModDir
+		}
+		name, offset = SearchScannedModuleInfo(l2bootModules, phys, ram)
 		return
 	case l2state_ModDir:
-		{
-		}
+		break
+	default:
+		Fatalf("should never happen")
+	}
+
+	name, offset = SearchScannedModuleInfo(l2bootModules, phys, ram)
+	if name != "" {
+		return // good, we found it
 	}
 
 	beginDir, endDir := the_ram.PPeek2(L2_D_ModDir), the_ram.PPeek2(L2_D_ModDir+2)
-
 	datPtr0 := the_ram.PPeek2(beginDir)
-	if datPtr0 == 0 {
-		var p uint
-		var z uint
-
-		ppeek1 := func(a uint) byte {
-			z := the_ram.PPeek1(a)
-			// Logf("ppeek1: %x -> %x", a, z)
-			return z
-		}
-
-		ppeek2 := func(a uint) uint {
-			z := the_ram.PPeek2(a)
-			// Logf("ppeek2: %x -> %x", a, z)
-			return z
-		}
-
-		if 0x072600 <= addrPhys && addrPhys <= 0x074000 {
-			p = addrPhys - 0x072600 + 0x0D00
-			z = 0x072600 - 0x0D00
-			println("yes", beginDir, p, z)
-		} else if true {
-			p = addrPhys
-			z = 0
-			println("no", beginDir, p, z)
-		}
-
-		p = (p & 0x1fff)
-
-		if 0x0D06 <= p && p < 0x0E30 {
-			sz := ppeek2(z + 0x0D06 + 2)
-			a, b, c := ppeek1(z+0x0D06+sz-3), ppeek1(z+0x0D06+sz-2), ppeek1(z+0x0D06+sz-1)
-			println(sz, a, b, c)
-			Logf("MMOf/rel: %x -> %x", addrPhys, p)
-			return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0x0D06
-		} else if 0x0E30 <= p && p < 0x1000 {
-			sz := ppeek2(z + 0x0E30 + 2)
-			a, b, c := ppeek1(z+0x0E30+sz-3), ppeek1(z+0x0E30+sz-2), ppeek1(z+0x0E30+sz-1)
-			println(sz, a, b, c)
-			Logf("MMOf/boot: %x -> %x", addrPhys, p)
-			return fmt.Sprintf("boot.%04x%02x%02x%02x", sz, a, b, c), p - 0x0E30
-		} else if 0x1000 <= p && p < 0x1F00 {
-			sz := ppeek2(z + 0x1000 + 2)
-			a, b, c := ppeek1(z+0x1000+sz-3), ppeek1(z+0x1000+sz-2), ppeek1(z+0x1000+sz-1)
-			println(sz, a, b, c)
-			Logf("MMOf/krn: %x -> %x", addrPhys, p)
-			return fmt.Sprintf("krn.%04x%02x%02x%02x", sz, a, b, c), p - 0x1000
-		} else {
-			return "=0=", p
-		}
-
-		/*
-		   if 0xED06 <= p && p < 0xEE30 {
-		       sz := the_ram.PPeek2(0xED08)
-		       a, b, c := PPeek1(0xED06+sz-3), PPeek1(0xED06+sz-2), PPeek1(0xED06+sz-1)
-		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xED06
-		   } else if 0xEE30 <= p && p < 0xF000 {
-		       sz := the_ram.PPeek2(0xEE32)
-		       a, b, c := PPeek1(0xEE30+sz-3), PPeek1(0xEE30+sz-2), PPeek1(0xEE30+sz-1)
-		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xEE30
-		   } else if 0xF000 <= p && p < 0xFF00 {
-		       sz := the_ram.PPeek2(0xF002)
-		       a, b, c := PPeek1(0xF000+sz-3), PPeek1(0xF000+sz-2), PPeek1(0xF000+sz-1)
-		       return fmt.Sprintf("rel.%04x%02x%02x%02x", sz, a, b, c), p - 0xF000
-		   } else {
-		       return "=0=", addrPhys & 0x1fff
-		   }
-		*/
-		// NOT REACHED
-	}
+	AssertGT(datPtr0, 0)
 
 	if beginDir != 0 && endDir != 0 {
 		for i := beginDir; i < endDir; i += 8 {
@@ -140,13 +91,13 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 			mapping := o.GetMappingFromTable(datPtr)
 
 			begin := the_ram.PPeek2(i + 4)
-			//if begin == 0 {
-			//continue
-			//}
+			if begin == 0 {
+				continue
+			}
 
 			magic := the_ram.Peek2WithMapping(begin, mapping)
 			if magic != 0x87CD {
-				return "=m=", addrPhys
+				return "=m=", phys
 			}
 			// Logf("DDT: magic i=%x datPtr=%x begin=%x mapping=% 03x", i, datPtr, begin, mapping)
 
@@ -168,14 +119,14 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 					regionSize = endOfRegionBlockP - regionP
 				}
 
-				// Logf("DDT: try regionP=%x (phys=%x) regionEnds=%x remain=%x", regionP, addrPhys, regionP+regionSize, remaining)
-				if regionP <= addrPhys && addrPhys < regionP+regionSize {
+				// Logf("DDT: try regionP=%x (phys=%x) regionEnds=%x remain=%x", regionP, phys, regionP+regionSize, remaining)
+				if regionP <= phys && phys < regionP+regionSize {
 					//if links == 0 {
-					// return "unlinkedMod", addrPhys
-					// log.Panicf("in unlinked module: i=%x addrPhys=%x", i, addrPhys)
+					// return "unlinkedMod", phys
+					// log.Panicf("in unlinked module: i=%x phys=%x", i, phys)
 					//}
 					id := o.ModuleId(begin, mapping)
-					delta := offset + (addrPhys - regionP)
+					delta := offset + (phys - regionP)
 					// Logf("DDT: [links=%x] FOUND %q+%x", links, id, delta)
 					return id, delta
 				}
@@ -188,8 +139,9 @@ func (o *Os9Level2) MemoryModuleOf(addrPhys uint) (name string, offset uint) {
 
 		}
 	}
-	return "==", addrPhys
+	return "==", phys
 }
+
 func (o *Os9Level2) ModuleId(begin uint, m Mapping) string {
 	namePtr := begin + the_ram.Peek2WithMapping(begin+4, m)
 	modname := strings.ToLower(o.Os9StringWithMapping(namePtr, m))

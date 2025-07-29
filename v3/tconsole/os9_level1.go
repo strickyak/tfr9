@@ -27,7 +27,8 @@ type ScannedModuleInfo struct {
 func SearchScannedModuleInfo(mm []*ScannedModuleInfo, addr uint, ram []byte) (name string, offset uint) {
 	for i, m := range mm {
 		if m.Addy < addr && addr < m.Addy+m.Size {
-			Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
+			_ = i
+			// Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
 			return ModuleId(m.Addy, ram), addr - m.Addy
 		}
 	}

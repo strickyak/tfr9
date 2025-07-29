@@ -389,17 +389,17 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 					var s string
 					if _kind == CY_IDLE {
-						s = Format("cy - ---- -- %s#%d", LookupCpuFlags[_fl], _cy)
+						Logf("cy - ---- -- %s#%d", LookupCpuFlags[_fl], _cy)
 					} else {
 						s = Format("cy %s %04x %02x %s#%d", CycleKindStr[_kind], _addr, _data, LookupCpuFlags[_fl], _cy)
-					}
 
-					phys := the_ram.Physical(uint(_addr))
-					if _kind == CY_SEEN || _kind == CY_UNSEEN {
-						modName, modOffset := the_os9.MemoryModuleOf(phys)
-						Logf("%s %s%%%06x :%q+%04x %s", s, the_os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
-					} else {
-						Logf("%s %s%%%06x", s, the_os9.CurrentHardwareMMap(), phys)
+						phys := the_ram.Physical(uint(_addr))
+						if _kind == CY_SEEN || _kind == CY_UNSEEN {
+							modName, modOffset := the_os9.MemoryModuleOf(phys)
+							Logf("%s %s%%%06x :%q+%04x %s", s, the_os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+						} else {
+							Logf("%s %s%%%06x", s, the_os9.CurrentHardwareMMap(), phys)
+						}
 					}
 				}
 

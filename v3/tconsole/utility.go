@@ -22,27 +22,40 @@ type Ordered interface {
 
 func AssertEQ[T Ordered](a, b T) {
 	if a != b {
+		log.Printf("AssertEQ fails: %v vs %v", a, b)
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("AssertEQ fails: %v vs %v", a, b)
+		log.Fatalf("...AssertEQ fails: %v vs %v", a, b)
 	}
 }
 
 func AssertLT[T Ordered](a, b T) {
 	if a >= b {
+		log.Printf("AssertLT fails: %v vs %v", a, b)
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("AssertLT fails: %v vs %v", a, b)
+		log.Fatalf("...AssertLT fails: %v vs %v", a, b)
 	}
 }
 
 func AssertGE[T Ordered](a, b T) {
 	if a < b {
+		log.Printf("AssertGE fails: %v vs %v", a, b)
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("AssertGE fails: %v vs %v", a, b)
+		log.Fatalf("...AssertGE fails: %v vs %v", a, b)
+	}
+}
+
+func AssertGT[T Ordered](a, b T) {
+	if a <= b {
+		log.Printf("AssertGT fails: %v vs %v", a, b)
+		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
+		debug.PrintStack()
+		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
+		log.Fatalf("...AssertGT fails: %v vs %v", a, b)
 	}
 }

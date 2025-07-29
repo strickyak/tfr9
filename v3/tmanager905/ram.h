@@ -4,12 +4,14 @@
 const static uint BIG_RAM_SIZE = 128 * 1024;
 const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
 
+// SmallRam only uses the first 64K of the ram array.
+// BigRam uses all of it.
 byte ram[BIG_RAM_SIZE];
 
+// BigRam uses these.
 bool enable_mmu;
 byte current_task;
 uint* current_bases;
-
 uint base[2][8];
 byte mmu[2][8];
 
@@ -21,19 +23,15 @@ template <typename T>
 struct DoTraceRamWrites {
   force_inline static void TraceTheRamWrite(uint addr, uint phys, byte data) {
     if (quiet_ram) return;
-    /*
-  TODO -- this is breaking stuff. 2025-07-13
-  Repro: Comment this in, boot with "e5", type MDIR, and you get a lot of junk.
-  Needs protocol debug.
-  Probably called within some packet, without quieting?
-    */
 
-    //... putbyte(C_RAM2_WRITE);
-    //... putbyte(addr >> 8);
-    //... putbyte(addr);
-    //... putbyte(data);
-
-    // TODO -- extra log
+#if 1
+    // Recording CPU Writes with 2-byte logical address is sufficient, if all writes are recorded.
+    putbyte(C_RAM2_WRITE);
+    putbyte(addr >> 8);
+    putbyte(addr);
+    putbyte(data);
+#else
+    // Recording CPU Writes with 5-byte logical + physical address is for debugging, to assert that TConsole & TManager both compute the same physical address.
     putbyte(C_RAM5_WRITE);
     putbyte(phys >> 16);
     putbyte(phys >> 8);
@@ -41,30 +39,9 @@ struct DoTraceRamWrites {
     putbyte(addr >> 8);
     putbyte(addr);
     putbyte(data);
-
-    // TODO -- extra log
-    printf("TTRW << %x < %x > %d >>", addr, phys, data);
-  }
-};
-
-#if 0
-template <typename T>
-struct DontLogMmu {
-  static force_inline void LogMmuf(const char* fmt, ...) {}
-};
-template <typename T>
-struct DoLogMmu {
-  static void LogMmuf(const char* fmt, ...) {
-    // if (!interest) return;
-    if (quiet_ram > 0) return;
-
-    va_list va;
-    va_start(va, fmt);
-    int z = vprintf(fmt, va);
-    va_end(va);
-  }
-};
 #endif
+  }
+};
 
 template <typename T>
 struct CommonRam {
@@ -75,9 +52,6 @@ struct CommonRam {
     T::Write(addr, data);
     // printf("PPOOKKEE %x <- %x\n", addr, data);
   }
-#if 0
-force_inline void PokeQuietly(uint addr, byte data) { T::WriteQuietly(addr, data); }
-#endif
   static force_inline void FastPoke(uint addr, byte data) {
     T::FastWrite(addr, data);
   }
@@ -104,14 +78,10 @@ class SmallRam {
  public:
   static void ResetRam() { memset(ram, 0, sizeof ram); }
   static byte Read(uint addr) {
-    // printf("read %x -> %x\n", addr, ram[addr & 0xFFFF]);
-    // TODO -- assert the mask is never needed.
-    return ram[addr & 0xFFFF];
+    return ram[addr];
   }
   static void Write(uint addr, byte data, byte block = 0) {
-    // printf("write %x <- %x\n", addr, data);
-    // TODO -- assert the mask is never needed.
-    ram[addr & 0xFFFF] = data;
+    ram[addr] = data;
     T::TraceTheRamWrite(addr, 0, data);
   }
   static byte FastRead(uint addr) { return Read(addr); }
@@ -121,15 +91,18 @@ class SmallRam {
   static void SendRamConfigOverUSB() {
     putbyte(C_RAM_CONFIG);
     putsz(1);
-    putbyte('1');
+    putbyte('1'); // Ascii '1' for Small Ram.
   }
 };
 
+// "rel.asm" explains:
+// Coco3 enters this code with TR=1 and the MMU mappings set thus:
+// TR=0: map 0-7: $??,$39,$3A,$3B,$3C,$3D,$3E,$3F
+// TR=1: map 0-7: $38,$30,$31,$32,$33,$3D,$35,$3F
 static byte const BigRam_mmu_init[16] = {
+    // However this seems to me to be right:
     0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
     0, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    // 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
 };
 
 template <typename T>
@@ -149,22 +122,11 @@ class BigRam {
     current_task = 1;
 
     Write(0xFF90, 0x40);
-    Write(0xFF91, 0x01);
+    Write(0xFF91, 0x01); // not sure about initially $0 or $1 !?
 
-    // "rel.asm" explains:
-    // Coco3 enters this code with TR=1 and the MMU mappings set thus:
-    // TR=0: map 0-7: $??,$39,$3A,$3B,$3C,$3D,$3E,$3F
-    // TR-1: map 0-7: $38,$30,$31,$32,$33,$3D,$35,$3F
     for (byte i = 0; i < 16; i++) {
       Write(0xFFA0 + i, BigRam_mmu_init[i]);
     }
-    /*
-        for (uint task = 0; task < 2; task++) {
-            for (uint slot = 0; slot < 8; slot++) {
-                mmu[task][slot] = 0x38 + slot;
-            }
-        }
-        */
     LOG1("~: BIG_RAM_SIZE=$%x=%d. BIG_RAM_MASK=$%x=%d. OFFSET_MASK=$%x=%d.\n",
          BIG_RAM_SIZE, BIG_RAM_SIZE, BIG_RAM_MASK, BIG_RAM_MASK, OFFSET_MASK,
          OFFSET_MASK);
@@ -209,17 +171,12 @@ class BigRam {
 
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
-
-    // LOG9("Phys: %x -> %x\n", addr, phys);
     return phys;
   }
   force_inline static uint Phys(uint addr, byte block) {
     uint offset = addr & OFFSET_MASK;
-
     uint pre_phys = ((block << SLOT_SHIFT) | offset);
     uint phys = ((block << SLOT_SHIFT) | offset) & BIG_RAM_MASK;
-
-    // LOG9("Phys: %x(%x) -> %x\n", addr, block, phys);
     return phys;
   }
   // ==============================================
@@ -227,7 +184,6 @@ class BigRam {
     uint offset = addr & OFFSET_MASK;
     uint slot = (addr >> SLOT_SHIFT) & SLOT_MASK;
     uint basis = current_bases[slot];
-    // uint phys = (basis | offset) & BIG_RAM_MASK;
     uint phys = basis + offset;
 
     return phys;
@@ -235,7 +191,6 @@ class BigRam {
   force_inline static uint FastPhys(uint addr, byte block) {
     uint offset = addr & OFFSET_MASK;
     uint basis = current_bases[block];
-    // uint phys = (basis | offset) & BIG_RAM_MASK;
     uint phys = basis + offset;
 
     return phys;
@@ -244,16 +199,10 @@ class BigRam {
   force_inline static byte GetPhys(uint phys_addr) { return ram[phys_addr]; }
   force_inline static byte Read(uint addr) {
     uint phys = Phys(addr);
-    // LOG9("read: %x %x -> %x\n", addr, phys, ram[phys]);
     return ram[phys];
   }
   force_inline static byte FastRead(uint addr) {
-    // uint phys = Phys(addr);
     uint phys2 = FastPhys(addr);
-    // if (phys != phys2) {
-    // printf("DIFFERENT(%x) %x vs %x\n", addr, phys, phys2);
-    //}
-    // LOG9("fastread: %x %x -> %x\n", addr, phys2, ram[phys2]);
     return ram[phys2];
   }
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -261,7 +210,6 @@ class BigRam {
     uint phys = Phys(addr, block);
     ram[phys] = data;
 
-    // LOG9("write: %x(%x) %x <- %x\n", addr, block, phys, data);
     T::TraceTheRamWrite(addr, phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -296,11 +244,9 @@ class BigRam {
     }  // if
   }  // Write
   static void Write(uint addr, byte data) {
-    // printf("write: %x() <- %x\n", addr, data);
     uint phys = Phys(addr);
     ram[phys] = data;
 
-    // printf("write: %x() %x <- %x\n", addr, phys, data);
     T::TraceTheRamWrite(addr, phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -338,7 +284,6 @@ class BigRam {
     uint phys = FastPhys(addr);
     ram[phys] = data;
 
-    // LOG9("fastwrite: %x() %x <- %x\n", addr, phys, data);
     T::TraceTheRamWrite(addr, phys, data);
 
     if ((addr & 0xFFC0) == 0xFF80) {
@@ -379,7 +324,7 @@ class BigRam {
   static void SendRamConfigOverUSB() {
     putbyte(C_RAM_CONFIG);
     putsz(1);
-    putbyte('2');
+    putbyte('2'); // Ascii '2' for Big Ram.
   }
 };
 
