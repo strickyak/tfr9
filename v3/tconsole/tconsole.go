@@ -12,8 +12,8 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
-	// "strconv"
-	// "strings"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	// "github.com/strickyak/gomar/sym"
@@ -875,11 +875,51 @@ func LookForPreSync(ch byte) bool {
 	syncWindow[3] = ch
 	return string(syncWindow[:]) == ".:,;"
 }
-func PreUpload(filename string, channelToPico chan []byte) {
+func PreUpload(commaList string, channelToPico chan []byte) {
+    words := strings.Split(commaList, ",")
+    for _, w := range words {
+        if strings.HasPrefix(w, "decb:") {
+
+            noStart := false
+            w = strings.TrimPrefix(w, "decb:")
+            if strings.HasPrefix(w, "nostart:") {
+                noStart = true
+                w = strings.TrimPrefix(w, "nostart:")
+            }
+            PreUploadDecb(w, channelToPico, noStart)
+
+        } else if strings.HasPrefix(w, "rom:") {
+
+            w := strings.TrimPrefix(w, "rom:")
+            ht := strings.Split(w, ":")
+            if len(ht) != 2 {
+                Fatalf("Expected rom:address:filename in %q", w)
+            }
+            h, t := ht[0], ht[1]
+            if strings.HasPrefix(h, "0x") {
+                addr, err := strconv.ParseUint(h[2:], 16, 32)
+                if err != nil {
+                    Fatalf("Cannot parse hex load address %q in --load arg %q: %v", h, w, err)
+                }
+                PreUploadRom(t, channelToPico, uint(addr))
+            } else {
+                addr, err := strconv.ParseUint(h, 10, 32)
+                if err != nil {
+                    Fatalf("Cannot parse decimal load address %q in --load arg %q: %v", h, w, err)
+                }
+                PreUploadRom(t, channelToPico, uint(addr))
+            }
+        }
+    }
+	Logf("PreUpload: end")
+	LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
+}
+
+func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			log.Fatalf("Error during PreUpload(%q): %v", filename, r)
+			log.Fatalf("Error during PreUploadDecb(%q): %v", filename, r)
 		}
 	}()
 
@@ -890,6 +930,41 @@ func PreUpload(filename string, channelToPico chan []byte) {
 		log.Fatalf("cannot ReadFile %q: %v", filename, err)
 	}
 
+	for len(bb) > 0 {
+		n := uint(len(bb))
+		if n > 60 {
+			n = 60 // max 60 at a time, plus 2-byte addr
+		}
+
+        out := make([]byte, n+4)
+        out[0] = C_PRE_LOAD
+        out[1] = byte(128 + n + 2)
+        out[2] = byte(addr >> 8)
+        out[3] = byte(addr & 255)
+        copy(out[4:], bb[:n])
+		Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
+		WriteBytes(channelToPico, out...)
+
+		bb = bb[n:]
+		addr += n
+    }
+}
+
+func PreUploadDecb(filename string, channelToPico chan []byte, noStart bool) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			log.Fatalf("Error during PreUploadDecb(%q): %v", filename, r)
+		}
+	}()
+
+	syncWindow = [4]byte{0, 0, 0, 0} // Undo pattern.
+
+	bb, err := os.ReadFile(filename)
+	if err != nil {
+		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+	}
+LOOP:
 	for len(bb) > 0 {
 		switch bb[0] {
 		case 0: // block of data to poke
@@ -920,6 +995,7 @@ func PreUpload(filename string, channelToPico chan []byte) {
 			Logf("PreUpload: reset to %x", addr)
 			WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
 			bb = bb[5:]
+            break LOOP // fuzix.bin has trailing zeros that would confuse us (e.g. "runtime error: index out of range [2] with length 2")
 
 		default:
 			log.Fatalf("bad control byte $%x, which is %d bytes from end", bb[0], len(bb))

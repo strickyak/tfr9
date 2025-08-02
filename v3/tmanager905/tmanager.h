@@ -515,7 +515,7 @@ void PollUsbInput() {
       break;
 
     case C_PRE_LOAD:
-      if (usb_input.HasAtLeast(2)) {
+      while (usb_input.HasAtLeast(2)) {
         byte sz = 63 & usb_input.Peek(1);
         if (usb_input.HasAtLeast(2 + sz)) {
           PreLoadPacket();
@@ -1382,86 +1382,85 @@ void Shell() {
   Verbosity = 5;
   Traceosity = 5;
 
-  for (int i = 0; true; i++) {
-    ShowChar(".:,;"[i & 3]);
-    PollUsbInput();
+  while (true) {
+      for (int i = 0; i<200; i++) {
+        ShowChar(".:,;"[i & 3]);
+        PollUsbInput();
 
-    if (term_input.HasAtLeast(1)) {
-      byte ch = term_input.Take();
-      ShowChar('<');
-      if (32 <= ch && ch <= 126) {
-        ShowChar(ch);
-      } else {
-        ShowChar('#');
-      }
-      ShowChar('>');
+        if (term_input.HasAtLeast(1)) {
+          byte ch = term_input.Take();
+          ShowChar('<');
+          if (32 <= ch && ch <= 126) {
+            ShowChar(ch);
+          } else {
+            ShowChar('#');
+          }
+          ShowChar('>');
 
-      if ('0' <= ch && ch <= '4') {
-        uint num = ch - '0';
-        if (harness.fast_engines[num]) {
-          harness.fast_engines[num]();
+          if ('0' <= ch && ch <= '4') {
+            uint num = ch - '0';
+            if (harness.fast_engines[num]) {
+              harness.fast_engines[num]();
+            } else {
+              ShowStr("-S?-");
+            }
+
+          } else if ('5' <= ch && ch <= '9') {
+            uint num = ch - '5';
+            if (harness.engines[num]) {
+              harness.engines[num]();
+            } else {
+              ShowStr("-F?-");
+            }
+
+          } else if (ch == 'q') {
+            Traceosity = 6;
+          } else if (ch == 'w') {
+            Traceosity = 7;
+          } else if (ch == 'e') {
+            Traceosity = 8;
+          } else if (ch == 'r') {
+            Traceosity = 9;
+
+          } else if (ch == 'j') {
+            Verbosity = 2;
+          } else if (ch == 'k') {
+            Verbosity = 3;
+          } else if (ch == 'l') {
+            Verbosity = 4;
+          } else if (ch == 'a') {
+            Verbosity = 6;
+          } else if (ch == 's') {
+            Verbosity = 7;
+          } else if (ch == 'd') {
+            Verbosity = 8;
+          } else if (ch == 'f') {
+            Verbosity = 9;
+
+          } else if (ch == 'v') {
+            set_sys_clock_khz(200000, true);
+          } else if (ch == 'c') {
+            set_sys_clock_khz(250000, true);
+          } else if (ch == 'x') {
+            set_sys_clock_khz(260000, true);
+          } else if (ch == 'z') {
+            set_sys_clock_khz(270000, true);
+
+          } else {
+            ShowStr("-#?-");
+          }
+        }  // term_input
+
+        if (90 <= i && i <= 100) {
+            LED(1);
+        } else if (120 < i && i < 130) {
+            LED(1);
         } else {
-          ShowStr("-S?-");
+            LED(0);
         }
 
-      } else if ('5' <= ch && ch <= '9') {
-        uint num = ch - '5';
-        if (harness.engines[num]) {
-          harness.engines[num]();
-        } else {
-          ShowStr("-F?-");
-        }
-
-      } else if (ch == 'q') {
-        Traceosity = 6;
-      } else if (ch == 'w') {
-        Traceosity = 7;
-      } else if (ch == 'e') {
-        Traceosity = 8;
-      } else if (ch == 'r') {
-        Traceosity = 9;
-
-      } else if (ch == 'j') {
-        Verbosity = 2;
-      } else if (ch == 'k') {
-        Verbosity = 3;
-      } else if (ch == 'l') {
-        Verbosity = 4;
-      } else if (ch == 'a') {
-        Verbosity = 6;
-      } else if (ch == 's') {
-        Verbosity = 7;
-      } else if (ch == 'd') {
-        Verbosity = 8;
-      } else if (ch == 'f') {
-        Verbosity = 9;
-
-      } else if (ch == 'v') {
-        set_sys_clock_khz(200000, true);
-      } else if (ch == 'c') {
-        set_sys_clock_khz(250000, true);
-      } else if (ch == 'x') {
-        set_sys_clock_khz(260000, true);
-      } else if (ch == 'z') {
-        set_sys_clock_khz(270000, true);
-
-      } else {
-        ShowStr("-#?-");
+        sleep_ms(10);
       }
-    }  // term_input
-
-    if ((i & 3) == 3) {
-      LED(1);
-      sleep_ms(100);
-      LED(0);
-      sleep_ms(150);
-      LED(1);
-      sleep_ms(100);
-      LED(0);
-      sleep_ms(150);
-    } else {
-      sleep_ms(500);
-    }
   }
   // Shell never returns.
 }

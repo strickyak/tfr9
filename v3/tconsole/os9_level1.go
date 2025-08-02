@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"strings"
 )
+
+var NO_MODULES = flag.Bool("no_modules", false, "there are no os9 modules, so don't scan for them")
 
 type Os9Level1 struct {
 }
@@ -25,6 +28,10 @@ type ScannedModuleInfo struct {
 }
 
 func SearchScannedModuleInfo(mm []*ScannedModuleInfo, addr uint, ram []byte) (name string, offset uint) {
+    if *NO_MODULES {
+        return // empty, 0
+    }
+
 	for i, m := range mm {
 		if m.Addy < addr && addr < m.Addy+m.Size {
 			_ = i
