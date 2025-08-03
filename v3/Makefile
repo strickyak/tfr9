@@ -1,5 +1,17 @@
 # See help:
 
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+	DEST:=/Volumes
+	TCONSOLE:=generated/tconsole.mac-arm64.exe
+	TCONSOLE_WIRE:=/dev/cu.usbmodem8333401
+else
+	DEST:=/media/$$USER
+	TCONSOLE:=generated/tconsole.linux-amd64.exe
+	TCONSOLE_WIRE:=/dev/ttyACM0
+endif
+
 PWD:=$(shell /bin/pwd)
 S:=$(shell ( cd ../.. ; /bin/pwd ))
 export COCO_SHELF:=$S
@@ -21,10 +33,10 @@ all: _primary_
 	:
 
 flash:
-	cp -vf generated/tmanager.pico1_or_pico2.uf2 /media/$$USER/RP*/.
+	cp -vf generated/tmanager.pico1_or_pico2.uf2 $(DEST)/RP*/.
 
 run:
-	generated/tconsole.linux-amd64.exe  -disks '$(DISKS)'  -borges /tmp/borges  2>_log
+	$(TCONSOLE) -wire $(TCONSOLE_WIRE) -disks '$(DISKS)'  -borges /tmp/borges  2>_log
 
 help:
 	: Just to build files:
