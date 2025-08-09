@@ -9,7 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-    "reflect"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -37,7 +37,7 @@ func init() {
 	s = strings.ReplaceAll(s, "{", "[(]")   // open paren
 	s = strings.ReplaceAll(s, "}", "[)]")   // close paren
 	s = strings.ReplaceAll(s, "D", "[0-9]") // decimal digit
-	s += "([A-Za-z0-9$@_.]*) +"             // may be a label, must be spaces before opcode
+	s += "([A-Za-z0-9$@_.]*)[:]? +"         // may be a label, must be spaces before opcode
 	s += "([A-Za-z0-9]+)"                   // must be an opcode.
 	startLine = regexp.MustCompile("^" + s)
 	c := "     ([0-9a-f]{2,16})$"
@@ -175,14 +175,14 @@ func SaveListingCopy(readpath, outdir, id string) {
 	writepath := filepath.Join(outdir, strings.ToLower(id))
 	c2, _ := os.ReadFile(writepath)
 
-	z := reflect.DeepEqual(c1 , c2 )
-    // log.Printf("%v, %2x, %2x, %q -> %q", z, md5.Sum(c1), md5.Sum(c2), readpath, writepath)
-    if !z {
-        // log.Printf("% 3x", c1);
-        // log.Printf("% 3x", c2);
-        log.Printf("Saving %q -> %q", readpath, writepath)
-        os.WriteFile(writepath, c1, 0777)
-    }
+	z := reflect.DeepEqual(c1, c2)
+	// log.Printf("%v, %2x, %2x, %q -> %q", z, md5.Sum(c1), md5.Sum(c2), readpath, writepath)
+	if !z {
+		// log.Printf("% 3x", c1);
+		// log.Printf("% 3x", c2);
+		log.Printf("Saving %q -> %q", readpath, writepath)
+		os.WriteFile(writepath, c1, 0777)
+	}
 }
 
 /*
