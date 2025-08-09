@@ -31,16 +31,16 @@ var continueLine *regexp.Regexp
 func init() {
 	// ..... "0000 87CD012A000DC185 (/home/strick/6809):00042         Begin    mod   eom,name,tylg,atrv,start,size"
 	s := "(HHHH) (HHhhhhhhhhhhhhhh) {.................}:DDDDD         "
-	s = strings.ReplaceAll(s, "H", "[0-9a-f]")  // Must be hex digits.
-	s = strings.ReplaceAll(s, "h", "[0-9a-f ]") // Maybe 2 hex, maybe 2 spaces.
+	s = strings.ReplaceAll(s, "H", "[0-9A-Fa-f]")  // Must be hex digits.
+	s = strings.ReplaceAll(s, "h", "[0-9A-Fa-f ]") // Maybe 2 hex, maybe 2 spaces.
 	// s = strings.ReplaceAll(s, "h?", "([0-9A-H][0-9A-H]|  )")  // Maybe 2 hex, maybe 2 spaces.
 	s = strings.ReplaceAll(s, "{", "[(]")   // open paren
 	s = strings.ReplaceAll(s, "}", "[)]")   // close paren
 	s = strings.ReplaceAll(s, "D", "[0-9]") // decimal digit
 	s += "([A-Za-z0-9$@_.]*)[:]? +"         // may be a label, must be spaces before opcode
-	s += "([A-Za-z0-9]+)"                   // must be an opcode.
+	s += "([A-Za-z0-9_.]+)"                 // must be an opcode.
 	startLine = regexp.MustCompile("^" + s)
-	c := "     ([0-9a-f]{2,16})$"
+	c := "     ([0-9A-Fa-f]{2,16})$"
 	continueLine = regexp.MustCompile("^" + c)
 }
 
