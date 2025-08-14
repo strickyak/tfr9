@@ -56,7 +56,7 @@ func wrd(i uint, ram []byte) uint {
 }
 
 func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
-	Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
+	// Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
 	var mm []*ScannedModuleInfo
 	for i := uint(0); i < uint(len(ram))-12; i++ {
 		if ram[i] == 0x87 && ram[i+1] == 0xCD {
@@ -74,7 +74,7 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 			c1, c2, c3 := byt(i+size-3, ram), byt(i+size-2, ram), byt(i+size-1, ram)
 			fullname := fmt.Sprintf("%s.%04x%02x%02x%02x", strings.ToLower(name), size, c1, c2, c3)
 
-			Logf("ScanRamForMemoryModules: i=$%x size=$%x namoff=$%x=%q check=$%x", i, size, namoff, name, check)
+			// Logf("ScanRamForMemoryModules: i=$%x size=$%x namoff=$%x=%q check=$%x", i, size, namoff, name, check)
 			mm = append(mm, &ScannedModuleInfo{
 				Name:     name,
 				Addy:     i,
@@ -84,7 +84,7 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 
 		}
 	}
-	Logf("ScanRamForMemoryModules: returning %d. modules", len(mm))
+	// Logf("ScanRamForMemoryModules: returning %d. modules", len(mm))
 	return mm
 }
 
