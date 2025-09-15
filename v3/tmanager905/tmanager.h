@@ -1383,8 +1383,18 @@ void Shell() {
   Traceosity = 5;
 
   while (true) {
-      for (int i = 0; i<200; i++) {
-        ShowChar(".:,;"[i & 3]);
+      // 200 loops for a 2-second period with sleep_ms(10)
+      constexpr uint SLEEP_MS = 10;
+      constexpr uint PERIOD_MS = 2000;
+      constexpr uint n = PERIOD_MS/SLEEP_MS;
+      constexpr uint QUARTER_PERIOD = n/4;
+
+      for (int i = 0; i<n; i++) {
+        sleep_ms(SLEEP_MS);
+        if (i%QUARTER_PERIOD == 0) {
+            ShowChar(".:,;"[(i/QUARTER_PERIOD) & 3]);
+        }
+
         PollUsbInput();
 
         if (term_input.HasAtLeast(1)) {
@@ -1459,7 +1469,6 @@ void Shell() {
             LED(0);
         }
 
-        sleep_ms(10);
       }
   }
   // Shell never returns.
