@@ -531,17 +531,17 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 							d[j] = getByte(fromUSB)
 						}
 
-                        /*
-						if cmd == C_DUMP_PHYS {
-							for j := uint(0); j < 16; j++ {
-								longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-								longaddr %= the_ram.RamSize()
-								if d[j] != the_ram.GetTrackRam()[longaddr] {
-									Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], the_ram.GetTrackRam()[longaddr])
+						/*
+							if cmd == C_DUMP_PHYS {
+								for j := uint(0); j < 16; j++ {
+									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+									longaddr %= the_ram.RamSize()
+									if d[j] != the_ram.GetTrackRam()[longaddr] {
+										Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], the_ram.GetTrackRam()[longaddr])
+									}
 								}
 							}
-						}
-                        */
+						*/
 
 						var buf bytes.Buffer
 						fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))

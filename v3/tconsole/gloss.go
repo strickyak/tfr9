@@ -216,57 +216,57 @@ func GlossLaterCycle(_ uint, d byte) string {
 
 	case 0xA6, 0xA7: // LDA, STA Indexed
 		switch cycle {
-        case 1:
-             IndexedExtra= IndexedCycles(d)
-         case IndexedExtra + 2:
+		case 1:
+			IndexedExtra = IndexedCycles(d)
+		case IndexedExtra + 2:
 			return " (A)"
 		}
 
 	case 0xE6, 0xE7: // LDB, STB Indexed
 		switch cycle {
-        case 1:
-             IndexedExtra= IndexedCycles(d)
-         case IndexedExtra + 2:
+		case 1:
+			IndexedExtra = IndexedCycles(d)
+		case IndexedExtra + 2:
 			return " (B)"
 		}
 
 	case 0xEC, 0xED: // LDD, STD Indexed
 		switch cycle {
-        case 1:
-             IndexedExtra= IndexedCycles(d)
-         case IndexedExtra + 2:
+		case 1:
+			IndexedExtra = IndexedCycles(d)
+		case IndexedExtra + 2:
 			return " (A)"
-        case IndexedExtra + 3:
+		case IndexedExtra + 3:
 			return " (B)"
 		}
 
 	case 0xAE, 0xAF: // LDX, STX Indexed
 		switch cycle {
-        case 1:
-             IndexedExtra= IndexedCycles(d)
-         case IndexedExtra + 2:
+		case 1:
+			IndexedExtra = IndexedCycles(d)
+		case IndexedExtra + 2:
 			return " (Xh)"
-        case IndexedExtra + 3:
+		case IndexedExtra + 3:
 			return " (Xl)"
 		}
 
 	case 0x10EE, 0x10EF: // LDY, STY Indexed
 		switch cycle {
-        case 1:
-             IndexedExtra= IndexedCycles(d)
-         case 1 + IndexedExtra + 2:
+		case 1:
+			IndexedExtra = IndexedCycles(d)
+		case 1 + IndexedExtra + 2:
 			return " (Yh)"
-        case 1 + IndexedExtra + 3:
+		case 1 + IndexedExtra + 3:
 			return " (Yl)"
 		}
 
 	case 0xEE, 0xEF: // LDU, STU Indexed
 		switch cycle {
-        case 1:
-             IndexedExtra= IndexedCycles(d)
-         case IndexedExtra + 2:
+		case 1:
+			IndexedExtra = IndexedCycles(d)
+		case IndexedExtra + 2:
 			return " (Uh)"
-        case IndexedExtra + 3:
+		case IndexedExtra + 3:
 			return " (Ul)"
 		}
 
