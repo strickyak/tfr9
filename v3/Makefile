@@ -24,7 +24,7 @@ flash:
 	cp -vf generated/tmanager.pico1_or_pico2.uf2 /media/$$USER/RP*/.
 
 run:
-	generated/tconsole.linux-amd64.exe  -disks '$(DISKS)'  -borges /tmp/borges  2>_log
+	generated/tconsole.linux-amd64.exe  -disks '$(DISKS)'  -borges /tmp/borges  -load '$(LOAD)' 2>_log
 
 help:
 	: Just to build files:
