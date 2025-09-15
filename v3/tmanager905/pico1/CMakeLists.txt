@@ -20,7 +20,10 @@ target_sources(${PROJECT} PRIVATE tmanager.cpp
             ../../generated/level1.rom.h
             ../../generated/level2.rom.h
             ../tfr9ports.gen.h)
-target_link_libraries(${PROJECT} PRIVATE pico_stdlib hardware_pio)
+target_link_libraries(${PROJECT} PRIVATE
+    pico_stdlib
+    pico_rand
+    hardware_pio)
 pico_add_extra_outputs(${PROJECT})
 
 pico_enable_stdio_usb(${PROJECT} 1)

@@ -7,6 +7,7 @@
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
 #include <pico/bootrom.h>
+#include <pico/rand.h>
 #include <pico/stdlib.h>
 #include <pico/time.h>
 #include <pico/unique_id.h>
@@ -19,8 +20,6 @@
 constexpr uint NumberOfLivenessTildes = 8;
 
 #define printf T::Logf
-
-#define LED(X) gpio_put(25, (X))
 
 // If we use the "W" version of a pico,
 // it requires pico/cyw43_arch.h:
@@ -145,8 +144,13 @@ void putsz(uint n) {
 #include "logging.h"
 #include "pcrange.h"
 #include "picotimer.h"
+//#include "pico-io.h"
 #include "seen.h"
 #include "trace.h"
+
+// SET_LED is for LED usage outside of an engine.
+// Inside an engine, use T::OrganicLED(bool) or T::SetLED(bool).
+#define SET_LED(X) gpio_put(LED_PIN, (X))
 
 template <typename T>
 struct DontShowIrqs {
@@ -259,6 +263,7 @@ const char* HighFlags(uint high) {
 #include "emudsk.h"
 #include "samvdg.h"
 #include "turbo9sim.h"
+#include "pico-io.h"
 
 // Operating Systems
 #include "nitros9level1.h"
@@ -804,7 +809,7 @@ struct EngineBase {
     MUMBLE("RC");
     ResetCpu();
     MUMBLE("LZ");
-    LED(0);
+    SET_LED(0);
     MUMBLE("PIO");
     StartPio();
 
@@ -917,7 +922,7 @@ struct EngineBase {
         bool ok = ChangeInterruptPin(irq_needed);
         if (ok) {
           prev_irq_needed = irq_needed;
-          LED(irq_needed);
+          T::OrganicLED(irq_needed);
         }
       }
 
@@ -1232,7 +1237,16 @@ struct Fast_Mixins : DontPcRange<T>,
                      DoPicoTimer<T> {};
 
 template <typename T>
-struct Common_Mixins : EngineBase<T>, CommonRam<T> {};
+struct Common_Mixins : EngineBase<T>, CommonRam<T>,
+                     DoPicoIO<T> {
+  static void CommonInstall() {
+    ShowChar('c');
+    ShowChar('i');
+    T::PicoIO_Install(0xFF00);
+    ShowChar('i');
+    ShowChar('z');
+  }
+};
 
 template <typename T>
 struct T9_Mixins : Common_Mixins<T>,
@@ -1244,6 +1258,7 @@ struct T9_Mixins : Common_Mixins<T>,
                    DoTurbo9sim<T>,
                    DoTurbo9os<T> {
   static void Install() {
+      T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
@@ -1267,6 +1282,8 @@ struct X9_Mixins : Common_Mixins<T>,
   static void Install() {
     // Without OS.  Must use PreLoadPacket() or some other way of loading a
     // program.
+    ShowChar('9');
+      T::CommonInstall();
     ShowChar('X');
     T::Turbo9sim_Install(0xFF00);
     ShowChar('Y');
@@ -1292,6 +1309,7 @@ struct L1_Mixins : Common_Mixins<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level1<T> {
   static void Install() {
+      T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
@@ -1320,6 +1338,7 @@ struct L2_Mixins : Common_Mixins<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level2<T> {
   static void Install() {
+      T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
@@ -1462,11 +1481,11 @@ void Shell() {
         }  // term_input
 
         if (90 <= i && i <= 100) {
-            LED(1);
+            SET_LED(1);
         } else if (120 < i && i < 130) {
-            LED(1);
+            SET_LED(1);
         } else {
-            LED(0);
+            SET_LED(0);
         }
 
       }
@@ -1479,16 +1498,16 @@ int main() {
 
   gpio_init(25);
   gpio_set_dir(25, GPIO_OUT);
-  LED(0);
+  SET_LED(0);
   InitializePinsForGpio();
 
-  LED(1);
+  SET_LED(1);
   sleep_ms(100);
-  LED(0);
+  SET_LED(0);
   sleep_ms(150);
-  LED(1);
+  SET_LED(1);
   sleep_ms(100);
-  LED(0);
+  SET_LED(0);
   sleep_ms(150);
 
   interest = MAX_INTEREST;  /// XXX

@@ -1,0 +1,3 @@
+section .bss           load 0x0020
+section .text.startup  load 0x1000
+section *
