@@ -18,6 +18,7 @@ type Os9er interface {
 	Os9String(addr uint) string
 	MemoryModuleOf(addrPhys uint) (name string, offset uint)
 	CurrentHardwareMMap() string
+	HasMMap() bool
 }
 
 type ScannedModuleInfo struct {
@@ -42,6 +43,7 @@ func SearchScannedModuleInfo(mm []*ScannedModuleInfo, addr uint, ram []byte) (na
 	return // empty, 0
 }
 
+func (o *Os9Level1) HasMMap() bool { return false }
 func (o *Os9Level1) CurrentHardwareMMap() string { return "" }
 
 func byt(i uint, ram []byte) byte {
@@ -118,7 +120,8 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 		// }
 		for i, m := range mm {
 			if m.Addy < addr && addr < m.Addy+m.Size {
-				Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
+                _ = i
+				// Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
 				return o.ModuleId(m.Addy), addr - m.Addy
 			}
 		}

@@ -194,6 +194,7 @@ func (o *Os9Level2) Os9String(addr uint) string {
 	return buf.String()
 }
 
+func (o *Os9Level2) HasMMap() bool { return true }
 func (o *Os9Level2) CurrentHardwareMMap() string {
 	init0, init1 := the_ram.PPeek1(0x3ff90), the_ram.PPeek1(0x3ff91)
 	mmuEnable := (init0 & 0x40) != 0
