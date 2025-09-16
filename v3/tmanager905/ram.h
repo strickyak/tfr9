@@ -88,7 +88,7 @@ class SmallRam {
   static byte FastRead(uint addr) { return Read(addr); }
   static void FastWrite(uint addr, byte data) { Write(addr, data); }
   static byte ReadPhys(uint addr) { return Read(addr); }
-  static uint PhysSize() { return sizeof ram; }
+  static uint PhysSize() { return 0x10000; }
   static void SendRamConfigOverUSB() {
     putbyte(C_RAM_CONFIG);
     putsz(1);

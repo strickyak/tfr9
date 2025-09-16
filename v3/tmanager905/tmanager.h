@@ -558,9 +558,12 @@ uint OuterLoops;
 template <typename T>
 struct EngineBase {
   static void DumpPhys() {
+    uint sz = T::PhysSize();
+    // Dont DumpPhys if DumpRam is the same.
+    if (sz <= 0x10000) return;
+
     Quiet();
     putbyte(C_DUMP_PHYS);
-    uint sz = T::PhysSize();
     for (uint i = 0; i < sz; i += 16) {
       for (uint j = 0; j < 16; j++) {
         if (T::ReadPhys(i + j)) goto yes;
@@ -611,7 +614,7 @@ struct EngineBase {
     interest = MAX_INTEREST;
     printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
     printf("DumpRamAndGetStuck: %s ($%x = %d.)\n", why, what, what);
-    if (T::PhysSize() > 0x10000) DumpPhys();
+    DumpPhys();
     DumpRam();
     printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
     GET_STUCK();

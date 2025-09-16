@@ -392,7 +392,7 @@ const CyclesUnknown = 999
 func IndexedCycles(x byte) uint {
 	for _, rec := range IndexedCyclesTable {
 		if (x & rec.mask) == rec.value {
-			Logf("## pattern %s  -> %d", rec.pattern, rec.cycles)
+			// Logf("## pattern %s  -> %d", rec.pattern, rec.cycles)
 			return rec.cycles
 		}
 	}

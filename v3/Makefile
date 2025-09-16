@@ -20,7 +20,7 @@ BUILD_DIR=build-all-905-pico2
 DISKS=generated/disk0,generated/level1.dsk,generated/level2.dsk,generated/disk3,generated/disk4,generated/disk5,generated/disk6,generated/disk7
 WHICH_PICO=pico2
 
-all: _primary_
+all: _primary_  _apps-metal-asm_ _borges_  _tconsoles_
 	:
 	:
 	: tfr9/v3 OKAY.
@@ -52,7 +52,7 @@ _primary_:
 	sh make-all-905-both_1_2.sh
 	cat build-all-905-pico2/tmanager.uf2 build-all-905-pico1/tmanager.uf2 > generated/tmanager.pico1_or_pico2.uf2
 
-_secondary_:  _make_$(BUILD_DIR)  _tconsoles_  _apps-metal-asm_
+_secondary_:  _make_$(BUILD_DIR)
 
 $(BUILD_DIR):
 	rm -rf $(BUILD_DIR)
@@ -68,6 +68,10 @@ _make_$(BUILD_DIR): $(BUILD_DIR)
 
 _apps-metal-asm_:
 	make -C apps-metal-asm all
+
+_borges_:
+	mkdir -p /tmp/borges
+	go run borges-saver/borges-saver.go  -outdir /tmp/borges/  ../../turbos/
 
 GO_BUILD_1 = go build --tags=level1,coco1 -ldflags '-extldflags "-static"'
 GO_BUILD_2 = go build --tags=level2,coco3 -ldflags '-extldflags "-static"'

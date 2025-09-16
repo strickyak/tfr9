@@ -60,7 +60,7 @@ func wrd(i uint, ram []byte) uint {
 func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 	// Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
 	var mm []*ScannedModuleInfo
-	for i := uint(0); i < uint(len(ram))-12; i++ {
+	for i := uint(0); i < 0xFEF8; i++ {
 		if ram[i] == 0x87 && ram[i+1] == 0xCD {
 			size := wrd(i+2, ram)
 			namoff := wrd(i+4, ram)
@@ -90,6 +90,9 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 	return mm
 }
 
+
+var InitialMemoryModules []*ScannedModuleInfo
+
 func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 	beginDir, endDir := the_ram.PPeek2(L1_D_ModDir), the_ram.PPeek2(L1_D_ModDir+2)
 
@@ -113,19 +116,21 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 				return o.ModuleId(begin), addr - begin
 			}
 		}
-	} else if 0x0400 <= addr && addr <= 0xFF00 {
-		mm := ScanRamForMemoryModules(the_ram.GetTrackRam())
-		// for i, m := range mm {
-		// Logf("mm [%d] %x %x %q", i, m.Addy, m.Addy+m.Size, m.Name)
-		// }
-		for i, m := range mm {
+	} 
+
+    if InitialMemoryModules == nil {
+		InitialMemoryModules = ScanRamForMemoryModules(the_ram.GetTrackRam())
+    }
+
+    if 0x0500 <= addr && addr <= 0xFF00 {
+		for i, m := range InitialMemoryModules {
 			if m.Addy < addr && addr < m.Addy+m.Size {
 				_ = i
 				// Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
 				return o.ModuleId(m.Addy), addr - m.Addy
 			}
 		}
-		Logf("MM NO ScanRam ^^")
+		Logf("InitialMemoryModules failed ^^")
 		return "^^", addr
 	} else {
 		// Logf("MM NO ~~")
