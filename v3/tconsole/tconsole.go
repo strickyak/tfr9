@@ -220,7 +220,7 @@ func SttyCbreakMode(turnOn bool) {
 	// See also https://github.com/SimonWaldherr/golang-minigames/blob/master/snake.go
 	sttyPath, err := exec.LookPath("stty")
 	if err != nil {
-		log.Fatalf("Cannot find stty: %v", err)
+		log.Panicf("Cannot find stty: %v", err)
 	}
 	// Turn off values:
 	toCbreak := "-cbreak"
@@ -239,7 +239,7 @@ func SttyCbreakMode(turnOn bool) {
 	}
 	err = cmd.Run()
 	if err != nil {
-		log.Fatalf("Cannot run stty: %v", err)
+		log.Panicf("Cannot run stty: %v", err)
 	}
 }
 
@@ -251,17 +251,7 @@ func main() {
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode(true)
 	}
-    defer func() {
-        r := recover()
-        if r != nil {
-            fmt.Printf("***\n*** CAUGHT ERROR: %v\n***\n", r)
-            fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
-        }
-		if runtime.GOOS != "windows" {
-			SttyCbreakMode(false)
-		}
-    }()
-
+    defer func() { Shutdown(recover()) } ()
 
 	// Fill in with some default.
 	the_ram = new(Coco1Ram)
@@ -273,12 +263,9 @@ func main() {
 	killed := make(chan os.Signal, 16)
 	signal.Notify(killed, syscall.SIGINT)
 	go func() {
+        defer func() { Shutdown(recover()) } ()
 		sig := <-killed
-		Logf("\n*** STOPPING ON SIGNAL %q", sig)
-		if runtime.GOOS != "windows" {
-			SttyCbreakMode(false)
-		}
-		os.Exit(3)
+		Panicf("STOPPING ON SIGNAL %q", sig)
 	}()
 
 	OpenDisks(*DISKS)
@@ -322,7 +309,23 @@ func TryInkey(inkey chan byte) (byte, bool) {
 	}
 }
 
+func Shutdown(r any) {
+    if r != nil {
+            fmt.Printf("***\n*** CAUGHT ERROR: %v\n***\n", r)
+            fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
+    }
+
+    SttyCbreakMode(false)
+
+    fmt.Printf("*** SHUTDOWN\n")
+    fmt.Fprintf(os.Stderr, "*** SHUTDOWN\n")
+    debug.PrintStack()
+    os.Exit(13)
+}
+
 func ToUsbRoutine(w io.Writer, channelToPico chan []byte) {
+    defer func() { Shutdown(recover()) } ()
+
 	for bb := range channelToPico {
 		_, err := w.Write(bb)
 		if err != nil {
@@ -340,6 +343,8 @@ func MintSerialNum() uint {
 }
 
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte) {
+    defer func() { Shutdown(recover()) } ()
+
 	var previousPutChar byte
 	var remember int64
 	var timer_sum int64
@@ -601,7 +606,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ X")
 					debug.PrintStack()
 					log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Y")
-					log.Fatalf("cmd == %d", cmd)
+					log.Panicf("cmd == %d", cmd)
 					panic(cmd)
 				}
 				fallthrough
@@ -688,7 +693,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				fmt.Printf("\n[255: finished]\n")
 				Logf("go func: Received END MARK 255; exiting")
 				close(channelFromPico)
-				log.Fatalf("go func: Received END MARK 255; exiting")
+				log.Panicf("go func: Received END MARK 255; exiting")
 				return
 
 			} // end switch cmd

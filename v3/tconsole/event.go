@@ -39,7 +39,7 @@ func OnEvent(pack []byte, pending map[string]*EventRec) {
 	}
 	eventName, ok := CommandStrings[event]
 	if !ok {
-		Fatalf("Unknown event number: %d.", event)
+		Panicf("Unknown event number: %d.", event)
 	}
 
 	{

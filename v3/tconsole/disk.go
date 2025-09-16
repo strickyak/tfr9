@@ -30,12 +30,12 @@ func OpenDisks(disks string) {
 			filename := hp[2]
 			j, err := strconv.Atoi(hp[1])
 			if err != nil {
-				log.Fatalf("Not a number %q in disks spec %q: %v", hp[1], disks, err)
+				log.Panicf("Not a number %q in disks spec %q: %v", hp[1], disks, err)
 			}
 
 			f, err := os.OpenFile(filename, os.O_RDWR, 0)
 			if err != nil {
-				log.Fatalf("Cannot open [/H%d] file %q: %v", j, filename, err)
+				log.Panicf("Cannot open [/H%d] file %q: %v", j, filename, err)
 			}
 			Files[j].OsFile = f
 			log.Printf("Mounted /H%d on %q", j, filename)
@@ -43,7 +43,7 @@ func OpenDisks(disks string) {
 			filename := spec
 			f, err := os.OpenFile(filename, os.O_RDWR, 0)
 			if err != nil {
-				log.Fatalf("Cannot open [%d] file %q: %v", i, filename, err)
+				log.Panicf("Cannot open [%d] file %q: %v", i, filename, err)
 			}
 			Files[i].OsFile = f
 			log.Printf("Mounted /H%d on %q", i, filename)
@@ -63,7 +63,7 @@ func EmulateDiskWrite(pack []byte, channelToPico chan []byte) {
 
 	_, err := Files[hnum].OsFile.Seek(Os9SectorSize*int64(lsn), 0)
 	if err != nil {
-		Fatalf("Cannot seek")
+		Panicf("Cannot seek")
 	}
 	Logf("C_DISK_WRITE num %x lsn %x", hnum, lsn)
 
@@ -74,7 +74,7 @@ func EmulateDiskWrite(pack []byte, channelToPico chan []byte) {
 
 	_, err = Files[hnum].OsFile.Write(sector)
 	if err != nil {
-		Fatalf("Cannot write")
+		Panicf("Cannot write")
 	}
 
 }
@@ -92,14 +92,14 @@ func EmulateDiskRead(pack []byte, channelToPico chan []byte) {
 
 	_, err := Files[hnum].OsFile.Seek(Os9SectorSize*int64(lsn), 0)
 	if err != nil {
-		Fatalf("Cannot seek")
+		Panicf("Cannot seek")
 	}
 	Logf("C_DISK_READ num %x lsn %x", hnum, lsn)
 
 	sector := make([]byte, Os9SectorSize)
 	_, err = Files[hnum].OsFile.Read(sector)
 	if err != nil {
-		Fatalf("Cannot read")
+		Panicf("Cannot read")
 	}
 
 	WriteBytes(channelToPico, C_DISK_READ)

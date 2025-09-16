@@ -23,25 +23,24 @@ struct DoTurbo9sim {
 
   force_inline static bool Turbo9sim_IrqNeeded() {
     bool z = sim_status_reg & sim_control_reg;
-    printf("yak IrqNeeded? s=%02x c=%02x %x\n", sim_status_reg, sim_control_reg,
-           z);
+    // printf("XXX sim IrqNeeded? s=%02x c=%02x %x\n", sim_status_reg, sim_control_reg, z);
     return z;
   }
 
   force_inline static void Turbo9sim_SetTimerFired() {
     sim_status_reg |= SIM_TIMER_BIT;
-    printf("yak timer fired: s=%02x\n", sim_status_reg);
+    // printf("XXX sim timer fired: s=%02x\n", sim_status_reg);
   }
 
   force_inline static bool Turbo9sim_CanRx() {
     bool z = !(sim_status_reg & SIM_RX_BIT);
-    printf("yak CanRx? %x\n", z);
+    // printf("XXX sim CanRx? %x\n", z);
     return z;
   }
   force_inline static void Turbo9sim_SetRx(byte ch) {
     sim_status_reg |= SIM_RX_BIT;
     sim_last_char_rx = ch;
-    printf("yak SetRx(%02x) s=%02x\n", ch, sim_status_reg);
+    // printf("XXX sim SetRx(%02x) s=%02x\n", ch, sim_status_reg);
   }
 
   void static Turbo9sim_Install(uint base) {

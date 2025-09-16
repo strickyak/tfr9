@@ -17,8 +17,6 @@
 #include <functional>
 #include <vector>
 
-constexpr uint NumberOfLivenessTildes = 8;
-
 #define printf T::Logf
 
 // If we use the "W" version of a pico,
@@ -886,20 +884,6 @@ struct EngineBase {
     TildePowerOf2 = 1;
     for (OuterLoops = 0; true;
          OuterLoops++) {  ///////////////////////////////// Outer Machine Loop
-      // for (OuterLoops= 0; OuterLoops < 30 * 4000; OuterLoops++) {
-      // ///////////////////////////////// Outer Machine Loop
-
-      if (OuterLoops <= (1 << (NumberOfLivenessTildes - 1))) {
-        if (OuterLoops == TildePowerOf2 - 1) {
-          // Draw tildes at cycle 0, 1, 3, 7, 15, ... to show we are up and
-          // running.
-          ShowChar('~');
-          TildePowerOf2 <<= 1;
-          if (OuterLoops == (1 << (NumberOfLivenessTildes - 1)) - 1) {
-            ShowChar('\n');
-          }
-        }
-      }
 
       bool irq_needed = false;
 

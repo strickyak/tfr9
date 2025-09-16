@@ -10,8 +10,6 @@ var Format = fmt.Sprintf
 
 var Logf = log.Printf
 
-var Fatalf = log.Printf
-
 func Panicf(format string, args ...any) {
 	log.Panicf("PANIC: "+format, args...)
 }
@@ -26,7 +24,7 @@ func AssertEQ[T Ordered](a, b T) {
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("...AssertEQ fails: %v vs %v", a, b)
+		log.Panicf("...AssertEQ fails: %v vs %v", a, b)
 	}
 }
 
@@ -36,7 +34,7 @@ func AssertLT[T Ordered](a, b T) {
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("...AssertLT fails: %v vs %v", a, b)
+		log.Panicf("...AssertLT fails: %v vs %v", a, b)
 	}
 }
 
@@ -46,7 +44,7 @@ func AssertGE[T Ordered](a, b T) {
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("...AssertGE fails: %v vs %v", a, b)
+		log.Panicf("...AssertGE fails: %v vs %v", a, b)
 	}
 }
 
@@ -56,6 +54,6 @@ func AssertGT[T Ordered](a, b T) {
 		log.Printf("vvvvvvvvvvvvvvvvvvvvvvv")
 		debug.PrintStack()
 		log.Printf("^^^^^^^^^^^^^^^^^^^^^^^")
-		log.Fatalf("...AssertGT fails: %v vs %v", a, b)
+		log.Panicf("...AssertGT fails: %v vs %v", a, b)
 	}
 }

@@ -29,13 +29,19 @@ func PreUpload(commaList string, channelToPico chan []byte) {
 			w := strings.TrimPrefix(w, "rom:")
 			ht := strings.Split(w, ":")
 			if len(ht) != 2 {
-				Fatalf("Expected rom:address:filename in %q", w)
+				Panicf("Expected rom:address:filename in %q", w)
 			}
 			h, t := ht[0], ht[1]
             addr := SmartAtoi(h, 16)
 			PreUploadRom(t, channelToPico, addr)
+		} else if strings.HasSuffix(w, ".decb") {
+            PreUpload("decb:" + w, channelToPico)
+		} else if strings.HasSuffix(w, ".srec") {
+            PreUpload("srec:" + w, channelToPico)
+		} else if strings.HasSuffix(w, ".rom") {
+            PreUpload("rom:" + w, channelToPico)
 		} else {
-			Fatalf("Missing prefix before filename: %q (expected 'decb:' or 'rom:' or 'srec:')")
+			Panicf("Missing prefix before filename: %q (expected 'decb:' or 'rom:' or 'srec:')", w)
 		}
 	}
 	Logf("PreUpload: end")
@@ -45,7 +51,7 @@ func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			log.Fatalf("Error during PreUploadRom(%q): %v", filename, r)
+			log.Panicf("Error during PreUploadRom(%q): %v", filename, r)
 		}
 	}()
 
@@ -53,7 +59,7 @@ func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
 
 	bb, err := os.ReadFile(filename)
 	if err != nil {
-		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+		log.Panicf("cannot ReadFile %q: %v", filename, err)
 	}
 
 	for len(bb) > 0 {
@@ -80,7 +86,7 @@ func PreUploadDecb(filename string, channelToPico chan []byte) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			log.Fatalf("Error during PreUploadDecb(%q): %v", filename, r)
+			log.Panicf("Error during PreUploadDecb(%q): %v", filename, r)
 		}
 	}()
 
@@ -88,7 +94,7 @@ func PreUploadDecb(filename string, channelToPico chan []byte) {
 
 	bb, err := os.ReadFile(filename)
 	if err != nil {
-		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+		log.Panicf("cannot ReadFile %q: %v", filename, err)
 	}
 LOOP:
 	for len(bb) > 0 {
@@ -129,7 +135,7 @@ LOOP:
 			break LOOP // fuzix.bin has trailing zeros that would confuse us (e.g. "runtime error: index out of range [2] with length 2")
 
 		default:
-			log.Fatalf("bad control byte $%x, which is %d bytes from end", bb[0], len(bb))
+			log.Panicf("bad control byte $%x, which is %d bytes from end", bb[0], len(bb))
 		}
 	}
 	Logf("PreUploadDecb: end while")
@@ -140,7 +146,7 @@ func PreUploadSrec(filename string, channelToPico chan []byte) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			log.Fatalf("Error during PreUploadSrec(%q): %v", filename, r)
+			log.Panicf("Error during PreUploadSrec(%q): %v", filename, r)
 		}
 	}()
 
@@ -148,7 +154,7 @@ func PreUploadSrec(filename string, channelToPico chan []byte) {
 
 	bb, err := os.ReadFile(filename)
 	if err != nil {
-		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+		log.Panicf("cannot ReadFile %q: %v", filename, err)
 	}
 	for i, b := range bb {
 		if b == '\r' {
@@ -216,7 +222,7 @@ func DecodeSLine(line string) *SRecord {
 	defer func() {
 		r := recover()
 		if r != nil {
-			Fatalf("Error in DecodeSLine(%q): %v", line, r)
+			Panicf("Error in DecodeSLine(%q): %v", line, r)
 		}
 	}()
 	count, err := strconv.ParseUint(line[2:4], 16, 8)

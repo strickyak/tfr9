@@ -70,7 +70,7 @@ func (o *Os9Level2) MemoryModuleOf(phys uint) (name string, offset uint) {
 	case l2state_ModDir:
 		break
 	default:
-		Fatalf("should never happen")
+		Panicf("should never happen")
 	}
 
 	name, offset = SearchScannedModuleInfo(l2bootModules, phys, ram)
