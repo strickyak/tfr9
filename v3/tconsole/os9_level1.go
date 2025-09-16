@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"strings"
 )
+
+var NO_MODULES = flag.Bool("no_modules", false, "there are no os9 modules, so don't scan for them")
 
 type Os9Level1 struct {
 }
@@ -15,6 +18,7 @@ type Os9er interface {
 	Os9String(addr uint) string
 	MemoryModuleOf(addrPhys uint) (name string, offset uint)
 	CurrentHardwareMMap() string
+	HasMMap() bool
 }
 
 type ScannedModuleInfo struct {
@@ -25,6 +29,10 @@ type ScannedModuleInfo struct {
 }
 
 func SearchScannedModuleInfo(mm []*ScannedModuleInfo, addr uint, ram []byte) (name string, offset uint) {
+	if *NO_MODULES {
+		return // empty, 0
+	}
+
 	for i, m := range mm {
 		if m.Addy < addr && addr < m.Addy+m.Size {
 			_ = i
@@ -35,6 +43,7 @@ func SearchScannedModuleInfo(mm []*ScannedModuleInfo, addr uint, ram []byte) (na
 	return // empty, 0
 }
 
+func (o *Os9Level1) HasMMap() bool               { return false }
 func (o *Os9Level1) CurrentHardwareMMap() string { return "" }
 
 func byt(i uint, ram []byte) byte {
@@ -49,7 +58,7 @@ func wrd(i uint, ram []byte) uint {
 }
 
 func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
-	Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
+	// Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
 	var mm []*ScannedModuleInfo
 	for i := uint(0); i < uint(len(ram))-12; i++ {
 		if ram[i] == 0x87 && ram[i+1] == 0xCD {
@@ -67,7 +76,7 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 			c1, c2, c3 := byt(i+size-3, ram), byt(i+size-2, ram), byt(i+size-1, ram)
 			fullname := fmt.Sprintf("%s.%04x%02x%02x%02x", strings.ToLower(name), size, c1, c2, c3)
 
-			Logf("ScanRamForMemoryModules: i=$%x size=$%x namoff=$%x=%q check=$%x", i, size, namoff, name, check)
+			// Logf("ScanRamForMemoryModules: i=$%x size=$%x namoff=$%x=%q check=$%x", i, size, namoff, name, check)
 			mm = append(mm, &ScannedModuleInfo{
 				Name:     name,
 				Addy:     i,
@@ -77,7 +86,7 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 
 		}
 	}
-	Logf("ScanRamForMemoryModules: returning %d. modules", len(mm))
+	// Logf("ScanRamForMemoryModules: returning %d. modules", len(mm))
 	return mm
 }
 
@@ -111,7 +120,8 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 		// }
 		for i, m := range mm {
 			if m.Addy < addr && addr < m.Addy+m.Size {
-				Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
+				_ = i
+				// Logf(">> [%d] %x %x %q %q", i, m.Addy, m.Addy+m.Size, m.Name, m.FullName)
 				return o.ModuleId(m.Addy), addr - m.Addy
 			}
 		}

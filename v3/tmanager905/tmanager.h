@@ -7,6 +7,7 @@
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
 #include <pico/bootrom.h>
+#include <pico/rand.h>
 #include <pico/stdlib.h>
 #include <pico/time.h>
 #include <pico/unique_id.h>
@@ -19,8 +20,6 @@
 constexpr uint NumberOfLivenessTildes = 8;
 
 #define printf T::Logf
-
-#define LED(X) gpio_put(25, (X))
 
 // If we use the "W" version of a pico,
 // it requires pico/cyw43_arch.h:
@@ -145,8 +144,13 @@ void putsz(uint n) {
 #include "logging.h"
 #include "pcrange.h"
 #include "picotimer.h"
+//#include "pico-io.h"
 #include "seen.h"
 #include "trace.h"
+
+// SET_LED is for LED usage outside of an engine.
+// Inside an engine, use T::OrganicLED(bool) or T::SetLED(bool).
+#define SET_LED(X) gpio_put(LED_PIN, (X))
 
 template <typename T>
 struct DontShowIrqs {
@@ -259,6 +263,7 @@ const char* HighFlags(uint high) {
 #include "emudsk.h"
 #include "samvdg.h"
 #include "turbo9sim.h"
+#include "pico-io.h"
 
 // Operating Systems
 #include "nitros9level1.h"
@@ -515,7 +520,7 @@ void PollUsbInput() {
       break;
 
     case C_PRE_LOAD:
-      if (usb_input.HasAtLeast(2)) {
+      while (usb_input.HasAtLeast(2)) {
         byte sz = 63 & usb_input.Peek(1);
         if (usb_input.HasAtLeast(2 + sz)) {
           PreLoadPacket();
@@ -804,7 +809,7 @@ struct EngineBase {
     MUMBLE("RC");
     ResetCpu();
     MUMBLE("LZ");
-    LED(0);
+    SET_LED(0);
     MUMBLE("PIO");
     StartPio();
 
@@ -917,7 +922,7 @@ struct EngineBase {
         bool ok = ChangeInterruptPin(irq_needed);
         if (ok) {
           prev_irq_needed = irq_needed;
-          LED(irq_needed);
+          T::OrganicLED(irq_needed);
         }
       }
 
@@ -1232,7 +1237,16 @@ struct Fast_Mixins : DontPcRange<T>,
                      DoPicoTimer<T> {};
 
 template <typename T>
-struct Common_Mixins : EngineBase<T>, CommonRam<T> {};
+struct Common_Mixins : EngineBase<T>, CommonRam<T>,
+                     DoPicoIO<T> {
+  static void CommonInstall() {
+    ShowChar('c');
+    ShowChar('i');
+    T::PicoIO_Install(0xFF00);
+    ShowChar('i');
+    ShowChar('z');
+  }
+};
 
 template <typename T>
 struct T9_Mixins : Common_Mixins<T>,
@@ -1244,6 +1258,7 @@ struct T9_Mixins : Common_Mixins<T>,
                    DoTurbo9sim<T>,
                    DoTurbo9os<T> {
   static void Install() {
+      T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
@@ -1267,6 +1282,8 @@ struct X9_Mixins : Common_Mixins<T>,
   static void Install() {
     // Without OS.  Must use PreLoadPacket() or some other way of loading a
     // program.
+    ShowChar('9');
+      T::CommonInstall();
     ShowChar('X');
     T::Turbo9sim_Install(0xFF00);
     ShowChar('Y');
@@ -1292,6 +1309,7 @@ struct L1_Mixins : Common_Mixins<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level1<T> {
   static void Install() {
+      T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
@@ -1320,6 +1338,7 @@ struct L2_Mixins : Common_Mixins<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level2<T> {
   static void Install() {
+      T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
@@ -1382,86 +1401,94 @@ void Shell() {
   Verbosity = 5;
   Traceosity = 5;
 
-  for (int i = 0; true; i++) {
-    ShowChar(".:,;"[i & 3]);
-    PollUsbInput();
+  while (true) {
+      // 200 loops for a 2-second period with sleep_ms(10)
+      constexpr uint SLEEP_MS = 10;
+      constexpr uint PERIOD_MS = 2000;
+      constexpr uint n = PERIOD_MS/SLEEP_MS;
+      constexpr uint QUARTER_PERIOD = n/4;
 
-    if (term_input.HasAtLeast(1)) {
-      byte ch = term_input.Take();
-      ShowChar('<');
-      if (32 <= ch && ch <= 126) {
-        ShowChar(ch);
-      } else {
-        ShowChar('#');
-      }
-      ShowChar('>');
-
-      if ('0' <= ch && ch <= '4') {
-        uint num = ch - '0';
-        if (harness.fast_engines[num]) {
-          harness.fast_engines[num]();
-        } else {
-          ShowStr("-S?-");
+      for (int i = 0; i<n; i++) {
+        sleep_ms(SLEEP_MS);
+        if (i%QUARTER_PERIOD == 0) {
+            ShowChar(".:,;"[(i/QUARTER_PERIOD) & 3]);
         }
 
-      } else if ('5' <= ch && ch <= '9') {
-        uint num = ch - '5';
-        if (harness.engines[num]) {
-          harness.engines[num]();
+        PollUsbInput();
+
+        if (term_input.HasAtLeast(1)) {
+          byte ch = term_input.Take();
+          ShowChar('<');
+          if (32 <= ch && ch <= 126) {
+            ShowChar(ch);
+          } else {
+            ShowChar('#');
+          }
+          ShowChar('>');
+
+          if ('0' <= ch && ch <= '4') {
+            uint num = ch - '0';
+            if (harness.fast_engines[num]) {
+              harness.fast_engines[num]();
+            } else {
+              ShowStr("-S?-");
+            }
+
+          } else if ('5' <= ch && ch <= '9') {
+            uint num = ch - '5';
+            if (harness.engines[num]) {
+              harness.engines[num]();
+            } else {
+              ShowStr("-F?-");
+            }
+
+          } else if (ch == 'q') {
+            Traceosity = 6;
+          } else if (ch == 'w') {
+            Traceosity = 7;
+          } else if (ch == 'e') {
+            Traceosity = 8;
+          } else if (ch == 'r') {
+            Traceosity = 9;
+
+          } else if (ch == 'j') {
+            Verbosity = 2;
+          } else if (ch == 'k') {
+            Verbosity = 3;
+          } else if (ch == 'l') {
+            Verbosity = 4;
+          } else if (ch == 'a') {
+            Verbosity = 6;
+          } else if (ch == 's') {
+            Verbosity = 7;
+          } else if (ch == 'd') {
+            Verbosity = 8;
+          } else if (ch == 'f') {
+            Verbosity = 9;
+
+          } else if (ch == 'v') {
+            set_sys_clock_khz(200000, true);
+          } else if (ch == 'c') {
+            set_sys_clock_khz(250000, true);
+          } else if (ch == 'x') {
+            set_sys_clock_khz(260000, true);
+          } else if (ch == 'z') {
+            set_sys_clock_khz(270000, true);
+
+          } else {
+            ShowStr("-#?-");
+          }
+        }  // term_input
+
+        if (90 <= i && i <= 100) {
+            SET_LED(1);
+        } else if (120 < i && i < 130) {
+            SET_LED(1);
         } else {
-          ShowStr("-F?-");
+            SET_LED(0);
         }
 
-      } else if (ch == 'q') {
-        Traceosity = 6;
-      } else if (ch == 'w') {
-        Traceosity = 7;
-      } else if (ch == 'e') {
-        Traceosity = 8;
-      } else if (ch == 'r') {
-        Traceosity = 9;
-
-      } else if (ch == 'j') {
-        Verbosity = 2;
-      } else if (ch == 'k') {
-        Verbosity = 3;
-      } else if (ch == 'l') {
-        Verbosity = 4;
-      } else if (ch == 'a') {
-        Verbosity = 6;
-      } else if (ch == 's') {
-        Verbosity = 7;
-      } else if (ch == 'd') {
-        Verbosity = 8;
-      } else if (ch == 'f') {
-        Verbosity = 9;
-
-      } else if (ch == 'v') {
-        set_sys_clock_khz(200000, true);
-      } else if (ch == 'c') {
-        set_sys_clock_khz(250000, true);
-      } else if (ch == 'x') {
-        set_sys_clock_khz(260000, true);
-      } else if (ch == 'z') {
-        set_sys_clock_khz(270000, true);
-
-      } else {
-        ShowStr("-#?-");
       }
-    }  // term_input
-
-    if ((i & 3) == 3) {
-      LED(1);
-      sleep_ms(100);
-      LED(0);
-      sleep_ms(150);
-      LED(1);
-      sleep_ms(100);
-      LED(0);
-      sleep_ms(150);
-    } else {
-      sleep_ms(500);
-    }
   }
   // Shell never returns.
 }
@@ -1471,16 +1498,16 @@ int main() {
 
   gpio_init(25);
   gpio_set_dir(25, GPIO_OUT);
-  LED(0);
+  SET_LED(0);
   InitializePinsForGpio();
 
-  LED(1);
+  SET_LED(1);
   sleep_ms(100);
-  LED(0);
+  SET_LED(0);
   sleep_ms(150);
-  LED(1);
+  SET_LED(1);
   sleep_ms(100);
-  LED(0);
+  SET_LED(0);
   sleep_ms(150);
 
   interest = MAX_INTEREST;  /// XXX

@@ -36,7 +36,7 @@ flash:
 	cp -vf generated/tmanager.pico1_or_pico2.uf2 $(DEST)/RP*/.
 
 run:
-	$(TCONSOLE) -wire $(TCONSOLE_WIRE) -disks '$(DISKS)'  -borges /tmp/borges  2>_log
+	generated/tconsole.linux-amd64.exe  -disks '$(DISKS)'  -borges /tmp/borges  -load '$(LOAD)' 2>_log
 
 help:
 	: Just to build files:
@@ -52,7 +52,7 @@ _primary_:
 	sh make-all-905-both_1_2.sh
 	cat build-all-905-pico2/tmanager.uf2 build-all-905-pico1/tmanager.uf2 > generated/tmanager.pico1_or_pico2.uf2
 
-_secondary_: _make_$(BUILD_DIR) _tconsoles_
+_secondary_:  _make_$(BUILD_DIR)  _tconsoles_  _apps-metal-asm_
 
 $(BUILD_DIR):
 	rm -rf $(BUILD_DIR)
@@ -66,6 +66,8 @@ _make_$(BUILD_DIR): $(BUILD_DIR)
 	make -C n9cmds all install
 	make -C $(BUILD_DIR)
 
+_apps-metal-asm_:
+	make -C apps-metal-asm all
 
 GO_BUILD_1 = go build --tags=level1,coco1 -ldflags '-extldflags "-static"'
 GO_BUILD_2 = go build --tags=level2,coco3 -ldflags '-extldflags "-static"'
@@ -108,6 +110,7 @@ clean:
 	mkdir -p /tmp/tfr9.v3.generated.backup/
 	rsync -av generated/ /tmp/tfr9.v3.generated.backup/
 	rm -rf generated
+	make -C apps-metal-asm clean
 
 create-runtime-bundle:
 	set -ex ; \

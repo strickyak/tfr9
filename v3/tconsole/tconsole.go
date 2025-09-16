@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -12,14 +13,10 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
-	// "strconv"
-	// "strings"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
-	// "github.com/strickyak/gomar/sym"
-	// "github.com/strickyak/tfr9/v2/listings"
-	// "github.com/strickyak/tfr9/v2/os9api"
-	// "github.com/jacobsa/go-serial/serial"
 )
 
 var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
@@ -385,6 +382,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				}
 
 			case C_CYCLE:
+				const GLOSS = true
 				pack := GetPacket(fromUSB, cmd)
 				if len(pack) == 8 {
 					_cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
@@ -398,13 +396,40 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						Logf("cy - ---- -- %s#%d", LookupCpuFlags[_fl], _cy)
 					} else {
 						s = Format("cy %s %04x %02x %s#%d", CycleKindStr[_kind], _addr, _data, LookupCpuFlags[_fl], _cy)
+						g := ""
 
-						phys := the_ram.Physical(uint(_addr))
-						if _kind == CY_SEEN || _kind == CY_UNSEEN {
-							modName, modOffset := the_os9.MemoryModuleOf(phys)
-							Logf("%s %s%%%06x :%q+%04x %s", s, the_os9.CurrentHardwareMMap(), phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+						if the_os9.HasMMap() {
+							phys := the_ram.Physical(uint(_addr))
+							if _kind == CY_SEEN || _kind == CY_UNSEEN {
+								if GLOSS {
+									g = GlossFirstCycle(_addr, _data)
+								}
+								// The first cycle of an instruction
+								modName, modOffset := the_os9.MemoryModuleOf(phys)
+								mmap := the_os9.CurrentHardwareMMap()
+								Logf("%s %s%%%06x :%q+%04x %s", s, mmap, phys, modName, modOffset, AsmSourceLine(modName, modOffset))
+							} else {
+								if GLOSS {
+									g = GlossLaterCycle(_addr, _data)
+								}
+								// later cycles in an instruction
+								Logf("%s %%%06x%s", s, phys, g)
+							}
 						} else {
-							Logf("%s %s%%%06x", s, the_os9.CurrentHardwareMMap(), phys)
+							if _kind == CY_SEEN || _kind == CY_UNSEEN {
+								if GLOSS {
+									g = GlossFirstCycle(_addr, _data)
+								}
+								// The first cycle of an instruction
+								modName, modOffset := the_os9.MemoryModuleOf(_addr)
+								Logf("%s :%q+%04x %s", s, modName, modOffset, AsmSourceLine(modName, modOffset))
+							} else {
+								if GLOSS {
+									g = GlossLaterCycle(_addr, _data)
+								}
+								// later cycles in an instruction
+								Logf("%s %s", s, g)
+							}
 						}
 					}
 				}
@@ -506,15 +531,17 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 							d[j] = getByte(fromUSB)
 						}
 
-						if cmd == C_DUMP_PHYS {
-							for j := uint(0); j < 16; j++ {
-								longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-								longaddr %= the_ram.RamSize()
-								if d[j] != the_ram.GetTrackRam()[longaddr] {
-									Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], the_ram.GetTrackRam()[longaddr])
+						/*
+							if cmd == C_DUMP_PHYS {
+								for j := uint(0); j < 16; j++ {
+									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
+									longaddr %= the_ram.RamSize()
+									if d[j] != the_ram.GetTrackRam()[longaddr] {
+										Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], the_ram.GetTrackRam()[longaddr])
+									}
 								}
 							}
-						}
+						*/
 
 						var buf bytes.Buffer
 						fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
@@ -873,13 +900,67 @@ var syncWindow [4]byte
 func LookForPreSync(ch byte) bool {
 	copy(syncWindow[0:3], syncWindow[1:4])
 	syncWindow[3] = ch
+	Logf("LookForPreSync: %q vs %q", syncWindow[:], ".:,;")
 	return string(syncWindow[:]) == ".:,;"
 }
-func PreUpload(filename string, channelToPico chan []byte) {
+func PreUpload(commaList string, channelToPico chan []byte) {
+	words := strings.Split(commaList, ",")
+	for _, w := range words {
+		Logf("Upload Word: %q", w)
+		if strings.HasPrefix(w, "decb:") {
+
+			noStart := false
+			w = strings.TrimPrefix(w, "decb:")
+			if strings.HasPrefix(w, "nostart:") {
+				noStart = true
+				w = strings.TrimPrefix(w, "nostart:")
+			}
+			PreUploadDecb(w, channelToPico, noStart)
+
+		} else if strings.HasPrefix(w, "srec:") {
+
+			noStart := false
+			w = strings.TrimPrefix(w, "srec:")
+			if strings.HasPrefix(w, "nostart:") {
+				noStart = true
+				w = strings.TrimPrefix(w, "nostart:")
+			}
+			PreUploadSrec(w, channelToPico, noStart)
+
+		} else if strings.HasPrefix(w, "rom:") {
+
+			w := strings.TrimPrefix(w, "rom:")
+			ht := strings.Split(w, ":")
+			if len(ht) != 2 {
+				Fatalf("Expected rom:address:filename in %q", w)
+			}
+			h, t := ht[0], ht[1]
+			if strings.HasPrefix(h, "0x") {
+				addr, err := strconv.ParseUint(h[2:], 16, 32)
+				if err != nil {
+					Fatalf("Cannot parse hex load address %q in --load arg %q: %v", h, w, err)
+				}
+				PreUploadRom(t, channelToPico, uint(addr))
+			} else {
+				addr, err := strconv.ParseUint(h, 10, 32)
+				if err != nil {
+					Fatalf("Cannot parse decimal load address %q in --load arg %q: %v", h, w, err)
+				}
+				PreUploadRom(t, channelToPico, uint(addr))
+			}
+		} else {
+			Fatalf("Missing prefix before filename: %q (expected 'decb:' or 'rom:' or 'srec:')")
+		}
+	}
+	Logf("PreUpload: end")
+	LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
+}
+
+func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			log.Fatalf("Error during PreUpload(%q): %v", filename, r)
+			log.Fatalf("Error during PreUploadRom(%q): %v", filename, r)
 		}
 	}()
 
@@ -890,6 +971,41 @@ func PreUpload(filename string, channelToPico chan []byte) {
 		log.Fatalf("cannot ReadFile %q: %v", filename, err)
 	}
 
+	for len(bb) > 0 {
+		n := uint(len(bb))
+		if n > 60 {
+			n = 60 // max 60 at a time, plus 2-byte addr
+		}
+
+		out := make([]byte, n+4)
+		out[0] = C_PRE_LOAD
+		out[1] = byte(128 + n + 2)
+		out[2] = byte(addr >> 8)
+		out[3] = byte(addr & 255)
+		copy(out[4:], bb[:n])
+		Logf("PreUploadRom: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
+		WriteBytes(channelToPico, out...)
+
+		bb = bb[n:]
+		addr += n
+	}
+}
+
+func PreUploadDecb(filename string, channelToPico chan []byte, noStart bool) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			log.Fatalf("Error during PreUploadDecb(%q): %v", filename, r)
+		}
+	}()
+
+	syncWindow = [4]byte{0, 0, 0, 0} // Undo pattern.
+
+	bb, err := os.ReadFile(filename)
+	if err != nil {
+		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+	}
+LOOP:
 	for len(bb) > 0 {
 		switch bb[0] {
 		case 0: // block of data to poke
@@ -907,7 +1023,7 @@ func PreUpload(filename string, channelToPico chan []byte) {
 				out[2] = byte(addr >> 8)
 				out[3] = byte(addr & 255)
 				copy(out[4:], bb[:n])
-				Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
+				Logf("PreUploadDecb: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
 				WriteBytes(channelToPico, out...)
 				sz -= n
 				bb = bb[n:]
@@ -917,14 +1033,129 @@ func PreUpload(filename string, channelToPico chan []byte) {
 			// Load the start value in the reset vector.
 			addr := (uint(bb[3]) << 8) + uint(bb[4])
 			// 0xFFFE is the address of the reset vector.
-			Logf("PreUpload: reset to %x", addr)
+			Logf("PreUploadDecb: reset to %x", addr)
 			WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
 			bb = bb[5:]
+			break LOOP // fuzix.bin has trailing zeros that would confuse us (e.g. "runtime error: index out of range [2] with length 2")
 
 		default:
 			log.Fatalf("bad control byte $%x, which is %d bytes from end", bb[0], len(bb))
 		}
 	}
-	Logf("PreUpload: end while")
+	Logf("PreUploadDecb: end while")
 	LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
+}
+
+func PreUploadSrec(filename string, channelToPico chan []byte, noStart bool) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			log.Fatalf("Error during PreUploadSrec(%q): %v", filename, r)
+		}
+	}()
+
+	syncWindow = [4]byte{0, 0, 0, 0} // Undo pattern.
+
+	bb, err := os.ReadFile(filename)
+	if err != nil {
+		log.Fatalf("cannot ReadFile %q: %v", filename, err)
+	}
+	for i, b := range bb {
+		if b == '\r' {
+			bb[i] = '\n' // Use newlines, not CRs
+		}
+	}
+
+	r := bytes.NewBuffer(bb)
+	scanner := bufio.NewScanner(r)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		Logf("SREC: line %q", line)
+		rec := DecodeSLine(line)
+		if rec == nil {
+			Logf("=-=-= nil")
+		} else {
+			Logf("=-=-= %v", *rec)
+			n := len(rec.data)
+			out := make([]byte, n+4)
+			out[0] = C_PRE_LOAD
+			out[1] = byte(128 + n + 2)
+			out[2] = byte(rec.addr >> 8)
+			out[3] = byte(rec.addr & 255)
+			copy(out[4:], rec.data[:n])
+			Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, rec.addr, rec.data[:n])
+			WriteBytes(channelToPico, out...)
+		}
+	}
+
+	if scanErr := scanner.Err(); scanErr != nil {
+		fmt.Println("Error reading file %q: ", filename, scanErr)
+	}
+
+	// TODO -- write ram
+}
+
+// https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Motorola_SREC_Chart.png/1200px-Motorola_SREC_Chart.png
+type SRecord struct {
+	typenum  byte
+	addr     uint
+	data     []byte
+	checksum uint
+}
+
+func DecodeSLine(line string) *SRecord {
+	defer func() {
+		r := recover()
+		if r != nil {
+			Fatalf("Error in DecodeSLine(%q): %v", line, r)
+		}
+	}()
+	if line[0] != 'S' {
+		return nil
+	}
+	if line[1] != '1' {
+		return nil
+	}
+	fmt.Printf("S")
+	count, err := strconv.ParseUint(line[2:4], 16, 8)
+	if err != nil {
+		Panicf("Bad count field %q in SRecord %q", line[2:4], line)
+	}
+	addr, err := strconv.ParseUint(line[4:8], 16, 16)
+	if err != nil {
+		Panicf("Bad address field %q in SRecord %q", line[2:4], line)
+	}
+	size := uint(count) - 3 // size of data is count less 2 for addr and 1 for checksum
+
+	data := make([]byte, size)
+	for i := uint(0); i < size; i++ {
+		datum, err := strconv.ParseUint(line[8+2*i:8+2*i+2], 16, 8)
+		if err != nil {
+			Panicf("Bad data field %q, index %d, in SRecord %q", line[8:8+2*size], i, line)
+		}
+		data[i] = byte(datum)
+	}
+
+	checksum, err := strconv.ParseUint(line[8+2*size:8+2*size+2], 16, 8)
+	if err != nil {
+		Panicf("Bad address field %q in SRecord %q", line[2:4], line)
+	}
+
+	sum := byte(0)
+	for i := uint64(0); i < count; i++ {
+		datum, err := strconv.ParseUint(line[2+2*i:2+2*i+2], 16, 8)
+		if err != nil {
+			Panicf("Bad field during checksum at index %d, in SRecord %q", i, line)
+		}
+		sum += byte(datum)
+	}
+	Logf("checksum %x sum %x", checksum, ^sum)
+
+	return &SRecord{
+		typenum:  line[1],
+		addr:     uint(addr),
+		data:     data,
+		checksum: uint(checksum),
+	}
 }
