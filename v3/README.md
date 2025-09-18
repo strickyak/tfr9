@@ -1,10 +1,13 @@
+Please see the docs/ directory for more recent info!
+
 # Hints for building & running /v3/
 
-Right now, this only supports the pico2.
+Right now, this only supports the pico2 and pico1,
+not the "W" (wireless) versions of the Pi Pico.
 
-Probably specific to Linux on amd64,
-even though not much needs to be fixed
-for other platforms.
+Instructions are originally written for Linux on amd64,
+but we're trying to get it working on all (at least all
+Unixy) platforms.
 
 ## Prepare
 
@@ -12,64 +15,11 @@ Use the coco-shelf to make your life easier.
 
 ` git clone git@github.com:strickyak/coco-shelf.git `
 
-`cd coco-shelf; git clone git@github.com:strickyak/tfr9.git`
-
-Until a `tfr9` port is ready, it is necessary to
-apply the patch `patches/github-nitros9project-nitros9-162.patch`
-to nitro9.
-
-`(cd nitros9 ; patch -p1 < ../tfr9/v3/patches/github-nitros9project-nitros9-162.patch)`
-
-
-`make nitros9.done` on the coco-shelf.
-
-BUG: After you `git clone` tfr9 into the 
-coco-shelf, you must `mkdir tfr9/v3/generated`
-
-`( cd nitros9 ; NITROS9DIR=$PWD make PORTS=coco1 )`
-
-`( cd nitros9 ; NITROS9DIR=$PWD make PORTS=coco3 )`
-
-## Level 1
-
-To build NitrOS-9 Level 1 for pico2:
-
-`    sh make-level1-905-pico2.sh`
-
-To build and flash the pico2:
-
-`    sh make-level1-905-pico2.sh flash`
-
-To build and flash the pico2 and run tconsole:
-
-`    sh make-level1-905-pico2.sh flash run`
-
-To build and flash the pico2 and run it really 
-slowly with tconsole, and copious debugging
-into `_log`,
-
-`    sh make-level1-905-pico2.sh slow flash run`
-
-BUG: When you get error 
-`Cannot find source file:    ../../generated/level2.rom.h`
-then run `make-level2-905-pico2.sh flash run`
-and it will make that file.
-
-## Level 2
-
-For Level 2 for pico2, use those same commands,
-but change level1 to level2, such as:
-
-`    sh make-level2-905-pico2.sh flash run`
-
-## Turbo9
-
-For Turbo9 OS with the turbo9sim configuration,
-change level? to turbo9sim, such as:
-
-`    sh make-turbo9sim-905-pico2.sh flash run`
+Then cd into coco-shelf and run `make nitros9.done`
 
 ## Borges
+
+TODO -- update this section
 
 In slow mode, if you have the "borges" bundle
 of assembly language listings, you can get nice
