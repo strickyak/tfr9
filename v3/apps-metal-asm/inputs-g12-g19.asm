@@ -1,5 +1,8 @@
     ttl inputs-g12-g19.asm
 
+* Repeatedly read input ports GPIO[12:19]
+* and print what we read, in binary.
+
 ORIGIN equ $4000    ; arbitrary load address
 TXPORT equ $FF00    ; TurboSim putchar address
 

@@ -1,3 +1,8 @@
+    ttl hello.asm
+
+* Print "Hello TurboSim!", a newline character,
+* and then go into an infinite loop.
+
 ORIGIN equ $4000    ; arbitrary load address
 TXPORT equ $FF00    ; TurboSim putchar address
 
