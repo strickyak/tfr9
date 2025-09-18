@@ -28,8 +28,8 @@ var the_ram Rammer
 var the_os9 Os9er
 
 const (
-    C_NOP = 0
-    C_SHUTDOWN = 255
+	C_NOP      = 0
+	C_SHUTDOWN = 255
 
 	// Long form codes, 128 to 191.
 	// Followed by a 1-byte or 2-byte Size value.
@@ -254,7 +254,7 @@ func main() {
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode(true)
 	}
-    defer func() { Shutdown(recover()) } ()
+	defer func() { Shutdown(recover()) }()
 
 	// Fill in with some default.
 	the_ram = new(Coco1Ram)
@@ -266,7 +266,7 @@ func main() {
 	killed := make(chan os.Signal, 16)
 	signal.Notify(killed, syscall.SIGINT)
 	go func() {
-        defer func() { Shutdown(recover()) } ()
+		defer func() { Shutdown(recover()) }()
 		sig := <-killed
 		Panicf("STOPPING ON SIGNAL %q", sig)
 	}()
@@ -313,21 +313,21 @@ func TryInkey(inkey chan byte) (byte, bool) {
 }
 
 func Shutdown(r any) {
-    if r != nil {
-            fmt.Printf("***\n*** CAUGHT ERROR: %v\n***\n", r)
-            fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
-    }
+	if r != nil {
+		fmt.Printf("***\n*** CAUGHT ERROR: %v\n***\n", r)
+		fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
+	}
 
-    SttyCbreakMode(false)
+	SttyCbreakMode(false)
 
-    fmt.Printf("*** SHUTDOWN\n")
-    fmt.Fprintf(os.Stderr, "*** SHUTDOWN\n")
-    debug.PrintStack()
-    os.Exit(13)
+	fmt.Printf("*** SHUTDOWN\n")
+	fmt.Fprintf(os.Stderr, "*** SHUTDOWN\n")
+	debug.PrintStack()
+	os.Exit(13)
 }
 
 func ToUsbRoutine(w io.Writer, channelToPico chan []byte) {
-    defer func() { Shutdown(recover()) } ()
+	defer func() { Shutdown(recover()) }()
 
 	for bb := range channelToPico {
 		_, err := w.Write(bb)
@@ -346,7 +346,7 @@ func MintSerialNum() uint {
 }
 
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte) {
-    defer func() { Shutdown(recover()) } ()
+	defer func() { Shutdown(recover()) }()
 
 	var previousPutChar byte
 	var remember int64
@@ -639,7 +639,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					}
 					if *LOAD != "" && LookForPreSync(ch) {
 						PreUpload(*LOAD, channelToPico)
-	                    LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
+						LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
 					}
 
 				case ch == 7 || ch == 8: // BEL, BS

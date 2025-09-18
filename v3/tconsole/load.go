@@ -32,14 +32,14 @@ func PreUpload(commaList string, channelToPico chan []byte) {
 				Panicf("Expected rom:address:filename in %q", w)
 			}
 			h, t := ht[0], ht[1]
-            addr := SmartAtoi(h, 16)
+			addr := SmartAtoi(h, 16)
 			PreUploadRom(t, channelToPico, addr)
 		} else if strings.HasSuffix(w, ".decb") {
-            PreUpload("decb:" + w, channelToPico)
+			PreUpload("decb:"+w, channelToPico)
 		} else if strings.HasSuffix(w, ".srec") {
-            PreUpload("srec:" + w, channelToPico)
+			PreUpload("srec:"+w, channelToPico)
 		} else if strings.HasSuffix(w, ".rom") {
-            PreUpload("rom:" + w, channelToPico)
+			PreUpload("rom:"+w, channelToPico)
 		} else {
 			Panicf("Missing prefix before filename: %q (expected 'decb:' or 'rom:' or 'srec:')", w)
 		}
@@ -124,11 +124,11 @@ LOOP:
 			// Load the start value in the reset vector.
 			addr := (uint(bb[3]) << 8) + uint(bb[4])
 
-            if addr != 0 {
-			    // 0xFFFE is the address of the reset vector.
-			    Logf("PreUploadDecb: reset vector is %x", addr)
-			    WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
-            }
+			if addr != 0 {
+				// 0xFFFE is the address of the reset vector.
+				Logf("PreUploadDecb: reset vector is %x", addr)
+				WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
+			}
 
 			bb = bb[5:]
 
@@ -185,12 +185,12 @@ func PreUploadSrec(filename string, channelToPico chan []byte) {
 		} else if rec.typenum == '9' {
 			Logf("SREC[9] %v", *rec)
 
-            if rec.addr != 0 {
-			    // 0xFFFE is the address of the reset vector.
-			    Logf("PreUploadSrec: reset vector is %x", rec.addr)
-			    WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(rec.addr>>8), byte(rec.addr&255))
-            }
-        }
+			if rec.addr != 0 {
+				// 0xFFFE is the address of the reset vector.
+				Logf("PreUploadSrec: reset vector is %x", rec.addr)
+				WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(rec.addr>>8), byte(rec.addr&255))
+			}
+		}
 	}
 
 	if scanErr := scanner.Err(); scanErr != nil {
@@ -217,7 +217,7 @@ func DecodeSLine(line string) *SRecord {
 	}
 	if line[1] != '1' && line[1] != '9' {
 		return nil
-    }
+	}
 	fmt.Printf("S")
 	defer func() {
 		r := recover()

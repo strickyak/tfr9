@@ -90,7 +90,6 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 	return mm
 }
 
-
 var InitialMemoryModules []*ScannedModuleInfo
 
 func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
@@ -116,13 +115,13 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 				return o.ModuleId(begin), addr - begin
 			}
 		}
-	} 
+	}
 
-    if InitialMemoryModules == nil {
+	if InitialMemoryModules == nil {
 		InitialMemoryModules = ScanRamForMemoryModules(the_ram.GetTrackRam())
-    }
+	}
 
-    if 0x0500 <= addr && addr <= 0xFF00 {
+	if 0x0500 <= addr && addr <= 0xFF00 {
 		for i, m := range InitialMemoryModules {
 			if m.Addy < addr && addr < m.Addy+m.Size {
 				_ = i
