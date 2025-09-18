@@ -23,7 +23,8 @@ struct DoTurbo9sim {
 
   force_inline static bool Turbo9sim_IrqNeeded() {
     bool z = sim_status_reg & sim_control_reg;
-    // printf("XXX sim IrqNeeded? s=%02x c=%02x %x\n", sim_status_reg, sim_control_reg, z);
+    // printf("XXX sim IrqNeeded? s=%02x c=%02x %x\n", sim_status_reg,
+    // sim_control_reg, z);
     return z;
   }
 

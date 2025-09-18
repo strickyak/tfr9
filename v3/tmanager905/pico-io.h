@@ -60,7 +60,8 @@ struct DoPicoIO {
     IOWriters[base + GPIO_DIRECTION12_PORT] = [](uint addr, byte data) {
       constexpr uint shift = 12;  // Starting GPIO pin
 
-      uint b = 1; // choose one bit at a time, starting from Least Significant Bit.
+      uint b =
+          1;  // choose one bit at a time, starting from Least Significant Bit.
       for (int i = 12; i < 20; i++) {
         gpio_init(i);
         gpio_pull_up(i);
@@ -82,7 +83,7 @@ struct DoPicoIO {
       constexpr uint shift = 12;  // Starting GPIO pin
 
       uint32_t all_bits = gpio_get_all();
-printf("gpio_get_all %x => %x", all_bits, (all_bits >> shift));
+      printf("gpio_get_all %x => %x", all_bits, (all_bits >> shift));
       return static_cast<byte>(all_bits >> shift);
     };
   }
