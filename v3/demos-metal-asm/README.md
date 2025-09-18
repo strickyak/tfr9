@@ -1,4 +1,4 @@
-## tfr9/v3/apps-metal-asm
+## tfr9/v3/demos-metal-asm
 
 # TFR/905 Engine requirements
 
@@ -26,21 +26,20 @@ These program run on a TFR/905 with these IO ports:
 
 First use `make all` or `make all flash` (in the "v3" directory)
 to build the programs.  (First unplug the USB, hold down the white
-button, and plug in the USB, if you `make ... flash`.)
+button, and plug in the USB, if you make `flash`.)
 
-Then use these commands (in the "v3" directory) to run:
+Then use these commands (in the "v3" directory) to run the various demos.
+Start the command with the USB unplugged, then plug it in.
 
-* `make run LOAD=hello.srec`
+* `make run LOAD=demos-metal-asm/hello.srec`
 
-* `make run LOAD=count-g12-g19.srec`
+* `make run LOAD=demos-metal-asm/count-g12-g19.srec`
 
-* `make run LOAD=apps-metal-asm/ditto-g12-g19-even-in-odd-out.srec`
+* `make run LOAD=demos-metal-asm/ditto-g12-g19-even-in-odd-out.srec`
 
 *  etc
 
-Start those commands *before* you plug in the USB.
-
-After about 7 punctuation characters `.:,;`,
+After 6 or 7 punctuation characters `.:,;`,
 the SRecord file will be loaded (you'll see something
 like `SSSSS(..)(..)(..)(..)(.)`).  After that,
 you can type `3` or `8` to run a fast or a slow TurboSim engine.

@@ -20,7 +20,7 @@ BUILD_DIR=build-all-905-pico2
 DISKS=generated/disk0,generated/level1.dsk,generated/level2.dsk,generated/disk3,generated/disk4,generated/disk5,generated/disk6,generated/disk7
 WHICH_PICO=pico2
 
-all: _primary_  _apps-metal-asm_ _borges_  _tconsoles_
+all: _primary_  _demos-metal-asm_ _borges_  _tconsoles_
 	:
 	:
 	: tfr9/v3 OKAY.
@@ -66,8 +66,8 @@ _make_$(BUILD_DIR): $(BUILD_DIR)
 	make -C n9cmds all install
 	make -C $(BUILD_DIR)
 
-_apps-metal-asm_:
-	PATH="$S/bin:$$PATH" make -C apps-metal-asm all
+_demos-metal-asm_:
+	PATH="$S/bin:$$PATH" make -C demos-metal-asm all
 
 _borges_:
 	mkdir -p /tmp/borges
@@ -114,7 +114,7 @@ clean:
 	mkdir -p /tmp/tfr9.v3.generated.backup/
 	rsync -av generated/ /tmp/tfr9.v3.generated.backup/
 	rm -rf generated
-	make -C apps-metal-asm clean
+	make -C demos-metal-asm clean
 
 create-runtime-bundle:
 	set -ex ; \
