@@ -67,7 +67,7 @@ _make_$(BUILD_DIR): $(BUILD_DIR)
 	make -C $(BUILD_DIR)
 
 _apps-metal-asm_:
-	make -C apps-metal-asm all
+	PATH="$S/bin:$$PATH" make -C apps-metal-asm all
 
 _borges_:
 	mkdir -p /tmp/borges

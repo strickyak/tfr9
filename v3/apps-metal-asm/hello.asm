@@ -1,32 +1,25 @@
-    org $4000
+ORIGIN equ $4000    ; arbitrary load address
+TXPORT equ $FF00    ; TurboSim putchar address
 
+    org ORIGIN
+
+    nop             ; unused NOP, to demonstrate `entry` is not `ORIGIN`.
 entry:
-    ldx #message
+    lds #ORIGIN     ; stack grows downward from origin.
+    ldx #message    ; pointer to what to print
 
 loop:
-    ldb ,x+
-    beq stuck
-    stb $FF00
-    bra loop
+    ldb ,x+         ; get next char, and advance pointer
+    beq stuck       ; if char is 0 (EOS), get stuck
+    stb TXPORT      ; write char to Terminal TX port
+    bra loop        ; go do next char
 
 stuck:
-    bra stuck
-
+    bra stuck       ; infinite loop (or SHUTDOWN if debug heuristics are enabled)
 
 message:
     .ascii "Hello TurboSim!"
-    fcb 10    ; newline
-    fcb 0     ; EOS
+    fcb 10          ; newline char
+    fcb 0           ; End Of String (EOS) marker
 
-; Interrupt and Reset vectors
-    org $FFF0
-    fdb 0
-    fdb 0
-    fdb 0
-    fdb 0
-    fdb 0
-    fdb 0
-    fdb 0
-    fdb entry  ; RESET to entry
-
-    end entry
+    end entry       ; entry is the value to put in the RESET vector

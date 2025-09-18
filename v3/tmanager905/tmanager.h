@@ -323,61 +323,19 @@ void InitializePinsForGpio() {
     gpio_set_dir(i, GPIO_OUT);
     gpio_put(i, 1);
   }
+  // Set pull ups on all the GPIO that we use.
+  // Omit GPIO 23:25 which are not exposed.
+  // 1.  Pull ups will feel like TTL.
+  // 2.  This will allow open-collector inputs.
+  // 3.  Avoids the worst case of a floating CMOS input
+  //     (if input near VCC/2, it can sink current and burn up).
+  for (uint i = 0; i < 23; i++) {
+      gpio_pull_up(i);
+  }
+  for (uint i = 26; i < 29; i++) {
+      gpio_pull_up(i);
+  }
 }
-
-#if 0
-void ResetCpu() {
-  printf("Resetting CPU ... ");
-  InitializePinsForGpio();
-
-  // Activate the 6309 RESET line
-  SetY(4);
-  for (uint i = 0; i < 8; i++) {
-    gpio_put(i, 1);
-    gpio_set_dir(i, GPIO_OUT);
-    gpio_put(i, 1);
-  }
-  gpio_put(STATE_Y5_RESET_PIN, 0);  // 0 is active
-  StrobePin(COUNTER_CLOCK);         // Y5
-  StrobePin(COUNTER_CLOCK);         // Y6
-  for (uint i = 0; i < 8; i++) {
-    gpio_set_dir(i, GPIO_IN);
-  }
-  SetY(0);
-
-  const uint EnoughCyclesToReset = 32;
-  gpio_put(PIN_Q, 0);
-  DELAY;
-  gpio_put(PIN_E, 0);
-  DELAY;
-  for (uint i = 0; i < EnoughCyclesToReset; i++) {
-    gpio_put(PIN_Q, 1);
-    DELAY;
-    gpio_put(PIN_E, 1);
-    DELAY;
-    gpio_put(PIN_Q, 0);
-    DELAY;
-    gpio_put(PIN_E, 0);
-    DELAY;
-  }
-
-  // Release the 6309 RESET line
-  SetY(4);
-  for (uint i = 0; i < 8; i++) {
-    gpio_put(i, 1);
-    gpio_set_dir(i, GPIO_OUT);
-    gpio_put(i, 1);
-  }
-  gpio_put(STATE_Y5_RESET_PIN, 1);  // 1 is release
-  StrobePin(COUNTER_CLOCK);         // Y5
-  StrobePin(COUNTER_CLOCK);         // Y6
-  for (uint i = 0; i < 8; i++) {
-    gpio_set_dir(i, GPIO_IN);
-  }
-  SetY(0);
-  printf("... done.\n");
-}
-#endif
 
 // These were copied from Pico's headers
 // and made "hasty" by removing assertions.
@@ -610,11 +568,17 @@ struct EngineBase {
 
   static void DumpRamAndGetStuck(const char* why, uint what) {
     interest = MAX_INTEREST;
+
+    ShowStr("***\n*** DumpRamAndGetStuck: ");
+    ShowStr(why);
+    ShowStr("\n***\n");
+
     printf("\n(((((((((([[[[[[[[[[{{{{{{{{{{\n");
     printf("DumpRamAndGetStuck: %s ($%x = %d.)\n", why, what, what);
     DumpPhys();
     DumpRam();
     printf("\n}}}}}}}}}}]]]]]]]]]]))))))))))\n");
+
     GET_STUCK();
   }
 

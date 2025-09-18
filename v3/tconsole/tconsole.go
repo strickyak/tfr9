@@ -28,6 +28,9 @@ var the_ram Rammer
 var the_os9 Os9er
 
 const (
+    C_NOP = 0
+    C_SHUTDOWN = 255
+
 	// Long form codes, 128 to 191.
 	// Followed by a 1-byte or 2-byte Size value.
 	// If following byte in 128 to 191, it is 1-byte, use low 6 bits for size.
@@ -373,9 +376,9 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			switch cmd {
 
-			case 0:
+			case C_NOP:
 				// NO OP.
-				Logf("ZERO")
+				Logf("C_NOP")
 
 			case C_RAM_CONFIG:
 				pack := GetPacket(fromUSB, cmd)
@@ -415,7 +418,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 						if the_os9.HasMMap() {
 							phys := the_ram.Physical(uint(_addr))
-							if _kind == CY_SEEN || _kind == CY_UNSEEN {
+							if _kind == CY_SEEN_OP || _kind == CY_UNSEEN_OP {
 								if GLOSS {
 									g = GlossFirstCycle(_addr, _data)
 								}
@@ -431,7 +434,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 								Logf("%s %%%06x%s", s, phys, g)
 							}
 						} else {
-							if _kind == CY_SEEN || _kind == CY_UNSEEN {
+							if _kind == CY_SEEN_OP || _kind == CY_UNSEEN_OP {
 								if GLOSS {
 									g = GlossFirstCycle(_addr, _data)
 								}
@@ -689,11 +692,11 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 							}
 						}
 				*/
-			case 255:
-				fmt.Printf("\n[255: finished]\n")
-				Logf("go func: Received END MARK 255; exiting")
+			case C_SHUTDOWN:
+				fmt.Printf("\n[255: shutdown]\n")
+				Logf("go func: Received C_SHUTDOWN; exiting")
 				close(channelFromPico)
-				log.Panicf("go func: Received END MARK 255; exiting")
+				log.Panicf("go func: C_SHUTDOWN")
 				return
 
 			} // end switch cmd
@@ -877,8 +880,8 @@ var CycleKindStr = []string{
 
 const (
 	CY_UNUSED0 = iota
-	CY_SEEN
-	CY_UNSEEN
+	CY_SEEN_OP
+	CY_UNSEEN_OP
 	CY_MORE
 	CY_READ
 	CY_WRITE
