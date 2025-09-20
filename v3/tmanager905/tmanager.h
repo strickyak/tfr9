@@ -142,7 +142,6 @@ void putsz(uint n) {
 #include "logging.h"
 #include "pcrange.h"
 #include "picotimer.h"
-// #include "pico-io.h"
 #include "seen.h"
 #include "trace.h"
 
@@ -262,6 +261,7 @@ const char* HighFlags(uint high) {
 #include "pico-io.h"
 #include "samvdg.h"
 #include "turbo9sim.h"
+#include "ssd1306.h"
 
 // Operating Systems
 #include "nitros9level1.h"
@@ -1188,13 +1188,19 @@ struct Fast_Mixins : DontPcRange<T>,
                      DoPicoTimer<T> {};
 
 template <typename T>
-struct Common_Mixins : EngineBase<T>, CommonRam<T>, DoPicoIO<T> {
+struct Common_Mixins : EngineBase<T>, CommonRam<T>, DoPicoIO<T>,
+                   DoSsd1306<T> {
   static void CommonInstall() {
     ShowChar('c');
     ShowChar('i');
     T::PicoIO_Install(0xFF00);
-    ShowChar('i');
+    ShowChar('p');
+#if 1
+ShowStr(" <P> ");
+    T::Ssd1306_Init(0xFF00);
+ShowStr(" <Q> ");
     ShowChar('z');
+#endif
   }
 };
 
@@ -1267,7 +1273,7 @@ struct L1_Mixins : Common_Mixins<T>,
     ShowChar('C');
     T::Emudsk_Install(0xFF80);
     ShowChar('D');
-    T::Acia_Install(0xFF06);
+    T::Acia_Install(0xFF38);
     ShowChar('E');
     ShowChar('\n');
   }
@@ -1296,7 +1302,7 @@ struct L2_Mixins : Common_Mixins<T>,
     ShowChar('C');
     T::Emudsk_Install(0xFF80);
     ShowChar('D');
-    T::Acia_Install(0xFF06);
+    T::Acia_Install(0xFF38);
     ShowChar('E');
     ShowChar('\n');
   }

@@ -13,7 +13,7 @@ These program run on a TFR/905 with these IO ports:
     | 0xFF02 | Status register |
     | 0xFF03 | Control register |
 
-* tmanager/pico-io.h GPIO on ports 0xFF04 to 0xFF07.
+* tmanager905/pico-io.h GPIO on ports 0xFF04 to 0xFF07.
 
     | Address | Purpose |
     |---|---|
@@ -22,13 +22,24 @@ These program run on a TFR/905 with these IO ports:
     | 0xFF06 | GPIO[12:19] Init & Direction (0=input 1=output) |
     | 0xFF07 | GPIO[12:19] Data Read inputs or Write outputs |
 
-## (Linux) PC Commands
+* tmanager905/ssd1306.h I2C for Tiny Display on ports 0xFF08 to 0xFF0A.
 
-First use `make all` or `make all flash` (in the "v3" directory)
-to build the programs.  (First unplug the USB, hold down the white
-button, and plug in the USB, if you make `flash`.)
+    | Address | Purpose |
+    |---|---|
+    | 0xFF08 | (write) Set "X" coordinate |
+    | 0xFF09 | (write) Set "Y" coordinate |
+    | 0xFF0A | (write) Execute Command |
 
-Then use these commands (in the "v3" directory) to run the various demos.
+    Commands are
+
+    0: Clear Buffer
+
+    1: Set point at (X,Y) (in Buffer)
+
+    2: Send Buffer to Display
+
+    32-126: Draw ASCII character (with an 8x8 font) at NW corner (X.Y) (in Buffer)
+
 Start the command with the USB unplugged, then plug it in.
 
 * `make run LOAD=demos-metal-asm/hello.srec`

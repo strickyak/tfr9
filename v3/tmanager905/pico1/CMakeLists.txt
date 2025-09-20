@@ -12,18 +12,24 @@ pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/tpio.pio)
 pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/latch.pio)
 
 target_sources(${PROJECT} PRIVATE tmanager.cpp
-            ../ram.h
+    ../ssd1306.h
+    ../ram.h
     ../cocosdc.h
     ../emudsk.h
     ../samvdg.h
     ../turbo9sim.h
-            ../../generated/level1.rom.h
-            ../../generated/level2.rom.h
-            ../tfr9ports.gen.h)
+    ../../generated/level1.rom.h
+    ../../generated/level2.rom.h
+    ../tfr9ports.gen.h
+)
+add_subdirectory(pico-ssd1306)
 target_link_libraries(${PROJECT} PRIVATE
     pico_stdlib
     pico_rand
-    hardware_pio)
+    hardware_pio
+
+    pico_ssd1306 hardware_i2c
+)
 pico_add_extra_outputs(${PROJECT})
 
 pico_enable_stdio_usb(${PROJECT} 1)
