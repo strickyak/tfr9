@@ -4,6 +4,7 @@
 RCS/
 *.map
 *.list
+*.tmp.asm
 *.s
 *.o
 *.os9
