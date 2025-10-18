@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -20,12 +22,16 @@ var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output co
 var LOAD = flag.String("load", "", "Decb file to pre-load into 6309 RAM")
 var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
-var DISKS = flag.String("disks", "/home/strick/coco-shelf/tfr9/v2/generated/level2.disk", "Comma-separated filepaths to disk files, in order of drive number")
+var DISKS = flag.String("disks", "", "Comma-separated filepaths to disk files, in order of drive number")
 var USB_VERBOSE = flag.Bool("usb_verbose", false, "enable verbose debugging output of bytes over the USB")
 var RAM_VERBOSE = flag.Bool("ram_verbose", false, "enable verbose debugging output of ram being written (if the pico is telling us)")
+var LINKMAP = flag.String("linkmap", "", ".map file from linker")
+var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 
 var the_ram Rammer
-var the_os9 Os9er
+var LinkMap []*Section
+var LinkLists []*ModSrc
+var LinkSrc *ModSrc
 
 const (
 	C_NOP      = 0
@@ -209,14 +215,14 @@ type EventRec struct {
 	SerialNum uint
 }
 
-func TryRun(inkey chan byte) {
+func TryRun(inkey chan byte, person Personality) {
 	defer func() {
 		r := recover()
 		if r != nil {
 			fmt.Printf("[recover: %q]\n", r)
 		}
 	}()
-	Run(inkey)
+	Run(inkey, person)
 }
 
 func SttyCbreakMode(turnOn bool) {
@@ -258,7 +264,7 @@ func main() {
 
 	// Fill in with some default.
 	the_ram = new(Coco1Ram)
-	the_os9 = new(Os9Level1)
+	person := new(Plain)
 
 	inkey := make(chan byte, 1024)
 	go InkeyRoutine(inkey)
@@ -271,9 +277,41 @@ func main() {
 		Panicf("STOPPING ON SIGNAL %q", sig)
 	}()
 
+	if *LINKMAP != "" {
+		LinkMap = ReadMap(*LINKMAP)
+
+		for _, filename := range strings.Split(*LINKLISTS, ",") {
+			if filename == "" {
+				continue
+			}
+			lf := LoadFile(filename)
+			LinkLists = append(LinkLists, lf)
+			log.Printf("LOADED LIST_FILENAME %q (%d)", filename, len(lf.Src))
+
+			for k, v := range lf.Src {
+				log.Printf("ITEM_LOADED %v :: %q :: %q", k, v, filename)
+			}
+		}
+		LinkSrc = ComputeLinkSrc(LinkMap, LinkLists)
+		log.Printf("ComputeLinkSrc %q returns %d items", len(LinkSrc.Src))
+
+		{
+			var keys []uint
+			for k := range LinkSrc.Src {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+
+			for _, k := range keys {
+				v := LinkSrc.Src[k]
+				log.Printf("ComputeLinkSrc %04x -> %s", k, v)
+			}
+		}
+	}
+
 	OpenDisks(*DISKS)
 	for {
-		TryRun(inkey)
+		TryRun(inkey, person)
 		time.Sleep(1 * time.Second)
 	}
 }
@@ -345,7 +383,7 @@ func MintSerialNum() uint {
 	return serialNumCounter
 }
 
-func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte) {
+func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 
 	var previousPutChar byte
@@ -382,18 +420,29 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			case C_RAM_CONFIG:
 				pack := GetPacket(fromUSB, cmd)
-				if len(pack) == 1 {
+				if len(pack) >= 1 {
+					log.Printf("C_RAM_CONFIG: $%x", pack[0])
 					switch pack[0] {
 					case '1':
 						the_ram = new(Coco1Ram)
-						the_os9 = new(Os9Level1)
+						person = new(Os9Level1)
 
 					case '2':
 						the_ram = new(Coco3Ram)
-						the_os9 = new(Os9Level2)
+						person = new(Os9Level2)
 
 					default:
 						log.Panicf("C_RAM_CONFIG size %d unknown value: % 3x", len(pack), pack)
+					}
+					if len(pack) >= 2 {
+						switch pack[0] {
+						case '3':
+							// TODO -- straighten this out
+							person = new(Plain)
+						case '8':
+							// TODO -- straighten this out
+							person = new(Plain)
+						}
 					}
 				} else {
 					log.Panicf("C_RAM_CONFIG unknown size %d: % 3x", len(pack), pack)
@@ -416,15 +465,15 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						s = Format("cy %s %04x %02x %s#%d", CycleKindStr[_kind], _addr, _data, LookupCpuFlags[_fl], _cy)
 						g := ""
 
-						if the_os9.HasMMap() {
+						if person.HasMMap() {
 							phys := the_ram.Physical(uint(_addr))
 							if _kind == CY_SEEN_OP || _kind == CY_UNSEEN_OP {
 								if GLOSS {
 									g = GlossFirstCycle(_addr, _data)
 								}
 								// The first cycle of an instruction
-								modName, modOffset := the_os9.MemoryModuleOf(phys)
-								mmap := the_os9.CurrentHardwareMMap()
+								modName, modOffset := person.MemoryModuleOf(phys)
+								mmap := person.CurrentHardwareMMap()
 								Logf("%s %s%%%06x :%q+%04x %s", s, mmap, phys, modName, modOffset, AsmSourceLine(modName, modOffset))
 							} else {
 								if GLOSS {
@@ -439,7 +488,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 									g = GlossFirstCycle(_addr, _data)
 								}
 								// The first cycle of an instruction
-								modName, modOffset := the_os9.MemoryModuleOf(_addr)
+								modName, modOffset := person.MemoryModuleOf(_addr)
 								Logf("%s :%q+%04x %s", s, modName, modOffset, AsmSourceLine(modName, modOffset))
 							} else {
 								if GLOSS {
@@ -478,7 +527,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			case C_EVENT:
 				pack := GetPacket(fromUSB, cmd)
-				OnEvent(pack, pending)
+				OnEvent(pack, pending, person)
 
 			case C_RAM3_WRITE:
 				panic("C_RAM3_WRITE not imp")
@@ -706,7 +755,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	} // end for ever
 } // RunSelect
 
-func Run(inkey chan byte) {
+func Run(inkey chan byte, person Personality) {
 	const SERIAL_BUFFER_SIZE = 1024
 
 	// Set up options for Serial Port.
@@ -733,7 +782,7 @@ func Run(inkey chan byte) {
 	channelFromPico := make(chan byte, SERIAL_BUFFER_SIZE)
 	var fromUSB <-chan byte = channelFromPico
 
-	go RunSelect(inkey, fromUSB, channelToPico, channelFromPico)
+	go RunSelect(inkey, fromUSB, channelToPico, channelFromPico, person)
 
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.

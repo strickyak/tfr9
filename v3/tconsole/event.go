@@ -7,7 +7,7 @@ import (
 
 const ANGLES = false
 
-func OnEvent(pack []byte, pending map[string]*EventRec) {
+func OnEvent(pack []byte, pending map[string]*EventRec, person Personality) {
 	k := 0
 	takeByte := func() byte {
 		z := pack[k]
@@ -68,7 +68,7 @@ func OnEvent(pack []byte, pending map[string]*EventRec) {
 		rec.Os9Num = os9num
 		call, _ := Os9ApiCallOf[os9num]
 		rec.SerialNum = MintSerialNum()
-		callString, regs := the_os9.FormatCall(os9num, call, rec)
+		callString, regs := person.FormatCall(os9num, call, rec)
 		rec.Call = callString
 
 		lastPC := op_pc
@@ -101,7 +101,7 @@ func OnEvent(pack []byte, pending map[string]*EventRec) {
 		if ok {
 			os9num := caller.Os9Num
 			call, _ := Os9ApiCallOf[os9num]
-			returnString, regs := the_os9.FormatReturn(caller.Os9Num, call, rec)
+			returnString, regs := person.FormatReturn(caller.Os9Num, call, rec)
 			_ = regs
 			Logf("\n%q === OS9_RETURN _%d_ %q:  %s #%d --> %s #%d %s\n\n", the_ram.Who(), caller.SerialNum, key, caller.Call, caller.Cycle, returnString, op_cy, the_ram.CurrentMapString())
 			delete(pending, key)

@@ -12,6 +12,7 @@ struct DoAcia {
   constexpr static bool DoesAcia() { return true; }
 
   static void Acia_Install(uint port) {
+    T::Logf(LHello, "bilbo $%x install", port);
     uint sub = 255 & port;
     // Readers
 
@@ -48,6 +49,7 @@ struct DoAcia {
     };
 
     IOWriters[sub + 1] = [](uint addr, byte data) {
+      T::Logf(LHello, "bilbo %d putchar", data);
       if (data == 0 || data >= 128) {
         putbyte(C_PUTCHAR);
       }  // otherwise, normal 7-bit chars don't need the prefix.

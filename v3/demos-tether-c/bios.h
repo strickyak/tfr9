@@ -1,5 +1,5 @@
-#ifndef _DEMOS_USB_BIOS__BIOS_H_
-#define _DEMOS_USB_BIOS__BIOS_H_
+#ifndef _DEMOS_TETHER_C__BIOS_H_
+#define _DEMOS_TETHER_C__BIOS_H_
 
 #include "demos-metal-gcc/t9sim.h"
 #include "demos-metal-gcc/types.h"
@@ -73,4 +73,4 @@ char* BiosGetStr() {
   }  // while TRUE
 }
 
-#endif  // _DEMOS_USB_BIOS__BIOS_H_
+#endif  // _DEMOS_TETHER_C__BIOS_H_

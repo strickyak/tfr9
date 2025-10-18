@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: MIT
 
+#define OS9_ACIA_PORT 0xFF06
+#define OS9_EMUDSK_PORT 0xFF80
+
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
 #include <hardware/structs/systick.h>
@@ -1271,9 +1274,9 @@ struct L1_Mixins : Common_Mixins<T>,
     ShowChar('B');
     T::Samvdg_Install();
     ShowChar('C');
-    T::Emudsk_Install(0xFF80);
+    T::Emudsk_Install(OS9_EMUDSK_PORT);
     ShowChar('D');
-    T::Acia_Install(0xFF38);
+    T::Acia_Install(OS9_ACIA_PORT);
     ShowChar('E');
     ShowChar('\n');
   }
@@ -1300,9 +1303,9 @@ struct L2_Mixins : Common_Mixins<T>,
     ShowChar('B');
     T::Samvdg_Install();
     ShowChar('C');
-    T::Emudsk_Install(0xFF80);
+    T::Emudsk_Install(OS9_EMUDSK_PORT);
     ShowChar('D');
-    T::Acia_Install(0xFF38);
+    T::Acia_Install(OS9_ACIA_PORT);
     ShowChar('E');
     ShowChar('\n');
   }
@@ -1385,6 +1388,7 @@ void Shell() {
         if ('0' <= ch && ch <= '4') {
           uint num = ch - '0';
           if (harness.fast_engines[num]) {
+            machine_number = ch;
             harness.fast_engines[num]();
           } else {
             ShowStr("-S?-");
@@ -1393,6 +1397,7 @@ void Shell() {
         } else if ('5' <= ch && ch <= '9') {
           uint num = ch - '5';
           if (harness.engines[num]) {
+            machine_number = ch;
             harness.engines[num]();
           } else {
             ShowStr("-F?-");

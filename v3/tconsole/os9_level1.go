@@ -9,10 +9,10 @@ import (
 
 var NO_MODULES = flag.Bool("no_modules", false, "there are no os9 modules, so don't scan for them")
 
-type Os9Level1 struct {
+type Os9Level1 struct { // implements Personality
 }
 
-type Os9er interface {
+type Personality interface {
 	FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs)
 	FormatReturn(os9num byte, call *Os9ApiCall, rec *EventRec) (string, *Regs)
 	Os9String(addr uint) string

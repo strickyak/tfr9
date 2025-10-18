@@ -14,6 +14,7 @@ byte current_task;
 uint* current_bases;
 uint base[2][8];
 byte mmu[2][8];
+byte machine_number;
 
 template <typename T>
 struct DontTraceRamWrites {
@@ -91,8 +92,9 @@ class SmallRam {
   static uint PhysSize() { return 0x10000; }
   static void SendRamConfigOverUSB() {
     putbyte(C_RAM_CONFIG);
-    putsz(1);
+    putsz(2);
     putbyte('1');  // Ascii '1' for Small Ram.
+    putbyte(machine_number);
   }
 };
 

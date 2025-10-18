@@ -3,6 +3,12 @@ package main
 var Sources = make(map[string]*ModSrc)
 
 func AsmSourceLine(modName string, offset uint) string {
+	if modName == "^^" && LinkSrc != nil {
+		if rec, ok := LinkSrc.Src[offset]; ok {
+			return rec
+		}
+	}
+
 	modsrc, ok := Sources[modName]
 
 	if !ok {
