@@ -31,8 +31,9 @@
 #define force_inline inline __attribute__((always_inline))
 #define MUMBLE(X)              \
   {                            \
-    ShowStr(X " ");            \
     printf("MUMBLE: " X "\n"); \
+    ShowStr(X " ");            \
+    sleep_ms(100);             \
   }
 
 typedef unsigned char byte;
@@ -169,6 +170,15 @@ IOReader IOReaders[256];
 IOWriter IOWriters[256];
 void PollUsbInput();
 
+void InstallVector(uint i, uint addr) {
+    IOReaders[255&(0xFFF0 + 2*i + 0)] = [addr](uint _a, byte _d) {
+            return (byte)(addr >> 8);
+    };
+    IOReaders[255&(0xFFF0 + 2*i + 1)] = [addr](uint _a, byte _d) {
+            return (byte)(addr >> 0);
+    };
+}
+
 #include "acia.h"
 #include "gime.h"
 
@@ -259,9 +269,10 @@ const char* HighFlags(uint high) {
 #include "reboot.h"
 
 // I/O devices
-// dont include "cocosdc.h"; use emudsk instead.
+// Initially, dont include "cocosdc.h"; use emudsk instead.
 #include "emudsk.h"
 #include "pico-io.h"
+#include "cocopias.h"
 #include "samvdg.h"
 #include "turbo9sim.h"
 #include "ssd1306.h"
@@ -627,9 +638,14 @@ struct EngineBase {
     return true;
   }
 
+  // Preroll ignores post-reset cycles until it sees a read from FFFE.
   static void PreRoll() {
     const PIO pio = pio0;
     constexpr uint sm = 0;
+
+    IOReader r = IOReaders[255&0xFFFE];
+    // const byte x = T::Peek(0xFFFE);
+    const byte hi = r(0xFFFE, 0xFF);
 
     while (1) {
       constexpr uint GO_AHEAD = 0x12345678;
@@ -642,20 +658,19 @@ struct EngineBase {
       const uint addr = HL_JOIN(ahi, alo);
 
       const bool reading = (flags & F_READ);
-      const byte x = T::Peek(0xFFFE);
 
-      printf(":Preroll: got %08x addr %x flags %x reading %x x %x\n", got32,
-             addr, flags, reading, x);
+      printf("Preroll: got=%08x addr=%x flags=%x reading=%x hi=%x\n", got32,
+             addr, flags, reading, hi);
 
       if (reading) {
-        PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, x,
+        PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, hi,
                       0xFF /*=outputs*/));
       } else {
         {}  // do nothing.
       }  // end if reading
 
       if (addr == 0xFFFE) {
-        printf(":Preroll: exit\n");
+        printf("Preroll: done\n");
         return;
       }
     }
@@ -686,15 +701,18 @@ struct EngineBase {
   }  // HandleIOWrite
 
   static void HandleIORead(uint addr) {
+#if 0
     data = T::Peek(addr);  // default behavior
+#else
+    data = 0xFF;
+#endif
 
     byte dev = addr & 0xFF;
-    // IOReader reader = IOReaders[dev];
     IOReader r = IOReaders[dev];
     if (r) {
       // New style, pluggable, not all is converted yet:
       ///// data = (*reader)(addr, data);
-      data = (r)(addr, data);
+      data = r(addr, data);
     } else
       switch (dev) {
         case 0x92:  // GIME IRQEN register
@@ -840,11 +858,15 @@ struct EngineBase {
     PreRoll();
 
     MUMBLE("FFFF");
-    const byte value_FFFF = T::Peek(0xFFFF);
+    IOReader rff = IOReaders[0xFF];
+    assert(rff);
+
+    // const byte value_FFFF = T::Peek(0xFFFF);
+    const byte value_FFFF = rff(0xFFFF, 0xFF);
     printf("value_FFFF = %x\n", value_FFFF);
     const uint value_FFFF_shift_8_plus_FF = (value_FFFF << 8) + 0xFF;
 
-    MUMBLE("LOOP");
+    MUMBLE("LOOP:");
     ShowStr("\n========\n");
     printf("========\n");
 
@@ -856,9 +878,9 @@ struct EngineBase {
 
       irq_needed |= T::Turbo9sim_IrqNeeded();  // either Timer or RX
 
-      if (T::DoesSamvdg()) {
-        irq_needed |= (vsync_irq_enabled && vsync_irq_firing);
-        T::ShowIrqs('H');
+      if (T::Does_CocoPias()) {
+        irq_needed |= (T::VsyncIrqEnabled() && T::VsyncIrqFiring());
+        T::ShowIrqs('V');
       }
 
       if (T::DoesAcia()) {
@@ -882,11 +904,35 @@ struct EngineBase {
 
       PollUsbInput();
 
-      if (T::Turbo9sim_CanRx()) {
-        if (term_input.HasAtLeast(1)) {
-          byte ch = term_input.Take();
-          T::Turbo9sim_SetRx(ch);
+      if (T::Does_CocoKeyboard()) {
+
+        static int outer_counter;
+        outer_counter++;
+        if (outer_counter >= 50) { // really 59
+            outer_counter = 0;
+
+            T::TriggerVSync();
+            T::Keyboard_Tick(0);
+
+            if (T::Keyboard_CanRx()) {
+                if (term_input.HasAtLeast(1)) {
+                  if (term_input.HasAtLeast(1)) {
+                  byte ch = term_input.Take();
+                  T::Keyboard_SetRx(ch);
+                }
+              }
+            }
         }
+
+      }
+
+      if (T::Does_Turbo9sim()) {
+          if (T::Turbo9sim_CanRx()) {
+            if (term_input.HasAtLeast(1)) {
+              byte ch = term_input.Take();
+              T::Turbo9sim_SetRx(ch);
+            }
+          }
       }
 
       if (T::DoesAcia()) {
@@ -919,16 +965,18 @@ struct EngineBase {
 
         T::Turbo9sim_SetTimerFired();
 
-        if (T::DoesSamvdg()) {
+        if (T::Does_CocoPias()) {
+#if 0
           T::Poke(0xFF03,
                   T::Peek(0xFF03) |
                       0x80);  // Set the bit indicating VSYNC occurred.
-          if (vsync_irq_enabled) {
-            vsync_irq_firing = true;
-          }
-          if (gime_irq_enabled && gime_vsync_irq_enabled) {
-            gime_vsync_irq_firing = true;
-          }
+#endif
+          T::TriggerVSync();
+        }
+        if (T::DoesGime()) {
+            if (gime_irq_enabled && gime_vsync_irq_enabled) {
+                gime_vsync_irq_firing = true;
+            }
         }
       }  // end if TimerFired
 
@@ -1154,7 +1202,7 @@ struct EngineBase {
         }
       }
 
-    }  // while true
+    }  // while true // outer loops
 
   exit:
     ShowStr("\n<<< exit: TFR9 STOPPING >>>\n");
@@ -1193,17 +1241,18 @@ struct Fast_Mixins : DontPcRange<T>,
 template <typename T>
 struct Common_Mixins : EngineBase<T>, CommonRam<T>, DoPicoIO<T>,
                    DoSsd1306<T> {
-  static void CommonInstall() {
-    ShowChar('c');
+  static void CommonInstall(uint picoio_base = 0xFF00) {
+    MUMBLE(" COM: ");
     ShowChar('i');
-    T::PicoIO_Install(0xFF00);
+    T::PicoIO_Install(picoio_base);
     ShowChar('p');
-#if 1
-ShowStr(" <P> ");
+#if 0
+MUMBLE(" <P> ");
     T::Ssd1306_Init(0xFF00);
-ShowStr(" <Q> ");
+MUMBLE(" <Q> ");
     ShowChar('z');
 #endif
+    MUMBLE(" BILBO ");
   }
 };
 
@@ -1211,9 +1260,11 @@ template <typename T>
 struct T9_Mixins : Common_Mixins<T>,
                    SmallRam<T>,
                    DontBenchmarkCycles<T>,
+                   DontCocoKeyboard<T>,
+                   DontCocoSamVdg<T>,
                    DontAcia<T>,
                    DontGime<T>,
-                   DontSamvdg<T>,
+                   DontCocoPias<T>,
                    DoTurbo9sim<T>,
                    DoTurbo9os<T> {
   static void Install() {
@@ -1234,9 +1285,11 @@ struct T9_Fast : T9_Mixins<T9_Fast>, Fast_Mixins<T9_Fast> {};
 template <typename T>
 struct X9_Mixins : Common_Mixins<T>,
                    DontBenchmarkCycles<T>,
+                   DontCocoKeyboard<T>,
+                   DontCocoSamVdg<T>,
                    DontAcia<T>,
                    DontGime<T>,
-                   DontSamvdg<T>,
+                   DontCocoPias<T>,
                    DoTurbo9sim<T> {
   static void Install() {
     // Without OS.  Must use PreLoadPacket() or some other way of loading a
@@ -1257,14 +1310,49 @@ struct X1_Fast : SmallRam<X1_Fast>, X9_Mixins<X1_Fast>, Fast_Mixins<X1_Fast> {};
 struct X2_Slow : BigRam<X2_Slow>, X9_Mixins<X2_Slow>, Slow_Mixins<X2_Slow> {};
 struct X2_Fast : BigRam<X2_Fast>, X9_Mixins<X2_Fast>, Fast_Mixins<X2_Fast> {};
 
+// C2 == a real Coco2
+template <typename T>
+struct C2_Mixins : Common_Mixins<T>,
+                   DontBenchmarkCycles<T>,
+                   DoCocoKeyboard<T>,
+                   DoCocoSamVdg<T>,
+                   DontAcia<T>,
+                   DontGime<T>,
+                   DoCocoPias<T>,
+                   DontTurbo9sim<T> {
+  static void Install() {
+    // Without OS.  Must use PreLoadPacket() or some other way of loading a
+    // program.
+    MUMBLE("C2::Install ");
+    T::CommonInstall(0xFF30);  // pico-io base.
+    MUMBLE(".COM ");
+    T::CocoPias_Install(printf);
+    MUMBLE(".PIAS ");
+    SamBits |= 0x8000u;  // allow RAM for poking vectors
+    for (uint i = 0; i < 8; i++) {
+        // T::Poke2(0xFFF0 + 2*i, Coco2Vectors[i]);
+        InstallVector(i, Coco2Vectors[i]);
+    }
+    // T::Poke2(0xFFFE, 0xA027);
+    InstallVector(7, 0xA027);
+    MUMBLE(".VEC ");
+    T::DumpRam();
+    SamBits &= ~0x8000u;  // back to ROM
+  }
+};
+struct C2_Slow : SmallRam<C2_Slow>, C2_Mixins<C2_Slow>, Slow_Mixins<C2_Slow> {};
+struct C2_Fast : SmallRam<C2_Fast>, C2_Mixins<C2_Fast>, Fast_Mixins<C2_Fast> {};
+
 template <typename T>
 struct L1_Mixins : Common_Mixins<T>,
                    SmallRam<T>,
                    DontBenchmarkCycles<T>,
+                   DontCocoKeyboard<T>,
+                   DontCocoSamVdg<T>,
                    DoAcia<T>,
                    DoEmudsk<T>,
                    DontGime<T>,
-                   DoSamvdg<T>,
+                   DoCocoPias<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level1<T> {
   static void Install() {
@@ -1272,7 +1360,7 @@ struct L1_Mixins : Common_Mixins<T>,
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
-    T::Samvdg_Install();
+    T::CocoPias_Install(printf);
     ShowChar('C');
     T::Emudsk_Install(OS9_EMUDSK_PORT);
     ShowChar('D');
@@ -1290,10 +1378,12 @@ template <typename T>
 struct L2_Mixins : Common_Mixins<T>,
                    BigRam<T>,
                    DontBenchmarkCycles<T>,
+                   DontCocoKeyboard<T>,
+                   DontCocoSamVdg<T>,
                    DoAcia<T>,
                    DoEmudsk<T>,
                    DoGime<T>,
-                   DoSamvdg<T>,
+                   DoCocoPias<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level2<T> {
   static void Install() {
@@ -1301,7 +1391,7 @@ struct L2_Mixins : Common_Mixins<T>,
     ShowChar('A');
     T::Install_OS();
     ShowChar('B');
-    T::Samvdg_Install();
+    T::CocoPias_Install(printf);
     ShowChar('C');
     T::Emudsk_Install(OS9_EMUDSK_PORT);
     ShowChar('D');
@@ -1327,13 +1417,13 @@ struct harness {
     engines[1] = L1_Slow::Run;
     engines[2] = L2_Slow::Run;
     engines[3] = X1_Slow::Run;
-    engines[4] = X2_Slow::Run;
+    engines[4] = C2_Slow::Run;
 
     fast_engines[0] = T9_Fast::Run;
     fast_engines[1] = L1_Fast::Run;
     fast_engines[2] = L2_Fast::Run;
     fast_engines[3] = X1_Fast::Run;
-    fast_engines[4] = X2_Fast::Run;
+    fast_engines[4] = C2_Fast::Run;
   }
 };
 

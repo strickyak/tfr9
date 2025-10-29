@@ -16,7 +16,7 @@ uint const Coco2Vectors[] = {
     0x010c,
     0x0106,
     0x0109,
-    LEVEL1_LAUNCHER_START,  //  RESET
+    0xa027,  // RESET
 };
 
 template <typename T>
@@ -31,9 +31,12 @@ struct DoNitros9level1 {
     }
     ShowChar('r');
     // Fix Vectors
-    for (uint i = 0; i < 8; i++) {
-      T::Poke2(0xFFF0 + 2 * i, Coco2Vectors[i]);
+    for (uint i = 0; i < 7; i++) {
+      InstallVector(i, Coco2Vectors[i]);
+      ShowChar('0' + i);
     }
+    InstallVector(7, LEVEL1_LAUNCHER_START);
+    ShowChar('0' + 7);
     ShowChar('s');
   }
 };

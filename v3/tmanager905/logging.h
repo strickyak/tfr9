@@ -34,6 +34,8 @@ enum log_level : uint {
   LDetail = 9,   // Even verboser debugging
 };
 
+typedef void (*LOGGER)(const char* fmt, ...);
+
 uint Verbosity = 9;
 char Buffer[300];
 

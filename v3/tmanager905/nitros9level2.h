@@ -26,7 +26,8 @@ struct DoNitros9level2 {
     ShowChar('r');
     // Fix Vectors
     for (uint i = 0; i < 8; i++) {
-      T::Poke2(0xFFF0 + 2 * i, Coco3Vectors[i]);
+      // T::Poke2(0xFFF0 + 2 * i, Coco3Vectors[i]);
+      InstallVector(i, Coco3Vectors[i]);
     }
     ShowChar('s');
   }

@@ -4,9 +4,8 @@
 // These vectors get copied to 0xFFF0.
 // They do not include the final RESET vector at 0xFFFE;
 // that will be computed.
-const byte Turbo9os_Vectors[] = {
-    0x00, 0x00, 0x01, 0x00, 0x01, 0x03, 0x01,
-    0x0F, 0x01, 0x0C, 0x01, 0x06, 0x01, 0x09,
+const uint Turbo9os_Vectors[] = {
+    0x0000, 0x0100, 0x0103, 0x010F, 0x010C, 0x0106, 0x0109,
 };
 
 const byte Turbo9os_Rom[] = {
@@ -17,8 +16,9 @@ template <typename T>
 struct DoTurbo9os {
   static void Install_OS() {
     // Copy Vectors.
-    for (uint i = 0; i < sizeof Turbo9os_Vectors; i++) {
-      T::Poke(0xFFF0 + i, Turbo9os_Vectors[i]);
+    for (uint i = 0; i < 7; i++) {
+      // T::Poke(0xFFF0 + i, Turbo9os_Vectors[i]);
+      InstallVector(i, Turbo9os_Vectors[i]);
     }
     // Copy ROM to RAM, ending just before 0xFF00.
     constexpr uint n = sizeof Turbo9os_Rom;
@@ -35,8 +35,9 @@ struct DoTurbo9os {
     assert(0 == memcmp(Turbo9os_Rom + name, expect, 6));
 
     uint entry = T::Peek2(begin + 9);  // OS9 module entry offset is 9
-    T::Poke2(0xFFFE,
-             begin + entry);  // Set RESET vector at 0xFFFE to the entry.
+    //T::Poke2(0xFFFE,
+             //begin + entry);  // Set RESET vector at 0xFFFE to the entry.
+    InstallVector(7, begin + entry);
 
     T::DumpRam();
   }
