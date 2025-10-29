@@ -806,6 +806,8 @@ func Run(inkey chan byte, person Personality) {
 
 	go RunSelect(inkey, fromUSB, channelToPico, channelFromPico, person)
 
+    go TextDaemon()
+
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.
 	// Panics if it cannot read the serialPort.
