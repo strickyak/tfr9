@@ -10,12 +10,7 @@ const byte Nitros9level1_Rom[] = {
 uint const Coco2Vectors[] = {
     // From ~/coco-shelf/toolshed/cocoroms/bas13.rom :
     0,  //  6309 TRAP
-    0x0100,
-    0x0103,
-    0x010f,
-    0x010c,
-    0x0106,
-    0x0109,
+    0x0100, 0x0103, 0x010f, 0x010c, 0x0106, 0x0109,
     0xa027,  // RESET
 };
 

@@ -171,12 +171,12 @@ IOWriter IOWriters[256];
 void PollUsbInput();
 
 void InstallVector(uint i, uint addr) {
-    IOReaders[255&(0xFFF0 + 2*i + 0)] = [addr](uint _a, byte _d) {
-            return (byte)(addr >> 8);
-    };
-    IOReaders[255&(0xFFF0 + 2*i + 1)] = [addr](uint _a, byte _d) {
-            return (byte)(addr >> 0);
-    };
+  IOReaders[255 & (0xFFF0 + 2 * i + 0)] = [addr](uint _a, byte _d) {
+    return (byte)(addr >> 8);
+  };
+  IOReaders[255 & (0xFFF0 + 2 * i + 1)] = [addr](uint _a, byte _d) {
+    return (byte)(addr >> 0);
+  };
 }
 
 #include "acia.h"
@@ -270,12 +270,12 @@ const char* HighFlags(uint high) {
 
 // I/O devices
 // Initially, dont include "cocosdc.h"; use emudsk instead.
+#include "cocopias.h"
 #include "emudsk.h"
 #include "pico-io.h"
-#include "cocopias.h"
 #include "samvdg.h"
-#include "turbo9sim.h"
 #include "ssd1306.h"
+#include "turbo9sim.h"
 
 // Operating Systems
 #include "nitros9level1.h"
@@ -643,7 +643,7 @@ struct EngineBase {
     const PIO pio = pio0;
     constexpr uint sm = 0;
 
-    IOReader r = IOReaders[255&0xFFFE];
+    IOReader r = IOReaders[255 & 0xFFFE];
     // const byte x = T::Peek(0xFFFE);
     const byte hi = r(0xFFFE, 0xFF);
 
@@ -905,34 +905,32 @@ struct EngineBase {
       PollUsbInput();
 
       if (T::Does_CocoKeyboard()) {
-
         static int outer_counter;
         outer_counter++;
-        if (outer_counter >= 50) { // really 59
-            outer_counter = 0;
+        if (outer_counter >= 50) {  // really 59
+          outer_counter = 0;
 
-            T::TriggerVSync();
-            T::Keyboard_Tick(0);
+          T::TriggerVSync();
+          T::Keyboard_Tick(0);
 
-            if (T::Keyboard_CanRx()) {
-                if (term_input.HasAtLeast(1)) {
-                  if (term_input.HasAtLeast(1)) {
-                  byte ch = term_input.Take();
-                  T::Keyboard_SetRx(ch);
-                }
+          if (T::Keyboard_CanRx()) {
+            if (term_input.HasAtLeast(1)) {
+              if (term_input.HasAtLeast(1)) {
+                byte ch = term_input.Take();
+                T::Keyboard_SetRx(ch);
               }
             }
+          }
         }
-
       }
 
       if (T::Does_Turbo9sim()) {
-          if (T::Turbo9sim_CanRx()) {
-            if (term_input.HasAtLeast(1)) {
-              byte ch = term_input.Take();
-              T::Turbo9sim_SetRx(ch);
-            }
+        if (T::Turbo9sim_CanRx()) {
+          if (term_input.HasAtLeast(1)) {
+            byte ch = term_input.Take();
+            T::Turbo9sim_SetRx(ch);
           }
+        }
       }
 
       if (T::DoesAcia()) {
@@ -974,9 +972,9 @@ struct EngineBase {
           T::TriggerVSync();
         }
         if (T::DoesGime()) {
-            if (gime_irq_enabled && gime_vsync_irq_enabled) {
-                gime_vsync_irq_firing = true;
-            }
+          if (gime_irq_enabled && gime_vsync_irq_enabled) {
+            gime_vsync_irq_firing = true;
+          }
         }
       }  // end if TimerFired
 
@@ -1239,8 +1237,7 @@ struct Fast_Mixins : DontPcRange<T>,
                      DoPicoTimer<T> {};
 
 template <typename T>
-struct Common_Mixins : EngineBase<T>, CommonRam<T>, DoPicoIO<T>,
-                   DoSsd1306<T> {
+struct Common_Mixins : EngineBase<T>, CommonRam<T>, DoPicoIO<T>, DoSsd1306<T> {
   static void CommonInstall(uint picoio_base = 0xFF00) {
     MUMBLE(" COM: ");
     ShowChar('i');
@@ -1330,8 +1327,8 @@ struct C2_Mixins : Common_Mixins<T>,
     MUMBLE(".PIAS ");
     SamBits |= 0x8000u;  // allow RAM for poking vectors
     for (uint i = 0; i < 8; i++) {
-        // T::Poke2(0xFFF0 + 2*i, Coco2Vectors[i]);
-        InstallVector(i, Coco2Vectors[i]);
+      // T::Poke2(0xFFF0 + 2*i, Coco2Vectors[i]);
+      InstallVector(i, Coco2Vectors[i]);
     }
     // T::Poke2(0xFFFE, 0xA027);
     InstallVector(7, 0xA027);

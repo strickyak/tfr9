@@ -83,22 +83,22 @@ class SmallRam {
   static void ResetRam() { memset(ram, 0, sizeof ram); }
   static byte Read(uint addr) {
     if (T::Sam_Swap32kRams()) {
-        printf("SWAP_READ %x %x\n", addr, ram[0x8000 ^ addr]);
+      printf("SWAP_READ %x %x\n", addr, ram[0x8000 ^ addr]);
       return ram[0x8000 ^ addr];
     } else {
-        // printf("REGULAR_READ %x %x\n", addr, ram[addr]);
+      // printf("REGULAR_READ %x %x\n", addr, ram[addr]);
       return ram[addr];
     }
   }
   static void Write(uint addr, byte data, byte block = 0) {
     if (T::Sam_Upper32kIsRom() and (addr & 0x8000)) {
-        printf("ROM_WRITE_BLOCKED %x %x\n", addr, data);
-        return;
+      printf("ROM_WRITE_BLOCKED %x %x\n", addr, data);
+      return;
     }
     if (T::Sam_Swap32kRams()) {
-        ram[0x8000 ^ addr] = data;
+      ram[0x8000 ^ addr] = data;
     } else {
-        ram[addr] = data;
+      ram[addr] = data;
     }
 
     T::TraceTheRamWrite(addr, 0, data);

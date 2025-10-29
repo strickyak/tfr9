@@ -35,8 +35,8 @@ struct DoTurbo9os {
     assert(0 == memcmp(Turbo9os_Rom + name, expect, 6));
 
     uint entry = T::Peek2(begin + 9);  // OS9 module entry offset is 9
-    //T::Poke2(0xFFFE,
-             //begin + entry);  // Set RESET vector at 0xFFFE to the entry.
+    // T::Poke2(0xFFFE,
+    // begin + entry);  // Set RESET vector at 0xFFFE to the entry.
     InstallVector(7, begin + entry);
 
     T::DumpRam();
