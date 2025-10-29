@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 )
 
 type Coco1Ram struct {
@@ -31,6 +32,7 @@ type Rammer interface {
 	RamMask() uint
 	IoPhys() uint
 	Poke1(addr uint, data byte)
+	Dump()
 }
 
 func (o *Coco1Ram) Physical(addr uint) uint { return addr }
@@ -135,3 +137,26 @@ func (o *Coco1Ram) Who() string {
 }
 
 func (o *Coco1Ram) CurrentMapString() string { return "" }
+
+func (o *Coco1Ram) Dump() {
+	var bb bytes.Buffer
+	fmt.Fprintf(os.Stderr, "\n\n((( Coco1Ram__Dump\n")
+	for i := 0; i < 0x10000; i += 16 {
+		count := 0
+		for j := 0; i < 16; j++ {
+			if o.trackRam[i+j] != 0 {
+				count++
+			}
+		}
+		if count == 0 {
+			continue
+		}
+		fmt.Fprintf(&bb, "%04x:", i)
+		for j := 0; i < 16; j++ {
+			fmt.Fprintf(&bb, " %02x", o.trackRam[i+j])
+		}
+		fmt.Fprintf(&bb, "\n")
+		os.Stderr.Write(bb.Bytes())
+	}
+	fmt.Fprintf(os.Stderr, "))) Coco1Ram__Dump\n\n")
+}

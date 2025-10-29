@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 )
 
 type Coco3Ram struct {
@@ -290,4 +291,27 @@ func (o *Coco3Ram) Physical(logical uint) uint {
 
 		return (uint(block) << 13) | low13
 	*/
+}
+
+func (o *Coco3Ram) Dump() {
+	var bb bytes.Buffer
+	fmt.Fprintf(os.Stderr, "\n\n((( Coco3Ram__Dump\n")
+	for i := 0; i < COCO3_RAM_SIZE; i += 16 {
+		count := 0
+		for j := 0; i < 16; j++ {
+			if o.trackRam[i+j] != 0 {
+				count++
+			}
+		}
+		if count == 0 {
+			continue
+		}
+		fmt.Fprintf(&bb, "%06x:", i)
+		for j := 0; i < 16; j++ {
+			fmt.Fprintf(&bb, " %02x", o.trackRam[i+j])
+		}
+		fmt.Fprintf(&bb, "\n")
+		os.Stderr.Write(bb.Bytes())
+	}
+	fmt.Fprintf(os.Stderr, "))) Coco3Ram__Dump\n\n")
 }
