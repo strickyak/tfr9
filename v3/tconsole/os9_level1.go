@@ -93,6 +93,10 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 var InitialMemoryModules []*ScannedModuleInfo
 
 func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
+	if *NO_MODULES {
+		return "", addr
+	}
+
 	beginDir, endDir := the_ram.PPeek2(L1_D_ModDir), the_ram.PPeek2(L1_D_ModDir+2)
 
 	if beginDir != 0 && endDir != 0 {
