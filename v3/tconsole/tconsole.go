@@ -27,9 +27,11 @@ var USB_VERBOSE = flag.Bool("usb_verbose", false, "enable verbose debugging outp
 var RAM_VERBOSE = flag.Bool("ram_verbose", false, "enable verbose debugging output of ram being written (if the pico is telling us)")
 var LINKMAP = flag.String("linkmap", "", ".map file from linker")
 var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
+var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
 
 var the_ram Rammer
 var LinkMap []*Section
+var AbsLists []*ModSrc
 var LinkLists []*ModSrc
 var LinkSrc *ModSrc
 
@@ -277,7 +279,22 @@ func main() {
 		Panicf("STOPPING ON SIGNAL %q", sig)
 	}()
 
-	if *LINKMAP != "" {
+	if *ABSLISTS != "" {
+		for _, filename := range strings.Split(*ABSLISTS, ",") {
+			if filename == "" {
+				continue
+			}
+			lf := LoadFile(filename)
+			AbsLists = append(AbsLists, lf)
+			log.Printf("LOADED ABS LIST_FILENAME %q (%d)", filename, len(lf.Src))
+
+			for k, v := range lf.Src {
+				log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
+			}
+		}
+	}
+
+	if true || *LINKMAP != "" {
 		LinkMap = ReadMap(*LINKMAP)
 
 		for _, filename := range strings.Split(*LINKLISTS, ",") {
@@ -289,10 +306,10 @@ func main() {
 			log.Printf("LOADED LIST_FILENAME %q (%d)", filename, len(lf.Src))
 
 			for k, v := range lf.Src {
-				log.Printf("ITEM_LOADED %v :: %q :: %q", k, v, filename)
+				log.Printf("ITEM_LOADED %04x :: %q :: %q", k, v, filename)
 			}
 		}
-		LinkSrc = ComputeLinkSrc(LinkMap, LinkLists)
+		LinkSrc = ComputeLinkSrc(LinkMap, LinkLists, AbsLists)
 		log.Printf("ComputeLinkSrc %q returns %d items", len(LinkSrc.Src))
 
 		{
@@ -357,6 +374,10 @@ func Shutdown(r any) {
 	}
 
 	SttyCbreakMode(false)
+
+	if the_ram != nil {
+		the_ram.Dump()
+	}
 
 	fmt.Printf("*** SHUTDOWN\n")
 	fmt.Fprintf(os.Stderr, "*** SHUTDOWN\n")
@@ -463,19 +484,19 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						Logf("cy - ---- -- %s#%d", LookupCpuFlags[_fl], _cy)
 					} else {
 						s = Format("cy %s %04x %02x %s#%d", CycleKindStr[_kind], _addr, _data, LookupCpuFlags[_fl], _cy)
-						g := ""
 
 						if person.HasMMap() {
 							phys := the_ram.Physical(uint(_addr))
 							if _kind == CY_SEEN_OP || _kind == CY_UNSEEN_OP {
 								if GLOSS {
-									g = GlossFirstCycle(_addr, _data)
+									GlossFirstCycle(_addr, _data) // has side-effect to start the glossing for the cycle
 								}
 								// The first cycle of an instruction
 								modName, modOffset := person.MemoryModuleOf(phys)
 								mmap := person.CurrentHardwareMMap()
 								Logf("%s %s%%%06x :%q+%04x %s", s, mmap, phys, modName, modOffset, AsmSourceLine(modName, modOffset))
 							} else {
+								g := ""
 								if GLOSS {
 									g = GlossLaterCycle(_addr, _data)
 								}
@@ -485,12 +506,13 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						} else {
 							if _kind == CY_SEEN_OP || _kind == CY_UNSEEN_OP {
 								if GLOSS {
-									g = GlossFirstCycle(_addr, _data)
+									GlossFirstCycle(_addr, _data) // has side-effect to start the glossing for the cycle
 								}
 								// The first cycle of an instruction
 								modName, modOffset := person.MemoryModuleOf(_addr)
 								Logf("%s :%q+%04x %s", s, modName, modOffset, AsmSourceLine(modName, modOffset))
 							} else {
+								g := ""
 								if GLOSS {
 									g = GlossLaterCycle(_addr, _data)
 								}
