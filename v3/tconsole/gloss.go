@@ -12,7 +12,30 @@ func GlossFirstCycle(_ uint, d byte) string {
 var ComputedGloss []string
 var IndexedExtra uint
 
-func GlossLaterCycle(_ uint, d byte) string {
+func GlossLaterCycle(a uint, d byte) string {
+	s := GlossLaterCycle2(a, d)
+	if s == " (A)" || s == " (B)" {
+		// ASCII
+		if ' ' <= d && d <= '~' {
+			s += Format(" `%c`", d)
+		} else {
+			s += Format(" % 3d", d)
+		}
+		// VGA TEXT
+		if d < 128 {
+			d2 := 63 & d
+			if d2 < 32 {
+				d2 += 64
+			}
+			s += Format(" [%c]", d2)
+			if d < 64 {
+				s += "#" // invert
+			}
+		}
+	}
+	return s
+}
+func GlossLaterCycle2(a uint, d byte) string {
 	cycle++
 	switch gloss {
 	case 0x10: // prefix $10
