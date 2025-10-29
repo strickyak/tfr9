@@ -181,7 +181,7 @@ func parseHex(s string) uint {
 
 var ParseSectionAnnotation = regexp.MustCompile("^(.*){;(.*);(.*);}$")
 
-func ComputeLinkSrc(sectList []*Section, ll []*ModSrc) *ModSrc {
+func ComputeLinkSrc(sectList []*Section, ll []*ModSrc, abs []*ModSrc) *ModSrc {
 	sectmap := make(map[string]*Section)
 	for _, sect := range sectList {
 		base := strings.TrimSuffix(sect.Filename, ".list")
@@ -228,6 +228,11 @@ func ComputeLinkSrc(sectList []*Section, ll []*ModSrc) *ModSrc {
 			} else {
 				log.Printf("NO MATCH: %q", s)
 			}
+		}
+	}
+	for _, a := range abs {
+		for k, v := range a.Src {
+			z.Src[k] = v
 		}
 	}
 	return z
