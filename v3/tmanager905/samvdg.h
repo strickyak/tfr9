@@ -27,7 +27,9 @@ struct DoCocoSamVdg {
   static bool Sam_Upper32kIsRom() { return 0 == (0x8000 & SamBits); }
   static bool Sam_Swap32kRams() { return 0 != ((1U << 10) & SamBits); }
 
-  static bool Sam_DoesTextScreen() { return 0 == (Pia1.outB & 0x80); }  // Pia1.PB7 is the A/G bit to VDG.
+  static bool Sam_DoesTextScreen() {
+    return 0 == (Pia1.outB & 0x80);
+  }  // Pia1.PB7 is the A/G bit to VDG.
   static uint Sam_ModeV() { return 7 & SamBits; }
   static uint Sam_ModeF() { return 127 & (SamBits >> 3); }
   static uint Sam_ModeP() { return 1 & (SamBits >> 10); }

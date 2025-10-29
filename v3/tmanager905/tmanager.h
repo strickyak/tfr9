@@ -1432,14 +1432,14 @@ void PreLoadPacket() {
   uint lo = usb_input.Take();
   uint addr = (hi << 8) | lo;
   uint n = sz - 2;  // n is number of following bytes to be poked.
-  putchar('(');
+  putchar('L');
   for (uint i = 0; i < n; i++) {
     ram[addr] = ram[addr + 0x10000] =
         usb_input.Take();  // set upper and lower bank.
     addr++;
-    if ((i & 7) == 0) putchar('.');
+    // if ((i & 7) == 0) putchar('.');
   }
-  putchar(')');
+  // putchar(')');
 }
 
 void Shell() {

@@ -19,7 +19,6 @@ import (
 )
 
 var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
-var LOAD = flag.String("load", "", "Decb file to pre-load into 6309 RAM")
 var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
 var DISKS = flag.String("disks", "", "Comma-separated filepaths to disk files, in order of drive number")
@@ -407,6 +406,8 @@ func MintSerialNum() uint {
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 
+	loadArgs := flag.Args()
+
 	var previousPutChar byte
 	var remember int64
 	var timer_sum int64
@@ -708,9 +709,9 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						timer_count++
 						fmt.Printf("%d :  %.6f]", timer_count, float64(timer_sum)/1000000.0/float64(timer_count))
 					}
-					if *LOAD != "" && LookForPreSync(ch) {
-						PreUpload(*LOAD, channelToPico)
-						LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
+					if loadArgs != nil && LookForPreSync(ch) {
+						PreUploadArgs(loadArgs, channelToPico)
+						loadArgs = nil // now LOAD is empty, so we don't load again.
 					}
 
 				case ch == 7 || ch == 8: // BEL, BS
@@ -806,7 +807,7 @@ func Run(inkey chan byte, person Personality) {
 
 	go RunSelect(inkey, fromUSB, channelToPico, channelFromPico, person)
 
-    go TextDaemon()
+	go TextDaemon()
 
 	// Infinite loop to read bytes from the serialPort
 	// and copy them to the channelFromPico.

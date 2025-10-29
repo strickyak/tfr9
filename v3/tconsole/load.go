@@ -10,41 +10,35 @@ import (
 	"strings"
 )
 
-func PreUpload(commaList string, channelToPico chan []byte) {
-	words := strings.Split(commaList, ",")
-	for _, w := range words {
-		Logf("Upload Word: %q", w)
-		if strings.HasPrefix(w, "decb:") {
-
-			w = strings.TrimPrefix(w, "decb:")
-			PreUploadDecb(w, channelToPico)
-
-		} else if strings.HasPrefix(w, "srec:") {
-
-			w = strings.TrimPrefix(w, "srec:")
-			PreUploadSrec(w, channelToPico)
-
-		} else if strings.HasPrefix(w, "rom:") {
-
-			w := strings.TrimPrefix(w, "rom:")
-			ht := strings.Split(w, ":")
-			if len(ht) != 2 {
-				Panicf("Expected rom:address:filename in %q", w)
-			}
-			h, t := ht[0], ht[1]
-			addr := SmartAtoi(h, 16)
-			PreUploadRom(t, channelToPico, addr)
-		} else if strings.HasSuffix(w, ".decb") {
-			PreUpload("decb:"+w, channelToPico)
-		} else if strings.HasSuffix(w, ".srec") {
-			PreUpload("srec:"+w, channelToPico)
-		} else if strings.HasSuffix(w, ".rom") {
-			PreUpload("rom:"+w, channelToPico)
-		} else {
-			Panicf("Missing prefix before filename: %q (expected 'decb:' or 'rom:' or 'srec:')", w)
-		}
+func PreUploadArgs(args []string, channelToPico chan []byte) {
+	for _, a := range args {
+		PreUpload(a, channelToPico)
 	}
-	Logf("PreUpload: end")
+	Logf("PreUploadArgs: done.")
+}
+
+func PreUpload(filename string, channelToPico chan []byte) {
+	Logf("PreUpload: %q", filename)
+	if strings.HasSuffix(filename, ".decb") {
+
+		PreUploadDecb(filename, channelToPico)
+
+	} else if strings.HasSuffix(filename, ".srec") {
+
+		PreUploadSrec(filename, channelToPico)
+
+	} else if strings.HasSuffix(filename, ".rom") {
+
+		parts := strings.Split(filename, ".")
+		lp := len(parts)
+		if lp < 3 {
+			Panicf("Expected basename.address.rom in %q", filename)
+		}
+		addr := SmartAtoi(parts[lp-2], 16)
+		PreUploadRom(filename, channelToPico, addr)
+	} else {
+		Panicf("Missing suffix on filename: %q (expected '.decb' or '.srec' or '.rom')", filename)
+	}
 }
 
 func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
@@ -139,7 +133,6 @@ LOOP:
 		}
 	}
 	Logf("PreUploadDecb: end while")
-	LOAD = new(string) // now LOAD points to an empty string, so we don't load again.
 }
 
 func PreUploadSrec(filename string, channelToPico chan []byte) {

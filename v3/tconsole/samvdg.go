@@ -31,7 +31,20 @@ func ScanTextContents() []byte {
 	z := make([]byte, 512)
 	ram := the_ram.GetTrackRam()
 	for i := uint(0); i < 512; i++ {
-		z[i] = ram[base+i]
+		ch := ram[base+i]
+		if 0 == (ch & 0x80) {
+			a := ch & 63
+			if a < 32 {
+				a += 64
+			}
+			z[i] = a
+		} else {
+			if 0 == (ch & 15) {
+				z[i] = '_'
+			} else {
+				z[i] = '#'
+			}
+		}
 	}
 	return z
 }
@@ -62,20 +75,7 @@ func TextTick() {
 		for y := 0; y < 512; y += 32 {
 			for x := 0; x < 32; x++ {
 				ch := txt[x+y]
-				if 0 == (ch & 0x80) {
-					a := ch & 63
-					if a < 32 {
-						a += 64
-					}
-					buf.WriteByte(a)
-				} else {
-					if 0 == (ch & 15) {
-						buf.WriteByte('_')
-					} else {
-						buf.WriteByte('#')
-					}
-				}
-
+				buf.WriteByte(ch)
 			}
 			buf.WriteByte('\n')
 		}
@@ -84,10 +84,12 @@ func TextTick() {
 	}
 }
 
+const TextScreenCheckIntervalMS = 100
+
 func TextDaemon() {
 	if *VDG_TEXT {
 		for {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(TextScreenCheckIntervalMS * time.Millisecond)
 			TextTick()
 		}
 	}
