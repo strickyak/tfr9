@@ -28,12 +28,16 @@ D2="generated/level2.dsk"
     make -j4 -C launchers
 
     B=build/tfr9/level1
-    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level1.t35 > generated/level1.rom.h
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level1.t35 > generated/level1.rom.h-
+    cmp generated/level1.rom.h- generated/level1.rom.h || cp -vf generated/level1.rom.h- generated/level1.rom.h
+    rm -f generated/level1.rom.h-
     B=build/tfr9/level2
-    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level2.t35 > generated/level2.rom.h
+    python3 binary-header-generator.py launchers/launch-2500-to-2602.raw $B/tfr9-level2.t35 > generated/level2.rom.h-
+    cmp generated/level2.rom.h- generated/level2.rom.h || cp -vf generated/level2.rom.h- generated/level2.rom.h
+    rm -f generated/level2.rom.h-
 
     mkdir -p /tmp/borges
-    go run borges-saver/borges-saver.go -outdir /tmp/borges/ n9recipe/ build/
+    go run borges-saver/borges-saver.go -outdir=/tmp/borges/  n9recipe/ build/
 )
 
 BUILD_DIR=build-all-905-pico1
