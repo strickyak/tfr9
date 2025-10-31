@@ -20,7 +20,7 @@ BUILD_DIR=build-all-905-pico2
 DISKS=generated/disk0,generated/level1.dsk,generated/level2.dsk,generated/disk3,generated/disk4,generated/disk5,generated/disk6,generated/disk7
 WHICH_PICO=pico2
 
-all: _primary_  _demos-metal-asm_ _borges_  _tconsoles_
+all: _primary_  _demos-metal-asm_ _borges_  _tconsoles_ _roms_
 	:
 	:
 	: tfr9/v3 OKAY.
@@ -105,6 +105,17 @@ generated/tconsole.mac-arm64.exe : $(TCONSOLE_SRC)
 	GOOS=darwin GOARCH=arm64      $(GO_BUILD_1) -o $@ $$PWD/tconsole
 generated/tconsole.mac-amd64.exe : $(TCONSOLE_SRC)
 	GOOS=darwin GOARCH=amd64      $(GO_BUILD_1) -o $@ $$PWD/tconsole
+
+R=../../toolshed/cocoroms/
+_roms_ :
+	cat $R/bas13.rom                           > generated/basic.0xa000.rom
+	cat $R/bas13.rom.list                      > generated/basic.0xa000.list
+	cat $R/extbas11.rom $R/bas13.rom           > generated/extbasic.0x8000.rom
+	cat $R/extbas11.rom.list $R/bas13.rom.list > generated/extbasic.0x8000.list
+	cat $R/extbas11.rom $R/bas13.rom $R/disk11.rom                > generated/diskbasic.0x8000.rom
+	cat $R/extbas11.rom.list $R/bas13.rom.list $R/disk11.rom.list > generated/diskbasic.0x8000.list
+	cat $R/coco3.rom                           > generated/coco3.0x8000.rom
+	cat $R/coco3.rom.list                      > generated/coco3.0x8000.list
 
 clean:
 	rm -rf build
