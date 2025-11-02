@@ -9,7 +9,8 @@ import (
 )
 
 const Os9SectorSize = 256
-const MaxDiskFiles = 16
+const MaxDiskFiles = 128
+const FloppyDeviceStart = 64
 
 type DiskFile struct {
 	OsFile *os.File
@@ -17,7 +18,7 @@ type DiskFile struct {
 
 var Files [MaxDiskFiles]DiskFile
 
-var NumberedHPattern = regexp.MustCompile(`^[Hh]([0-9]):(.*)$`)
+var NumberedHPattern = regexp.MustCompile(`^[HhFf]([0-9]):(.*)$`)
 
 func OpenDisks(disks string) {
 	for i, spec := range strings.Split(disks, ",") {
@@ -33,20 +34,24 @@ func OpenDisks(disks string) {
 				log.Panicf("Not a number %q in disks spec %q: %v", hp[1], disks, err)
 			}
 
+            if spec[0]=='f' || spec[0]=='F' {
+                j += FloppyDeviceStart
+            }
+
 			f, err := os.OpenFile(filename, os.O_RDWR, 0)
 			if err != nil {
-				log.Panicf("Cannot open [/H%d] file %q: %v", j, filename, err)
+				log.Panicf("Cannot open disk %d file %q: %v", j, filename, err)
 			}
 			Files[j].OsFile = f
-			log.Printf("Mounted /H%d on %q", j, filename)
+			log.Printf("Mounted disk %d on %q", j, filename)
 		} else {
 			filename := spec
 			f, err := os.OpenFile(filename, os.O_RDWR, 0)
 			if err != nil {
-				log.Panicf("Cannot open [%d] file %q: %v", i, filename, err)
+				log.Panicf("Cannot open disk %d file %q: %v", i, filename, err)
 			}
 			Files[i].OsFile = f
-			log.Printf("Mounted /H%d on %q", i, filename)
+			log.Printf("Mounted disk %d on %q", i, filename)
 		}
 	}
 }
