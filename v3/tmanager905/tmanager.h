@@ -158,7 +158,7 @@ void putsz(uint n) {
 
 template <typename T>
 struct DontShowIrqs {
-  force_inline static void ShowIrqs(char ch) { ShowChar(ch); }
+  force_inline static void ShowIrqs(char ch) { }
 };
 template <typename T>
 struct DoShowIrqs {
