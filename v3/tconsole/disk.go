@@ -34,9 +34,9 @@ func OpenDisks(disks string) {
 				log.Panicf("Not a number %q in disks spec %q: %v", hp[1], disks, err)
 			}
 
-            if spec[0]=='f' || spec[0]=='F' {
-                j += FloppyDeviceStart
-            }
+			if spec[0] == 'f' || spec[0] == 'F' {
+				j += FloppyDeviceStart
+			}
 
 			f, err := os.OpenFile(filename, os.O_RDWR, 0)
 			if err != nil {

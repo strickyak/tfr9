@@ -12,23 +12,23 @@ import (
 
 func PreUploadArgs(args []string, channelToPico chan []byte) {
 	for _, a := range args {
-		PreUpload(a, channelToPico)
+		if a != "" {
+			PreUpload(a, channelToPico)
+		}
 	}
 	Logf("PreUploadArgs: done.")
 }
 
 func PreUpload(filename string, channelToPico chan []byte) {
 	Logf("PreUpload: %q", filename)
-	if strings.HasSuffix(filename, ".decb") {
 
+	if strings.HasSuffix(filename, ".decb") {
 		PreUploadDecb(filename, channelToPico)
 
 	} else if strings.HasSuffix(filename, ".srec") {
-
 		PreUploadSrec(filename, channelToPico)
 
 	} else if strings.HasSuffix(filename, ".rom") {
-
 		parts := strings.Split(filename, ".")
 		lp := len(parts)
 		if lp < 3 {
@@ -36,6 +36,7 @@ func PreUpload(filename string, channelToPico chan []byte) {
 		}
 		addr := SmartAtoi(parts[lp-2], 16)
 		PreUploadRom(filename, channelToPico, addr)
+
 	} else {
 		Panicf("Missing suffix on filename: %q (expected '.decb' or '.srec' or '.rom')", filename)
 	}
