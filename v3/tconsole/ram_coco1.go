@@ -143,7 +143,7 @@ func (o *Coco1Ram) Dump() {
 	fmt.Fprintf(os.Stderr, "\n\n((( Coco1Ram__Dump\n")
 	for i := 0; i < 0x10000; i += 16 {
 		count := 0
-		for j := 0; i < 16; j++ {
+		for j := 0; j < 16; j++ {
 			if o.trackRam[i+j] != 0 {
 				count++
 			}
