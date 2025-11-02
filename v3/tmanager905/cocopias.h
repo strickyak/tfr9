@@ -14,9 +14,13 @@ enum CKS {
   CKS_Filled1,  // key pressed
   CKS_Filled2,
   CKS_Filled3,
+  CKS_Filled4,
+  CKS_Filled5,
   CKS_Wait1,  // key released
   CKS_Wait2,
   CKS_Wait3,
+  CKS_Wait4,
+  CKS_Wait5,
   CKS_Limit,  // Go back to Empty.
 } CocoKeyboardState;
 uint CocoKeyboardChar;
@@ -93,9 +97,9 @@ struct Pia {
   bool Cb1IrqFiring() const { return (controlB & 0x80); }
   bool Cb2IrqFiring() const { return (controlB & 0x40); }
 
-  bool Ca2IsIrqMode() const { return 0x04 == (controlA & 0x14); }
+  bool Ca2IsIrqMode() const { return 0x08 == (controlA & 0x28); }
 
-  bool Cb2IsIrqMode() const { return 0x04 == (controlB & 0x14); }
+  bool Cb2IsIrqMode() const { return 0x08 == (controlB & 0x28); }
 
   void TriggerCa1() { controlA |= 0x80; }
   void TriggerCa2() { controlA |= 0x40; }
@@ -116,6 +120,8 @@ struct Pia {
       if (a == 0xFF00) {
         if (CocoKeyboardChar) {
           inA = Keyboard_ComputeSense(outB, CocoKeyboardChar, logf);
+        } else {
+          inA = 0xFF;
         }
       }
 

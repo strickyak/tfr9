@@ -4,7 +4,7 @@
 constexpr uint kDiskReadSize =
     1 /*cmd*/ + 2 /*sz*/ + 4 /*drivenum, lsn3*/ + 256 /*sector*/;
 
-uint emu_disk_buffer;
+uint emu_disk_buffer_addr;
 
 template <typename T>
 struct DontEmudsk {
@@ -48,7 +48,7 @@ struct DoEmudsk {
 
       // TODO -- 3 byte sector!
       uint lsn = T::Peek2(EMUDSK_PORT + 1);
-      emu_disk_buffer = T::Peek2(EMUDSK_PORT + 4);
+      emu_disk_buffer_addr = T::Peek2(EMUDSK_PORT + 4);
 
       switch (command) {
         case 0:  // Disk Read
@@ -68,7 +68,7 @@ struct DoEmudsk {
                 (void)disk_input.Take();  // 4-byte device & LSN.
               }
               for (uint k = 0; k < 256; k++) {
-                T::Poke(emu_disk_buffer + k, disk_input.Take());
+                T::Poke(emu_disk_buffer_addr + k, disk_input.Take());
               }
               data = 0;  // Ready
               break;
@@ -84,7 +84,7 @@ struct DoEmudsk {
           putbyte(lsn >> 8);
           putbyte(lsn >> 0);
           for (uint k = 0; k < 256; k++) {
-            putbyte(T::Peek(emu_disk_buffer + k));
+            putbyte(T::Peek(emu_disk_buffer_addr + k));
           }
 
           break;

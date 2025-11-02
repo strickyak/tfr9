@@ -15,6 +15,7 @@ const byte Turbo9os_Rom[] = {
 template <typename T>
 struct DoTurbo9os {
   static void Install_OS() {
+    is_an_os9 = true;
     // Copy Vectors.
     for (uint i = 0; i < 7; i++) {
       // T::Poke(0xFFF0 + i, Turbo9os_Vectors[i]);

@@ -136,7 +136,7 @@ class BigRam {
   static void ResetRam() {
     printf("ResetRam\n");
     memset(ram, 0, sizeof ram);
-    interest = (interest > 500) ? interest : 500;
+    // interest = (interest > 500) ? interest : 500;
 
     enable_mmu = true;
     current_task = 1;

@@ -17,6 +17,7 @@ uint const Coco2Vectors[] = {
 template <typename T>
 struct DoNitros9level1 {
   static void Install_OS() {
+    is_an_os9 = true;
     ShowChar('p');
     T::ResetRam();
     ShowChar('q');

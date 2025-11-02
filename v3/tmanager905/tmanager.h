@@ -115,6 +115,9 @@ bool acia_irq_firing;
 bool acia_char_in_ready;
 int acia_char;
 
+uint nmi_needed;
+uint prev_nmi_needed;
+
 void ShowChar(byte ch) {
   if (ch < 1 || ch > 127) {
     putchar(C_PUTCHAR);
@@ -155,7 +158,7 @@ void putsz(uint n) {
 
 template <typename T>
 struct DontShowIrqs {
-  force_inline static void ShowIrqs(char ch) {}
+  force_inline static void ShowIrqs(char ch) { ShowChar(ch); }
 };
 template <typename T>
 struct DoShowIrqs {
@@ -272,10 +275,13 @@ const char* HighFlags(uint high) {
 // Initially, dont include "cocosdc.h"; use emudsk instead.
 #include "cocopias.h"
 #include "emudsk.h"
+#include "floppy.h"
 #include "pico-io.h"
 #include "samvdg.h"
 #include "ssd1306.h"
 #include "turbo9sim.h"
+
+bool is_an_os9;
 
 // Operating Systems
 #include "nitros9level1.h"
@@ -596,7 +602,7 @@ struct EngineBase {
     GET_STUCK();
   }
 
-  static bool ChangeInterruptPin(bool irq_needed) {
+  static bool ChangeInterruptPin(bool irq, bool nmi) {
     constexpr uint PULL_BLOCK_PC = 2;
     const PIO pio = pio0;
     constexpr uint sm = 0;
@@ -620,11 +626,14 @@ struct EngineBase {
     pio_add_program_at_offset(pio, &latch_program, 0);
     latch_program_init(pio, sm, 0);
 
-    byte unused = 0x00;
-    byte inputs = 0x00;
-    byte irq_on = irq_needed ? 0xFB : 0xFF;
-    byte outputs = 0xFF;
-    pio_sm_put(pio, sm, QUAD_JOIN(unused, inputs, irq_on, outputs));
+    constexpr byte unused = 0x00;
+    constexpr byte inputs = 0x00;
+    // const byte control_bits = irq? 0xFB : 0xFF;
+    byte control_bits = 0xFF;
+    if (irq) control_bits &= 0xFB;  // bit 0x04 is IRQ
+    if (nmi) control_bits &= 0xEF;  // bit 0x10 is NMI
+    constexpr byte outputs = 0xFF;
+    pio_sm_put(pio, sm, QUAD_JOIN(unused, inputs, control_bits, outputs));
 
     // Wait for Finished signal on FIFO, then stop pio.
     (void)pio_sm_get_blocking(pio, sm);
@@ -634,7 +643,7 @@ struct EngineBase {
     pio_add_program_at_offset(pio, &tpio_program, 0);
     tpio_program_init(pio, sm, 0);
 
-    T::ShowIrqs(irq_needed ? ';' : ',');
+    T::ShowIrqs(nmi ? '!' : irq ? ';' : ',');
     return true;
   }
 
@@ -894,11 +903,12 @@ struct EngineBase {
         T::ShowIrqs('G');
       }
 
-      if (irq_needed != prev_irq_needed) {
-        bool ok = ChangeInterruptPin(irq_needed);
+      if (irq_needed != prev_irq_needed || nmi_needed != prev_nmi_needed) {
+        bool ok = ChangeInterruptPin(irq_needed, nmi_needed);
         if (ok) {
           prev_irq_needed = irq_needed;
-          T::OrganicLED(irq_needed);
+          prev_nmi_needed = nmi_needed;
+          T::OrganicLED(irq_needed || nmi_needed);
         }
       }
 
@@ -980,12 +990,22 @@ struct EngineBase {
 
       T::BenchmarkCycle(cy);
 
+      if (T::DoesLog()) {
+        if (cy >= trace_at_what_cycle) interest = 999999999;
+      }
+
       for (uint loop = 0; loop < RAPID_BURST_CYCLES;
            loop++) {  /////// Inner Machine Loop
 
-        if (T::DoesLog()) {
-          if (cy >= trace_at_what_cycle) interest = 999999;
+#if 1
+        if (nmi_needed != prev_nmi_needed) {
+          bool ok = ChangeInterruptPin(irq_needed, nmi_needed);
+          if (ok) {
+            prev_nmi_needed = nmi_needed;
+            T::OrganicLED(irq_needed || nmi_needed);
+          }
         }
+#endif
 
         constexpr uint GO_AHEAD = 0x12345678;
         pio_sm_put(pio, sm, GO_AHEAD);
@@ -1082,7 +1102,7 @@ struct EngineBase {
               // printf("change to opcode %x\n", current_opcode);
             }
 
-            if (T::DoesEvent()) {
+            if (is_an_os9 and T::DoesEvent()) {
               if (current_opcode == 0x3B) {  // RTI
                 uint age = cy - current_opcode_cy -
                            2 /*one byte opcode, one extra cycle */;
@@ -1090,7 +1110,7 @@ struct EngineBase {
                   printf("~RTI~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
                          current_opcode_cy, current_opcode_pc, current_opcode,
                          age, addr, data);
-                interest += 50;
+                // interest += 50;
                 // TODO -- recognize E==0 for FIRQ
                 if (age < RTI_SZ) {
                   hist_data[age] = data;
@@ -1109,7 +1129,7 @@ struct EngineBase {
                   printf("~OS9~R<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
                          current_opcode_cy, current_opcode_pc, current_opcode,
                          age, addr, data);
-                interest += 50;
+                // interest += 50;
                 if (age < SWI2_SZ) {
                   hist_data[age] = data;
                   hist_addr[age] = addr;
@@ -1129,7 +1149,7 @@ struct EngineBase {
                   printf("~OS9~W<%d,ccy=%d,cpc=%d,cop=%x,a=%d> %04x:%02x\n", cy,
                          current_opcode_cy, current_opcode_pc, current_opcode,
                          age, addr, data);
-                interest += 50;
+                // interest += 50;
                 if (age < SWI2_SZ) {
                   hist_data[age] = data;
                   hist_addr[age] = addr;
@@ -1150,9 +1170,11 @@ struct EngineBase {
 
         uint high = flags & F_HIGH;
 
-        if (T::DoesTrace()) {
+        if (T::DoesTrace() and interest) {
           if (reading and (not vma) and (addr == 0xFFFF)) {
+#if TRACE_IDLE
             T::TransmitCycle(cy, high & 31, CY_IDLE, 0, 0);
+#endif
           } else {
             const char* label = reading ? (vma ? "r" : "-") : "w";
             byte kind = reading ? (vma ? CY_READ : CY_IDLE) : CY_WRITE;
@@ -1313,6 +1335,8 @@ struct C2_Mixins : Common_Mixins<T>,
                    DontBenchmarkCycles<T>,
                    DoCocoKeyboard<T>,
                    DoCocoSamVdg<T>,
+                   DoDrive<T>,
+                   DoFloppy<T>,
                    DontAcia<T>,
                    DontGime<T>,
                    DoCocoPias<T>,
@@ -1321,16 +1345,21 @@ struct C2_Mixins : Common_Mixins<T>,
     // Without OS.  Must use PreLoadPacket() or some other way of loading a
     // program.
     MUMBLE("C2::Install ");
+
     T::CommonInstall(0xFF30);  // pico-io base.
     MUMBLE(".COM ");
+
     T::CocoPias_Install(printf);
     MUMBLE(".PIAS ");
-    SamBits |= 0x8000u;  // allow RAM for poking vectors
+
+    T::Drive_Install(0xFF40);
+    MUMBLE(".DRIVE ");
+    T::Floppy_Install(0xFF48);
+    MUMBLE(".FLOPPY ");
+
     for (uint i = 0; i < 8; i++) {
-      // T::Poke2(0xFFF0 + 2*i, Coco2Vectors[i]);
       InstallVector(i, Coco2Vectors[i]);
     }
-    // T::Poke2(0xFFFE, 0xA027);
     InstallVector(7, 0xA027);
     MUMBLE(".VEC ");
     T::DumpRam();
@@ -1523,6 +1552,13 @@ void Shell() {
         } else if (ch == 'z') {
           set_sys_clock_khz(270000, true);
 
+        } else if (ch == 'k') {
+          trace_at_what_cycle += 100 * 1000;
+          // printf(" [%d] ", trace_at_what_cycle)
+        } else if (ch == 'l') {
+          trace_at_what_cycle += 1000 * 1000;
+          // printf(" [%d] ", trace_at_what_cycle)
+
         } else {
           ShowStr("-#?-");
         }
@@ -1557,7 +1593,7 @@ int main() {
   SET_LED(0);
   sleep_ms(150);
 
-  interest = MAX_INTEREST;  /// XXX
+  interest = 0;  // MAX_INTEREST;  /// XXX
 
   quiet_ram = 0;
 
