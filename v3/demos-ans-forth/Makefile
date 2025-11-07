@@ -33,14 +33,26 @@ wrap-forth-lwasm: wrap-forth.c grab-symbols-from-a09.awk $(SRC)/forth.asm $(SRC)
 	set -x; $(ASM) $@.tmp.asm -o'$@.srec' --define=ORIGIN=0xF400 -list=$@.srec.list -map=$@.srec.map $$(cat forth-lwasm.defs)
 
 run-wrap-forth-a09: wrap-forth-a09
-	../generated/tconsole.linux-amd64.exe  --disks /dev/null -no_modules -abslists  forth-a09.list,wrap-forth-a09.srec.list   forth-a09.0.rom wrap-forth-a09.srec 2>_log
+	: HINT :
+	: HINT :
+	: HINT :   After the Forth Rom is loaded, type 'c3'
+	: HINT :   [ or 'ce8' to debug ]
+	: HINT :
+	: HINT :
+	../generated/tconsole.linux-amd64.exe  --disks /dev/null -no_modules -abslists  forth-a09.list,wrap-forth-a09.srec.list   forth-a09.0.rom wrap-forth-a09.srec 2>/tmp/log
 
 run-wrap-forth-lwasm: wrap-forth-lwasm
-	../generated/tconsole.linux-amd64.exe  --disks /dev/null -no_modules -abslists  forth-lwasm.decb.list,wrap-forth-lwasm.srec.list   forth-lwasm.decb wrap-forth-lwasm.srec 2>_log
+	: HINT :
+	: HINT :
+	: HINT :   After the Forth Rom is loaded, type 'c3'
+	: HINT :   [ or 'ce8' to debug ]
+	: HINT :
+	: HINT :
+	../generated/tconsole.linux-amd64.exe  --disks /dev/null -no_modules -abslists  forth-lwasm.decb.list,wrap-forth-lwasm.srec.list   forth-lwasm.decb wrap-forth-lwasm.srec 2>/tmp/log
 
 
 clean:
-	rm -f *.decb *.srec *.tmp.asm *.s *.list *.map forth-a09.* forth-lwasm.*  ./_*
+	rm -f *.decb *.srec *.tmp.asm *.s *.list *.map forth-a09.* forth-lwasm.*  ./_* *.defs
 
 ci:
 	ci-l *.c *.h Makefile *.sh

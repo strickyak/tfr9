@@ -59,6 +59,10 @@ struct DoTurbo9sim {
     IOReaders[base + 1] = [](uint addr, byte data) {
       byte z = simRxReader(addr, data);
       printf("turbo read 1 => %02x\n", z);
+#define TSIM_ECHO_RX 0
+#if TSIM_ECHO_RX
+      ShowChar(z);
+#endif
       return z;
     };
     ShowChar('1');
@@ -101,6 +105,10 @@ struct DoTurbo9sim {
   byte static simTxReader(uint addr, byte data) { return sim_last_char_tx; }
   byte static simRxReader(uint addr, byte data) {
     sim_status_reg &= ~SIM_RX_BIT;  // Consume the char, if any.
+#define PREFER_LINEFEED 0
+#if PREFER_LINEFEED
+    if (sim_last_char_rx == 13) return 10;
+#endif
     return sim_last_char_rx;
   }
   byte static simStatusReader(uint addr, byte data) { return sim_status_reg; }

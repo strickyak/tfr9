@@ -533,6 +533,15 @@ uint OuterLoops;
 
 template <typename T>
 struct EngineBase {
+    static void UseRamForVectors() {
+        IOReader ram_reader = [](uint addr, byte _d) {
+            return T::Peek(addr);
+        };
+        for (uint i = 0; i < 16; i++) {
+          IOReaders[255 & (0xFFF0 +  i)] = ram_reader;
+        }
+    }
+
   static void DumpPhys() {
     uint sz = T::PhysSize();
     // Dont DumpPhys if DumpRam is the same.
@@ -1318,6 +1327,9 @@ struct X9_Mixins : Common_Mixins<T>,
     ShowChar('X');
     T::Turbo9sim_Install(0xFF00);
     ShowChar('Y');
+
+    // Override previous vectors with Ram.
+    T::UseRamForVectors();
   }
 };
 

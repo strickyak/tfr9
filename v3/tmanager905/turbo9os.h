@@ -16,9 +16,8 @@ template <typename T>
 struct DoTurbo9os {
   static void Install_OS() {
     is_an_os9 = true;
-    // Copy Vectors.
+    // Copy 7 Vectors;  Reset vector comes later.
     for (uint i = 0; i < 7; i++) {
-      // T::Poke(0xFFF0 + i, Turbo9os_Vectors[i]);
       InstallVector(i, Turbo9os_Vectors[i]);
     }
     // Copy ROM to RAM, ending just before 0xFF00.
@@ -36,11 +35,9 @@ struct DoTurbo9os {
     assert(0 == memcmp(Turbo9os_Rom + name, expect, 6));
 
     uint entry = T::Peek2(begin + 9);  // OS9 module entry offset is 9
-    // T::Poke2(0xFFFE,
-    // begin + entry);  // Set RESET vector at 0xFFFE to the entry.
     InstallVector(7, begin + entry);
 
-    T::DumpRam();
+    // T::DumpRam();
   }
 };
 

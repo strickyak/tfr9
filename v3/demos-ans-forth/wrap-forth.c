@@ -2,7 +2,7 @@
 
 char term_buffer[SYM_INPUT_SIZE];
 
-__attribute__((naked)) 
+__attribute__((naked))
 void asm_putchar() {
     asm volatile (
         "  PSHS CC,D,DP,X,Y,U          \n"
@@ -14,7 +14,7 @@ void asm_putchar() {
         "  PULS CC,D,DP,X,Y,U,PC       \n"
     );
 }
-__attribute__((naked)) 
+__attribute__((naked))
 void asm_getchar() {
     asm volatile (
         "  PSHS CC,DP,X,Y,U            \n"
@@ -24,11 +24,23 @@ void asm_getchar() {
         "  CLRA                        \n"
         "  ; Return it in D.           \n"
 
+        "  PSHS D                      \n"
+        "  LBSR _BiosPutChar  ; ECHO   \n"
+        "  PULS D                      \n"
+
+        "  CMPB #13  ; is it CR?       \n"
+        "  BNE  skip_change_to_LF      \n"
+        "  LDB  #10  ; change to LF    \n"
+        "  PSHS D                      \n"
+        "  LBSR _BiosPutChar  ; ECHO   \n"
+        "  PULS D                      \n"
+        "skip_change_to_LF: NOP        \n"
+
         "  PULS CC,DP,X,Y,U,PC         \n"
     );
 }
 
-__attribute__((naked)) 
+__attribute__((naked))
 void asm_bye() {
     for (const char* s = " *BYE*\n"; *s; s++) {
         BiosPutChar(*s);
@@ -39,7 +51,7 @@ void asm_bye() {
     );
 }
 
-__attribute__((naked)) 
+__attribute__((naked))
 void asm_launch() {
     asm volatile (
         "\n"
@@ -73,6 +85,11 @@ int main() {
 
     p = (volatile void**)SYM_SOURCE;
     *p = term_buffer;
+
+    for (const char* s = "[github.com/spc476/ANS-Forth] tfr9/v3/demos-ans-forth\r\nOK ";
+            *s; s++) {
+        BiosPutChar(*s);
+    }
 
     asm_launch();
 }
