@@ -1,3 +1,10 @@
+# Usage:
+#   Add ...../coco-shelf/bin to your PATH.
+#   Set the SRC variable to a clone of github.com/spc476/ANS-Forth
+#
+# Example:
+#   PATH="$HOME/coco-shelf/bin:$PATH" make SRC=/tmp/github.com/spc476/ANS-Forth
+
 all: wrap-forth-a09 wrap-forth-lwasm
 
 SRC=/gh/spc476/ANS-Forth
