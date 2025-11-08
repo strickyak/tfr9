@@ -1,6 +1,6 @@
 all: run-coco2
 
-
+run: run-coco2
 
 run-coco2: ../generated/diskbasic.0x8000.rom ../generated/floppy0
 	: HINT :

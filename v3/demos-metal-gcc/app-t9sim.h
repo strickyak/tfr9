@@ -1,8 +1,8 @@
 #ifndef _TFR9_V3_APPS_APP_T9SIM_H_
 #define _TFR9_V3_APPS_APP_T9SIM_H_
 
-#include "v3/apps-metal-gcc/t9sim.h"
-#include "v3/apps-metal-gcc/types.h"
+#include "v3/demos-metal-gcc/t9sim.h"
+#include "v3/demos-metal-gcc/types.h"
 
 void abort(void);
 int getchar();

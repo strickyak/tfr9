@@ -50,6 +50,7 @@ run-wrap-forth-lwasm: wrap-forth-lwasm
 	: HINT :
 	../generated/tconsole.linux-amd64.exe  --disks /dev/null -no_modules -abslists  forth-lwasm.decb.list,wrap-forth-lwasm.srec.list   forth-lwasm.decb wrap-forth-lwasm.srec 2>/tmp/log
 
+run: run-wrap-forth-a09
 
 clean:
 	rm -f *.decb *.srec *.tmp.asm *.s *.list *.map forth-a09.* forth-lwasm.*  ./_* *.defs
