@@ -1,7 +1,7 @@
 #ifndef _L2_RAM_H_
 #define _RAM_H_
 
-const static uint BIG_RAM_SIZE = 128 * 1024;
+const static uint BIG_RAM_SIZE = BIG_RAM_KILOS * 1024;
 const static uint BIG_RAM_MASK = BIG_RAM_SIZE - 1;
 
 // SmallRam only uses the first 64K of the ram array.

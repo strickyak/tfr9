@@ -1,4 +1,7 @@
-all: tfr9cmd tfr9log
+all: rfs1 tfr9cmd tfr9log
+
+rfs1: rfs1.asm
+	lwasm --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --format=os9 $< -o'$@' -I'../../../nitros9/level1/coco1/' -I'../../../nitros9/defs'
 
 tfr9cmd: tfr9cmd.asm
 	lwasm --pragma=pcaspcr,nosymbolcase,condundefzero,undefextern,dollarnotlocal,noforwardrefmax --format=os9 $< -o'$@' -I'../../../nitros9/level1/coco1/' -I'../../../nitros9/defs'

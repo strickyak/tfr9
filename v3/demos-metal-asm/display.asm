@@ -1,6 +1,6 @@
-    ttl blink.asm
+    ttl display.asm
 
-* Blink the builtin LED on the Pi Pico board
+* Display Demo using ssd1306 displays.
 
 ORIGIN equ $4000    ; arbitrary load address
 TX_PORT equ $FF00   ; TurboSim putchar address

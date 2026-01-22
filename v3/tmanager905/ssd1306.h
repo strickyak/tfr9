@@ -3,9 +3,9 @@
 
 #include <hardware/i2c.h>
 
-#include "pico2/pico-ssd1306/ssd1306.h"
-#include "pico2/pico-ssd1306/textRenderer/8x8_font.h"
-#include "pico2/pico-ssd1306/textRenderer/TextRenderer.h"
+#include "pico-ssd1306/ssd1306.h"
+#include "pico-ssd1306/textRenderer/8x8_font.h"
+#include "pico-ssd1306/textRenderer/TextRenderer.h"
 
 #define I2C_PIN_SDA 20
 #define I2C_PIN_SCL 21

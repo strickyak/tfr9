@@ -17,6 +17,7 @@ struct DoAcia {
     // Readers
 
     IOReaders[sub + 0] = [](uint addr, byte data) {
+        // MC6850 Status Read
       data = 0x02;  // Transmit buffer always considered empty.
       data |= (acia_irq_firing) ? 0x80 : 0x00;
       data |= (acia_char_in_ready) ? 0x01 : 0x00;
@@ -25,6 +26,7 @@ struct DoAcia {
       return data;
     };
     IOReaders[sub + 1] = [](uint addr, byte data) {
+        // MC6850 Data Read
       if (acia_char_in_ready) {
         data = acia_char;
         acia_char_in_ready = false;
@@ -37,10 +39,14 @@ struct DoAcia {
     // Writers
 
     IOWriters[sub + 0] = [](uint addr, byte data) {
+        // MC6850 Command Write
+#if 0
+    ----- this is having no effect, because we set acia_irq_enabled again
+        in the next clause.  so why was this here? -----
       if ((data & 0x03) != 0) {
         acia_irq_enabled = false;
       }
-
+#endif
       if ((data & 0x80) != 0) {
         acia_irq_enabled = true;
       } else {
@@ -49,6 +55,7 @@ struct DoAcia {
     };
 
     IOWriters[sub + 1] = [](uint addr, byte data) {
+        // MC6850 Data Write
       T::Logf(LHello, "bilbo %d putchar", data);
       if (data == 0 || data >= 128) {
         putbyte(C_PUTCHAR);
