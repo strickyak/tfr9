@@ -15,6 +15,7 @@ add_compile_definitions(BIG_RAM_KILOS=128)
 target_sources(${PROJECT} PRIVATE tmanager.cpp
     ../ssd1306.h
     ../cardkb.h
+    ../cyberterm.h
     ../ram.h
     ../cocosdc.h
     ../emudsk.h

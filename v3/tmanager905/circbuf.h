@@ -39,5 +39,6 @@ class CircBuf {
 CircBuf<1024> usb_input;
 CircBuf<1024> term_input;
 CircBuf<1024> disk_input;
+CircBuf<32> cardkb_input;
 
 #endif  // _CIRCBUF_H_

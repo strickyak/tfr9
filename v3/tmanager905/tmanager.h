@@ -2,10 +2,11 @@
 //
 // SPDX-License-Identifier: MIT
 
-#define OS9_ACIA_PORT 0xFF06
+#define OS9_ACIA_PORT 0xFF14
 #define OS9_EMUDSK_PORT 0xFF80
 #define OS9_CARDKB_PORT 0xFF0C
-// PicoIO with base 0xFF00:
+
+// [note] PicoIO with base 0xFF00:
 // FF04: Write LED (0 or 1)
 // FF05: Read Rand
 // FF06: Set direction GPIO12..19
@@ -15,6 +16,7 @@
 #include <hardware/pio.h>
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
+#include <hardware/i2c.h>
 #include <pico/bootrom.h>
 #include <pico/rand.h>
 #include <pico/stdlib.h>
@@ -292,6 +294,8 @@ const char* HighFlags(uint high) {
 #include "pico-io.h"
 #include "samvdg.h"
 #include "ssd1306.h"
+#include "cardkb.h"
+#include "cyberterm.h"
 #include "turbo9sim.h"
 
 bool is_an_os9;
@@ -449,6 +453,7 @@ void Fatal(const char* s) {
     sleep_ms(2000);
   }
 }
+
 void PollUsbInput() {
   // Try from USB to `usb_input` object.
   while (1) {
@@ -951,9 +956,9 @@ struct EngineBase {
           T::Keyboard_Tick(0);
 
           if (T::Keyboard_CanRx()) {
-            if (term_input.HasAtLeast(1)) {
-              if (term_input.HasAtLeast(1)) {
-                byte ch = term_input.Take();
+            if (cardkb_input.HasAtLeast(1)) {
+              if (cardkb_input.HasAtLeast(1)) {
+                byte ch = cardkb_input.Take();
                 T::Keyboard_SetRx(ch);
               }
             }
@@ -985,17 +990,28 @@ struct EngineBase {
       }
 
       if (T::DoesCardKb()) {
-        if (not cardkb_char_in_ready) {
-          if (term_input.HasAtLeast(1)) {
-            cardkb_char = term_input.Take();
-            cardkb_char_in_ready = true;
-            cardkb_irq_firing = true;
-          } else {
-            cardkb_char = 0;
-            cardkb_char_in_ready = false;
-            cardkb_irq_firing = false;
+        static int ctr;
+        ctr++;
+        if (ctr >= 100) {
+            ctr = 0;
+
+            byte b = CardKbRead();
+            if (b) {
+                cardkb_input.Put(b);
+            }
+
+            if (not cardkb_char_in_ready) {
+              if (cardkb_input.HasAtLeast(1)) {
+                cardkb_char = cardkb_input.Take();
+                cardkb_char_in_ready = true;
+                cardkb_irq_firing = true;
+              } else {
+                cardkb_char = 0;
+                cardkb_char_in_ready = false;
+                cardkb_irq_firing = false;
+              }
+            }
           }
-        }
       }
 
       if (!T::DoesPicoTimer()) {
@@ -1300,7 +1316,13 @@ struct Fast_Mixins : DontPcRange<T>,
                      DoPicoTimer<T> {};
 
 template <typename T>
-struct Common_Mixins : EngineBase<T>, CommonRam<T>, DoPicoIO<T>, DoSsd1306<T> {
+struct Common_Mixins : EngineBase<T>,
+                       CommonRam<T>,
+                       DoPicoIO<T>,
+                       DoSsd1306<T>,
+                       DoCardKb<T>,
+                       DoCyberTerm<T>
+{
   static void CommonInstall(uint picoio_base = 0xFF00) {
     MUMBLE(" COM: ");
     ShowChar('i');
@@ -1313,6 +1335,8 @@ MUMBLE(" <Q> ");
     ShowChar('z');
 #endif
     MUMBLE(" BILBO ");
+    T::CyberTerm_Init(0xFF10);
+    MUMBLE(" FRODO ");
   }
 };
 
@@ -1323,7 +1347,6 @@ struct T9_Mixins : Common_Mixins<T>,
                    DontCocoKeyboard<T>,
                    DontCocoSamVdg<T>,
                    DontAcia<T>,
-                   DontCardKb<T>,
                    DontGime<T>,
                    DontCocoPias<T>,
                    DoTurbo9sim<T>,
@@ -1349,7 +1372,6 @@ struct X9_Mixins : Common_Mixins<T>,
                    DontCocoKeyboard<T>,
                    DontCocoSamVdg<T>,
                    DontAcia<T>,
-                   DontCardKb<T>,
                    DontGime<T>,
                    DontCocoPias<T>,
                    DoTurbo9sim<T> {
@@ -1384,7 +1406,6 @@ struct C2_Mixins : Common_Mixins<T>,
                    DoDrive<T>,
                    DoFloppy<T>,
                    DontAcia<T>,
-                   DontCardKb<T>,
                    DontGime<T>,
                    DoCocoPias<T>,
                    DontTurbo9sim<T> {
@@ -1423,7 +1444,6 @@ struct L1_Mixins : Common_Mixins<T>,
                    DontCocoKeyboard<T>,
                    DontCocoSamVdg<T>,
                    DoAcia<T>,
-                   DontCardKb<T>,
                    DoEmudsk<T>,
                    DontGime<T>,
                    DoCocoPias<T>,
@@ -1455,7 +1475,6 @@ struct L2_Mixins : Common_Mixins<T>,
                    DontCocoKeyboard<T>,
                    DontCocoSamVdg<T>,
                    DoAcia<T>,
-                   DontCardKb<T>,
                    DoEmudsk<T>,
                    DoGime<T>,
                    DoCocoPias<T>,

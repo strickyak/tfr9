@@ -7,9 +7,9 @@
 #include "pico-ssd1306/textRenderer/8x8_font.h"
 #include "pico-ssd1306/textRenderer/TextRenderer.h"
 
-#define I2C_PIN_SDA 20
-#define I2C_PIN_SCL 21
-#define I2C_PORT i2c0
+#define SSD1306_I2C_PIN_SDA 20
+#define SSD1306_I2C_PIN_SCL 21
+#define SSD1306_I2C_PORT i2c0
 
 enum {
   DISPLAY_X_PORT = 8,
@@ -27,7 +27,7 @@ pico_ssd1306::SSD1306 *display;
 template <typename T>
 struct DontSsd1306 {
   static bool DoesSsd1306() { return false; }
-  static void Ssd1306_Init(byte i2c_addr) {}
+  static void Ssd1306_Init(uint base) {}
 };
 
 bool Display_hardware_initted;
@@ -89,13 +89,13 @@ struct DoSsd1306 {
 
  private:
   static void Ssd1306_HardwareInit() {
-    i2c_init(I2C_PORT, 1000000);  // Use i2c port with baud rate of 1Mhz
+    i2c_init(SSD1306_I2C_PORT, 1000000);  // Use i2c port with baud rate of 1Mhz
 
     // Set pins for I2C operation
-    gpio_set_function(I2C_PIN_SDA, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_PIN_SCL, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_PIN_SDA);
-    gpio_pull_up(I2C_PIN_SCL);
+    gpio_set_function(SSD1306_I2C_PIN_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(SSD1306_I2C_PIN_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(SSD1306_I2C_PIN_SDA);
+    gpio_pull_up(SSD1306_I2C_PIN_SCL);
 
     // Create a new global display object
     if (display) delete display;

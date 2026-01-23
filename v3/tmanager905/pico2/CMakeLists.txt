@@ -11,10 +11,11 @@ add_executable(${PROJECT} tmanager.cpp)
 pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/tpio.pio)
 pico_generate_pio_header(${PROJECT}  ${CMAKE_CURRENT_LIST_DIR}/latch.pio)
 
-add_compile_definitions(BIG_RAM_KILOS=256)
+add_compile_definitions(BIG_RAM_KILOS=128)
 target_sources(${PROJECT} PRIVATE tmanager.cpp
     ../ssd1306.h
     ../cardkb.h
+    ../cyberterm.h
     ../ram.h
     ../cocosdc.h
     ../emudsk.h
