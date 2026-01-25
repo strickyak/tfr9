@@ -27,50 +27,38 @@ struct DoCyberTerm {
   static bool DoesCyberTerm() { return true; }
 
   static void CyberTerm_Init(uint base) {
-      //MUMBLE("*p");
     T::Logf(LHello, "cyberterm $%x install", base);
     T::Ssd1306_Init(base);
     T::CardKb_Install(base);
   
-      //MUMBLE("*q");
     memset(ct_screen, '.', sizeof ct_screen);
-      //MUMBLE("*r");
     NewLine();
-      //MUMBLE("*s");
     Push();
-      //MUMBLE("*t");
 
     uint sub = 255 & base;
     IOWriters[sub + 1] = [](uint addr, byte data) {
-        // MC6850 Data Write
-      T::Logf(LHello, "cyberterm %d putchar", data);
+      // MC6850 Data Write
       PutChar(data);
     };
-      //MUMBLE("*u");
-
-      for (const char* s = "one\rtwo\rthree\nfour"; *s; s++) {
-          PutChar(*s);
-      }
   }
 
   static void NewLine() {
-      //MUMBLE("*1");
+      // Shift everything up one line.
       for  (uint y = 0; y < (CTERM_H-1); y++) {
           memcpy(ct_screen + (y*CTERM_W), ct_screen + ((y+1)*CTERM_W), CTERM_W);
       }
+      // Clear the last line with spaces.
       memset(ct_screen + (CTERM_H-1) * CTERM_W, ' ', CTERM_W);
+      // Reset the cursor to left column.
       ct_cursor = 0;
-      //MUMBLE("*2");
   }
 
   static void PutChar(byte b) {
-      //MUMBLE("*a");
       if (b==10 || b==13) {
           NewLine();
           Push();
           return;
       }
-      //MUMBLE("*b");
       if (b==8) {
           ct_cursor--;
           ct_screen[(CTERM_H-1) * CTERM_W + ct_cursor] = ' ';
@@ -80,23 +68,17 @@ struct DoCyberTerm {
 
       if (b < ' ' || b > 127)
           b = '?';
-      //MUMBLE("*c");
 
       ct_screen[(CTERM_H-1) * CTERM_W + ct_cursor] = b;
       ct_cursor++;
       if (ct_cursor >= CTERM_W) NewLine();
       Push();
-      //MUMBLE("*d");
   }
 
   static void Push() {
-//MUMBLE("push");
       DISP_C(DISPLAY_CLEAR_BUFFER);
-//MUMBLE("*v");
       for (uint y = 0; y < CTERM_H; y++) {
-//MUMBLE("/");
           for (uint x = 0; x < CTERM_W; x++) {
-//MUMBLE(":");
               byte b = ct_screen[x + (y*CTERM_W)];
               if (b < ' ' || b > 127)
                     b = '?';
@@ -105,9 +87,7 @@ struct DoCyberTerm {
               DISP_C(b);
           }
       }
-//MUMBLE("*x");
       DISP_C(DISPLAY_SEND_BUFFER);
-//MUMBLE("*y");
   }
 
 };
