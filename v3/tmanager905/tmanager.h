@@ -6,6 +6,9 @@
 #define OS9_EMUDSK_PORT 0xFF80
 #define OS9_CARDKB_PORT 0xFF0C
 
+// USE_CARDKB slows us down 0.6%
+// #define USE_CARDKB 1
+
 // [note] PicoIO with base 0xFF00:
 // FF04: Write LED (0 or 1)
 // FF05: Read Rand
@@ -676,39 +679,66 @@ struct EngineBase {
 
   // Preroll ignores post-reset cycles until it sees a read from FFFE.
   static void PreRoll() {
+MUMBLE("PR0");
     const PIO pio = pio0;
     constexpr uint sm = 0;
 
     IOReader r = IOReaders[255 & 0xFFFE];
+    if (!r) {
+        MUMBLE("empty-FFFE");
+        // GET_STUCK();
+
+        byte th = ram[0xFFFE];
+        byte tl = ram[0xFFFF];
+        uint target = (uint(th) << 8) | uint(tl);
+        InstallVector(7, target);
+        MUMBLE("fixed?");
+        r = IOReaders[255 & 0xFFFE];
+        if (!r) {
+            MUMBLE("still-empty-FFFE");
+            GET_STUCK();
+        }
+    }
     // const byte x = T::Peek(0xFFFE);
     const byte hi = r(0xFFFE, 0xFF);
-
+MUMBLE("PR1");
     while (1) {
+MUMBLE("PR2");
       constexpr uint GO_AHEAD = 0x12345678;
       pio_sm_put(pio, sm, GO_AHEAD);
+MUMBLE("PR3");
 
       const uint got32 = WAIT_GET();
+MUMBLE("PR4");
 
       byte junk, alo, ahi, flags;
       QUAD_SPLIT(junk, alo, ahi, flags, got32);
       const uint addr = HL_JOIN(ahi, alo);
+MUMBLE("PR5");
 
       const bool reading = (flags & F_READ);
+MUMBLE("PR6");
 
       printf("Preroll: got=%08x addr=%x flags=%x reading=%x hi=%x\n", got32,
              addr, flags, reading, hi);
 
+MUMBLE("PR7");
       if (reading) {
+MUMBLE("PR8");
         PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, hi,
                       0xFF /*=outputs*/));
       } else {
+MUMBLE("PR9");
         {}  // do nothing.
       }  // end if reading
 
+MUMBLE("PR10");
       if (addr == 0xFFFE) {
+MUMBLE("PR11");
         printf("Preroll: done\n");
         return;
       }
+MUMBLE("PR12");
     }
   }
 
@@ -1320,8 +1350,16 @@ struct Common_Mixins : EngineBase<T>,
                        CommonRam<T>,
                        DoPicoIO<T>,
                        DoSsd1306<T>,
+#ifdef USE_CARDKB
                        DoCardKb<T>,
+#else
+                       DontCardKb<T>,
+#endif
+#ifdef USE_CARDKB
                        DoCyberTerm<T>
+#else
+                       DontCyberTerm<T>
+#endif
 {
   static void CommonInstall(uint picoio_base = 0xFF00) {
     MUMBLE(" COM: ");
@@ -1335,7 +1373,9 @@ MUMBLE(" <Q> ");
     ShowChar('z');
 #endif
     MUMBLE(" BILBO ");
+#ifdef USE_CARDKB
     T::CyberTerm_Init(0xFF10);
+#endif
     MUMBLE(" FRODO ");
   }
 };
@@ -1437,6 +1477,53 @@ struct C2_Mixins : Common_Mixins<T>,
 struct C2_Slow : SmallRam<C2_Slow>, C2_Mixins<C2_Slow>, Slow_Mixins<C2_Slow> {};
 struct C2_Fast : SmallRam<C2_Fast>, C2_Mixins<C2_Fast>, Fast_Mixins<C2_Fast> {};
 
+// F3 == try Fuxiz on a Coco3
+template <typename T>
+struct F3_Mixins : Common_Mixins<T>,
+                   DontBenchmarkCycles<T>,
+                   DoCocoKeyboard<T>,
+                   DoCocoSamVdg<T>,
+                   DoDrive<T>,
+                   DoFloppy<T>,
+                   DontAcia<T>,
+                   DoGime<T>,
+                   DoCocoPias<T>,
+                   DontTurbo9sim<T> {
+  static void Install() {
+    // Without OS.  Must use PreLoadPacket() or some other way of loading a
+    // program.
+    MUMBLE("F3::Install ");
+
+    T::CommonInstall(0xFF30);  // pico-io base.
+    MUMBLE(".COM ");
+
+    T::CocoPias_Install(printf);
+    MUMBLE(".PIAS ");
+
+    T::Drive_Install(0xFF40);
+    MUMBLE(".DRIVE ");
+    T::Floppy_Install(0xFF48);
+    MUMBLE(".FLOPPY ");
+#if 0
+    for (uint i = 0; i < 8; i++) {
+      InstallVector(i, Coco3Vectors[i]);
+    }
+    InstallVector(7, 0xA027);
+#endif
+    MUMBLE("no-VEC ");
+    T::DumpRam();
+    MUMBLE("DR ");
+    // SamBits &= ~0x8000u;  // back to ROM
+    MUMBLE("F3::Installed ");
+  }
+};
+struct F3_Slow : BigRam<F3_Slow>, F3_Mixins<F3_Slow>, Slow_Mixins<F3_Slow> {
+    // MUMBLE("F3_Slow::ctor");
+};
+struct F3_Fast : BigRam<F3_Fast>, F3_Mixins<F3_Fast>, Fast_Mixins<F3_Fast> {
+    // MUMBLE("F3_Fast::ctor");
+};
+
 template <typename T>
 struct L1_Mixins : Common_Mixins<T>,
                    SmallRam<T>,
@@ -1511,13 +1598,13 @@ struct harness {
     engines[1] = L1_Slow::Run;
     engines[2] = L2_Slow::Run;
     engines[3] = X1_Slow::Run;
-    engines[4] = C2_Slow::Run;
+    engines[4] = F3_Slow::Run;
 
     fast_engines[0] = T9_Fast::Run;
     fast_engines[1] = L1_Fast::Run;
     fast_engines[2] = L2_Fast::Run;
     fast_engines[3] = X1_Fast::Run;
-    fast_engines[4] = C2_Fast::Run;
+    fast_engines[4] = F3_Fast::Run;
   }
 };
 
@@ -1537,6 +1624,15 @@ void PreLoadPacket() {
     // if ((i & 7) == 0) putchar('.');
   }
   // putchar(')');
+  if (addr == 0xFFFE and n==2) {
+      stdio_puts("PreLoadPacket: (addr == 0xFFFE and n==2)\n");
+      // Reset Vector due to "FF" clause at end of decb binary.
+        byte th = ram[0xFFFE];
+        byte tl = ram[0xFFFF];
+        uint target = (uint(th) << 8) | uint(tl);
+        InstallVector(7, target);
+        //printf("PreLoadPacket: InstalVector(7) at %x\n", target);
+  }
 }
 
 void Shell() {
