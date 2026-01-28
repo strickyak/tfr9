@@ -298,7 +298,7 @@ func (o *Coco3Ram) Dump() {
 	fmt.Fprintf(os.Stderr, "\n\n((( Coco3Ram__Dump\n")
 	for i := 0; i < COCO3_RAM_SIZE; i += 16 {
 		count := 0
-		for j := 0; i < 16; j++ {
+		for j := 0; j < 16; j++ {
 			if o.trackRam[i+j] != 0 {
 				count++
 			}
