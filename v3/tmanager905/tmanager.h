@@ -1353,7 +1353,7 @@ struct Fast_C2_Mixins : DontPcRange<T>,
                      // DontLogMmu<T>,
                      DontShowIrqs<T>,
 
-                     DoTraceLowRamWrites<T, 0x0600>,
+                     DoTraceLowRamWrites<T, 0x2000>,
                      DontHyper<T>,
                      DontEvent<T>,
                      DontDumpRamOnEvent<T>,

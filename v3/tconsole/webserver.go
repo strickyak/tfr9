@@ -7,7 +7,7 @@ import (
 	"log"
 	// "math/rand"
 	"net/http"
-    "strings"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,11 +41,11 @@ var upgrader = websocket.Upgrader{
 }
 
 type WebConsoleConfig struct {
-    Bind    string
-    Key     func(flags uint, s string)
-    Move    func(x, y int)
-    Down    func(x, y int)
-    Up      func(x, y int)
+	Bind string
+	Key  func(flags uint, s string)
+	Move func(x, y int)
+	Down func(x, y int)
+	Up   func(x, y int)
 }
 
 func WebServer(wcc *WebConsoleConfig) {
@@ -57,167 +57,167 @@ func WebServer(wcc *WebConsoleConfig) {
 }
 
 func serveHome(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.Request) {
-  return func(w http.ResponseWriter, r *http.Request) {
-    http.ServeContent(w, r, "index.html", StartupTime, WebContent)
-}
-}
-
-func handleWebSocket(wcc *WebConsoleConfig) func (w http.ResponseWriter, r *http.Request) {
-return func (w http.ResponseWriter, r *http.Request) {
-	// Upgrade the HTTP connection to a WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("Upgrade error:", err)
-		return
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "index.html", StartupTime, WebContent)
 	}
-	defer conn.Close()
+}
 
-	// Mutex is required because we might write to the socket from multiple places
-	// (though in this simple example we only write from the main loop)
-	var mu sync.Mutex
+func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Upgrade the HTTP connection to a WebSocket
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println("Upgrade error:", err)
+			return
+		}
+		defer conn.Close()
 
-	// ---------------------------------------------------------
-	// CHANNEL 1: INPUT LOOP (Client -> Server)
-	// ---------------------------------------------------------
-	// We run this in a separate goroutine so it doesn't block the graphics loop.
-	go func() {
-		for {
-			var input InputEvent
-			err := conn.ReadJSON(&input)
+		// Mutex is required because we might write to the socket from multiple places
+		// (though in this simple example we only write from the main loop)
+		var mu sync.Mutex
+
+		// ---------------------------------------------------------
+		// CHANNEL 1: INPUT LOOP (Client -> Server)
+		// ---------------------------------------------------------
+		// We run this in a separate goroutine so it doesn't block the graphics loop.
+		go func() {
+			for {
+				var input InputEvent
+				err := conn.ReadJSON(&input)
+				if err != nil {
+					break
+				}
+
+				// LOGIC UPDATE: Handle modifiers and Mouse Moves
+				if input.Type == "keydown" {
+					// Build a string like "CTRL+ALT+A"
+					prefix := ""
+					flags := uint(0)
+					if input.Ctrl {
+						prefix += "CTRL+"
+						flags |= 2
+					}
+					if input.Alt {
+						prefix += "ALT+"
+						flags |= 4
+					}
+					if input.Shift {
+						prefix += "SHIFT+"
+						flags |= 1
+					}
+
+					fmt.Printf("KEY: %s%s\n", prefix, input.Key)
+					wcc.Key(flags, input.Key)
+
+				} else if input.Type == "mousemove" {
+					// fmt.Printf("MOVE: (%d, %d)\n", input.X, input.Y)
+					wcc.Move(input.X, input.Y)
+
+				} else if input.Type == "mousedown" {
+					// fmt.Printf("DOWN: (%d, %d)\n", input.X, input.Y)
+					wcc.Down(input.X, input.Y)
+
+				} else if input.Type == "mouseup" {
+					// fmt.Printf("UP: (%d, %d)\n", input.X, input.Y)
+					wcc.Up(input.X, input.Y)
+				}
+			}
+		}()
+
+		// ---------------------------------------------------------
+		// CHANNEL 2: OUTPUT LOOP (Server -> Client)
+		// ---------------------------------------------------------
+		// This ticker drives the "Frame Rate" of the emulator (33 us == 30 FPS)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		// Demo State variables
+		boxX, boxY := 10, 10
+		dx, dy := 2, 2
+
+		for range ticker.C {
+			// Update Demo Physics
+			boxX += dx
+			boxY += dy
+			if boxX <= 0 || boxX >= 256-32 {
+				dx *= -1
+			}
+			if boxY <= 0 || boxY >= 200-32 {
+				dy *= -1
+			}
+
+			// Prepare the Binary Buffer
+			buf := new(bytes.Buffer)
+
+			// 1. Draw "UI Controls" (Bottom Area)
+			buf.WriteByte(OpSetColor)
+			buf.Write([]byte{50, 50, 50}) // Dark Grey
+
+			buf.WriteByte(OpFillRect)
+			binary.Write(buf, binary.LittleEndian, uint16(0))   // X
+			binary.Write(buf, binary.LittleEndian, uint16(200)) // Y (Start below screen)
+			binary.Write(buf, binary.LittleEndian, uint16(300)) // W
+			binary.Write(buf, binary.LittleEndian, uint16(50))  // H
+
+			// 2. Clear Screen (Top Area)
+			buf.WriteByte(OpSetColor)
+			buf.Write([]byte{0, 0, 0}) // Black
+
+			buf.WriteByte(OpFillRect)
+			binary.Write(buf, binary.LittleEndian, uint16(0))
+			binary.Write(buf, binary.LittleEndian, uint16(0))
+			binary.Write(buf, binary.LittleEndian, uint16(256))
+			binary.Write(buf, binary.LittleEndian, uint16(200))
+
+			// 3. Draw
+			pixelData := GetScreenForWebsocket()
+			if pixelData != nil {
+				buf.Write(pixelData)
+			}
+
+			/*
+				patchW, patchH := 32, 32
+				buf.WriteByte(OpBitmap)
+				binary.Write(buf, binary.LittleEndian, uint16(boxX))
+				binary.Write(buf, binary.LittleEndian, uint16(boxY))
+				binary.Write(buf, binary.LittleEndian, uint16(patchW))
+				binary.Write(buf, binary.LittleEndian, uint16(patchH))
+
+				// Create random noise for pixel data
+				pixelData := make([]byte, patchW*patchH*3)
+				for i := 0; i < len(pixelData); i++ {
+					pixelData[i] = uint8(rand.Intn(255))
+				}
+				buf.Write(pixelData)
+			*/
+
+			// Send the batch
+			mu.Lock()
+			err := conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+			mu.Unlock()
+
 			if err != nil {
+				log.Println("Write error:", err)
 				break
 			}
-
-			// LOGIC UPDATE: Handle modifiers and Mouse Moves
-			if input.Type == "keydown" {
-				// Build a string like "CTRL+ALT+A"
-				prefix := ""
-                flags := uint(0)
-				if input.Ctrl {
-					prefix += "CTRL+"
-                    flags |= 2
-				}
-				if input.Alt {
-					prefix += "ALT+"
-                    flags |= 4
-				}
-				if input.Shift {
-					prefix += "SHIFT+"
-                    flags |= 1
-				}
-
-				fmt.Printf("KEY: %s%s\n", prefix, input.Key)
-                wcc.Key(flags, input.Key)
-
-			} else if input.Type == "mousemove" {
-				fmt.Printf("MOVE: (%d, %d)\n", input.X, input.Y)
-				wcc.Move( input.X, input.Y)
-
-			} else if input.Type == "mousedown" {
-				fmt.Printf("DOWN: (%d, %d)\n", input.X, input.Y)
-				wcc.Down( input.X, input.Y)
-
-			} else if input.Type == "mouseup" {
-				fmt.Printf("UP: (%d, %d)\n", input.X, input.Y)
-				wcc.Up( input.X, input.Y)
-			}
-		}
-	}()
-
-	// ---------------------------------------------------------
-	// CHANNEL 2: OUTPUT LOOP (Server -> Client)
-	// ---------------------------------------------------------
-	// This ticker drives the "Frame Rate" of the emulator (33 us == 30 FPS)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	// Demo State variables
-	boxX, boxY := 10, 10
-	dx, dy := 2, 2
-
-	for range ticker.C {
-		// Update Demo Physics
-		boxX += dx
-		boxY += dy
-		if boxX <= 0 || boxX >= 256-32 {
-			dx *= -1
-		}
-		if boxY <= 0 || boxY >= 200-32 {
-			dy *= -1
-		}
-
-		// Prepare the Binary Buffer
-		buf := new(bytes.Buffer)
-
-		// 1. Draw "UI Controls" (Bottom Area)
-		buf.WriteByte(OpSetColor)
-		buf.Write([]byte{50, 50, 50}) // Dark Grey
-
-		buf.WriteByte(OpFillRect)
-		binary.Write(buf, binary.LittleEndian, uint16(0))   // X
-		binary.Write(buf, binary.LittleEndian, uint16(200)) // Y (Start below screen)
-		binary.Write(buf, binary.LittleEndian, uint16(300)) // W
-		binary.Write(buf, binary.LittleEndian, uint16(50))  // H
-
-		// 2. Clear Screen (Top Area)
-		buf.WriteByte(OpSetColor)
-		buf.Write([]byte{0, 0, 0}) // Black
-
-		buf.WriteByte(OpFillRect)
-		binary.Write(buf, binary.LittleEndian, uint16(0))
-		binary.Write(buf, binary.LittleEndian, uint16(0))
-		binary.Write(buf, binary.LittleEndian, uint16(256))
-		binary.Write(buf, binary.LittleEndian, uint16(200))
-
-		// 3. Draw
-        pixelData := GetScreenForWebsocket()
-        if pixelData != nil {
-            buf.Write(pixelData)
-        }
-
-        /*
-		patchW, patchH := 32, 32
-		buf.WriteByte(OpBitmap)
-		binary.Write(buf, binary.LittleEndian, uint16(boxX))
-		binary.Write(buf, binary.LittleEndian, uint16(boxY))
-		binary.Write(buf, binary.LittleEndian, uint16(patchW))
-		binary.Write(buf, binary.LittleEndian, uint16(patchH))
-
-		// Create random noise for pixel data
-		pixelData := make([]byte, patchW*patchH*3)
-		for i := 0; i < len(pixelData); i++ {
-			pixelData[i] = uint8(rand.Intn(255))
-		}
-		buf.Write(pixelData)
-        */
-
-		// Send the batch
-		mu.Lock()
-		err := conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
-		mu.Unlock()
-
-		if err != nil {
-			log.Println("Write error:", err)
-			break
 		}
 	}
-}
 }
 
 func KeystrokeValue(flags uint, s string) byte {
-    if len(s) == 1 {
-        return s[0]
-    } else {
-        switch s {
-        case "Enter":
-            return '\n'
-        case "Backspace":
-            return 8
-        default:
-            log.Printf("KV?  [[[%x,%q]]]  ", flags, s)
-            return 0
-        }
-    }
+	if len(s) == 1 {
+		return s[0]
+	} else {
+		switch s {
+		case "Enter":
+			return '\n'
+		case "Backspace":
+			return 8
+		default:
+			log.Printf("KV?  [[[%x,%q]]]  ", flags, s)
+			return 0
+		}
+	}
 }
 
 var StartupTime = time.Now()

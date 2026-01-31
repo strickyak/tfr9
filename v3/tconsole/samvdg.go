@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-    "encoding/binary"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"os"
@@ -22,21 +22,21 @@ func SamModeTY() uint        { return 1 & (SamBits >> 15) }
 func SamScreenAddress() uint { return SamModeF() << 9 }
 
 func Pia1OutB() byte {
-    return the_ram.Peek1(0xFF23)  // assuming write DATA after writing DIRECTION
+	return the_ram.Peek1(0xFF23) // assuming write DATA after writing DIRECTION
 }
 
 func SamPoke1(addr uint) {
-    if 0xFFC0 <= addr && addr < 0xFFE0 {
-        a := addr - 0xFFC0
-        bitNum := a >> 1
-        if (a&1)==1 {
-            // Set the SAM bit
-            SamBits |= (1 << bitNum)
-        } else {
-            // Clear the SAM bit
-            SamBits &^= (1 << bitNum)
-        }
-    }
+	if 0xFFC0 <= addr && addr < 0xFFE0 {
+		a := addr - 0xFFC0
+		bitNum := a >> 1
+		if (a & 1) == 1 {
+			// Set the SAM bit
+			SamBits |= (1 << bitNum)
+		} else {
+			// Clear the SAM bit
+			SamBits &^= (1 << bitNum)
+		}
+	}
 }
 
 func ScanTextContents() []byte {
@@ -127,134 +127,169 @@ type ScreenContents struct {
 */
 
 func GetScreenForWebsocket() []byte {
-    fb := SamScreenAddress()
-    switch SamModeV() {
-    case 0: // Text
-        return GetTextScreen(fb)
-    }
-    return nil
+	fb := SamScreenAddress()
+	Logf("SAM V=%d addr=$%04x P1B=$%02x", SamModeV(), fb, Pia1OutB())
+	switch SamModeV() {
+	case 0: // Text
+		return GetTextScreen(fb)
+	case 4: // PMODE 1
+		return GetPmode1Screen(fb)
+	}
+	return nil
+}
+
+func GetPmode1Screen(base uint) []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(0))
+	binary.Write(&buf, binary.LittleEndian, uint16(0))
+	binary.Write(&buf, binary.LittleEndian, uint16(128*2))
+	binary.Write(&buf, binary.LittleEndian, uint16(96*2))
+
+	colorBias := (Pia1OutB() & 8) >> 1 // 0 or 4
+
+	p := base
+	for y := uint(0); y < 96; y++ {
+		for t := 0; t < 2; t++ {
+			prep := p
+			for x := uint(0); x < 128/4; x++ {
+				b := the_ram.Peek1(p)
+				p++
+				for j := uint(0); j < 4; j++ {
+					color := colorBias + 3&(b>>(6-(j+j)))
+					rgb := VdgSemiGraphicsColors[color]
+					buf.Write(rgb)
+					buf.Write(rgb)
+				}
+			}
+			if t == 0 {
+				p = prep
+			}
+		}
+	}
+	return buf.Bytes()
 }
 
 func GetTextScreen(base uint) []byte {
-    var buf bytes.Buffer
+	var buf bytes.Buffer
 
-    p := base
-    for y:=uint(0); y < 16; y++ {
-        for x:=uint(0); x < 32; x++ {
-            ch := the_ram.Peek1(p)
-            p++
+	p := base
+	for y := uint(0); y < 16; y++ {
+		for x := uint(0); x < 32; x++ {
+			ch := the_ram.Peek1(p)
+			p++
 
-            if ch < 128 {
-                // Text
-                if ch == 32 {
-                    continue // dont draw blanks
-                }
-                invert := ch < 64
-                ch &= 63
+			if ch < 128 {
+				// Text
+				if ch == 32 {
+					continue // dont draw blanks
+				}
+				invert := ch < 64
+				ch &= 63
 
-                if ch < 32 {
-                    ch += 64
-                }
+				if ch < 32 {
+					ch += 64
+				}
 
-                fi := 8 * (uint(ch) - 32)
+				fi := 8 * (uint(ch) - 32)
 
-                buf.WriteByte(OpBitmap)
-                binary.Write(&buf, binary.LittleEndian, uint16(8*x))
-                binary.Write(&buf, binary.LittleEndian, uint16(8*y))
-                binary.Write(&buf, binary.LittleEndian, uint16(8))
-                binary.Write(&buf, binary.LittleEndian, uint16(8))
+				buf.WriteByte(OpBitmap)
+				binary.Write(&buf, binary.LittleEndian, uint16(8*x))
+				binary.Write(&buf, binary.LittleEndian, uint16(8*y))
+				binary.Write(&buf, binary.LittleEndian, uint16(8))
+				binary.Write(&buf, binary.LittleEndian, uint16(8))
 
-                for fy := uint(0); fy < 8; fy++ {
-                    for fx := uint(0); fx < 8; fx++ {
-                        pixel := ((Font8x8[fi + fx] >> fy) & 1) != 0
-                        if invert {
-                            pixel = !pixel
-                        }
-                        if pixel {
-                            buf.Write([]byte{220, 220, 220})  // whitish
-                        } else {
-                            buf.Write([]byte{0, 0, 0})    // blackish
-                        }
-                    }
-                }
-            } else {
-                // Semi-Graphics
-                if (ch & 15) == 0 {
-                    continue // Do not draw blank space
-                }
-                buf.WriteByte(OpBitmap)
-                binary.Write(&buf, binary.LittleEndian, uint16(8*x))
-                binary.Write(&buf, binary.LittleEndian, uint16(8*y))
-                binary.Write(&buf, binary.LittleEndian, uint16(8))
-                binary.Write(&buf, binary.LittleEndian, uint16(8))
+				for fy := uint(0); fy < 8; fy++ {
+					for fx := uint(0); fx < 8; fx++ {
+						pixel := ((Font8x8[fi+fx] >> fy) & 1) != 0
+						if invert {
+							pixel = !pixel
+						}
+						if pixel {
+							buf.Write([]byte{220, 220, 220}) // whitish
+						} else {
+							buf.Write([]byte{0, 0, 0}) // blackish
+						}
+					}
+				}
+			} else {
+				// Semi-Graphics
+				if (ch & 15) == 0 {
+					continue // Do not draw blank space
+				}
+				buf.WriteByte(OpBitmap)
+				binary.Write(&buf, binary.LittleEndian, uint16(8*x))
+				binary.Write(&buf, binary.LittleEndian, uint16(8*y))
+				binary.Write(&buf, binary.LittleEndian, uint16(8))
+				binary.Write(&buf, binary.LittleEndian, uint16(8))
 
-                shape := 15 & ch
-                color := 7 & (ch >> 4)
-                rgb := VdgSemiGraphicsColors[color]
-                for i := 0; i < 4; i++ {
-                    if (shape & 8) != 0 {
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                    } else {
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                    }
-                    if (shape & 4) != 0 {
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                    } else {
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                    }
-                }
-                for i := 0; i < 4; i++ {
-                    if (shape & 2) != 0 {
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                    } else {
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                    }
-                    if (shape & 1) != 0 {
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                        buf.Write(rgb)
-                    } else {
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                        buf.Write(BlackRGB)
-                    }
-                }
-            }
+				shape := 15 & ch
+				color := 7 & (ch >> 4)
+				rgb := VdgSemiGraphicsColors[color]
+				for i := 0; i < 4; i++ {
+					if (shape & 8) != 0 {
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+					} else {
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+					}
+					if (shape & 4) != 0 {
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+					} else {
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+					}
+				}
+				for i := 0; i < 4; i++ {
+					if (shape & 2) != 0 {
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+					} else {
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+					}
+					if (shape & 1) != 0 {
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+						buf.Write(rgb)
+					} else {
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+						buf.Write(BlackRGB)
+					}
+				}
+			}
 
-        }
-    }
-    return buf.Bytes()
+		}
+	}
+	return buf.Bytes()
 }
 
 var VdgSemiGraphicsColors = [][]byte{
-    {50, 200, 50}, // green
-    {230, 230, 0}, // yellow
-    {0, 0, 250}, // blue
-    {230, 0, 0}, // red
-    {200, 200, 200}, // buff
-    {50, 150, 250}, // lt blue
-    {200, 50, 200}, // magenta
-    {250, 140, 0}, // orange
+	{50, 200, 50},   // green
+	{230, 230, 0},   // yellow
+	{0, 0, 250},     // blue
+	{230, 0, 0},     // red
+	{200, 200, 200}, // buff
+	{50, 150, 250},  // lt blue
+	{200, 50, 200},  // magenta
+	{250, 140, 0},   // orange
 }
 
 var BlackRGB = []byte{0, 0, 0}
