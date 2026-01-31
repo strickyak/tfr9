@@ -27,6 +27,7 @@ var RAM_VERBOSE = flag.Bool("ram_verbose", false, "enable verbose debugging outp
 var LINKMAP = flag.String("linkmap", "", ".map file from linker")
 var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
+var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
 
 var the_ram Rammer
 var LinkMap []*Section
@@ -257,6 +258,7 @@ func main() {
 	log.SetFlags(0)
 	flag.Parse()
 	InstallLimitedLogWriter()
+    // println("Font8x8 font len", len(Font8x8))
 
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode(true)
@@ -309,7 +311,7 @@ func main() {
 			}
 		}
 		LinkSrc = ComputeLinkSrc(LinkMap, LinkLists, AbsLists)
-		log.Printf("ComputeLinkSrc %q returns %d items", len(LinkSrc.Src))
+		log.Printf("ComputeLinkSrc returns %d items", len(LinkSrc.Src))
 
 		{
 			var keys []uint
@@ -325,6 +327,21 @@ func main() {
 		}
 	}
 
+    if *BIND != "" {
+        go WebServer(&WebConsoleConfig{
+            Bind: *BIND,
+            Key: func(flags uint, s string){
+                ch := KeystrokeValue(flags, s)
+                if 1 <= ch && ch <= 127 {
+                    inkey <- ch
+                }
+            },
+            Move: func(x, y int) {},
+            Down: func(x, y int) {},
+            Up: func(x, y int) {},
+        })
+		time.Sleep(100 * time.Millisecond)
+    }
 	OpenDisks(*DISKS)
 	for {
 		TryRun(inkey, person)

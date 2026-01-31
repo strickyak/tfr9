@@ -15,11 +15,25 @@ uint* current_bases;
 uint base[2][8];
 byte mmu[2][8];
 byte machine_number;
+byte machine_shifted;
 
 template <typename T>
 struct DontTraceRamWrites {
   force_inline static void TraceTheRamWrite(uint addr, uint phys, byte data) {}
 };
+template <typename T, uint A>
+struct DoTraceLowRamWrites {
+  force_inline static void TraceTheRamWrite(uint addr, uint phys, byte data) {
+    if (quiet_ram) return;
+    if (addr < A | addr >= 0xFF00) {
+        putbyte(C_RAM2_WRITE);
+        putbyte(addr >> 8);
+        putbyte(addr);
+        putbyte(data);
+    }
+  }
+};
+
 template <typename T>
 struct DoTraceRamWrites {
   force_inline static void TraceTheRamWrite(uint addr, uint phys, byte data) {
@@ -28,10 +42,10 @@ struct DoTraceRamWrites {
 #if 1
     // Recording CPU Writes with 2-byte logical address is sufficient, if all
     // writes are recorded.
-    putbyte(C_RAM2_WRITE);
-    putbyte(addr >> 8);
-    putbyte(addr);
-    putbyte(data);
+        putbyte(C_RAM2_WRITE);
+        putbyte(addr >> 8);
+        putbyte(addr);
+        putbyte(data);
 #else
     // Recording CPU Writes with 5-byte logical + physical address is for
     // debugging, to assert that TConsole & TManager both compute the same
@@ -111,7 +125,7 @@ class SmallRam {
     putbyte(C_RAM_CONFIG);
     putsz(2);
     putbyte('1');  // Ascii '1' for Small Ram.
-    putbyte(machine_number);
+    putbyte(machine_shifted + machine_number);
   }
 };
 

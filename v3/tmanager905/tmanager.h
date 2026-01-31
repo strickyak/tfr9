@@ -986,9 +986,9 @@ MUMBLE("PR12");
           T::Keyboard_Tick(0);
 
           if (T::Keyboard_CanRx()) {
-            if (cardkb_input.HasAtLeast(1)) {
-              if (cardkb_input.HasAtLeast(1)) {
-                byte ch = cardkb_input.Take();
+            if (term_input.HasAtLeast(1)) {
+              if (term_input.HasAtLeast(1)) {
+                byte ch = term_input.Take();
                 T::Keyboard_SetRx(ch);
               }
             }
@@ -1346,6 +1346,20 @@ struct Fast_Mixins : DontPcRange<T>,
                      DoPicoTimer<T> {};
 
 template <typename T>
+struct Fast_C2_Mixins : DontPcRange<T>,
+                     DontTrace<T>,
+                     DontSeen<T>,
+                     Logging<T, LHello>,
+                     // DontLogMmu<T>,
+                     DontShowIrqs<T>,
+
+                     DoTraceLowRamWrites<T, 0x0600>,
+                     DontHyper<T>,
+                     DontEvent<T>,
+                     DontDumpRamOnEvent<T>,
+                     DoPicoTimer<T> {};
+
+template <typename T>
 struct Common_Mixins : EngineBase<T>,
                        CommonRam<T>,
                        DoPicoIO<T>,
@@ -1475,7 +1489,7 @@ struct C2_Mixins : Common_Mixins<T>,
   }
 };
 struct C2_Slow : SmallRam<C2_Slow>, C2_Mixins<C2_Slow>, Slow_Mixins<C2_Slow> {};
-struct C2_Fast : SmallRam<C2_Fast>, C2_Mixins<C2_Fast>, Fast_Mixins<C2_Fast> {};
+struct C2_Fast : SmallRam<C2_Fast>, C2_Mixins<C2_Fast>, Fast_C2_Mixins<C2_Fast> {};
 
 // F3 == try Fuxiz on a Coco3
 template <typename T>
@@ -1587,8 +1601,8 @@ struct L2_Slow : L2_Mixins<L2_Slow>, Slow_Mixins<L2_Slow> {};
 struct L2_Fast : L2_Mixins<L2_Fast>, Fast_Mixins<L2_Fast> {};
 
 struct harness {
-  std::function<void(void)> engines[5];
-  std::function<void(void)> fast_engines[5];
+  std::function<void(void)> engines[10];
+  std::function<void(void)> fast_engines[10];
 
   harness() {
     memset(engines, 0, sizeof engines);
@@ -1599,12 +1613,14 @@ struct harness {
     engines[2] = L2_Slow::Run;
     engines[3] = X1_Slow::Run;
     engines[4] = F3_Slow::Run;
+    engines[6] = C2_Slow::Run;
 
     fast_engines[0] = T9_Fast::Run;
     fast_engines[1] = L1_Fast::Run;
     fast_engines[2] = L2_Fast::Run;
     fast_engines[3] = X1_Fast::Run;
     fast_engines[4] = F3_Fast::Run;
+    fast_engines[6] = C2_Fast::Run;
   }
 };
 
@@ -1665,7 +1681,13 @@ void Shell() {
         }
         ShowChar('>');
 
-        if ('0' <= ch && ch <= '4') {
+        if (ch == '/') {
+            for (uint i = 0; i < 5; i++) {
+                harness.engines[i] = harness.engines[i+5];
+                harness.fast_engines[i] = harness.fast_engines[i+5];
+            }
+            machine_shifted = 100;
+        } else if ('0' <= ch && ch <= '4') {
           uint num = ch - '0';
           if (harness.fast_engines[num]) {
             machine_number = ch;

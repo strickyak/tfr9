@@ -1,8 +1,13 @@
 #ifndef _COCOPIAS_H_
 #define _COCOPIAS_H_
 
-constexpr const char* KB_NORMAL =
+// OLD
+constexpr const char* KB_NORMAL_XXX =
     "@ABCDEFGHIJKLMNOPQRSTUVWXYZ\204\205\206\207 "
+    "0123456789:;,-./\r\014\033\000\000\201\202\000";
+// FOR COCO2
+constexpr const char* KB_NORMAL =
+    "@ABCDEFGHIJKLMNOPQRSTUVWXYZ\204\205\010\011 "
     "0123456789:;,-./\r\014\033\000\000\201\202\000";
 constexpr const char* KB_SHIFT =
     "`abcdefghijklmnopqrstuvwxyz____ 0!\"#$%&'()*+<=>?___..__.";

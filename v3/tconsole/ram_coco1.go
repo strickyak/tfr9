@@ -125,6 +125,8 @@ func (o *Coco1Ram) LPeek2(addr uint) uint {
 
 func (o *Coco1Ram) Poke1(addr uint, data byte) {
 	o.trackRam[addr&COCO1_RAM_MASK] = data
+
+    SamPoke1(addr)
 }
 
 func (o *Coco1Ram) Who() string {
