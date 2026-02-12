@@ -246,18 +246,19 @@ func GetTextScreen(base uint) []byte {
 
 				buf.WriteByte(OpBitmap)
 				binary.Write(&buf, binary.LittleEndian, uint16(8*x))
-				binary.Write(&buf, binary.LittleEndian, uint16(12*y+3))
+				binary.Write(&buf, binary.LittleEndian, uint16(12*y+uint(Cond(invert, 0, 3))))
 				binary.Write(&buf, binary.LittleEndian, uint16(8))
-				binary.Write(&buf, binary.LittleEndian, uint16(8))
+				binary.Write(&buf, binary.LittleEndian, uint16(Cond(invert, 12, 7)))
 
-				for fy := uint(0); fy < 8; fy++ {
+				if invert {
+					for i := uint(0); i < 3*8; i++ {
+						buf.Write([]byte{220, 220, 220}) // whitish
+					}
+				}
+				for fy := uint(0); fy < 7; fy++ {
 					for fx := uint(0); fx < 8; fx++ {
 						var pixel bool
-						if fy < 7 {
-							pixel = ((VdgFont[fi+fy] >> (7 - fx)) & 1) != 0
-						} else {
-							pixel = false
-						}
+						pixel = ((VdgFont[fi+fy] >> (7 - fx)) & 1) != 0
 						if invert {
 							pixel = !pixel
 						}
@@ -268,18 +269,23 @@ func GetTextScreen(base uint) []byte {
 						}
 					}
 				}
+				if invert {
+					for i := uint(0); i < 2*8; i++ {
+						buf.Write([]byte{220, 220, 220}) // whitish
+					}
+				}
 				/*
-									for fx := uint(0); fx < 8; fx++ {
-										pixel := false
-										if invert {
-											pixel = !pixel
-										}
-										if pixel {
-											buf.Write([]byte{220, 220, 220}) // whitish
-										} else {
-											buf.Write([]byte{0, 0, 0}) // blackish
-										}
-				                    }
+										for fx := uint(0); fx < 8; fx++ {
+											pixel := false
+											if invert {
+												pixel = !pixel
+											}
+											if pixel {
+												buf.Write([]byte{220, 220, 220}) // whitish
+											} else {
+												buf.Write([]byte{0, 0, 0}) // blackish
+											}
+					                    }
 				*/
 			} else {
 				// Semi-Graphics

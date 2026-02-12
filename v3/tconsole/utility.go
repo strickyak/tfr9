@@ -57,3 +57,10 @@ func AssertGT[T Ordered](a, b T) {
 		log.Panicf("...AssertGT fails: %v vs %v", a, b)
 	}
 }
+
+func Cond[T any](pred bool, x T, y T) T {
+    if pred {
+        return x
+    }
+    return y
+}
