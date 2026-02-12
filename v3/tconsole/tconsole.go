@@ -613,6 +613,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				addr := (uint(hi) << 8) | uint(lo)
 
 				data := pack[2]
+                //fmt.Printf("W %04x %02x\n", addr, data)
+                // fmt.Printf("^");
 
 				if *RAM_VERBOSE {
 					Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))

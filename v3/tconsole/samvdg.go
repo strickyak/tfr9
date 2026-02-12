@@ -129,11 +129,14 @@ type ScreenContents struct {
 func GetScreenForWebsocket() []byte {
 	fb := SamScreenAddress()
 	Logf("SAM V=%d addr=$%04x P1B=$%02x", SamModeV(), fb, Pia1OutB())
+
 	switch SamModeV() {
 	case 0: // Text
 		return GetTextScreen(fb)
 	case 4: // PMODE 1
 		return GetPmode1Screen(fb)
+	case 6: // PMODE 4
+		return GetPmode4Screen(fb)
 	}
 	return nil
 }
@@ -170,6 +173,33 @@ func GetPmode1Screen(base uint) []byte {
 	return buf.Bytes()
 }
 
+func GetPmode4Screen(base uint) []byte {
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(0))
+	binary.Write(&buf, binary.LittleEndian, uint16(0))
+	binary.Write(&buf, binary.LittleEndian, uint16(256))
+	binary.Write(&buf, binary.LittleEndian, uint16(192))
+
+	colorBias := (Pia1OutB() & 8) >> 1 // 0 or 4
+
+	p := base
+	for y := uint(0); y < 192; y++ {
+        for x := uint(0); x < 256/2; x++ {
+            b := the_ram.Peek1(p)
+            p++
+            for j := uint(0); j < 8; j++ {
+                if (1&(b>>(7-j))) != 0 {
+							buf.Write(VdgSemiGraphicsColors[colorBias])
+                } else {
+							buf.Write([]byte{0, 0, 0}) // blackish
+                }
+            }
+        }
+	}
+	return buf.Bytes()
+}
+
 func GetTextScreen(base uint) []byte {
 	var buf bytes.Buffer
 
@@ -186,22 +216,22 @@ func GetTextScreen(base uint) []byte {
 				}
 				invert := ch < 64
 				ch &= 63
-
-				if ch < 32 {
-					ch += 64
-				}
-
-				fi := 8 * (uint(ch) - 32)
+				fi := 7 * uint(ch)
 
 				buf.WriteByte(OpBitmap)
 				binary.Write(&buf, binary.LittleEndian, uint16(8*x))
-				binary.Write(&buf, binary.LittleEndian, uint16(8*y))
+				binary.Write(&buf, binary.LittleEndian, uint16(12*y+3))
 				binary.Write(&buf, binary.LittleEndian, uint16(8))
 				binary.Write(&buf, binary.LittleEndian, uint16(8))
 
 				for fy := uint(0); fy < 8; fy++ {
 					for fx := uint(0); fx < 8; fx++ {
-						pixel := ((Font8x8[fi+fx] >> fy) & 1) != 0
+                        var pixel bool
+                        if fy < 7 {
+						    pixel = ((VdgFont[fi+fy] >> (7-fx)) & 1) != 0
+                        } else {
+						    pixel = false
+                        }
 						if invert {
 							pixel = !pixel
 						}
@@ -212,6 +242,19 @@ func GetTextScreen(base uint) []byte {
 						}
 					}
 				}
+                /*
+					for fx := uint(0); fx < 8; fx++ {
+						pixel := false
+						if invert {
+							pixel = !pixel
+						}
+						if pixel {
+							buf.Write([]byte{220, 220, 220}) // whitish
+						} else {
+							buf.Write([]byte{0, 0, 0}) // blackish
+						}
+                    }
+                    */
 			} else {
 				// Semi-Graphics
 				if (ch & 15) == 0 {
@@ -219,14 +262,14 @@ func GetTextScreen(base uint) []byte {
 				}
 				buf.WriteByte(OpBitmap)
 				binary.Write(&buf, binary.LittleEndian, uint16(8*x))
-				binary.Write(&buf, binary.LittleEndian, uint16(8*y))
+				binary.Write(&buf, binary.LittleEndian, uint16(12*y))
 				binary.Write(&buf, binary.LittleEndian, uint16(8))
-				binary.Write(&buf, binary.LittleEndian, uint16(8))
+				binary.Write(&buf, binary.LittleEndian, uint16(12))
 
 				shape := 15 & ch
 				color := 7 & (ch >> 4)
 				rgb := VdgSemiGraphicsColors[color]
-				for i := 0; i < 4; i++ {
+				for i := 0; i < 6; i++ {
 					if (shape & 8) != 0 {
 						buf.Write(rgb)
 						buf.Write(rgb)
@@ -250,7 +293,7 @@ func GetTextScreen(base uint) []byte {
 						buf.Write(BlackRGB)
 					}
 				}
-				for i := 0; i < 4; i++ {
+				for i := 0; i < 6; i++ {
 					if (shape & 2) != 0 {
 						buf.Write(rgb)
 						buf.Write(rgb)
