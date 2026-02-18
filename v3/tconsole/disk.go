@@ -68,7 +68,7 @@ func EmulateDiskWrite(pack []byte, channelToPico chan []byte) {
 
 	_, err := Files[hnum].OsFile.Seek(Os9SectorSize*int64(lsn), 0)
 	if err != nil {
-		Panicf("Cannot seek")
+		Panicf("EmulateDiskWrite: Cannot seek hnum=%d lsn=%d param=%v", hnum, lsn, disk_param)
 	}
 	Logf("C_DISK_WRITE num %x lsn %x", hnum, lsn)
 
@@ -84,22 +84,52 @@ func EmulateDiskWrite(pack []byte, channelToPico chan []byte) {
 
 }
 
-func EmulateDiskRead(pack []byte, channelToPico chan []byte) {
-	var disk_param [4]byte
-	for i := 0; i < 4; i++ {
-		disk_param[i] = pack[i]
-        Logf("EmulateDiskRead: disk_param[%x]: %02x", i, disk_param[i])
-	}
-	hnum := disk_param[0]
-	AssertLT(hnum, MaxDiskFiles)
+func EmulateDiskRead(disk_param []byte, channelToPico chan []byte) {
+	var hnum byte
+	var lsn uint
 
-	lsn := (uint(disk_param[1]) << 16) | (uint(disk_param[2]) << 8) | uint(disk_param[3])
+    for i := 0; i < len(disk_param); i++ {
+        Logf("EmulateDiskRead: disk_param[%x]: %02x", i, disk_param[i])
+    }
+
+	switch len(disk_param) {
+	case 4: // TFR9 only
+		hnum = disk_param[0]
+		AssertLT(hnum, MaxDiskFiles)
+
+		lsn = (uint(disk_param[1]) << 16) | (uint(disk_param[2]) << 8) | uint(disk_param[3])
+
+	case 5: // centipede0 only
+        if disk_param[0] != 'f' {
+            Panicf("unknown EmulateDiskRead packet len 5: % 2x", disk_param)
+        }
+        if disk_param[1] != 0x80 {
+            Panicf("unknown EmulateDiskRead packet len 5: % 2x", disk_param)
+        }
+        hnum = FloppyDeviceStart
+        switch {
+        case (disk_param[2] & 1) != 0:
+            hnum += 0
+        case (disk_param[2] & 2) != 0:
+            hnum += 1
+        case (disk_param[2] & 4) != 0:
+            hnum += 2
+        case (disk_param[2] & 0x40) != 0:
+            hnum += 3
+        default:
+            Panicf("unknown EmulateDiskRead packet hnum: % 2x", disk_param)
+        }
+        lsn = 18 * uint(disk_param[3]) + uint(disk_param[4]) - 1;
+
+	default:
+		Panicf("unknown EmulateDiskRead packet % 2x", disk_param)
+	}
 
 	_, err := Files[hnum].OsFile.Seek(Os9SectorSize*int64(lsn), 0)
 	if err != nil {
-		Panicf("Cannot seek")
+		Panicf("EmulateDiskRead: Cannot seek hnum=%d lsn=%d param=% 2x", hnum, lsn, disk_param)
 	}
-	Logf("C_DISK_READ num %x lsn %x", hnum, lsn)
+	Logf("C_DISK_READ num $%x lsn $%x=%d.", hnum, lsn, lsn);
 
 	sector := make([]byte, Os9SectorSize)
 	_, err = Files[hnum].OsFile.Read(sector)

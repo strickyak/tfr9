@@ -28,6 +28,7 @@ var LINKMAP = flag.String("linkmap", "", ".map file from linker")
 var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
 var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
+var COMMAND = flag.String("c", "", "subcommand")
 
 var the_ram Rammer
 var LinkMap []*Section
@@ -69,6 +70,7 @@ const (
 	C_RAM3_WRITE = 196 // low nybble is 4.  Payload is "AHighest AHi ALo Data"
 	C_RAM5_WRITE = 198 // low nybble is 6.  Payload is "PHighest PHi PLo AHi ALo Data"
 	C_CYCLE      = 200 // one machine cycle. low nybble is 8. Payload is "cycle4 kind_fl1 data1 addr2"
+	C_CYCLE_RD3  = 211 // centipede: one read cycle: A A D
 
 	// C_NOKEY = 208  // low nybble is 0.
 	// C_KEY = 211  // low nybble is 3.  Payload is { row, col, plane }
@@ -258,7 +260,7 @@ func main() {
 	log.SetFlags(0)
 	flag.Parse()
 	InstallLimitedLogWriter()
-    // println("Font8x8 font len", len(Font8x8))
+	// println("Font8x8 font len", len(Font8x8))
 
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode(true)
@@ -289,8 +291,10 @@ func main() {
 			AbsLists = append(AbsLists, lf)
 			log.Printf("LOADED ABS LIST_FILENAME %q (%d)", filename, len(lf.Src))
 
-			for k, v := range lf.Src {
-				log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
+            if false {
+                for k, v := range lf.Src {
+                    log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
+                }
 			}
 		}
 	}
@@ -313,7 +317,7 @@ func main() {
 		LinkSrc = ComputeLinkSrc(LinkMap, LinkLists, AbsLists)
 		log.Printf("ComputeLinkSrc returns %d items", len(LinkSrc.Src))
 
-		{
+		if false {
 			var keys []uint
 			for k := range LinkSrc.Src {
 				keys = append(keys, k)
@@ -327,21 +331,21 @@ func main() {
 		}
 	}
 
-    if *BIND != "" {
-        go WebServer(&WebConsoleConfig{
-            Bind: *BIND,
-            Key: func(flags uint, s string){
-                ch := KeystrokeValue(flags, s)
-                if 1 <= ch && ch <= 127 {
-                    inkey <- ch
-                }
-            },
-            Move: func(x, y int) {},
-            Down: func(x, y int) {},
-            Up: func(x, y int) {},
-        })
+	if *BIND != "" {
+		go WebServer(&WebConsoleConfig{
+			Bind: *BIND,
+			Key: func(flags uint, s string) {
+				ch := KeystrokeValue(flags, s)
+				if 1 <= ch && ch <= 127 {
+					inkey <- ch
+				}
+			},
+			Move: func(x, y int) {},
+			Down: func(x, y int) {},
+			Up:   func(x, y int) {},
+		})
 		time.Sleep(100 * time.Millisecond)
-    }
+	}
 	OpenDisks(*DISKS)
 	for {
 		TryRun(inkey, person)
@@ -424,6 +428,9 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	defer func() { Shutdown(recover()) }()
 
 	loadArgs := flag.Args()
+	if *COMMAND == "centipede0" {
+		loadArgs = nil // Nothing to load (yet) in centipede0 mode.
+	}
 
 	var previousPutChar byte
 	var remember int64
@@ -541,6 +548,20 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					}
 				}
 
+			case C_CYCLE_RD3: // centipede: A A D
+				const GLOSS = true
+				pack := GetPacket(fromUSB, cmd)
+				if len(pack) == 3 {
+					_data := pack[2]
+					_addr := (uint(pack[0]) << 8) + uint(pack[1])
+
+					if *COMMAND == "centipede0" {
+						aline, _ := LinkSrc.Src[_addr]
+						cline := Format("cy-r %04x %02x    %s", _addr, _data, aline)
+						Logf("%s", cline)
+					}
+				}
+
 			case C_LOGGING,
 				C_LOGGING + 1,
 				C_LOGGING + 2,
@@ -613,16 +634,20 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				addr := (uint(hi) << 8) | uint(lo)
 
 				data := pack[2]
-                //fmt.Printf("W %04x %02x\n", addr, data)
-                // fmt.Printf("^");
+				//fmt.Printf("W %04x %02x\n", addr, data)
+				// fmt.Printf("^");
 
-				if *RAM_VERBOSE {
-					Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
-				}
-				the_ram.Poke1(addr, data)
+				if *COMMAND == "centipede0" {
+					Logf("WRITE %04x = %02x", addr, data)
+				} else {
+					if *RAM_VERBOSE {
+						Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
+					}
+					the_ram.Poke1(addr, data)
 
-				if (addr & 0xFF00) == 0xFF00 {
-					HandleIOPoke(addr, data)
+					if (addr & 0xFF00) == 0xFF00 {
+						HandleIOPoke(addr, data)
+					}
 				}
 
 			case C_DUMP_RAM, C_DUMP_PHYS:
