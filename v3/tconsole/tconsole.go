@@ -97,6 +97,8 @@ var CommandStrings = map[byte]string{
 	C_RAM2_WRITE:  "C_RAM2_WRITE",
 	C_RAM3_WRITE:  "C_RAM3_WRITE",
 	C_RAM5_WRITE:  "C_RAM5_WRITE",
+    C_CYCLE_RD3:   "C_CYCLE_RD3",
+
 	C_EVENT:       "C_EVENT",
 	EVENT_RTI:     "EVENT_RTI",
 	EVENT_SWI2:    "EVENT_SWI2",
@@ -557,7 +559,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 					if *COMMAND == "centipede0" {
 						aline, _ := LinkSrc.Src[_addr]
-						cline := Format("cy-r %04x %02x    %s", _addr, _data, aline)
+						cline := Format("cy-r %04x   -> %02x    %s", _addr, _data, aline)
 						Logf("%s", cline)
 					}
 				}
@@ -638,7 +640,21 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				// fmt.Printf("^");
 
 				if *COMMAND == "centipede0" {
-					Logf("WRITE %04x = %02x", addr, data)
+					_data := pack[2]
+					_addr := (uint(pack[0]) << 8) + uint(pack[1])
+                    gloss := ""
+                    switch (_data >> 5) {
+                    case 0:
+                        gloss = Format("_%c_", 64 + (31 & data))
+                    case 1:
+                        gloss = Format("_%c_", 32 + (31 & data))
+                    case 2:
+                        gloss = Format(" %c ", 64 + (31 & data))
+                    case 3:
+                        gloss = Format(" %c ", 32 + (31 & data))
+                    }
+					cline := Format("cy-w %04x <-  %02x    %s", _addr, _data, gloss)
+					Logf("%s", cline)
 				} else {
 					if *RAM_VERBOSE {
 						Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
