@@ -28,7 +28,8 @@ var LINKMAP = flag.String("linkmap", "", ".map file from linker")
 var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
 var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
-var COMMAND = flag.String("c", "", "subcommand")
+
+var CENTIPEDE = flag.Bool("centipede", false, "Centipede should set this flag")
 
 var the_ram Rammer
 var LinkMap []*Section
@@ -430,7 +431,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	defer func() { Shutdown(recover()) }()
 
 	loadArgs := flag.Args()
-	if *COMMAND == "centipede0" {
+	if *CENTIPEDE {
 		loadArgs = nil // Nothing to load (yet) in centipede0 mode.
 	}
 
@@ -557,9 +558,9 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					_data := pack[2]
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
 
-					if *COMMAND == "centipede0" {
+					if *CENTIPEDE {
 						aline, _ := LinkSrc.Src[_addr]
-						cline := Format("cy-r %04x   -> %02x    %s", _addr, _data, aline)
+                        cline := Format("cy-r %04x   -> %02x :: %s", _addr, _data, aline)
 						Logf("%s", cline)
 					}
 				}
@@ -639,7 +640,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				//fmt.Printf("W %04x %02x\n", addr, data)
 				// fmt.Printf("^");
 
-				if *COMMAND == "centipede0" {
+				if *CENTIPEDE {
 					_data := pack[2]
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
                     gloss := ""
