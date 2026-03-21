@@ -109,6 +109,25 @@ var CommandStrings = map[byte]string{
 	EVENT_SWI2: "EVENT_SWI2",
 }
 
+var Swi2Num byte
+var Swi2WriteHistory [12]byte
+var Swi2WriteFuse uint
+var Swi2WriteReg = [12]string{
+	"CC", "A",
+	"B", "DP",
+	"X.hi", "X.lo",
+	"Y.hi", "Y.lo",
+	"U.hi", "U.lo",
+	"PC.hi", "PC.lo",
+
+	//"PC.lo", "PC.hi",
+	//"U.lo", "U.hi",
+	//"Y.lo", "Y.hi",
+	//"X.lo", "X.hi",
+	//"DP", "A",
+	//"B", "CC",
+}
+
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
 var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\"#$%&'" + "()*+<=>?" + "\r\014\003"
 
@@ -594,6 +613,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						case (ReadCycleHistory & 0xFFFF00) == 0x103F00:
 							{
 								Logf("GOT SWI2(%02x)", _data)
+								Swi2WriteFuse = 12
+								Swi2Num = _data
 							}
 						}
 
@@ -690,8 +711,21 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					case 3:
 						gloss = Format(" %c ", 32+(31&data))
 					}
+					explain := false
+					if Swi2WriteFuse > 0 {
+						Swi2WriteFuse--
+						Swi2WriteHistory[Swi2WriteFuse] = _data
+						gloss += "        =" + Swi2WriteReg[Swi2WriteFuse]
+
+						if Swi2WriteFuse == 0 {
+							explain = true
+						}
+					}
 					cline := Format("cy-w %04x <-  %02x    %s", _addr, _data, gloss)
 					Logf("%s", cline)
+					if explain {
+						ExplainOs9Call(_addr, _data, Swi2Num)
+					}
 				} else {
 					if *RAM_VERBOSE {
 						Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
@@ -1092,4 +1126,32 @@ func LookForPreSync(ch byte) bool {
 	syncWindow[3] = ch
 	Logf("LookForPreSync: %q vs %q", syncWindow[:], ".:,;")
 	return string(syncWindow[:]) == ".:,;"
+}
+
+func ExplainOs9Call(_addr uint, _data byte, os9num byte) {
+	rec := &EventRec{
+		SerialNum: MintSerial(),
+		Os9Num:    Swi2Num,
+		Datas:     make([]byte, 14),
+	}
+
+	for i, h := range Swi2WriteHistory {
+		rec.Datas[11-i+2] = h
+	}
+
+	call, _ := Os9ApiCallOf[os9num]
+	callString, regs := person.FormatCall(os9num, call, rec)
+	rec.Call = callString
+
+	Logf("\n=== OS9_CALL %s", callString)
+	Logf("\n=== REGS %#v", regs)
+
+	if RecentScannedMemoryModules != nil {
+		for i, m := range RecentScannedMemoryModules {
+			Logf("SMM [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+		}
+	}
+	for i, m := range person.RegisteredMemoryModules() {
+		Logf("RMM [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+	}
 }

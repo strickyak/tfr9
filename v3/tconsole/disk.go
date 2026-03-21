@@ -153,7 +153,7 @@ func EmulateDiskRead(disk_param []byte, channelToPico chan []byte) {
 	if err != nil {
 		Panicf("EmulateDiskRead: Cannot seek hnum=%d lsn=%d param=% 2x", hnum, lsn, disk_param)
 	}
-	Logf("C_DISK_READ num $%x lsn $%x=%d.", hnum, lsn, lsn)
+	Logf("C_DISK_READ dev=%d. track=%d. sect=%d. lsn %d.", hnum, disk_param[3], disk_param[4], lsn)
 
 	sector := make([]byte, Os9SectorSize)
 	_, err = Files[hnum].OsFile.Read(sector)
