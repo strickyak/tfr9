@@ -93,9 +93,9 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 var InitialMemoryModules []*ScannedModuleInfo
 
 func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
-	if *CENTIPEDE {
-		return "", addr
-	}
+	// if *CENTIPEDE {
+		// return "", addr
+	// }
 	if *NO_MODULES {
 		return "", addr
 	}
