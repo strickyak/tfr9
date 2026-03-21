@@ -13,12 +13,13 @@ const MaxDiskFiles = 128
 const FloppyDeviceStart = 64
 
 type DiskFile struct {
+    DoubleSided bool
 	OsFile *os.File
 }
 
 var Files [MaxDiskFiles]DiskFile
 
-var NumberedHPattern = regexp.MustCompile(`^[HhFf]([0-9]):(.*)$`)
+var NumberedHPattern = regexp.MustCompile(`^[HhFfDd]([0-9]):(.*)$`)
 
 func OpenDisks(disks string) {
 	for i, spec := range strings.Split(disks, ",") {
@@ -36,6 +37,10 @@ func OpenDisks(disks string) {
 
 			if spec[0] == 'f' || spec[0] == 'F' {
 				j += FloppyDeviceStart
+			}
+			if spec[0] == 'd' || spec[0] == 'D' {
+				j += FloppyDeviceStart
+                Files[j].DoubleSided = true
 			}
 
 			f, err := os.OpenFile(filename, os.O_RDWR, 0)
@@ -80,7 +85,8 @@ func EmulateDiskWrite(disk_param []byte, channelToPico chan []byte) {
         hnum = 0x40
         AssertLT(hnum, MaxDiskFiles)
 
-        lsn = 18 * uint(disk_param[3]) + uint(disk_param[4]) - 1;
+        sectorsPerTrack := uint(Cond(Files[hnum].DoubleSided , 36 , 18))
+        lsn = sectorsPerTrack * uint(disk_param[3]) + uint(disk_param[4]) - 1;
 	    Logf("C_DISK_WRITE num %x lsn %x", hnum, lsn)
         sector = disk_param[5:]
 
@@ -136,7 +142,8 @@ func EmulateDiskRead(disk_param []byte, channelToPico chan []byte) {
         default:
             Panicf("unknown EmulateDiskRead packet hnum: % 2x", disk_param)
         }
-        lsn = 18 * uint(disk_param[3]) + uint(disk_param[4]) - 1;
+        sectorsPerTrack := uint(Cond(Files[hnum].DoubleSided , 36 , 18))
+        lsn = sectorsPerTrack * uint(disk_param[3]) + uint(disk_param[4]) - 1;
 
 	default:
 		Panicf("unknown EmulateDiskRead packet % 2x", disk_param)
