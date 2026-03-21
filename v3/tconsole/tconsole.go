@@ -40,6 +40,14 @@ var AbsLists []*ModSrc
 var LinkLists []*ModSrc
 var LinkSrc *ModSrc
 var ReadCycleHistory uint64
+var Os9CallsPending = make(map[string]*EventRec)
+
+var Swi2PC uint
+var Swi2Cycle uint
+var RTI_PC uint
+var RTICycle uint
+var RTIStack uint
+var RTIHistory [12]byte
 
 const (
 	C_NOP      = 0
@@ -463,6 +471,8 @@ func MintSerialNum() uint {
 	return serialNumCounter
 }
 
+var Cycle uint
+
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 
@@ -595,10 +605,12 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
 
 					if *CENTIPEDE {
+                        Cycle++
+
 						modName, modOffset := person.MemoryModuleOf(_addr)
 						aline := Format("%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
 						// aline, _ := LinkSrc.Src[_addr]
-						cline := Format("cy-r %04x   -> %02x :: %s", _addr, _data, aline)
+						cline := Format("cy-r %04x   -> %02x  #%d  %s", _addr, _data, Cycle, aline)
 						Logf("%s", cline)
 
 						ReadCycleHistory = (ReadCycleHistory << 8) | uint64(_data)
@@ -614,10 +626,57 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 							{
 								Logf("GOT SWI2(%02x)", _data)
 								Swi2WriteFuse = 12
+                                Swi2PC = _addr - 2
+                                Swi2Cycle = Cycle
 								Swi2Num = _data
 							}
+                        case _data == 0x3B: // RTI
+                            {
+                                RTI_PC = _addr
+                                RTICycle = Cycle
+                            }
+                        case (ReadCycleHistory & 0xFF00) == 0x3B00:
+                            {
+                                // intermediate step
+                            }
+                        case (ReadCycleHistory & 0xFF0000) == 0x3B0000:
+                            {
+                                RTIStack = _addr
+                                RTIHistory[0] = _data
+                            }
+                        case RTIStack != 0:
+                            {
+                                i := _addr - RTIStack
+                                // Logf("R::: (%x) i=%d. addr %x S %x | % 3x", RTICycle, i, _addr, RTIStack, RTIHistory)
+                                if i >= 12 {
+                                    key := Format("%04x_%04x", _addr-12, ((uint(RTIHistory[10]) << 8) | uint(RTIHistory[11]) - 3 ))
+                                    rec, _ := Os9CallsPending[key]
+                                    snum := 0
+                                    call := "?"
+                                    if rec != nil {
+                                        snum = int(rec.SerialNum)
+                                        call = rec.Call
+                                        delete(Os9CallsPending, key)
+                                    }
+                                    status := "OKAY"
+                                    if (RTIHistory[0] & 1) != 0 {
+                                        status = Format("ERROR($%x=%d.)", RTIHistory[2], RTIHistory[2])
+                                    }
+                                    Logf("RTI: %s (%x) PC %x S %x :: %s :: % 3x <== _%d_ %v", key, RTICycle, RTI_PC, RTIStack, status, RTIHistory, snum, call)
+                                    RTI_PC = 0
+                                    RTICycle = 0
+                                    RTIStack = 0
+                                } else {
+                                    RTIHistory[i] = _data
+                                }
+                            }
+                        default:
+                            {
+                                RTI_PC = 0
+                                RTICycle = 0
+                                RTIStack = 0
+                            }
 						}
-
 					}
 				}
 
@@ -697,15 +756,17 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				// fmt.Printf("^");
 
 				if *CENTIPEDE {
+                    Cycle++
+
 					_data := pack[2]
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
 					the_ram.Poke1(_addr, _data)
-					gloss := ""
+					gloss := "   "
 					switch _data >> 5 {
 					case 0:
-						gloss = Format("_%c_", 64+(31&data))
+						gloss = Format("<%c>", 64+(31&data))
 					case 1:
-						gloss = Format("_%c_", 32+(31&data))
+						gloss = Format("<%c>", 32+(31&data))
 					case 2:
 						gloss = Format(" %c ", 64+(31&data))
 					case 3:
@@ -721,7 +782,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 							explain = true
 						}
 					}
-					cline := Format("cy-w %04x <-  %02x    %s", _addr, _data, gloss)
+					cline := Format("cy-w %04x <-  %02x  #%d  %s", _addr, _data, Cycle, gloss)
 					Logf("%s", cline)
 					if explain {
 						ExplainOs9Call(_addr, _data, Swi2Num)
@@ -1129,6 +1190,7 @@ func LookForPreSync(ch byte) bool {
 }
 
 func ExplainOs9Call(_addr uint, _data byte, os9num byte) {
+    Logf("\nExplainOs9Call: a=%x d=%x num=%x", _addr, _data, os9num)
 	rec := &EventRec{
 		SerialNum: MintSerial(),
 		Os9Num:    Swi2Num,
@@ -1143,15 +1205,23 @@ func ExplainOs9Call(_addr uint, _data byte, os9num byte) {
 	callString, regs := person.FormatCall(os9num, call, rec)
 	rec.Call = callString
 
-	Logf("\n=== OS9_CALL %s", callString)
-	Logf("\n=== REGS %#v", regs)
+    key := Format("%04x_%04x", _addr, Swi2PC)
+    Logf("\n%s === OS9_CALL _%d_ %s %#v", key, rec.SerialNum, callString, regs)
+	Logf("\n%s === EventRec %#v", key, rec)
+	Logf("\n")
 
-	if RecentScannedMemoryModules != nil {
-		for i, m := range RecentScannedMemoryModules {
-			Logf("SMM [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
-		}
-	}
-	for i, m := range person.RegisteredMemoryModules() {
-		Logf("RMM [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+    Os9CallsPending[key] = rec
+
+    registered := person.RegisteredMemoryModules()
+    if registered == nil {
+        if RecentScannedMemoryModules != nil {
+            for i, m := range RecentScannedMemoryModules {
+                Logf("Scanned [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+            }
+        }
+    } else {
+        for i, m := range person.RegisteredMemoryModules() {
+            Logf("Registered [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+        }
 	}
 }

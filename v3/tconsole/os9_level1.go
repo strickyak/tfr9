@@ -175,7 +175,7 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 				return o.ModuleId(m.Addy), addr - m.Addy
 			}
 		}
-		Logf("InitialMemoryModules failed ^^")
+		// Logf("InitialMemoryModules failed ^^")
 		return "^^", addr
 	} else {
 		// Logf("MM NO ~~")

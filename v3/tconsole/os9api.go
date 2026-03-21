@@ -13,6 +13,14 @@ type Os9ApiCall struct {
 
 var Os9ApiCalls = []*Os9ApiCall{
 	{
+		Name:   "F$VIRQ",
+		Desc:   "Install virtual irq handler",
+		Number: 0x27,
+		D:      "initial_count_value",
+		X:      "install_1_or_delete_0",
+        Y:      "addr_of_5_byte_packet",
+	},
+	{
 		Name:   "F$PErr",
 		Desc:   "Print Error",
 		Number: 0x0F,
