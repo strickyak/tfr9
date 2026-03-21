@@ -30,12 +30,16 @@ var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with corr
 var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
 
 var CENTIPEDE = flag.Bool("centipede", false, "Centipede should set this flag")
+var LEVEL = flag.Int("level", 0, "NitrOS9 level, or 0")
 
 var the_ram Rammer
+var person Personality
+
 var LinkMap []*Section
 var AbsLists []*ModSrc
 var LinkLists []*ModSrc
 var LinkSrc *ModSrc
+var ReadCycleHistory uint64
 
 const (
 	C_NOP      = 0
@@ -98,11 +102,11 @@ var CommandStrings = map[byte]string{
 	C_RAM2_WRITE:  "C_RAM2_WRITE",
 	C_RAM3_WRITE:  "C_RAM3_WRITE",
 	C_RAM5_WRITE:  "C_RAM5_WRITE",
-    C_CYCLE_RD3:   "C_CYCLE_RD3",
+	C_CYCLE_RD3:   "C_CYCLE_RD3",
 
-	C_EVENT:       "C_EVENT",
-	EVENT_RTI:     "EVENT_RTI",
-	EVENT_SWI2:    "EVENT_SWI2",
+	C_EVENT:    "C_EVENT",
+	EVENT_RTI:  "EVENT_RTI",
+	EVENT_SWI2: "EVENT_SWI2",
 }
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
@@ -270,9 +274,22 @@ func main() {
 	}
 	defer func() { Shutdown(recover()) }()
 
-	// Fill in with some default.
-	the_ram = new(Coco1Ram)
-	person := new(Plain)
+	switch *LEVEL {
+	case 0:
+		the_ram = new(Coco1Ram)
+		person = new(Plain)
+
+	case 1:
+		the_ram = new(Coco1Ram)
+		person = new(Os9Level1)
+
+	case 2:
+		the_ram = new(Coco3Ram)
+		person = new(Os9Level2)
+
+	default:
+		log.Panicf("Bad NitrOS9 Level: %d", *LEVEL)
+	}
 
 	inkey := make(chan byte, 1024)
 	go InkeyRoutine(inkey)
@@ -294,10 +311,10 @@ func main() {
 			AbsLists = append(AbsLists, lf)
 			log.Printf("LOADED ABS LIST_FILENAME %q (%d)", filename, len(lf.Src))
 
-            if false {
-                for k, v := range lf.Src {
-                    log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
-                }
+			if false {
+				for k, v := range lf.Src {
+					log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
+				}
 			}
 		}
 	}
@@ -559,9 +576,27 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
 
 					if *CENTIPEDE {
-						aline, _ := LinkSrc.Src[_addr]
-                        cline := Format("cy-r %04x   -> %02x :: %s", _addr, _data, aline)
+						modName, modOffset := person.MemoryModuleOf(_addr)
+						aline := Format("%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
+						// aline, _ := LinkSrc.Src[_addr]
+						cline := Format("cy-r %04x   -> %02x :: %s", _addr, _data, aline)
 						Logf("%s", cline)
+
+						ReadCycleHistory = (ReadCycleHistory << 8) | uint64(_data)
+
+						switch {
+						case ReadCycleHistory == 0x20FE20FE20FE20FE:
+							{
+								Logf("INFINITE LOOP")
+
+								log.Panic("INFINITE LOOP")
+							}
+						case (ReadCycleHistory & 0xFFFF00) == 0x103F00:
+							{
+								Logf("GOT SWI2(%02x)", _data)
+							}
+						}
+
 					}
 				}
 
@@ -643,17 +678,18 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				if *CENTIPEDE {
 					_data := pack[2]
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
-                    gloss := ""
-                    switch (_data >> 5) {
-                    case 0:
-                        gloss = Format("_%c_", 64 + (31 & data))
-                    case 1:
-                        gloss = Format("_%c_", 32 + (31 & data))
-                    case 2:
-                        gloss = Format(" %c ", 64 + (31 & data))
-                    case 3:
-                        gloss = Format(" %c ", 32 + (31 & data))
-                    }
+					the_ram.Poke1(_addr, _data)
+					gloss := ""
+					switch _data >> 5 {
+					case 0:
+						gloss = Format("_%c_", 64+(31&data))
+					case 1:
+						gloss = Format("_%c_", 32+(31&data))
+					case 2:
+						gloss = Format(" %c ", 64+(31&data))
+					case 3:
+						gloss = Format(" %c ", 32+(31&data))
+					}
 					cline := Format("cy-w %04x <-  %02x    %s", _addr, _data, gloss)
 					Logf("%s", cline)
 				} else {

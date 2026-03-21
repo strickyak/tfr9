@@ -59,8 +59,8 @@ func AssertGT[T Ordered](a, b T) {
 }
 
 func Cond[T any](pred bool, x T, y T) T {
-    if pred {
-        return x
-    }
-    return y
+	if pred {
+		return x
+	}
+	return y
 }
