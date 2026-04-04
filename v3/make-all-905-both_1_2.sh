@@ -2,6 +2,9 @@
 set -ex
 cd $(dirname $0)
 
+# For /bin/sh on 32bit R Pi that has no time:
+time : || time() { "$@" ; }
+
 # Raspberry Pi Pico SDK
 COCO_SHELF="${COCO_SHELF:-$(cd ../.. && pwd)}"
 export PICO_SDK_PATH="${PICO_SDK_PATH:-$COCO_SHELF/pico-sdk}"
