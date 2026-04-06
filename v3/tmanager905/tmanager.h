@@ -1380,7 +1380,7 @@ struct Common_Mixins : EngineBase<T>,
     ShowChar('i');
     T::PicoIO_Install(picoio_base);
     ShowChar('p');
-#if 1
+#if 0
 MUMBLE(" <P> ");
     T::Ssd1306_Init(0xFF00);
 MUMBLE(" <Q> ");
@@ -1551,6 +1551,7 @@ struct L1_Mixins : Common_Mixins<T>,
                    DontTurbo9sim<T>,
                    DoNitros9level1<T> {
   static void Install() {
+    MUMBLE("Level1 ");
     T::CommonInstall();
     ShowChar('A');
     T::Install_OS();
@@ -1770,14 +1771,14 @@ int main() {
   SET_LED(0);
   InitializePinsForGpio();
 
-  SET_LED(1);
-  sleep_ms(100);
-  SET_LED(0);
-  sleep_ms(150);
-  SET_LED(1);
-  sleep_ms(100);
-  SET_LED(0);
-  sleep_ms(150);
+#if 0
+  for (uint i = 0; i < 5; i++) {
+    SET_LED(1);
+    sleep_ms(100);
+    SET_LED(0);
+    sleep_ms(150);
+  }
+#endif
 
   interest = 0;  // MAX_INTEREST;  /// XXX
 

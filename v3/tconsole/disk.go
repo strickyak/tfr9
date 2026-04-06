@@ -86,7 +86,8 @@ func EmulateDiskWrite(disk_param []byte, channelToPico chan []byte) {
 		AssertLT(hnum, MaxDiskFiles)
 
 		sectorsPerTrack := uint(Cond(Files[hnum].DoubleSided, 36, 18))
-		lsn = sectorsPerTrack*uint(disk_param[3]) + uint(disk_param[4]) - 1
+        dden_offset := uint(Cond((disk_param[2] & 0x40) != 0, 18, 0))
+		lsn = dden_offset + sectorsPerTrack*uint(disk_param[3]) + uint(disk_param[4]) - 1
 		Logf("C_DISK_WRITE num %x lsn %x", hnum, lsn)
 		sector = disk_param[5:]
 
@@ -137,14 +138,14 @@ func EmulateDiskRead(disk_param []byte, channelToPico chan []byte) {
 			hnum += 1
 		case (disk_param[2] & 4) != 0:
 			hnum += 2
-		case (disk_param[2] & 0x40) != 0:
-			hnum += 3
 		default:
 			Panicf("unknown EmulateDiskRead packet hnum: % 2x", disk_param)
 		}
 		sectorsPerTrack := uint(Cond(Files[hnum].DoubleSided, 36, 18))
-        dden_offset := uint(Cond((the_ram.Peek1(0xFF40) & 0x40) != 0, 18, 0))
+        dden_offset := uint(Cond((disk_param[2] & 0x40) != 0, 18, 0))
 		lsn = dden_offset + sectorsPerTrack*uint(disk_param[3]) + uint(disk_param[4]) - 1
+
+	    Logf("C_DISK_READ dev=%d. latch=$%02x  track=%d. sect=%d.   lsn %d.", hnum, disk_param[2], disk_param[3], disk_param[4], lsn)
 
 	default:
 		Panicf("unknown EmulateDiskRead packet % 2x", disk_param)
@@ -154,7 +155,6 @@ func EmulateDiskRead(disk_param []byte, channelToPico chan []byte) {
 	if err != nil {
 		Panicf("EmulateDiskRead: Cannot seek hnum=%d. lsn=%d. param=$%02x", hnum, lsn, disk_param)
 	}
-	Logf("C_DISK_READ dev=%d.   track=%d. sect=%d.   lsn %d.", hnum, disk_param[3], disk_param[4], lsn)
 
 	sector := make([]byte, Os9SectorSize)
 	_, err = Files[hnum].OsFile.Read(sector)
