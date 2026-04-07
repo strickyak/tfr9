@@ -183,40 +183,33 @@ struct DoFloppy {
       if (floppy_i < 256) {
         floppy_status = 0x02;
         floppy_buf[floppy_i] = data;
-        printf("FLOPPY WRITE DATA [%d] z=%x\n", floppy_i, data);
+        printf("FLOPPY WRITE DATA [%d++] z=%x\n", floppy_i, data);
         floppy_i++;
       }
 
       if (floppy_i == 256) {
         nmi_needed = 1;
+        printf("nmi_needed because now floppy_i = %x; Floppy_FinishWrite.\n", floppy_i);
         Floppy_FinishWrite();
-        floppy_i++;
-      } else if (floppy_i > 256) {
-        floppy_status = 0;
-        printf("FLOPPY WRITE DATA [%d] z=%x\n", floppy_i, data);
+        floppy_i = 0;
       }
     };
 
     IOReaders[(255 & base_addr) + 3] = [](uint addr, byte data) {  // Read Data
-      uint z = 251;
+      uint z = 0;
       if (floppy_i < 256) {
         z = floppy_buf[floppy_i];
         floppy_status = 0x02;
-        printf("FLOPPY READ DATA [%d] z=%x\n", floppy_i, z);
+        printf("FLOPPY READ DATA [%d++] z=%x\n", floppy_i, z);
         floppy_i++;
       }
 
       if (floppy_i == 256) {
         nmi_needed = 1;
+        printf("nmi_needed because now floppy_i = %x\n", floppy_i);
         floppy_status = 0;
-        floppy_i++;
-        z = 252;
-        printf("FLOPPY READ DATA [%d] z=%x\n", floppy_i, z);
-      } else if (floppy_i > 256) {
-        floppy_status = 0;
-        z = 253;
-        printf("FLOPPY READ DATA [%d] z=%x\n", floppy_i, z);
-      }
+        floppy_i = 0;
+      } 
 
       return z;
     };
