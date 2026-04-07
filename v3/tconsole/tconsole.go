@@ -97,13 +97,11 @@ var CommandStrings = map[byte]string{
 	C_EVENT:       "C_EVENT",
 	EVENT_RTI:     "EVENT_RTI",
 	EVENT_SWI2:    "EVENT_SWI2",
+	C_CYCLE:       "C_CYCLE",
 }
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
 var ShiftedKeys = "@abcdefg" + "hijklmno" + "pqrstuvw" + "xyz^\n\b\t " + "\177!\"#$%&'" + "()*+<=>?" + "\r\014\003"
-
-// MatchFIC DEMO: @ fe9a 6e  =
-var MatchFIC = regexp.MustCompile("^@@? ([0-9a-f]{4}) ([0-9a-f]{2})  =.*")
 
 var LastSerialNumber uint
 
@@ -664,7 +662,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					case C_DUMP_STOP:
 						break DUMPING
 					default:
-						Logf("FUNNY CHAR: %d.", what)
+						Logf("FUNNY CHAR DURING DUMP: %d.", what)
 						bogus++
 						if bogus > 10 {
 							bogus = 0
