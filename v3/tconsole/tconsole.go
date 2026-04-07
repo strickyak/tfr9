@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -27,12 +26,27 @@ var RAM_VERBOSE = flag.Bool("ram_verbose", false, "enable verbose debugging outp
 var LINKMAP = flag.String("linkmap", "", ".map file from linker")
 var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
+var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
+
+var CENTIPEDE = flag.Bool("centipede", false, "Centipede should set this flag")
+var LEVEL = flag.Int("level", 0, "NitrOS9 level, or 0")
 
 var the_ram Rammer
+var person Personality
+
 var LinkMap []*Section
 var AbsLists []*ModSrc
 var LinkLists []*ModSrc
 var LinkSrc *ModSrc
+var ReadCycleHistory uint64
+var Os9CallsPending = make(map[string]*EventRec)
+
+var Swi2PC uint
+var Swi2Cycle uint
+var RTI_PC uint
+var RTICycle uint
+var RTIStack uint
+var RTIHistory [12]byte
 
 const (
 	C_NOP      = 0
@@ -68,6 +82,7 @@ const (
 	C_RAM3_WRITE = 196 // low nybble is 4.  Payload is "AHighest AHi ALo Data"
 	C_RAM5_WRITE = 198 // low nybble is 6.  Payload is "PHighest PHi PLo AHi ALo Data"
 	C_CYCLE      = 200 // one machine cycle. low nybble is 8. Payload is "cycle4 kind_fl1 data1 addr2"
+	C_CYCLE_RD3  = 211 // centipede: one read cycle: A A D
 
 	// C_NOKEY = 208  // low nybble is 0.
 	// C_KEY = 211  // low nybble is 3.  Payload is { row, col, plane }
@@ -94,10 +109,31 @@ var CommandStrings = map[byte]string{
 	C_RAM2_WRITE:  "C_RAM2_WRITE",
 	C_RAM3_WRITE:  "C_RAM3_WRITE",
 	C_RAM5_WRITE:  "C_RAM5_WRITE",
-	C_EVENT:       "C_EVENT",
-	EVENT_RTI:     "EVENT_RTI",
-	EVENT_SWI2:    "EVENT_SWI2",
+	C_CYCLE_RD3:   "C_CYCLE_RD3",
+
 	C_CYCLE:       "C_CYCLE",
+	C_EVENT:    "C_EVENT",
+	EVENT_RTI:  "EVENT_RTI",
+	EVENT_SWI2: "EVENT_SWI2",
+}
+
+var Swi2Num byte
+var Swi2WriteHistory [12]byte
+var Swi2WriteFuse uint
+var Swi2WriteReg = [12]string{
+	"CC", "A",
+	"B", "DP",
+	"X.hi", "X.lo",
+	"Y.hi", "Y.lo",
+	"U.hi", "U.lo",
+	"PC.hi", "PC.lo",
+
+	//"PC.lo", "PC.hi",
+	//"U.lo", "U.hi",
+	//"Y.lo", "Y.hi",
+	//"X.lo", "X.hi",
+	//"DP", "A",
+	//"B", "CC",
 }
 
 var NormalKeys = "@ABCDEFG" + "HIJKLMNO" + "PQRSTUVW" + "XYZ^\n\b\t " + "01234567" + "89:;,-./" + "\r\014\003"
@@ -255,15 +291,29 @@ func main() {
 	log.SetFlags(0)
 	flag.Parse()
 	InstallLimitedLogWriter()
+	// println("Font8x8 font len", len(Font8x8))
 
 	if runtime.GOOS != "windows" {
 		SttyCbreakMode(true)
 	}
 	defer func() { Shutdown(recover()) }()
 
-	// Fill in with some default.
-	the_ram = new(Coco1Ram)
-	person := new(Plain)
+	switch *LEVEL {
+	case 0:
+		the_ram = new(Coco1Ram)
+		person = new(Plain)
+
+	case 1:
+		the_ram = new(Coco1Ram)
+		person = new(Os9Level1)
+
+	case 2:
+		the_ram = new(Coco3Ram)
+		person = new(Os9Level2)
+
+	default:
+		log.Panicf("Bad NitrOS9 Level: %d", *LEVEL)
+	}
 
 	inkey := make(chan byte, 1024)
 	go InkeyRoutine(inkey)
@@ -285,8 +335,10 @@ func main() {
 			AbsLists = append(AbsLists, lf)
 			log.Printf("LOADED ABS LIST_FILENAME %q (%d)", filename, len(lf.Src))
 
-			for k, v := range lf.Src {
-				log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
+			if false {
+				for k, v := range lf.Src {
+					log.Printf("ITEM_LOADED ABS %04x :: %q :: %q", k, v, filename)
+				}
 			}
 		}
 	}
@@ -307,9 +359,9 @@ func main() {
 			}
 		}
 		LinkSrc = ComputeLinkSrc(LinkMap, LinkLists, AbsLists)
-		log.Printf("ComputeLinkSrc %q returns %d items", len(LinkSrc.Src))
+		log.Printf("ComputeLinkSrc returns %d items", len(LinkSrc.Src))
 
-		{
+		if false {
 			var keys []uint
 			for k := range LinkSrc.Src {
 				keys = append(keys, k)
@@ -323,6 +375,21 @@ func main() {
 		}
 	}
 
+	if *BIND != "" {
+		go WebServer(&WebConsoleConfig{
+			Bind: *BIND,
+			Key: func(flags uint, s string) {
+				ch := KeystrokeValue(flags, s)
+				if 1 <= ch && ch <= 127 {
+					inkey <- ch
+				}
+			},
+			Move: func(x, y int) {},
+			Down: func(x, y int) {},
+			Up:   func(x, y int) {},
+		})
+		time.Sleep(100 * time.Millisecond)
+	}
 	OpenDisks(*DISKS)
 	for {
 		TryRun(inkey, person)
@@ -401,10 +468,15 @@ func MintSerialNum() uint {
 	return serialNumCounter
 }
 
+var Cycle uint
+
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 
 	loadArgs := flag.Args()
+	if *CENTIPEDE {
+		loadArgs = nil // Nothing to load (yet) in centipede0 mode.
+	}
 
 	var previousPutChar byte
 	var remember int64
@@ -522,6 +594,89 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					}
 				}
 
+			case C_CYCLE_RD3: // centipede: A A D
+				const GLOSS = true
+				pack := GetPacket(fromUSB, cmd)
+				if len(pack) == 3 {
+					_data := pack[2]
+					_addr := (uint(pack[0]) << 8) + uint(pack[1])
+
+					if *CENTIPEDE {
+                        Cycle++
+
+						modName, modOffset := person.MemoryModuleOf(_addr)
+						aline := Format("%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
+						// aline, _ := LinkSrc.Src[_addr]
+						cline := Format("cy-r %04x   -> %02x  #%d  %s", _addr, _data, Cycle, aline)
+						Logf("%s", cline)
+
+						ReadCycleHistory = (ReadCycleHistory << 8) | uint64(_data)
+
+						switch {
+						case ReadCycleHistory == 0x20FE20FE20FE20FE:
+							{
+								Logf("INFINITE LOOP")
+
+								log.Panic("INFINITE LOOP")
+							}
+						case (ReadCycleHistory & 0xFFFF00) == 0x103F00:
+							{
+								Logf("GOT SWI2(%02x)", _data)
+								Swi2WriteFuse = 12
+                                Swi2PC = _addr - 2
+                                Swi2Cycle = Cycle
+								Swi2Num = _data
+							}
+                        case _data == 0x3B: // RTI
+                            {
+                                RTI_PC = _addr
+                                RTICycle = Cycle
+                            }
+                        case (ReadCycleHistory & 0xFF00) == 0x3B00:
+                            {
+                                // intermediate step
+                            }
+                        case (ReadCycleHistory & 0xFF0000) == 0x3B0000:
+                            {
+                                RTIStack = _addr
+                                RTIHistory[0] = _data
+                            }
+                        case RTIStack != 0:
+                            {
+                                i := _addr - RTIStack
+                                // Logf("R::: (%x) i=%d. addr %x S %x | % 3x", RTICycle, i, _addr, RTIStack, RTIHistory)
+                                if i >= 12 {
+                                    key := Format("%04x_%04x", _addr-12, ((uint(RTIHistory[10]) << 8) | uint(RTIHistory[11]) - 3 ))
+                                    rec, _ := Os9CallsPending[key]
+                                    snum := 0
+                                    call := "?"
+                                    if rec != nil {
+                                        snum = int(rec.SerialNum)
+                                        call = rec.Call
+                                        delete(Os9CallsPending, key)
+                                    }
+                                    status := "OKAY"
+                                    if (RTIHistory[0] & 1) != 0 {
+                                        status = Format("ERROR($%x=%d.)", RTIHistory[2], RTIHistory[2])
+                                    }
+                                    Logf("RTI: %s (%x) PC %x S %x :: %s :: % 3x <== _%d_ %v", key, RTICycle, RTI_PC, RTIStack, status, RTIHistory, snum, call)
+                                    RTI_PC = 0
+                                    RTICycle = 0
+                                    RTIStack = 0
+                                } else {
+                                    RTIHistory[i] = _data
+                                }
+                            }
+                        default:
+                            {
+                                RTI_PC = 0
+                                RTICycle = 0
+                                RTIStack = 0
+                            }
+						}
+					}
+				}
+
 			case C_LOGGING,
 				C_LOGGING + 1,
 				C_LOGGING + 2,
@@ -594,14 +749,50 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				addr := (uint(hi) << 8) | uint(lo)
 
 				data := pack[2]
+				//fmt.Printf("W %04x %02x\n", addr, data)
+				// fmt.Printf("^");
 
-				if *RAM_VERBOSE {
-					Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
-				}
-				the_ram.Poke1(addr, data)
+				if *CENTIPEDE {
+                    Cycle++
 
-				if (addr & 0xFF00) == 0xFF00 {
-					HandleIOPoke(addr, data)
+					_data := pack[2]
+					_addr := (uint(pack[0]) << 8) + uint(pack[1])
+					the_ram.Poke1(_addr, _data)
+					gloss := "   "
+					switch _data >> 5 {
+					case 0:
+						gloss = Format("<%c>", 64+(31&data))
+					case 1:
+						gloss = Format("<%c>", 32+(31&data))
+					case 2:
+						gloss = Format(" %c ", 64+(31&data))
+					case 3:
+						gloss = Format(" %c ", 32+(31&data))
+					}
+					explain := false
+					if Swi2WriteFuse > 0 {
+						Swi2WriteFuse--
+						Swi2WriteHistory[Swi2WriteFuse] = _data
+						gloss += "        =" + Swi2WriteReg[Swi2WriteFuse]
+
+						if Swi2WriteFuse == 0 {
+							explain = true
+						}
+					}
+					cline := Format("cy-w %04x <-  %02x  #%d  %s", _addr, _data, Cycle, gloss)
+					Logf("%s", cline)
+					if explain {
+						ExplainOs9Call(_addr, _data, Swi2Num)
+					}
+				} else {
+					if *RAM_VERBOSE {
+						Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
+					}
+					the_ram.Poke1(addr, data)
+
+					if (addr & 0xFF00) == 0xFF00 {
+						HandleIOPoke(addr, data)
+					}
 				}
 
 			case C_DUMP_RAM, C_DUMP_PHYS:
@@ -993,4 +1184,41 @@ func LookForPreSync(ch byte) bool {
 	syncWindow[3] = ch
 	Logf("LookForPreSync: %q vs %q", syncWindow[:], ".:,;")
 	return string(syncWindow[:]) == ".:,;"
+}
+
+func ExplainOs9Call(_addr uint, _data byte, os9num byte) {
+    Logf("\nExplainOs9Call: a=%x d=%x num=%x", _addr, _data, os9num)
+	rec := &EventRec{
+		SerialNum: MintSerial(),
+		Os9Num:    Swi2Num,
+		Datas:     make([]byte, 14),
+	}
+
+	for i, h := range Swi2WriteHistory {
+		rec.Datas[11-i+2] = h
+	}
+
+	call, _ := Os9ApiCallOf[os9num]
+	callString, regs := person.FormatCall(os9num, call, rec)
+	rec.Call = callString
+
+    key := Format("%04x_%04x", _addr, Swi2PC)
+    Logf("\n%s === OS9_CALL _%d_ %s %#v", key, rec.SerialNum, callString, regs)
+	Logf("\n%s === EventRec %#v", key, rec)
+	Logf("\n")
+
+    Os9CallsPending[key] = rec
+
+    registered := person.RegisteredMemoryModules()
+    if registered == nil {
+        if RecentScannedMemoryModules != nil {
+            for i, m := range RecentScannedMemoryModules {
+                Logf("Scanned [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+            }
+        }
+    } else {
+        for i, m := range person.RegisteredMemoryModules() {
+            Logf("Registered [% 2x] %04x-%04x  %04x %q   %q", i, m.Addy, m.Addy+m.Size, m.Size, m.Name, m.FullName)
+        }
+	}
 }
