@@ -19,6 +19,7 @@ type Personality interface {
 	MemoryModuleOf(addrPhys uint) (name string, offset uint)
 	CurrentHardwareMMap() string
 	HasMMap() bool
+	RegisteredMemoryModules() (z []*ScannedModuleInfo)
 }
 
 type ScannedModuleInfo struct {
@@ -57,6 +58,8 @@ func wrd(i uint, ram []byte) uint {
 	return (uint(byt(i, ram)) << 8) | uint(byt(i+1, ram))
 }
 
+var RecentScannedMemoryModules []*ScannedModuleInfo
+
 func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 	// Logf("ScanRamForMemoryModules: Scanning $%x bytes", len(ram))
 	var mm []*ScannedModuleInfo
@@ -87,12 +90,51 @@ func ScanRamForMemoryModules(ram []byte) []*ScannedModuleInfo {
 		}
 	}
 	// Logf("ScanRamForMemoryModules: returning %d. modules", len(mm))
+	RecentScannedMemoryModules = mm
 	return mm
 }
 
 var InitialMemoryModules []*ScannedModuleInfo
 
+func (o *Os9Level1) RegisteredMemoryModules() (z []*ScannedModuleInfo) {
+
+	if *NO_MODULES {
+		return
+	}
+
+	beginDir, endDir := the_ram.PPeek2(L1_D_ModDir), the_ram.PPeek2(L1_D_ModDir+2)
+
+	if beginDir != 0 && endDir != 0 {
+		for i := beginDir; i < endDir; i += 4 {
+			begin := the_ram.PPeek2(i)
+			if begin < 0x100 {
+				continue
+			}
+
+			magic := the_ram.Peek2(begin)
+			if magic != 0x87CD {
+				continue
+			}
+
+			sz := the_ram.Peek2(begin + 2)
+			id := o.ModuleId(begin)
+
+			z = append(z, &ScannedModuleInfo{
+				Addy:     begin,
+				Size:     sz,
+				Name:     id[:len(id)-11],
+				FullName: id,
+			})
+		}
+	}
+
+	return
+}
+
 func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
+	// if *CENTIPEDE {
+	// return "", addr
+	// }
 	if *NO_MODULES {
 		return "", addr
 	}
@@ -133,15 +175,12 @@ func (o *Os9Level1) MemoryModuleOf(addr uint) (name string, offset uint) {
 				return o.ModuleId(m.Addy), addr - m.Addy
 			}
 		}
-		Logf("InitialMemoryModules failed ^^")
+		// Logf("InitialMemoryModules failed ^^")
 		return "^^", addr
 	} else {
 		// Logf("MM NO ~~")
 		return "~~", addr
 	}
-
-	// Logf("MM NO ==")
-	return "==", addr
 }
 func (o *Os9Level1) ModuleId(begin uint) string {
 	return ModuleId(begin, the_ram.GetTrackRam())

@@ -382,3 +382,6 @@ func (o *Os9Level2) FormatCall(os9num byte, call *Os9ApiCall, rec *EventRec) (st
 	fmt.Fprintf(&buf, ")")
 	return buf.String(), regs
 }
+func (o *Os9Level2) RegisteredMemoryModules() (z []*ScannedModuleInfo) {
+	return
+}

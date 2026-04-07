@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"sync"
 )
 
 type Coco1Ram struct {
@@ -55,7 +56,12 @@ func (o *Coco1Ram) Peek2WithMapping(addr uint, m Mapping) uint {
 	return o.Peek2(addr)
 }
 
+var Coco1Ram_Coco1Ram_Mutex sync.Mutex
+
 func (o *Coco1Ram) DumpRam() {
+	Coco1Ram_Coco1Ram_Mutex.Lock()
+	defer Coco1Ram_Coco1Ram_Mutex.Unlock()
+
 	serial := MintSerial()
 	Logf("DumpRam_%d (((((", serial)
 	for i := uint(0); i < COCO1_RAM_SIZE; i += 16 {
@@ -93,7 +99,7 @@ func (o *Coco1Ram) DumpRam() {
 			}
 		}
 		buf.WriteByte('|')
-		Logf(buf.String())
+		Logf("%s", buf.String())
 	}
 	Logf("DumpRam_%d )))))", serial)
 }
@@ -125,6 +131,8 @@ func (o *Coco1Ram) LPeek2(addr uint) uint {
 
 func (o *Coco1Ram) Poke1(addr uint, data byte) {
 	o.trackRam[addr&COCO1_RAM_MASK] = data
+
+	SamPoke1(addr)
 }
 
 func (o *Coco1Ram) Who() string {
@@ -139,24 +147,28 @@ func (o *Coco1Ram) Who() string {
 func (o *Coco1Ram) CurrentMapString() string { return "" }
 
 func (o *Coco1Ram) Dump() {
-	var bb bytes.Buffer
-	fmt.Fprintf(os.Stderr, "\n\n((( Coco1Ram__Dump\n")
-	for i := 0; i < 0x10000; i += 16 {
-		count := 0
-		for j := 0; j < 16; j++ {
-			if o.trackRam[i+j] != 0 {
-				count++
+	o.DumpRam()
+
+	if false {
+		var bb bytes.Buffer
+		fmt.Fprintf(os.Stderr, "\n\n((( Coco1Ram__Dump\n")
+		for i := 0; i < 0x10000; i += 16 {
+			count := 0
+			for j := 0; j < 16; j++ {
+				if o.trackRam[i+j] != 0 {
+					count++
+				}
 			}
+			if count == 0 {
+				continue
+			}
+			fmt.Fprintf(&bb, "%04x:", i)
+			for j := 0; j < 16; j++ {
+				fmt.Fprintf(&bb, " %02x", o.trackRam[i+j])
+			}
+			fmt.Fprintf(&bb, "\n")
+			os.Stderr.Write(bb.Bytes())
 		}
-		if count == 0 {
-			continue
-		}
-		fmt.Fprintf(&bb, "%04x:", i)
-		for j := 0; i < 16; j++ {
-			fmt.Fprintf(&bb, " %02x", o.trackRam[i+j])
-		}
-		fmt.Fprintf(&bb, "\n")
-		os.Stderr.Write(bb.Bytes())
+		fmt.Fprintf(os.Stderr, "))) Coco1Ram__Dump\n\n")
 	}
-	fmt.Fprintf(os.Stderr, "))) Coco1Ram__Dump\n\n")
 }

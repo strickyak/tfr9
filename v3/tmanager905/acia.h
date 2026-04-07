@@ -56,7 +56,13 @@ struct DoAcia {
 
     IOWriters[sub + 1] = [](uint addr, byte data) {
         // MC6850 Data Write
-      T::Logf(LHello, "bilbo %d putchar", data);
+    if (false) {
+      if (32 <= data || data <= 126) {
+        T::Logf(LHello, "bilbo %d putchar <%c>", data, data);
+      } else {
+        T::Logf(LHello, "bilbo %d putchar ...>", data);
+      }
+    }
       if (data == 0 || data >= 128) {
         putbyte(C_PUTCHAR);
       }  // otherwise, normal 7-bit chars don't need the prefix.

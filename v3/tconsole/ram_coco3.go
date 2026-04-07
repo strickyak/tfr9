@@ -307,7 +307,7 @@ func (o *Coco3Ram) Dump() {
 			continue
 		}
 		fmt.Fprintf(&bb, "%06x:", i)
-		for j := 0; i < 16; j++ {
+		for j := 0; j < 16; j++ {
 			fmt.Fprintf(&bb, " %02x", o.trackRam[i+j])
 		}
 		fmt.Fprintf(&bb, "\n")
