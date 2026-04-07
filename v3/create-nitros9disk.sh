@@ -1,6 +1,9 @@
 #!/bin/sh
 set -ex
 
+# For /bin/sh on 32bit R Pi that has no time:
+time : || time() { "$@" ; }
+
 S="$1"; shift
 D="$1"; shift
 

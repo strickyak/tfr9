@@ -16,6 +16,7 @@ PWD:=$(shell /bin/pwd)
 S:=$(shell ( cd ../.. ; /bin/pwd ))
 export COCO_SHELF:=$S
 export PICOTOOL_FETCH_FROM_GIT_PATH:=$(shell echo $${PICOTOOL_FETCH_FROM_GIT_PATH:-$S/picotool})
+#?# export picotool_DIR:=$(shell echo $${picotool_DIR:-$S/build-picotool})
 BUILD_DIR=build-all-905-pico2
 DISKS=generated/disk0,generated/level1.dsk,generated/level2.dsk,generated/disk3,generated/disk4,generated/disk5,generated/disk6,generated/disk7
 WHICH_PICO=pico2
