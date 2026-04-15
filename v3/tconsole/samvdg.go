@@ -240,7 +240,7 @@ func GetTextScreen(base uint) []byte {
 				if ch == 32 {
 					continue // dont draw blanks
 				}
-				invert := ch < 64
+				invert := ch >= 64
 				ch &= 63
 				fi := 7 * uint(ch)
 
@@ -252,7 +252,7 @@ func GetTextScreen(base uint) []byte {
 
 				if invert {
 					for i := uint(0); i < 3*8; i++ {
-						buf.Write([]byte{220, 220, 220}) // whitish
+						buf.Write(VdgSemiGraphicsColors[0]) // green
 					}
 				}
 				for fy := uint(0); fy < 7; fy++ {
@@ -263,7 +263,7 @@ func GetTextScreen(base uint) []byte {
 							pixel = !pixel
 						}
 						if pixel {
-							buf.Write([]byte{220, 220, 220}) // whitish
+							buf.Write(VdgSemiGraphicsColors[0]) // green
 						} else {
 							buf.Write([]byte{0, 0, 0}) // blackish
 						}
@@ -271,7 +271,7 @@ func GetTextScreen(base uint) []byte {
 				}
 				if invert {
 					for i := uint(0); i < 2*8; i++ {
-						buf.Write([]byte{220, 220, 220}) // whitish
+						buf.Write(VdgSemiGraphicsColors[0]) // green
 					}
 				}
 				/*
@@ -281,7 +281,7 @@ func GetTextScreen(base uint) []byte {
 												pixel = !pixel
 											}
 											if pixel {
-												buf.Write([]byte{220, 220, 220}) // whitish
+												buf.Write(VdgSemiGraphicsColors[0]) // green
 											} else {
 												buf.Write([]byte{0, 0, 0}) // blackish
 											}
