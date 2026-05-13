@@ -1,0 +1,40 @@
+#ifndef _NITROS9LEVEL1_H_
+#define _NITROS9LEVEL1_H_
+
+#define LEVEL1_LAUNCHER_START 0x2500
+
+const byte Nitros9level1_Rom[] = {
+#include "../generated/level1.rom.h"
+};
+
+uint const Coco2Vectors[] = {
+    // From ~/coco-shelf/toolshed/cocoroms/bas13.rom :
+    0,  //  6309 TRAP
+    0x0100, 0x0103, 0x010f, 0x010c, 0x0106, 0x0109,
+    0xa027,  // RESET
+};
+
+template <typename T>
+struct DoNitros9level1 {
+  static void Install_OS() {
+    is_an_os9 = true;
+    ShowChar('p');
+    T::ResetRam();
+    ShowChar('q');
+    // Copy ROM to RAM
+    for (uint a = 0; a < sizeof Nitros9level1_Rom; a++) {
+      T::Poke(LEVEL1_LAUNCHER_START + a, Nitros9level1_Rom[a]);
+    }
+    ShowChar('r');
+    // Fix Vectors
+    for (uint i = 0; i < 7; i++) {
+      InstallVector(i, Coco2Vectors[i]);
+      ShowChar('0' + i);
+    }
+    InstallVector(7, LEVEL1_LAUNCHER_START);
+    ShowChar('0' + 7);
+    ShowChar('s');
+  }
+};
+
+#endif  // _NITROS9LEVEL1_H_
