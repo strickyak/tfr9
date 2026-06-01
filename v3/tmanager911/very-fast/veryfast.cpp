@@ -90,22 +90,27 @@ void RunCPU(uint unused_directions) {
 
     while (true) {
         memory_index = 0;
+        uint step = 0;
+        uint value = 0;
+        uint round = 0;
+        uint16_t countdown = 0;
+
         while (memory_index < NW) {
-printf("<");
+//printf("<");
             uint pins = pio_sm_get_blocking(pio0, 0);
             uint addr = 0xFFFF & hw->gpio_hi_in;  // Read addr from high pins [32:47]
 
             // uint pins = hw->gpio_in;
-printf("> %08x (%08x) ", vol, pins);
+//printf("%08x> ", pins);
             char avma = (0 != (pins & (1<<AVMA))) ? '#' : ' ';
             char lic = (0 != (pins & (1<<LIC))) ? '-' : ' ';
             char rw = (0 != (pins & (1<<R_W))) ? 'r' : 'W';
 
-printf("@%04x %c%c%c ", addr, avma, lic, rw);
+//printf("@%04x %c%c%c ", addr, avma, lic, rw);
 
             if (0 == (pins & (1<<R_W))) {
-                uint value = pio_sm_get_blocking(pio0, 0);
-                printf(" W(%02x) ", 255 & value);
+                value = pio_sm_get_blocking(pio0, 0);
+                //printf(" W(%02x) ", 255 & value);
             }
 
             // pio_sm_put(pio0, 0, 0x39);  // $39=RTS
@@ -115,11 +120,58 @@ printf("@%04x %c%c%c ", addr, avma, lic, rw);
 // printf("      ");
 
             uint pins2 = hw->gpio_in;
-printf("=%08x ", pins2);
-printf("\n");
+//printf("=%08x ", pins2);
+//printf("\n");
+
+            if (round > 10) switch (step) {
+                case 0:
+                        if (addr != 0xBDBD) printf("* s0 addr %x\n", addr);
+                        break;
+                case 1:
+                        if (addr != 0xBDBE) printf("* s1 addr %x\n", addr);
+                        break;
+                case 2:
+                        if (addr != 0xBDBF) printf("* s2 addr %x\n", addr);
+                        break;
+                case 3:
+                        break;
+                case 4:
+                        break;
+                case 5:
+                        break;
+                case 6:
+                        if (rw != 'W') printf("* s6 not write\n");
+                        if (countdown == 0) {
+                            countdown = addr;
+                        } else {
+                            if (countdown != addr) printf("*s6 want %d got %d", countdown, addr);
+                        }
+                        countdown--;
+                        break;
+                case 7:
+                        if (rw != 'W') printf("* s7 not write\n");
+                        if (countdown == 0) {
+                            countdown = addr;
+                        } else {
+                            if (countdown != addr) printf("*s7 want %d got %d", countdown, addr);
+                        }
+                        countdown--;
+                        break;
+                default:
+                        printf("* default r%d s%d\n", round, step);
+            }
+
+            step++;
+            if (0 != (pins & (1<<LIC))) {
+                step = 0;
+                round++;
+                if ((round & 0x3FF) == 0) {
+                    printf("==== ROUND %d\n", round);
+                }
+            }
             continue;
 
-
+#if 0
 
 
 
@@ -144,6 +196,8 @@ printf(")");
                 pio_sm_put(pio0, 0, 0);  // for sync
             }
 printf(" #%d\n", memory_index);
+
+#endif
         }
 
         for (uint i = 0; i < NW; i++) {

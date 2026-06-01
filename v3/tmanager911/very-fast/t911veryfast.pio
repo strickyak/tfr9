@@ -83,7 +83,7 @@ Reset:
 
 void t911veryfast_program_init(PIO pio, uint sm, uint offset) {
 
-   constexpr uint CLOCK_DIVISOR = 1024;
+   constexpr uint CLOCK_DIVISOR = 64;
 
    //  pico-examples/pio/hub75/hub75.pio shows order of inits.
    pio_sm_set_consecutive_pindirs(pio, sm, 0, 8, false/*in*/);
