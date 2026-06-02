@@ -1,1 +1,18 @@
 https://forums.raspberrypi.com/viewtopic.php?t=347448
+
+=====================================
+
+For a Dual-63c09e RP2350b
+
+0:7     D* (E High)
+
+20:22   BS,AVMA,LIC (E High)   OPTIONAL
+
+25      LED
+26:28   (Serial,Shift,Latch) for (RESET,HALT,NMI,IRQ,FIRQ)
+29:30   E0, Q0 (out, also negated for CPU1)
+31      R/W (E Low)
+32:47   A* (E Low)
+
+
+

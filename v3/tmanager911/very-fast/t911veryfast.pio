@@ -11,46 +11,27 @@
 ; Phase3 : 3 : both
 ; Phase4 : 1 : just E
 
-;;; .program t911veryfast
-;;; .side_set 2
-;;;     jmp Reset       side 0  ; make sure D[0:7] are inputs
-;;; 
-;;; Loop:
-;;;     nop             side 0  ; first phase = side 0
-;;; 
-;;;     nop             side 2  ; second phase = side 2
-;;;     in pins,32      side 2  ;
-;;;     push            side 2
-;;; 
-;;;     nop             side 3  ; third phase = side 3
-;;; 
-;;;     nop             side 1  ; fourth phase = side 1
-;;;     pull block      side 1  ; value ignored; just for synchronization of Arm Core.
-;;; 
-;;; Reset:
-;;;     nop             side 0  ; first phase = side 0
-;;;     jmp Loop        side 0  ;
-
 .program t911veryfast
 .side_set 2
     jmp Reset       side 0  ; make sure D[0:7] are inputs
 
 Loop:
-    nop         [3] side 0  ; first phase = side 0
+    nop         [6] side 0  ; first phase = side 0
 
     nop         [6] side 2  ; second phase = side 2
 
-    nop             side 3  ; third phase = side 3
+    nop         [6] side 3  ; third phase = side 3
 
     in pins,32      side 3  ;
-    push        [3] side 3
+    push        [6] side 3
 
     jmp pin, Read   side 3
 
 Write:
     nop             side 3
-    nop             side 1  ; fourth phase = side 1
-    in pins, 32     side 1  ;
+    nop        [6]  side 1  ; fourth phase = side 1
+    nop        [6]  side 1  ; doubled to slow down writes
+    in pins, 32     side 1
     push            side 1
     nop             side 0  ; first phase = side 0
     pull block      side 0  ; value ignored; just for synchronization of Arm Core.
@@ -66,10 +47,9 @@ Read:
 
     pull block      side 3
     out pins,8      side 3
-    nop             side 1  ; fourth phase = side 1
-    nop     [5]     side 1
+    nop     [6]     side 1  ; fourth phase = side 1
+    nop     [6]     side 1
     nop             side 0  ; first phase = side 0
-    nop             side 0
 Reset:
     ; mov pindirs,null    side 0
     mov osr, null         side 0
@@ -83,7 +63,7 @@ Reset:
 
 void t911veryfast_program_init(PIO pio, uint sm, uint offset) {
 
-   constexpr uint CLOCK_DIVISOR = 64;
+   constexpr uint CLOCK_DIVISOR = 1;
 
    //  pico-examples/pio/hub75/hub75.pio shows order of inits.
    pio_sm_set_consecutive_pindirs(pio, sm, 0, 8, false/*in*/);

@@ -17,6 +17,7 @@ target_link_libraries(${PROJECT} PRIVATE
     pico_stdlib
     pico_rand
     hardware_pio
+    pico_multicore
 )
 pico_add_extra_outputs(${PROJECT})
 

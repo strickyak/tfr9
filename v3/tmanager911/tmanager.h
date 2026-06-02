@@ -171,7 +171,7 @@ byte DoRead(uint addr) {
 void RunCPU(uint directions) {
     volatile sio_hw_t* hw = (volatile sio_hw_t*) sio_hw;
     bool valid_memory_cycle = true;
-    while (1) {
+    while (true) {
         Delay(1); // phase 1
         gpio_put(Q, 1);
 
