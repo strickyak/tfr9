@@ -144,33 +144,33 @@ void RunCPU() {
 
             if (rounds > 3) switch (step) {
                 case 0:
-                        //if (addr != 0xBDBD) ERR("@ s0 addr %04x\n", addr);
-                        //if (avma != '#') ERR("@ s0 no avma %08x\n", pins);
-                        //if (rw == 'W') ERR("@ s0 oops write\n");
+                        if (addr != 0xBDBD) ERR("@ s0 addr %04x\n", addr);
+                        if (avma != '#') ERR("@ s0 no avma %08x\n", pins);
+                        if (rw == 'W') ERR("@ s0 oops write\n");
                         break;
                 case 1:
-                        //if (addr != 0xBDBE) ERR("@ s1 addr %04x\n", addr);
-                        //if (avma != '#') ERR("@ s1 no avma %08x\n", pins);
-                        //if (rw == 'W') ERR("@ s1 oops write\n");
+                        if (addr != 0xBDBE) ERR("@ s1 addr %04x\n", addr);
+                        if (avma != '#') ERR("@ s1 no avma %08x\n", pins);
+                        if (rw == 'W') ERR("@ s1 oops write\n");
                         break;
                 case 2:
-                        //if (addr != 0xBDBF) ERR("@ s2 addr %04x\n", addr);
-                        //if (avma != ' ') ERR("@ s2 oops avma %08x\n", pins);
-                        //if (rw == 'W') ERR("@ s2 oops write\n");
+                        if (addr != 0xBDBF) ERR("@ s2 addr %04x\n", addr);
+                        if (avma != ' ') ERR("@ s2 oops avma %08x\n", pins);
+                        if (rw == 'W') ERR("@ s2 oops write\n");
                         break;
                 case 3:
-                        //if (rw == 'W') ERR("@ s3 oops write\n");
+                        if (rw == 'W') ERR("@ s3 oops write\n");
                         break;
                 case 4:
-                        //if (rw == 'W') ERR("@ s4 oops write\n");
+                        if (rw == 'W') ERR("@ s4 oops write\n");
                         break;
                 case 5:
-                        //if (rw == 'W') ERR("@ s5 oops write\n");
-                        //if (avma != '#') ERR("@ s5 no avma %08x\n", pins);
+                        if (rw == 'W') ERR("@ s5 oops write\n");
+                        if (avma != '#') ERR("@ s5 no avma %08x\n", pins);
                         break;
                 case 6:
-                        //if (avma != '#') ERR("@ s6 no avma %08x\n", pins);
-                        //if (rw != 'W') ERR("@ s6 not write\n");
+                        if (avma != '#') ERR("@ s6 no avma %08x\n", pins);
+                        if (rw != 'W') ERR("@ s6 not write\n");
                         if (countdown == 0) {
                             countdown = addr;
                         } else {
@@ -179,8 +179,8 @@ void RunCPU() {
                         countdown--;
                         break;
                 case 7:
-                        //if (rw != 'W') ERR("@ s7 not write\n");
-                        //if (avma != '#') ERR("@ s0 oops avma %08x\n", pins);
+                        if (rw != 'W') ERR("@ s7 not write\n");
+                        if (avma != '#') ERR("@ s0 oops avma %08x\n", pins);
                         if (countdown == 0) {
                             countdown = addr;
                         } else {

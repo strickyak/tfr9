@@ -21,28 +21,28 @@ Loop:
 
     nop         [6] side 2  ; second phase = side 2 ; [z4:6->5:ERR]
 
-    ;z8;nop         [6] side 3  ; third phase = side 3
-    nop         [5] side 3  ; third phase = side 3 ; z8 -1 z9 -2
+    nop         [6] side 3  ; third phase = side 3
 
-    ; above: 6@0 6@2 6@3
     in pins,32      side 3  ;
     push        [5] side 3
-
-    ;nop             side 3  ;z8 +1 ; z8 0
 
     jmp pin, Read   side 3
 
 Write:
+    ;z3;nop             side 3
     nop        [6]  side 1  ; fourth phase = side 1
     nop        [6]  side 1  ; doubled to slow down writes
     in pins, 32     side 1
     push            side 1
+    ;z6; nop             side 0  ; first phase = side 0
     pull block      side 0  ; value ignored; just for synchronization of Arm Core. ;z7;
     jmp Loop        side 0  ;
 
 
 Read:
+    ;z3;nop             side 3
 
+    ; mov pindirs,~null   side 3
     mov osr, ~null   side 3
     out pindirs, 8   side 3
 
@@ -50,11 +50,13 @@ Read:
     out pins,8      side 3
     nop     [6]     side 1  ; fourth phase = side 1
     nop     [6]     side 1  ; [z5:6->5:ERR]
-
+    ;Z1; nop             side 0  ; first phase = side 0
 Reset:
+    ; mov pindirs,null    side 0 ; first phase = side 0
     mov osr, null         side 0
     out pindirs, 8        side 0
-.wrap
+.wrap ;z2;
+    ;;;;;z2;;; jmp Loop        side 0  ;
 
 
 
