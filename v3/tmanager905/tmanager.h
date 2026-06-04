@@ -16,10 +16,10 @@
 // FF07: Set data GPIO12..19
 
 #include <hardware/clocks.h>
+#include <hardware/i2c.h>
 #include <hardware/pio.h>
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
-#include <hardware/i2c.h>
 #include <pico/bootrom.h>
 #include <pico/rand.h>
 #include <pico/stdlib.h>
@@ -30,6 +30,14 @@
 #include <cstring>
 #include <functional>
 #include <vector>
+
+typedef unsigned char byte;
+typedef unsigned int word;
+typedef unsigned char T_byte;
+typedef unsigned int T_word;
+typedef unsigned char T_16[16];
+
+#include "metadata.h"
 
 #define printf T::Logf
 
@@ -46,12 +54,6 @@
     ShowStr(X " ");            \
     sleep_ms(100);             \
   }
-
-typedef unsigned char byte;
-typedef unsigned int word;
-typedef unsigned char T_byte;
-typedef unsigned int T_word;
-typedef unsigned char T_16[16];
 
 // RAPID_BURST_CYCLES is how many cycles
 // to run quickly without checking for IRQs
@@ -175,7 +177,7 @@ void putsz(uint n) {
 
 template <typename T>
 struct DontShowIrqs {
-  force_inline static void ShowIrqs(char ch) { }
+  force_inline static void ShowIrqs(char ch) {}
 };
 template <typename T>
 struct DoShowIrqs {
@@ -243,29 +245,34 @@ const byte Level2_Rom[] = {
 #include "../generated/level2.rom.h"
 };
 
-#define DELAY sleep_us(1)
-
-#define F_READ 0x01
-#define F_AVMA 0x02
-#define F_LIC 0x04
-#define F_BA 0x08
-#define F_BS 0x10
-#define F_BUSY 0x20
-
-#define F_HIGH (F_BA | F_BS | F_BUSY)
-
-#define PIN_E 8           // clock output pin
-#define PIN_Q 9           // clock output pin
-#define COUNTER_CLOCK 10  // 74hc161 counter control output pin
-#define COUNTER_RESET 11  // 74hc161 counter control output pin
-
-#define STATE_Y5_RESET_PIN 0
-#define STATE_Y5_IRQ_PIN 2
-
 extern "C" {
 extern int stdio_usb_in_chars(char* buf, int length);
 }
 
+#if TFR_911
+
+#else  // TFR_905
+
+// #define DELAY sleep_us(1)
+
+// #define F_READ 0x01
+// #define F_AVMA 0x02
+// #define F_LIC 0x04
+// #define F_BA 0x08
+// #define F_BS 0x10
+// #define F_BUSY 0x20
+
+// #define F_HIGH (F_BA | F_BS | F_BUSY)
+
+// #define PIN_E 8           // clock output pin
+// #define PIN_Q 9           // clock output pin
+// #define COUNTER_CLOCK 10  // 74hc161 counter control output pin
+// #define COUNTER_RESET 11  // 74hc161 counter control output pin
+
+// #define STATE_Y5_RESET_PIN 0
+// #define STATE_Y5_IRQ_PIN 2
+
+#if 0
 const char* HighFlags(uint high) {
   if (!high) {
     return "";
@@ -277,60 +284,6 @@ const char* HighFlags(uint high) {
   if (high & F_BUSY) *p++ = 'Y';
   *p = '\0';
   return high_buf;
-}
-
-#include "circbuf.h"
-
-// SmallRam & BigRam
-#include "ram.h"
-
-// Debugging
-#include "event.h"
-#include "hyper.h"
-#include "reboot.h"
-
-// I/O devices
-// Initially, dont include "cocosdc.h"; use emudsk instead.
-#include "cocopias.h"
-#include "emudsk.h"
-#include "floppy.h"
-#include "pico-io.h"
-#include "samvdg.h"
-#include "ssd1306.h"
-#include "cardkb.h"
-#include "cyberterm.h"
-#include "turbo9sim.h"
-
-bool is_an_os9;
-
-// Operating Systems
-#include "nitros9level1.h"
-#include "nitros9level2.h"
-#include "turbo9os.h"
-
-void ViewAt(const char* label, uint hi, uint lo) {
-#if 0
-    Quiet();
-    uint addr = (hi << 8) | lo;
-    VIEWF("=== %s: @%04x: ", label, addr);
-    for (uint i = 0; i < 8; i++) {
-        uint x = T::Peek2(addr+i+i);
-        VIEWF("%04x ", x);
-    }
-    VIEWF("|");
-    for (uint i = 0; i < 16; i++) {
-        byte ch = 0x7f & T::Peek(addr+i);
-        if (32 <= ch && ch <= 126) {
-            VIEWF("%c", ch);
-        } else if (ch==0) {
-            VIEWF("-");
-        } else {
-            VIEWF(".");
-        }
-    }
-    VIEWF("|\n");
-    Noisy();
-#endif
 }
 
 void StrobePin(uint pin) {
@@ -377,6 +330,72 @@ void InitializePinsForGpio() {
   }
 }
 
+void StartPio() {
+  const PIO pio = pio0;
+  constexpr uint sm = 0;
+
+  pio_clear_instruction_memory(pio);
+  pio_add_program_at_offset(pio, &tpio_program, 0);
+  tpio_program_init(pio, sm, 0);
+}
+#endif
+
+#endif  // which TFR_
+
+#include "circbuf.h"
+
+// SmallRam & BigRam
+#include "ram.h"
+
+// Debugging
+#include "event.h"
+#include "hyper.h"
+#include "reboot.h"
+
+// I/O devices
+// Initially, dont include "cocosdc.h"; use emudsk instead.
+#include "cardkb.h"
+#include "cocopias.h"
+#include "cyberterm.h"
+#include "emudsk.h"
+#include "floppy.h"
+#include "pico-io.h"
+#include "samvdg.h"
+#include "ssd1306.h"
+#include "turbo9sim.h"
+
+bool is_an_os9;
+
+// Operating Systems
+#include "nitros9level1.h"
+#include "nitros9level2.h"
+#include "turbo9os.h"
+
+void ViewAt(const char* label, uint hi, uint lo) {
+#if 0
+    Quiet();
+    uint addr = (hi << 8) | lo;
+    VIEWF("=== %s: @%04x: ", label, addr);
+    for (uint i = 0; i < 8; i++) {
+        uint x = T::Peek2(addr+i+i);
+        VIEWF("%04x ", x);
+    }
+    VIEWF("|");
+    for (uint i = 0; i < 16; i++) {
+        byte ch = 0x7f & T::Peek(addr+i);
+        if (32 <= ch && ch <= 126) {
+            VIEWF("%c", ch);
+        } else if (ch==0) {
+            VIEWF("-");
+        } else {
+            VIEWF(".");
+        }
+    }
+    VIEWF("|\n");
+    Noisy();
+#endif
+}
+
 // These were copied from Pico's headers
 // and made "hasty" by removing assertions.
 static force_inline bool hasty_pio_sm_is_rx_fifo_empty(PIO pio, uint sm) {
@@ -404,15 +423,6 @@ static force_inline void PUT(uint x) {
   const PIO pio = pio0;
   constexpr uint sm = 0;
   hasty_pio_sm_put(pio, sm, x);
-}
-
-void StartPio() {
-  const PIO pio = pio0;
-  constexpr uint sm = 0;
-
-  pio_clear_instruction_memory(pio);
-  pio_add_program_at_offset(pio, &tpio_program, 0);
-  tpio_program_init(pio, sm, 0);
 }
 
 const char* DecodeCC(byte cc) {
@@ -457,86 +467,6 @@ void Fatal(const char* s) {
   }
 }
 
-void PollUsbInput() {
-  // Try from USB to `usb_input` object.
-  while (1) {
-    char x = 0;
-    bool ok = TryGetUsbByte(&x);
-    if (ok) {
-      usb_input.Put(x);
-    } else {
-      break;
-    }
-  }
-
-  // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
-  while (1) {
-    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-    if (1 <= peek && peek <= 126) {
-      byte c = usb_input.Take();
-      assert((int)c == peek);
-      if (c == 10) {
-        c = 13;
-      }
-      term_input.Put(c);
-    } else {
-      break;
-    }
-  }
-
-  // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
-  int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-  // Do not take, until a full packet is available.
-  // This way, the initial C_DISK_READ byte will clog the buffer
-  // and prevent any of these from ending up on term_input.
-  switch (peek) {
-    case C_REBOOT:
-      ShowStr("\n*** REBOOTING ***\n");
-#if 0
-      delay_ms(200);
-      rom_REBOOT(REBOOT_TYPE_NORMAL | REBOOT_TO_ARM | NO_RETURN_UNTIL_SUCCESS,
-                 200 /* delay_ms */,
-                 0 /* p0 */
-                 0 /* p1 */);
-#else
-      Reboot();
-#endif
-      while (1) {
-        sleep_ms(50);
-        ShowChar('.');
-      }
-      break;
-
-    case C_DISK_READ:
-      if (usb_input.HasAtLeast(kDiskReadSize)) {
-        for (uint i = 0; i < kDiskReadSize; i++) {
-          byte t = usb_input.Take();
-          disk_input.Put(t);
-        }
-      }
-      break;
-
-    case C_PRE_LOAD:
-      while (usb_input.HasAtLeast(2)) {
-        byte sz = 63 & usb_input.Peek(1);
-        if (usb_input.HasAtLeast(2 + sz)) {
-          PreLoadPacket();
-        }
-      }
-      break;
-
-    case -1:
-      break;
-    case 0:
-      (void)usb_input.Take();
-      break;
-
-    default:
-      Fatal("PollUsbInput -- default");
-  }
-  return;
-}
-
 // yak1
 
 uint data;
@@ -552,16 +482,111 @@ uint next_pc;  // for multibyte ops.
 uint TildePowerOf2;
 uint OuterLoops;
 
+struct harness {
+      std::function<void(void)> engines[10];
+      std::function<void(void)> fast_engines[10];
+      harness();
+};
+
 template <typename T>
-struct EngineBase {
-    static void UseRamForVectors() {
-        IOReader ram_reader = [](uint addr, byte _d) {
-            return T::Peek(addr);
-        };
-        for (uint i = 0; i < 16; i++) {
-          IOReaders[255 & (0xFFF0 +  i)] = ram_reader;
-        }
+struct Base905 {
+  // NANDO TFR_905
+
+  static void DELAY() { sleep_us(1); }
+
+  constexpr static byte F_READ = 0x01;
+  constexpr static byte F_AVMA = 0x02;
+  constexpr static byte F_LIC = 0x04;
+  constexpr static byte F_BA = 0x08;
+  constexpr static byte F_BS = 0x10;
+  constexpr static byte F_BUSY = 0x20;
+
+  constexpr static byte F_HIGH = (F_BA | F_BS | F_BUSY);
+
+  constexpr static byte PIN_E = 8;  // clock output pin
+  constexpr static byte PIN_Q = 9;  // clock output pin
+  constexpr static byte COUNTER_CLOCK =
+      10;  // 74hc161 counter control output pin
+  constexpr static byte COUNTER_RESET =
+      11;  // 74hc161 counter control output pin
+
+  constexpr static byte STATE_Y5_RESET_PIN = 0;
+  constexpr static byte STATE_Y5_IRQ_PIN = 2;
+
+  static const char* HighFlags(uint high) {
+    if (!high) {
+      return "";
     }
+    static char high_buf[8];
+    char* p = high_buf;
+    if (high & F_BA) *p++ = 'A';
+    if (high & F_BS) *p++ = 'S';
+    if (high & F_BUSY) *p++ = 'Y';
+    *p = '\0';
+    return high_buf;
+  }
+
+  static void StrobePin(uint pin) {
+    gpio_put(pin, 0);
+    DELAY;
+    gpio_put(pin, 1);
+    DELAY;
+  }
+
+  // Use SetY(uint) to manually change the Multiplex Counter
+  // to the specified state, from outisde the PIO state machines.
+  // GPIO will have to "own" the COUNTER_RESET and COUNTER_CLOCK
+  // pins, instead of PIO owning them (see InitializePinsForGpio()).
+  // So really this is only used to reset the CPU
+  // (see ResetCpu()) before PIO begins.
+  static void SetY(uint y) {
+    StrobePin(COUNTER_RESET);
+    for (uint i = 0; i < y; i++) {
+      StrobePin(COUNTER_CLOCK);
+    }
+  }
+
+  static void InitializePinsForGpio() {
+    for (uint i = 0; i < 8; i++) {
+      gpio_init(i);
+      gpio_set_dir(i, GPIO_IN);
+    }
+    for (uint i = 8; i < 12; i++) {
+      gpio_init(i);
+      gpio_set_dir(i, GPIO_OUT);
+      gpio_put(i, 1);
+    }
+    // Set pull ups on all the GPIO that we use.
+    // Omit GPIO 23:25 which are not exposed.
+    // 1.  Pull ups will feel like TTL.
+    // 2.  This will allow open-collector inputs.
+    // 3.  Avoids the worst case of a floating CMOS input
+    //     (if input near VCC/2, it can sink current and burn up).
+    for (uint i = 0; i < 23; i++) {
+      gpio_pull_up(i);
+    }
+    for (uint i = 26; i < 29; i++) {
+      gpio_pull_up(i);
+    }
+  }
+
+  static void StartPio() {
+    const PIO pio = pio0;
+    constexpr uint sm = 0;
+
+    pio_clear_instruction_memory(pio);
+    pio_add_program_at_offset(pio, &tpio_program, 0);
+    tpio_program_init(pio, sm, 0);
+  }
+
+  // NANDO TFR_905
+
+  static void UseRamForVectors() {
+    IOReader ram_reader = [](uint addr, byte _d) { return T::Peek(addr); };
+    for (uint i = 0; i < 16; i++) {
+      IOReaders[255 & (0xFFF0 + i)] = ram_reader;
+    }
+  }
 
   static void DumpPhys() {
     uint sz = T::PhysSize();
@@ -679,66 +704,66 @@ struct EngineBase {
 
   // Preroll ignores post-reset cycles until it sees a read from FFFE.
   static void PreRoll() {
-MUMBLE("PR0");
+    MUMBLE("PR0");
     const PIO pio = pio0;
     constexpr uint sm = 0;
 
     IOReader r = IOReaders[255 & 0xFFFE];
     if (!r) {
-        MUMBLE("empty-FFFE");
-        // GET_STUCK();
+      MUMBLE("empty-FFFE");
+      // GET_STUCK();
 
-        byte th = ram[0xFFFE];
-        byte tl = ram[0xFFFF];
-        uint target = (uint(th) << 8) | uint(tl);
-        InstallVector(7, target);
-        MUMBLE("fixed?");
-        r = IOReaders[255 & 0xFFFE];
-        if (!r) {
-            MUMBLE("still-empty-FFFE");
-            GET_STUCK();
-        }
+      byte th = ram[0xFFFE];
+      byte tl = ram[0xFFFF];
+      uint target = (uint(th) << 8) | uint(tl);
+      InstallVector(7, target);
+      MUMBLE("fixed?");
+      r = IOReaders[255 & 0xFFFE];
+      if (!r) {
+        MUMBLE("still-empty-FFFE");
+        GET_STUCK();
+      }
     }
     // const byte x = T::Peek(0xFFFE);
     const byte hi = r(0xFFFE, 0xFF);
-MUMBLE("PR1");
+    MUMBLE("PR1");
     while (1) {
-MUMBLE("PR2");
+      MUMBLE("PR2");
       constexpr uint GO_AHEAD = 0x12345678;
       pio_sm_put(pio, sm, GO_AHEAD);
-MUMBLE("PR3");
+      MUMBLE("PR3");
 
       const uint got32 = WAIT_GET();
-MUMBLE("PR4");
+      MUMBLE("PR4");
 
       byte junk, alo, ahi, flags;
       QUAD_SPLIT(junk, alo, ahi, flags, got32);
       const uint addr = HL_JOIN(ahi, alo);
-MUMBLE("PR5");
+      MUMBLE("PR5");
 
       const bool reading = (flags & F_READ);
-MUMBLE("PR6");
+      MUMBLE("PR6");
 
       printf("Preroll: got=%08x addr=%x flags=%x reading=%x hi=%x\n", got32,
              addr, flags, reading, hi);
 
-MUMBLE("PR7");
+      MUMBLE("PR7");
       if (reading) {
-MUMBLE("PR8");
+        MUMBLE("PR8");
         PUT(QUAD_JOIN(0xAA /*=unused*/, 0x00 /*=inputs*/, hi,
                       0xFF /*=outputs*/));
       } else {
-MUMBLE("PR9");
+        MUMBLE("PR9");
         {}  // do nothing.
       }  // end if reading
 
-MUMBLE("PR10");
+      MUMBLE("PR10");
       if (addr == 0xFFFE) {
-MUMBLE("PR11");
+        MUMBLE("PR11");
         printf("Preroll: done\n");
         return;
       }
-MUMBLE("PR12");
+      MUMBLE("PR12");
     }
   }
 
@@ -1023,25 +1048,25 @@ MUMBLE("PR12");
         static int ctr;
         ctr++;
         if (ctr >= 100) {
-            ctr = 0;
+          ctr = 0;
 
-            byte b = CardKbRead();
-            if (b) {
-                cardkb_input.Put(b);
-            }
+          byte b = CardKbRead();
+          if (b) {
+            cardkb_input.Put(b);
+          }
 
-            if (not cardkb_char_in_ready) {
-              if (cardkb_input.HasAtLeast(1)) {
-                cardkb_char = cardkb_input.Take();
-                cardkb_char_in_ready = true;
-                cardkb_irq_firing = true;
-              } else {
-                cardkb_char = 0;
-                cardkb_char_in_ready = false;
-                cardkb_irq_firing = false;
-              }
+          if (not cardkb_char_in_ready) {
+            if (cardkb_input.HasAtLeast(1)) {
+              cardkb_char = cardkb_input.Take();
+              cardkb_char_in_ready = true;
+              cardkb_irq_firing = true;
+            } else {
+              cardkb_char = 0;
+              cardkb_char_in_ready = false;
+              cardkb_irq_firing = false;
             }
           }
+        }
       }
 
       if (!T::DoesPicoTimer()) {
@@ -1315,7 +1340,228 @@ MUMBLE("PR12");
     ShowStr("\n<<< exit: TFR9 STOPPING >>>\n");
     Reboot();
   }  // end RunMachineCycles
-};  // end struct EngineBase
+
+  static void PreLoadPacket() {
+    (void)usb_input.Take();  // command byte C_PRE_LOAD
+    uint sz = 63 & usb_input.Take();
+    assert(sz > 2);  // sz is packet size (number of bytes that follow sz).
+    uint hi = usb_input.Take();
+    uint lo = usb_input.Take();
+    uint addr = (hi << 8) | lo;
+    uint n = sz - 2;  // n is number of following bytes to be poked.
+    putchar('L');
+    for (uint i = 0; i < n; i++) {
+      ram[addr] = ram[addr + 0x10000] =
+          usb_input.Take();  // set upper and lower bank.
+      addr++;
+      // if ((i & 7) == 0) putchar('.');
+    }
+    // putchar(')');
+    if (addr == 0xFFFE and n == 2) {
+      stdio_puts("PreLoadPacket: (addr == 0xFFFE and n==2)\n");
+      // Reset Vector due to "FF" clause at end of decb binary.
+      byte th = ram[0xFFFE];
+      byte tl = ram[0xFFFF];
+      uint target = (uint(th) << 8) | uint(tl);
+      InstallVector(7, target);
+      // printf("PreLoadPacket: InstalVector(7) at %x\n", target);
+    }
+  }
+
+    static void PollUsbInput() {
+      // Try from USB to `usb_input` object.
+      while (1) {
+        char x = 0;
+        bool ok = TryGetUsbByte(&x);
+        if (ok) {
+          usb_input.Put(x);
+        } else {
+          break;
+        }
+      }
+
+      // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
+      while (1) {
+        int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+        if (1 <= peek && peek <= 126) {
+          byte c = usb_input.Take();
+          assert((int)c == peek);
+          if (c == 10) {
+            c = 13;
+          }
+          term_input.Put(c);
+        } else {
+          break;
+        }
+      }
+
+      // Try from `usb_input` object to `disk_input`, if it Peeks as C_DISK_READ.
+      int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
+      // Do not take, until a full packet is available.
+      // This way, the initial C_DISK_READ byte will clog the buffer
+      // and prevent any of these from ending up on term_input.
+      switch (peek) {
+        case C_REBOOT:
+          ShowStr("\n*** REBOOTING ***\n");
+#if 0
+          delay_ms(200);
+          rom_REBOOT(REBOOT_TYPE_NORMAL | REBOOT_TO_ARM | NO_RETURN_UNTIL_SUCCESS,
+                     200 /* delay_ms */,
+                     0 /* p0 */
+                     0 /* p1 */);
+#else
+          Reboot();
+#endif
+          while (1) {
+            sleep_ms(50);
+            ShowChar('.');
+          }
+          break;
+
+        case C_DISK_READ:
+          if (usb_input.HasAtLeast(kDiskReadSize)) {
+            for (uint i = 0; i < kDiskReadSize; i++) {
+              byte t = usb_input.Take();
+              disk_input.Put(t);
+            }
+          }
+          break;
+
+        case C_PRE_LOAD:
+          while (usb_input.HasAtLeast(2)) {
+            byte sz = 63 & usb_input.Peek(1);
+            if (usb_input.HasAtLeast(2 + sz)) {
+              PreLoadPacket();
+            }
+          }
+          break;
+
+        case -1:
+          break;
+        case 0:
+          (void)usb_input.Take();
+          break;
+
+        default:
+          Fatal("PollUsbInput -- default");
+      }
+      return;
+    } // PollUsbInput
+
+
+  static void Shell() {
+    struct harness harness;
+    Verbosity = 5;
+    Traceosity = 5;
+
+    while (true) {
+      // 200 loops for a 2-second period with sleep_ms(10)
+      constexpr uint SLEEP_MS = 10;
+      constexpr uint PERIOD_MS = 2000;
+      constexpr uint n = PERIOD_MS / SLEEP_MS;
+      constexpr uint QUARTER_PERIOD = n / 4;
+
+      for (int i = 0; i < n; i++) {
+        sleep_ms(SLEEP_MS);
+        if (i % QUARTER_PERIOD == 0) {
+          ShowChar(".:,;"[(i / QUARTER_PERIOD) & 3]);
+        }
+
+        PollUsbInput();
+
+        if (term_input.HasAtLeast(1)) {
+          byte ch = term_input.Take();
+          ShowChar('<');
+          if (32 <= ch && ch <= 126) {
+            ShowChar(ch);
+          } else {
+            ShowChar('#');
+          }
+          ShowChar('>');
+
+          if (ch == '/') {
+            for (uint i = 0; i < 5; i++) {
+              harness.engines[i] = harness.engines[i + 5];
+              harness.fast_engines[i] = harness.fast_engines[i + 5];
+            }
+            machine_shifted = 100;
+          } else if ('0' <= ch && ch <= '4') {
+            uint num = ch - '0';
+            if (harness.fast_engines[num]) {
+              machine_number = ch;
+              harness.fast_engines[num]();
+            } else {
+              ShowStr("-S?-");
+            }
+
+          } else if ('5' <= ch && ch <= '9') {
+            uint num = ch - '5';
+            if (harness.engines[num]) {
+              machine_number = ch;
+              harness.engines[num]();
+            } else {
+              ShowStr("-F?-");
+            }
+
+          } else if (ch == 'q') {
+            Traceosity = 6;
+          } else if (ch == 'w') {
+            Traceosity = 7;
+          } else if (ch == 'e') {
+            Traceosity = 8;
+          } else if (ch == 'r') {
+            Traceosity = 9;
+
+          } else if (ch == 'j') {
+            Verbosity = 2;
+          } else if (ch == 'k') {
+            Verbosity = 3;
+          } else if (ch == 'l') {
+            Verbosity = 4;
+          } else if (ch == 'a') {
+            Verbosity = 6;
+          } else if (ch == 's') {
+            Verbosity = 7;
+          } else if (ch == 'd') {
+            Verbosity = 8;
+          } else if (ch == 'f') {
+            Verbosity = 9;
+
+          } else if (ch == 'v') {
+            set_sys_clock_khz(200000, true);
+          } else if (ch == 'c') {
+            set_sys_clock_khz(250000, true);
+          } else if (ch == 'x') {
+            set_sys_clock_khz(260000, true);
+          } else if (ch == 'z') {
+            set_sys_clock_khz(270000, true);
+
+          } else if (ch == 'k') {
+            trace_at_what_cycle += 100 * 1000;
+            // printf(" [%d] ", trace_at_what_cycle)
+          } else if (ch == 'l') {
+            trace_at_what_cycle += 1000 * 1000;
+            // printf(" [%d] ", trace_at_what_cycle)
+
+          } else {
+            ShowStr("-#?-");
+          }
+        }  // term_input
+
+        if (90 <= i && i <= 100) {
+          SET_LED(1);
+        } else if (120 < i && i < 130) {
+          SET_LED(1);
+        } else {
+          SET_LED(0);
+        }
+      }
+    }
+    // Shell never returns.
+  }
+
+};  // end struct Base905
+struct Tfr905 : public Base905<Tfr905> {};
 
 template <typename T>
 struct Slow_Mixins : DoPcRange<T, 0x0010, 0xFF01>,
@@ -1347,20 +1593,20 @@ struct Fast_Mixins : DontPcRange<T>,
 
 template <typename T>
 struct Fast_C2_Mixins : DontPcRange<T>,
-                     DontTrace<T>,
-                     DontSeen<T>,
-                     Logging<T, LHello>,
-                     // DontLogMmu<T>,
-                     DontShowIrqs<T>,
+                        DontTrace<T>,
+                        DontSeen<T>,
+                        Logging<T, LHello>,
+                        // DontLogMmu<T>,
+                        DontShowIrqs<T>,
 
-                     DoTraceLowRamWrites<T, 0x2000>,
-                     DontHyper<T>,
-                     DontEvent<T>,
-                     DontDumpRamOnEvent<T>,
-                     DoPicoTimer<T> {};
+                        DoTraceLowRamWrites<T, 0x2000>,
+                        DontHyper<T>,
+                        DontEvent<T>,
+                        DontDumpRamOnEvent<T>,
+                        DoPicoTimer<T> {};
 
 template <typename T>
-struct Common_Mixins : EngineBase<T>,
+struct Common_Mixins : Base905<T>,
                        CommonRam<T>,
                        DoPicoIO<T>,
                        DoSsd1306<T>,
@@ -1489,7 +1735,9 @@ struct C2_Mixins : Common_Mixins<T>,
   }
 };
 struct C2_Slow : SmallRam<C2_Slow>, C2_Mixins<C2_Slow>, Slow_Mixins<C2_Slow> {};
-struct C2_Fast : SmallRam<C2_Fast>, C2_Mixins<C2_Fast>, Fast_C2_Mixins<C2_Fast> {};
+struct C2_Fast : SmallRam<C2_Fast>,
+                 C2_Mixins<C2_Fast>,
+                 Fast_C2_Mixins<C2_Fast> {};
 
 // F3 == try Fuxiz on a Coco3
 template <typename T>
@@ -1532,10 +1780,10 @@ struct F3_Mixins : Common_Mixins<T>,
   }
 };
 struct F3_Slow : BigRam<F3_Slow>, F3_Mixins<F3_Slow>, Slow_Mixins<F3_Slow> {
-    // MUMBLE("F3_Slow::ctor");
+  // MUMBLE("F3_Slow::ctor");
 };
 struct F3_Fast : BigRam<F3_Fast>, F3_Mixins<F3_Fast>, Fast_Mixins<F3_Fast> {
-    // MUMBLE("F3_Fast::ctor");
+  // MUMBLE("F3_Fast::ctor");
 };
 
 template <typename T>
@@ -1601,188 +1849,68 @@ struct L2_Slow : L2_Mixins<L2_Slow>, Slow_Mixins<L2_Slow> {};
 
 struct L2_Fast : L2_Mixins<L2_Fast>, Fast_Mixins<L2_Fast> {};
 
-struct harness {
-  std::function<void(void)> engines[10];
-  std::function<void(void)> fast_engines[10];
+harness::harness() {
+        memset(engines, 0, sizeof engines);
+        memset(fast_engines, 0, sizeof fast_engines);
 
-  harness() {
-    memset(engines, 0, sizeof engines);
-    memset(fast_engines, 0, sizeof fast_engines);
+        engines[0] = T9_Slow::Run;
+        engines[1] = L1_Slow::Run;
+        engines[2] = L2_Slow::Run;
+        engines[3] = X1_Slow::Run;
+        engines[4] = F3_Slow::Run;
+        engines[6] = C2_Slow::Run;
 
-    engines[0] = T9_Slow::Run;
-    engines[1] = L1_Slow::Run;
-    engines[2] = L2_Slow::Run;
-    engines[3] = X1_Slow::Run;
-    engines[4] = F3_Slow::Run;
-    engines[6] = C2_Slow::Run;
-
-    fast_engines[0] = T9_Fast::Run;
-    fast_engines[1] = L1_Fast::Run;
-    fast_engines[2] = L2_Fast::Run;
-    fast_engines[3] = X1_Fast::Run;
-    fast_engines[4] = F3_Fast::Run;
-    fast_engines[6] = C2_Fast::Run;
-  }
-};
-
-void PreLoadPacket() {
-  (void)usb_input.Take();  // command byte C_PRE_LOAD
-  uint sz = 63 & usb_input.Take();
-  assert(sz > 2);  // sz is packet size (number of bytes that follow sz).
-  uint hi = usb_input.Take();
-  uint lo = usb_input.Take();
-  uint addr = (hi << 8) | lo;
-  uint n = sz - 2;  // n is number of following bytes to be poked.
-  putchar('L');
-  for (uint i = 0; i < n; i++) {
-    ram[addr] = ram[addr + 0x10000] =
-        usb_input.Take();  // set upper and lower bank.
-    addr++;
-    // if ((i & 7) == 0) putchar('.');
-  }
-  // putchar(')');
-  if (addr == 0xFFFE and n==2) {
-      stdio_puts("PreLoadPacket: (addr == 0xFFFE and n==2)\n");
-      // Reset Vector due to "FF" clause at end of decb binary.
-        byte th = ram[0xFFFE];
-        byte tl = ram[0xFFFF];
-        uint target = (uint(th) << 8) | uint(tl);
-        InstallVector(7, target);
-        //printf("PreLoadPacket: InstalVector(7) at %x\n", target);
-  }
+        fast_engines[0] = T9_Fast::Run;
+        fast_engines[1] = L1_Fast::Run;
+        fast_engines[2] = L2_Fast::Run;
+        fast_engines[3] = X1_Fast::Run;
+        fast_engines[4] = F3_Fast::Run;
+        fast_engines[6] = C2_Fast::Run;
 }
 
-void Shell() {
-  struct harness harness;
-  Verbosity = 5;
-  Traceosity = 5;
-
-  while (true) {
-    // 200 loops for a 2-second period with sleep_ms(10)
-    constexpr uint SLEEP_MS = 10;
-    constexpr uint PERIOD_MS = 2000;
-    constexpr uint n = PERIOD_MS / SLEEP_MS;
-    constexpr uint QUARTER_PERIOD = n / 4;
-
-    for (int i = 0; i < n; i++) {
-      sleep_ms(SLEEP_MS);
-      if (i % QUARTER_PERIOD == 0) {
-        ShowChar(".:,;"[(i / QUARTER_PERIOD) & 3]);
-      }
-
-      PollUsbInput();
-
-      if (term_input.HasAtLeast(1)) {
-        byte ch = term_input.Take();
-        ShowChar('<');
-        if (32 <= ch && ch <= 126) {
-          ShowChar(ch);
-        } else {
-          ShowChar('#');
-        }
-        ShowChar('>');
-
-        if (ch == '/') {
-            for (uint i = 0; i < 5; i++) {
-                harness.engines[i] = harness.engines[i+5];
-                harness.fast_engines[i] = harness.fast_engines[i+5];
-            }
-            machine_shifted = 100;
-        } else if ('0' <= ch && ch <= '4') {
-          uint num = ch - '0';
-          if (harness.fast_engines[num]) {
-            machine_number = ch;
-            harness.fast_engines[num]();
-          } else {
-            ShowStr("-S?-");
-          }
-
-        } else if ('5' <= ch && ch <= '9') {
-          uint num = ch - '5';
-          if (harness.engines[num]) {
-            machine_number = ch;
-            harness.engines[num]();
-          } else {
-            ShowStr("-F?-");
-          }
-
-        } else if (ch == 'q') {
-          Traceosity = 6;
-        } else if (ch == 'w') {
-          Traceosity = 7;
-        } else if (ch == 'e') {
-          Traceosity = 8;
-        } else if (ch == 'r') {
-          Traceosity = 9;
-
-        } else if (ch == 'j') {
-          Verbosity = 2;
-        } else if (ch == 'k') {
-          Verbosity = 3;
-        } else if (ch == 'l') {
-          Verbosity = 4;
-        } else if (ch == 'a') {
-          Verbosity = 6;
-        } else if (ch == 's') {
-          Verbosity = 7;
-        } else if (ch == 'd') {
-          Verbosity = 8;
-        } else if (ch == 'f') {
-          Verbosity = 9;
-
-        } else if (ch == 'v') {
-          set_sys_clock_khz(200000, true);
-        } else if (ch == 'c') {
-          set_sys_clock_khz(250000, true);
-        } else if (ch == 'x') {
-          set_sys_clock_khz(260000, true);
-        } else if (ch == 'z') {
-          set_sys_clock_khz(270000, true);
-
-        } else if (ch == 'k') {
-          trace_at_what_cycle += 100 * 1000;
-          // printf(" [%d] ", trace_at_what_cycle)
-        } else if (ch == 'l') {
-          trace_at_what_cycle += 1000 * 1000;
-          // printf(" [%d] ", trace_at_what_cycle)
-
-        } else {
-          ShowStr("-#?-");
-        }
-      }  // term_input
-
-      if (90 <= i && i <= 100) {
-        SET_LED(1);
-      } else if (120 < i && i < 130) {
-        SET_LED(1);
-      } else {
-        SET_LED(0);
-      }
-    }
-  }
-  // Shell never returns.
-}
+#undef printf
 
 int main() {
+  for (uint i = 0; i <= 48; i++) {
+      gpio_init(i);
+      gpio_set_dir(i, GPIO_IN);
+      gpio_set_pulls(i, /*up=*/true, /*down=*/false);
+  }
+  gpio_set_dir(25, GPIO_OUT);
+
   stdio_usb_init();
+  Metadata::InitLabel();
+  Metadata::PrintLabel();
+
+  const char* board = Metadata::GetLabel("b");
+  const char* version = Metadata::GetLabel("v");
+  if (board) printf("b=%s\n", board);
+  if (version) printf("v=%s\n", version);
+
+#define streq(A, B) !strcmp(A, B)
+
+  if (board && version && streq(board, "tfr9") && streq(version, "911h")) {
+    while (true) {
+        printf("911! ");
+        for (uint i = 0; i < 3; i++) {
+          SET_LED(1);
+          sleep_ms(200);
+          SET_LED(0);
+          sleep_ms(200);
+        }
+        SET_LED(0);
+        sleep_ms(600);
+    }
+  }
 
   gpio_init(25);
   gpio_set_dir(25, GPIO_OUT);
   SET_LED(0);
-  InitializePinsForGpio();
-
-#if 0
-  for (uint i = 0; i < 5; i++) {
-    SET_LED(1);
-    sleep_ms(100);
-    SET_LED(0);
-    sleep_ms(150);
-  }
-#endif
+  Tfr905::InitializePinsForGpio();
 
   interest = 0;  // MAX_INTEREST;  /// XXX
 
   quiet_ram = 0;
 
-  Shell();
+  Tfr905::Shell();
 }

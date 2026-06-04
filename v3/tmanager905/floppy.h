@@ -265,7 +265,7 @@ byte floppy_buf[256];
     --quiet_ram;
 
     while (1) {
-      PollUsbInput();
+      T::PollUsbInput();
       if (T::PeekDiskInput()) {
         for (uint k = 0; k < kDiskReadSize - 256; k++) {
           (void)disk_input.Take();  // 4-byte device & LSN.

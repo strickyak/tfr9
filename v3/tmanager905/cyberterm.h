@@ -1,6 +1,8 @@
 #ifndef _CYBERTERM_H_
 #define _CYBERTERM_H_
 
+#include "ssd1306.h"
+
 // CyberTerm is a "CyberDeck terminal" using Ssd1306 for display
 // and CardKb for keyboard, for NitrOS9.
  
