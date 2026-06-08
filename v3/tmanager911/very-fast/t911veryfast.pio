@@ -18,18 +18,11 @@
 Loop:
 .wrap_target  ;z2;
     nop         [6] side 0  ; first phase = side 0
-
     nop         [6] side 2  ; second phase = side 2 ; [z4:6->5:ERR]
-
-    ;z8;nop         [6] side 3  ; third phase = side 3
     nop         [5] side 3  ; third phase = side 3 ; z8 -1 z9 -2
 
-    ; above: 6@0 6@2 6@3
     in pins,32      side 3  ;
     push        [5] side 3
-
-    ;nop             side 3  ;z8 +1 ; z8 0
-
     jmp pin, Read   side 3
 
 Write:
