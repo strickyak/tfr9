@@ -1,0 +1,5 @@
+PICO_EXAMPLES_PATH=/dev/null PICO_SDK_PATH=/home/strick/modoc/coco-shelf/pico-sdk PICOTOOL_FETCH_FROM_GIT_PATH=/home/strick/modoc/coco-shelf/picotool/ cmake ~/modoc/coco-shelf/tfr9/v3/tmanager911/very-turbos/
+
+PICO_EXAMPLES_PATH=/dev/null PICO_SDK_PATH=/home/strick/modoc/coco-shelf/pico-sdk PICOTOOL_FETCH_FROM_GIT_PATH=/home/strick/modoc/coco-shelf/picotool/   make  && cp -v veryturbos.uf2 /media/strick/RP2350/ && p  /home/strick/modoc/coco-shelf/tfr9/v3/generated/tconsole.linux-amd64.exe -no_modules -centipede | tee /tmp/,1
+
+
