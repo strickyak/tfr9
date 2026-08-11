@@ -1,11 +1,30 @@
 #!/bin/sh
 set -ex
 
-# For /bin/sh on 32bit R Pi that has no time:
-time : || time() { "$@" ; }
+# For /bin/sh without a time builtin (e.g. busybox/dash on a 32-bit R Pi):
+# the eval hides the function-definition syntax from parsers (like bash's)
+# that special-case `time` as a reserved word at parse time.
+command -v time >/dev/null 2>&1 || eval 'time() { "$@" ; }'
 
 S="$1"; shift
 D="$1"; shift
+
+# Newer nitros9 checkouts only build libNAME.a under recipes/*/floppy/.lib/,
+# not under nitros9/lib/ where rmake.tcl's generated Makefiles look for them.
+N9ROOT="$(cd "$S/../.." && pwd)"
+mkdir -p "$N9ROOT/lib"
+case "$S" in
+  */level1/coco1 )
+    cp -vf "$N9ROOT/recipes/coco/floppy/.lib/libalib.a" "$N9ROOT/lib/libalib.a"
+    cp -vf "$N9ROOT/recipes/coco/floppy/.lib/libcoco.a" "$N9ROOT/lib/libcoco.a"
+    cp -vf "$N9ROOT/recipes/coco/floppy/.lib/libnet.a" "$N9ROOT/lib/libnet.a"
+  ;;
+  */level2/coco3 )
+    cp -vf "$N9ROOT/recipes/coco3/floppy/.lib/libalib.a" "$N9ROOT/lib/libalib.a"
+    cp -vf "$N9ROOT/recipes/coco3/floppy/.lib/libcoco3.a" "$N9ROOT/lib/libcoco.a"
+    cp -vf "$N9ROOT/recipes/coco3/floppy/.lib/libnet.a" "$N9ROOT/lib/libnet.a"
+  ;;
+esac
 
 time tclsh rmake.tcl
 

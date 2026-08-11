@@ -2,8 +2,10 @@
 set -ex
 cd $(dirname $0)
 
-# For /bin/sh on 32bit R Pi that has no time:
-time : || time() { "$@" ; }
+# For /bin/sh without a time builtin (e.g. busybox/dash on a 32-bit R Pi):
+# the eval hides the function-definition syntax from parsers (like bash's)
+# that special-case `time` as a reserved word at parse time.
+command -v time >/dev/null 2>&1 || eval 'time() { "$@" ; }'
 
 # Raspberry Pi Pico SDK
 COCO_SHELF="${COCO_SHELF:-$(cd ../.. && pwd)}"
