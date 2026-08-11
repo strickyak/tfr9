@@ -1872,6 +1872,11 @@ harness::harness() {
 
 int main() {
   for (uint i = 0; i <= 48; i++) {
+      // NOTE Tue Aug 11 16:04:34 EDT 2026
+      // I merged this comment-out from `dual-905-911` to `main`
+      // without knowing why, but wanted to get the
+      // 911 very-turbos into the main branch.
+      // ---
       //gpio_init(i);
       //gpio_set_dir(i, GPIO_IN);
       //gpio_set_pulls(i, /*up=*/true, /*down=*/false);
