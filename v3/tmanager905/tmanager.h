@@ -52,7 +52,7 @@ typedef unsigned char T_16[16];
   {                            \
     printf("MUMBLE: " X "\n"); \
     ShowStr(X " ");            \
-    sleep_ms(100);             \
+    sleep_ms(1);  /*was 100*/  \
   }
 
 // RAPID_BURST_CYCLES is how many cycles
@@ -1872,9 +1872,9 @@ harness::harness() {
 
 int main() {
   for (uint i = 0; i <= 48; i++) {
-      gpio_init(i);
-      gpio_set_dir(i, GPIO_IN);
-      gpio_set_pulls(i, /*up=*/true, /*down=*/false);
+      //gpio_init(i);
+      //gpio_set_dir(i, GPIO_IN);
+      //gpio_set_pulls(i, /*up=*/true, /*down=*/false);
   }
   gpio_set_dir(25, GPIO_OUT);
 
