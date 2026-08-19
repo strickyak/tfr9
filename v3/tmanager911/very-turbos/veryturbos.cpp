@@ -1,4 +1,5 @@
-#define MHz 250  // clock speed, 150 is "normal".
+#define TRACE 1
+#define MHz 200  // clock speed, 150 is "normal".
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
@@ -51,6 +52,7 @@ enum cycle_kind : byte {
   CY_READ = 4,
   CY_WRITE = 5,
   CY_IDLE = 6,
+  CY_FIC = 7,  // first instruction cycle
 };
 
 enum message_type : byte {
@@ -277,10 +279,6 @@ constexpr uint GROUP_SIZE = 10000;
 uint history[GROUP_SIZE + 64];
 #endif
 
-#ifdef TRACE
-byte seen[64 * 1024];
-#endif
-
 uint milliseconds;
 uint errors;
 
@@ -325,13 +323,13 @@ struct Guts {
         }
       }
 
-      uint prev_pins = 0;
+      uint prev_late_pins = 0;
 
       for (int i = 0; i < GROUP_SIZE; i++) {
-        pio_sm_put(pio0, 0, 0);
+        pio_sm_put(pio0, 0, 0); // put sync word
 
         byte value = 0;
-        uint pins = pio_sm_get_blocking(pio0, 0);
+        uint pins = pio_sm_get_blocking(pio0, 0); // get early pins
         uint prev_addr =
             0xFFFF & hw->gpio_hi_in;  // Read addr from high pins [32:47]
         uint addr;
@@ -344,6 +342,7 @@ struct Guts {
         const bool reading = (pins & (1 << R_W));
         const char rw = (reading) ? 'r' : 'W';
         byte kind = 0;
+        uint late_pins = 0;
 
         //////////////////
         if (likely(reading)) {
@@ -362,7 +361,9 @@ struct Guts {
         } else {  
           // WRITE CYCLES
           // on Write cycle, Receive the value that was Written.
-          value = pio_sm_get_blocking(pio0, 0);
+          late_pins = pio_sm_get_blocking(pio0, 0);
+          value = (byte)late_pins;
+
           if (likely(addr < 0xFF00)) {
             ram[addr] = value;
 #ifdef TRACE
@@ -382,28 +383,36 @@ struct Guts {
 
         if (likely(reading)) {
             pio_sm_put(pio0, 0, value);
+            late_pins = pio_sm_get_blocking(pio0, 0); // LATE PINS
         }
+        bool is_lic = ((late_pins & (1<<LIC)) != 0);
+        bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
+
+#ifdef TRACE
+        // uint late_pins = hw->gpio_in;  // Read addr from lower pins [0..31]
+        if (is_fic) {
+#if 1
+                kind = CY_FIC;
+#else
+            if (seen[addr]) {
+                kind = CY_SEEN;
+            } else {
+                kind = CY_UNSEEN;
+                seen[addr] = 1;
+            }
+#endif
+        }
+
+        // printf("+%c %04x %02x\n", rw, addr, value);
+        // TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr);
+        TransmitCycle(cycles+i, (byte)is_lic, kind, value, addr);
+#endif
 
 #ifdef HISTORY
         history[i] = (pins & 0xF000) | (uint(addr) << 8) | (0xFF & value);
 #endif
 
-#ifdef TRACE
-        if (prev_pins & (1<<LIC)) {
-            if (seen[addr]) {
-                kind = CY_SEEN;
-            } else {
-                kind = CY_UNSEEN;
-            }
-            seen[addr] = 1;
-        }
-
-        // printf("+%c %04x %02x\n", rw, addr, value);
-        // TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr);
-        TransmitCycle(cycles+i, 0, kind, value, addr);
-#endif
-
-        prev_pins = pins;
+        prev_late_pins = late_pins;
       }  // next i
 
       cycles += GROUP_SIZE;
@@ -417,9 +426,10 @@ struct Guts {
       }
     }  // true
   }  // func RunCPU
-};
+}; // Guts
 
-struct Engine : public DoTurbo9os<Engine>,
+struct Engine : public DoTurbo9os<Engine,
+                    RomList<Turbo9os_Rom, Ncl_Rom>>,
                 public DoTurbo9sim<Engine>,
                 public Guts<Engine> {};
 

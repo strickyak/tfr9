@@ -63,6 +63,7 @@ uint Peek2(uint addr) {
 }
 
 void InstallTurbo9OS() {
+    // TODO(strick): Isn't this code also in turbo9os.h?
     is_an_os9 = true;
     // Copy 7 Vectors;  Reset vector comes later.
     for (uint i = 0; i < 7; i++) {
@@ -101,6 +102,8 @@ constexpr uint R_W = 31;
 
 volatile uint busy;
 void Delay(uint n) {
+    // TODO(strick): How long is a delay intended to be?
+    // The SDK has a Cycle Delay function.
     for (uint i = 0; i < n*10; i++) {
         busy += i;
     }
@@ -111,6 +114,7 @@ uint InitializePinsReturnDirections() {
     for (int i = 0; i < 48; i++) {
         gpio_init(i);
         switch (i) {
+            // TODO(strick): RESET, NMI, IRQ, FIRQ, & HALT should be open-drain.
             case RESET:
             case NMI:
             case IRQ:
@@ -133,7 +137,9 @@ uint InitializePinsReturnDirections() {
 
 void RunReset() {
     gpio_put(RESET, 0);
+    // TODO(strick): 50 cycles is enough?
     for (int i = 0; i < 1000; i++) {
+        // TODO(strick): Specific delay.
         Delay(10); // phase 1
         gpio_put(Q, 1);
         Delay(10); // phase 2
@@ -175,10 +181,10 @@ void RunCPU(uint directions) {
         Delay(1); // phase 1
         gpio_put(Q, 1);
 
-        const uint lo = hw->gpio_in;
-        const uint hi = hw->gpio_hi_in;
-        const bool reading = (lo & (1<<R_W)) != 0;
-        const uint addr = hi & 0xFFFF;
+        const uint hi = hw->gpio_hi_in; // Reads pins 32..47 (the address bus)
+        const uint lo = hw->gpio_in; // Reads pins 0..31 (everything else)
+        const bool reading = (lo & (1<<R_W)) != 0;  // R cycle vs W cycle.
+        const uint addr = hi & 0xFFFF;  // mask off non-existant GPIOs 48..63
 
         Delay(1); // phase 2
         gpio_put(E, 1);
@@ -226,6 +232,7 @@ int main() {
   stdio_usb_init();
   uint directions = InitializePinsReturnDirections();
 
+  // TODO(strick): is 3 seconds too long?
   for (int i = 0;  i < 3; i++) {
     gpio_put(LED, 1);
     sleep_ms(200);
@@ -233,7 +240,7 @@ int main() {
     sleep_ms(800);
   }
 
-  InstallTurbo9OS();
+  InstallTurbo9OS(); // Above; not in the templated class in turbo9os.h.
   RunReset();
   RunCPU(directions);
 }
