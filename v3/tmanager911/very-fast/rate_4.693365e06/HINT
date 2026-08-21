@@ -1,1 +1,0 @@
-PICO_EXAMPLES_PATH=/dev/null PICO_SDK_PATH=/home/strick/modoc/coco-shelf/pico-sdk PICOTOOL_FETCH_FROM_GIT_PATH=/home/strick/modoc/coco-shelf/picotool/ cmake ~/modoc/coco-shelf/tfr9/v3/tmanager911/very-fast/
