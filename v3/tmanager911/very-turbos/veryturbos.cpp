@@ -78,6 +78,10 @@ enum message_type : byte {
   EVENT_RTI = 176,
   EVENT_SWI2 = 177,
 
+  // Tether-to-Pico command codes
+  T_HELLO = 178,    // Centipede tether sends this on connect
+  T_COMMAND = 179,  // Centipede tether sends Tcl commands
+
   // Short form codes, 192 to 255.
   // The packet length does not follow,
   // but is in the low nybble.
@@ -242,8 +246,24 @@ void PollUsbInput() {
         // TODO: handle disk read replies when disk support is added
         break;
 
+      case T_HELLO:
+        // Centipede tether sends T_HELLO on connect; acknowledge silently.
+        break;
+
+      case T_COMMAND:
+        // Centipede tether sends Tcl commands; ignore until Tcl is added.
+        break;
+
       default:
-        Printf("ignore_cmd(%d, len=%d)", cmd, (int)pkt.size());
+        // Bare ASCII bytes (1-127) are keystrokes from the Centipede tether,
+        // which sends them unwrapped (not in C_PUTCHAR packets).
+        if (cmd >= 1 && cmd <= 127) {
+          byte c = cmd;
+          if (c == 10) c = 13;
+          term_input.Put(c);
+        } else {
+          Printf("ignore_cmd(%d, len=%d)", cmd, (int)pkt.size());
+        }
         break;
     }
   }
