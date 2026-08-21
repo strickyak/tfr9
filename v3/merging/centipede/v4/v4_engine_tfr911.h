@@ -53,10 +53,21 @@ class TFR911Engine : public CoreEngine<T> {
     for (uint i = 0; i < 48; i++) {
       gpio_init(i);
       switch (i) {
-        case RESET: case NMI: case IRQ: case FIRQ:
-        case HALT: case E: case Q: case LED:
+        // E, Q, LED: push-pull outputs (actively driven by the RP2350).
+        case E: case Q: case LED:
           gpio_set_dir(i, GPIO_OUT);
-          gpio_put(i, 1);  // Active-low: deassert all.
+          gpio_put(i, 1);
+          break;
+        // Slow control inputs to the 6809E: open-drain.
+        // Output latch = 0, direction = input (released, pulled high).
+        // Assert by setting direction to output (pulls low).
+        // Release by setting direction to input (pulled high by pull-up).
+        // This plays well with other devices on the bus.
+        case RESET: case NMI: case IRQ: case FIRQ: case HALT:
+          gpio_set_dir(i, GPIO_OUT);
+          gpio_put(i, 0);            // Output latch = 0 (active low).
+          gpio_set_dir(i, GPIO_IN);  // Released (not driving).
+          gpio_set_pulls(i, true, false);  // Internal pull-up.
           break;
         default:
           gpio_set_dir(i, GPIO_IN);
@@ -75,49 +86,52 @@ class TFR911Engine : public CoreEngine<T> {
   }
 
   // ── Interrupt Pin Control (FORCE_INLINE, called from inner loop) ──
-  // TFR911 has direct push-pull GPIO connections to all interrupt pins.
+  // Open-drain: assert by setting direction to output (pin latch is 0,
+  // pulling the line low). Release by setting direction to input
+  // (line floats high via pull-up). This is the same pattern as
+  // the Centipede, and allows other devices on the bus to also
+  // assert these active-low signals.
   FORCE_INLINE static void AssertIRQPin() {
-    gpio_put(tfr911_pins::IRQ, 0);  // Active low.
+    gpio_set_dir(tfr911_pins::IRQ, GPIO_OUT);
   }
   FORCE_INLINE static void ReleaseIRQPin() {
-    gpio_put(tfr911_pins::IRQ, 1);
+    gpio_set_dir(tfr911_pins::IRQ, GPIO_IN);
   }
   FORCE_INLINE static void AssertFIRQPin() {
-    gpio_put(tfr911_pins::FIRQ, 0);
+    gpio_set_dir(tfr911_pins::FIRQ, GPIO_OUT);
   }
   FORCE_INLINE static void ReleaseFIRQPin() {
-    gpio_put(tfr911_pins::FIRQ, 1);
+    gpio_set_dir(tfr911_pins::FIRQ, GPIO_IN);
   }
   FORCE_INLINE static void AssertNMIPin() {
-    gpio_put(tfr911_pins::NMI, 0);
+    gpio_set_dir(tfr911_pins::NMI, GPIO_OUT);
   }
   FORCE_INLINE static void ReleaseNMIPin() {
-    gpio_put(tfr911_pins::NMI, 1);
+    gpio_set_dir(tfr911_pins::NMI, GPIO_IN);
   }
 
-  // ── HALT control (FORCE_INLINE) ──
-  // TFR911 has a direct HALT pin. Future: for flow control or
-  // waiting on disk I/O.
+  // ── HALT control (FORCE_INLINE, open-drain) ──
   FORCE_INLINE static void HaltOn() {
-    gpio_put(tfr911_pins::HALT, 0);
+    gpio_set_dir(tfr911_pins::HALT, GPIO_OUT);
   }
   FORCE_INLINE static void HaltOff() {
-    gpio_put(tfr911_pins::HALT, 1);
+    gpio_set_dir(tfr911_pins::HALT, GPIO_IN);
   }
 
   // ── Reset sequence (IN_FLASH, called once before CPU starts) ──
   // The TFR911 generates E/Q clock phases via PIO; during reset,
   // we drive the clocks directly via GPIO.
+  // RESET is open-drain: assert via direction, not gpio_put.
   static void IN_FLASH RunReset() {
     using namespace tfr911_pins;
-    gpio_put(RESET, 0);
+    gpio_set_dir(RESET, GPIO_OUT);  // Assert RESET (pulls low).
     for (int i = 0; i < 1000; i++) {
       sleep_us(10); gpio_put(Q, 1);
       sleep_us(10); gpio_put(E, 1);
       sleep_us(10); gpio_put(Q, 0);
       sleep_us(10); gpio_put(E, 0);
     }
-    gpio_put(RESET, 1);
+    gpio_set_dir(RESET, GPIO_IN);  // Release RESET (pulled high).
   }
 
   // ── USB/COBS (FORCE_INLINE for hot path) ──
