@@ -1,240 +1,398 @@
-// v4_centipede_main.cpp — Centipede v4 build: wires v4 framework + v1 code.
+// v4_centipede_main.cpp — Centipede v4 firmware build.
 //
-// This is the top-level compilation unit for the Centipede v4 firmware.
-// It includes:
-//   - v4 framework headers (types, RAM, interrupts, engine)
-//   - v4 compatibility shim (maps v1 naming to v4)
-//   - v1 implementation headers (coco64k, disk11_rom, floppy, gspoon, etc.)
+// This is functionally equivalent to v1/firmware/centipede.cpp,
+// but structured using the v4 architecture:
+//   - V4CoreEngine<T> replaces v1's CoreEngine<T>
+//   - v1's CRTP mixins (DoCoco64k, DoFloppy) are reused directly
+//   - Globals, macros, and infrastructure match v1's definitions
 //
-// The v4 Engine struct composes CRTP mixins from both v4 (CentipedeEngine)
-// and v1 (DoCoco64k, DoFloppy). The foreground and background loops are
-// ported from v1's CoreEngine with minimal changes.
-//
-// Build: cmake with PLATFORM=CENTIPEDE, CENTIPEDE_REV=3205.
+// Build: cmake from v4/ directory.
+
+// ═══════════════════════════════════════════════════════════════════
+// Configuration defines (must come BEFORE any includes)
+// These match v1/firmware/centipede.cpp exactly.
+// ═══════════════════════════════════════════════════════════════════
+
+#ifndef MHz
+#define MHz 250
+#endif
+
+#define RPC_VERBOSE 0
+#define FLOPPY_OVER_VFS 1
+
+#define BUG_SPLASH_MILLIS 400
+#define AUTO_GLOB 1
+#define DEFANG 1
+#define USE_PMODE4 1
+#define INVERSE_PMODE 1
+#define GREEN_PMODE 0
+
+#define ON_RESET_DO_SPOONFEED_CONSOLE 1
+#define GSPOON_POC_DEMO 0
+#define ECHO_PUTCHAR_ON_CONSOLE 1
+#define USE_ORCHESTRA90 0  // Disabled in v4 for now
+#define STACK_SIZE   (20 * 1024)
+
+enum TracingSpeed { NO_SPEED, SLOW_SPEED, MEDIUM_SPEED, FAST_SPEED };
+constexpr TracingSpeed Speed = MEDIUM_SPEED;
+
+#ifndef CENTIPEDE_REV
+#define CENTIPEDE_REV 3226  // 32z
+#endif
+
+#define DBUS_HOLD_CYCLES 0
+
+// Flow control tuning
+#define COMPRESSION_MAX 100
+#define FG2BG_HIGH_WATERMARK 1000
+#define FG2BG_LOW_WATERMARK 500
+
+#define CENTIPEDE_INVERT_EQ 1
+
+// Compiler hints
+#define IN_FLASH __in_flash("FLASH")
+#define IN_RAM __not_in_flash("centipede")
+
+#define LIKELY(x) __builtin_expect(!!(x), 1)
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define FORCE_INLINE inline __attribute__((always_inline))
 
 // ═══════════════════════════════════════════════════════════════════
 // Pico SDK headers
 // ═══════════════════════════════════════════════════════════════════
-#include <pico/stdlib.h>
-#include <pico/multicore.h>
+#include <hardware/clocks.h>
 #include <hardware/pio.h>
-#include <hardware/gpio.h>
-#include <hardware/sync.h>
-#include <hardware/structs/sio.h>
+#include <hardware/regs/pads_qspi.h>
 #include <hardware/structs/qmi.h>
+#include <hardware/sync.h>
+#include <pico/multicore.h>
+#include <pico/platform.h>
+#include <pico/stdlib.h>
+#include <pico/time.h>
 
+#include "pico/rand.h"
+
+extern "C" {
+#include <arm_acle.h>
+#include <cmsis_gcc.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <stdio.h>
+
+#include "../v1/littlefs/lfs-centipede.h"
+#include "../v1/littlefs/lfs.h"
+#include "../v1/littlefs/lfs_util.h"
+
+// CentipedeConfig is defined in v1/firmware/config.h.
+// It will be included transitively by tcl_commands.h -> menu.h -> config.h.
+
+int _getentropy(void* buffer, size_t length) {
+  char* ptr = (char*)buffer;
+  while (length >= 4) {
+    uint32_t r = get_rand_32();
+    memcpy(ptr, &r, 4);
+    ptr += 4;
+    length -= 4;
+  }
+  if (length > 0) {
+    uint32_t r = get_rand_32();
+    memcpy(ptr, &r, length);
+  }
+  return 0;
+}
+int getentropy(void* buffer, size_t length) {
+  return _getentropy(buffer, length);
+}
+}
+
+#include <cstring>
+#include <functional>
 #include <array>
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <string>
 
 // ═══════════════════════════════════════════════════════════════════
-// v4 framework headers (types, enums, macros)
-// ═══════════════════════════════════════════════════════════════════
-#include "v4_types.h"
-#include "v4_ram.h"
-#include "v4_interrupts.h"
-#include "v4_turbo9sim.h"
-#include "v4_trace.h"
-#include "v4_os_loader.h"
-#include "v4_engine_centipede.h"
-// NOTE: v4_core_engine.h is included by v4_engine_centipede.h.
-// NOTE: v4_floppy.h and v4_console.h are NOT used — we use v1's versions.
-
-// ═══════════════════════════════════════════════════════════════════
-// v4 compatibility shim — bridges v1 naming to v4
-// ═══════════════════════════════════════════════════════════════════
-#include "v4_compat_centipede.h"
-
-// ═══════════════════════════════════════════════════════════════════
-// Global storage (BSS — always in RAM)
-// ═══════════════════════════════════════════════════════════════════
-byte ram[64 * 1024];
-IOReader IOReaders[256];
-IOWriter IOWriters[256];
-byte vector_ram[16];
-
-// ═══════════════════════════════════════════════════════════════════
-// Tcl interpreter (shared global, used by gspoon + tcl_commands)
+// Tcl interpreter
 // ═══════════════════════════════════════════════════════════════════
 #include "../v1/tcl6.7c/tcl.h"
 Tcl_Interp* global_tcl_interp = nullptr;
 
+const char HexAlphabet[] =
+    "0123456789ABCDEFXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    "XXXXXXX";
+
 // ═══════════════════════════════════════════════════════════════════
-// USB pipeline and COBS infrastructure
+// GPIO pin definitions
 // ═══════════════════════════════════════════════════════════════════
+#define G_RW 20
+#define G_E 21
+#define G_Q 22
+
+#if CENTIPEDE_REV == 3205  // 32e
+#define G_LED 25
+#define G_SCS 26
+#define G_CART 27
+#define G_SLENB 28
+#define G_HALT 29
+#define G_NMI 30
+#define G_CTS 31
+#elif CENTIPEDE_REV == 3204  // 32d
+#define G_CTS 18
+#define G_SCS 19
+#define G_LED 25
+#define G_SND 26
+#define G_CART 27
+#define G_SLENB 28
+#define G_HALT 29
+#define G_NMI 30
+#define G_RESET 31
+#elif CENTIPEDE_REV == 3226  // 32z
+#define G_CTS 8
+#define G_SCS 9
+#define G_LED 25
+#define G_SND 26
+#define G_CART 27
+#define G_SLENB 28
+#define G_HALT 29
+#define G_NMI 30
+#define G_RESET 31
+#else
+#define G_LED 25
+#define G_NMI 26
+#define G_RESET 27
+#define G_HALT 28
+#define G_SLENB 29
+#endif
+
+#define G_D0 0
+#define G_A0 32
+
+// ═══════════════════════════════════════════════════════════════════
+// Helper macros and functions
+// ═══════════════════════════════════════════════════════════════════
+#define SET_LED(X) gpio_put(G_LED, (X))
+#define volatile_sio_hw ((volatile sio_hw_t*)SIO_BASE)
+
+using byte = unsigned char;
+using addr16 = uint16_t;
+using uint = unsigned int;
+
+using IOReader = byte (*)(uint addr);
+using IOWriter = void (*)(uint addr, byte data);
+
+void INPUT(int i) {
+  gpio_init(i);
+  gpio_set_dir(i, GPIO_IN);
+  gpio_set_pulls(i, false, false);
+}
+void OUTPUT(int i, int x) {
+  gpio_init(i);
+  gpio_set_dir(i, GPIO_OUT);
+  gpio_put(i, x);
+}
+
+void HaltOn() { gpio_set_dir(G_HALT, GPIO_OUT); }
+void HaltOff() { gpio_set_dir(G_HALT, GPIO_IN); }
+
+#define BOOT_MODE_CHECKER 0x56781234u
+uint32_t  __uninitialized_ram(boot_mode);
+uint32_t  __uninitialized_ram(boot_mode_check);
+std::atomic<bool> startup_e_clock_detected{false};
+
+bool IN_RAM detect_e_clock() {
+  uint count_high = 0, count_low = 0, transitions = 0;
+  bool last_state = gpio_get(G_E);
+  for (uint i = 0; i < 10000; i++) {
+    bool current_state = gpio_get(G_E);
+    if (current_state) count_high++; else count_low++;
+    if (current_state != last_state) { transitions++; last_state = current_state; }
+  }
+  bool ok = count_high > 200 && count_low > 200 && transitions >= 10;
+  if (ok) startup_e_clock_detected = true;
+  return ok;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Cross-core FIFO and USB pipeline
+// ═══════════════════════════════════════════════════════════════════
+#include "../v1/firmware/cross-core.h"
+#include "../v1/firmware/usb_pipeline.h"
+
 CircBuf<unsigned char, 1024> usb_raw_buf;
 CircBuf<std::string*, 64> usb_packet_buf;
-
-#include "../v1/firmware/usb_pipeline.h"
 
 UsbReceiver usb_receiver(usb_raw_buf);
 CobsDecoder<1024, 64> cobs_decoder(usb_raw_buf, usb_packet_buf);
 
+CrossCoreFIFO<uint, 8192> fg2bg;
+CrossCoreFIFO<uint, 8192> bg2fg;
+
+volatile bool fg_halt_for_flow_control = false;
+
+FORCE_INLINE void IN_RAM FlowControlCheck() {
+  if (fg_halt_for_flow_control) {
+    if (fg2bg.size() < FG2BG_LOW_WATERMARK) {
+      HaltOff();
+      fg_halt_for_flow_control = false;
+    }
+  } else {
+    if (fg2bg.size() > FG2BG_HIGH_WATERMARK) {
+      HaltOn();
+      fg_halt_for_flow_control = true;
+    }
+  }
+}
+
+#define SAY(C) PUSH_TO_BG(FG2BG_PUTCHAR, 0, (C) & 255)
+#define PUSH_TO_BG(T, A, D) fg2bg.push(((T) << 24) | ((A) << 8) | (D))
+
 // ═══════════════════════════════════════════════════════════════════
-// COBS TX helpers
+// COBS TX
 // ═══════════════════════════════════════════════════════════════════
 #define INCLUDING
 #include "../v1/firmware/cobs_tx.h"
 
 // ═══════════════════════════════════════════════════════════════════
-// Gerbil PIO (generated header from .pio file)
+// ROM data and globals
 // ═══════════════════════════════════════════════════════════════════
-#include "gerbil.pio.h"  // Generated by pioasm during cmake build.
+#include "../v1/firmware/bug.h"
+#include "../v1/firmware/disk11_rom.h"
+#include "../v1/firmware/egg.h"
+
+IOReader IOReaders[256];
+IOWriter IOWriters[256];
+byte ram[64 * 1024];
+
+// ═══════════════════════════════════════════════════════════════════
+// Protocol constants (matching v1's enum values)
+// ═══════════════════════════════════════════════════════════════════
+#define C_PUTCHAR 193
+#define C_RAM2_READ  195
+#define C_RAM2_WRITE 195  // Same code, context determines meaning.
+#define C_DISK_READ  173
+#define C_DISK_WRITE 174
+
+enum FG2BG_Tags {
+  FG2BG_PUTCHAR = 0,
+  FG2BG_READ    = 1,
+  FG2BG_SPOON_ON_RESET = 2,
+  FG2BG_WRITE   = 3,
+  FG2BG_SYNC_NEEDED = 4,
+  FG2BG_NMI     = 5,
+  FG2BG_FLOPPY_COMMAND = 6,
+  FG2BG_FLOPPY_LATCH   = 7,
+  FG2BG_W_256   = 8,
+  FG2BG_PEEK_REPLY = 9,
+  FG2BG_START_KEYBOARD_INJECTOR = 10,
+};
+
+enum BG2FG_Tags {
+  BG2FG_PEEK = 1,
+  BG2FG_POKE = 2,
+  BG2FG_EXIT_CONSOLE = 3,
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// NMI / HALT macros
+// ═══════════════════════════════════════════════════════════════════
+#define ASSERT_HALT() gpio_set_dir(G_HALT, GPIO_OUT)
+#define RELEASE_HALT() gpio_set_dir(G_HALT, GPIO_IN)
+
+volatile bool nmi_pending = false;
+#define ASSERT_NMI() do { \
+    gpio_set_dir(G_NMI, GPIO_OUT); \
+    nmi_pending = true; \
+  } while(0)
+#define RELEASE_NMI() gpio_set_dir(G_NMI, GPIO_IN)
+
+// ═══════════════════════════════════════════════════════════════════
+// Gerbil PIO
+// ═══════════════════════════════════════════════════════════════════
+#include "gerbil.pio.h"
 
 #define GERBIL_GET() gerbil_program_get_word(pio, sm)
 #define GERBIL_DRIVE(X) gerbil_program_put_word(pio, sm, 0x100 | (X))
 #define GERBIL_PASS() gerbil_program_put_word(pio, sm, 0)
 
 // ═══════════════════════════════════════════════════════════════════
-// ROM data
+// v1 headers — include order matches v1/firmware/centipede.cpp exactly.
+// Many of these have include guards. The early explicit includes
+// ensure correct ordering; later transitive includes are no-ops.
 // ═══════════════════════════════════════════════════════════════════
-#include "../v1/firmware/bug.h"
-#include "../v1/firmware/disk11_rom.h"
-#include "../v1/firmware/egg.h"
-
-// ═══════════════════════════════════════════════════════════════════
-// Code constants
-// ═══════════════════════════════════════════════════════════════════
-const char HexAlphabet[] =
-    "0123456789ABCDEFXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-    "XXXXXXX";
-
-// Speed / Flow control constants
-#ifndef SLOW_SPEED
-#define SLOW_SPEED 3
-#endif
-#ifndef MEDIUM_SPEED
-#define MEDIUM_SPEED 2
-#endif
-#ifndef FAST_SPEED
-#define FAST_SPEED 1
-#endif
-volatile uint Speed = SLOW_SPEED;
-
-// Counter for push failures and writes (used by PushFifoWrite)
-volatile uint push_fail_counter = 0;
-volatile uint write_counter = 0;
-
-// ═══════════════════════════════════════════════════════════════════
-// Spoon task work flag (used by drain_task/spoon_task/foreground)
-// ═══════════════════════════════════════════════════════════════════
-volatile bool spoon_has_work = false;
-
-// ═══════════════════════════════════════════════════════════════════
-// Coroutine support
-// ═══════════════════════════════════════════════════════════════════
-#include "../v1/firmware/coro.h"
-#define STACK_SIZE 4096
-
-// ═══════════════════════════════════════════════════════════════════
-// LittleFS / VFS
-// ═══════════════════════════════════════════════════════════════════
-#include "../v1/firmware/vfs.h"
-#include "../v1/firmware/littlefs.h"
-
-// ═══════════════════════════════════════════════════════════════════
-// Flash label (board identification in flash)
-// ═══════════════════════════════════════════════════════════════════
-#include "../v1/firmware/flash_label.h"
-
-// ═══════════════════════════════════════════════════════════════════
-// 20ms timer (for Turbo9sim timer IRQ — not used by Centipede
-// but needed for gspoon's RTC support)
-// ═══════════════════════════════════════════════════════════════════
-#include "../v1/firmware/rtc.h"
-
-// ═══════════════════════════════════════════════════════════════════
-// Console and keyboard
-// ═══════════════════════════════════════════════════════════════════
+#include "../v1/firmware/abort.h"
 #include "../v1/firmware/console.h"
 #include "../v1/firmware/keyboard_injector.h"
-
-// ═══════════════════════════════════════════════════════════════════
-// v1 CRTP mixins (these are the real implementations)
-// ═══════════════════════════════════════════════════════════════════
-#include "../v1/firmware/coco64k.h"
-
-// Floppy: use VFS-based I/O for /pc/floppy0.dsk
-#define FLOPPY_OVER_VFS 1
+#include "../v1/firmware/coro.h"
+#include "../v1/firmware/flash-label.h"
+#include "../v1/firmware/config.h"
 #include "../v1/firmware/floppy.h"
+#include "../v1/firmware/rtc.h"
 
-// ═══════════════════════════════════════════════════════════════════
-// Tcl commands and gspoon (console/spoonfeeder)
-// ═══════════════════════════════════════════════════════════════════
+// Spoon task work flag — must be declared before gspoon.h
+volatile bool spoon_has_work = false;
+
+#include "../v1/firmware/gspoon.h"
 #include "../v1/firmware/tcl_io.h"
+#include "../v1/firmware/vfs.h"
+
+// SAM bits (for coco64k.h)
+bool SamP1Bit;
+bool SamTyBit;
+
+#include "../v1/firmware/coco64k.h"
+#include "../v1/firmware/littlefs.h"
 #include "../v1/firmware/tcl_commands.h"
 #include "../v1/firmware/pcb.h"
 #include "../v1/firmware/pico_rpc.h"
-#include "../v1/firmware/gspoon.h"
 
 // ═══════════════════════════════════════════════════════════════════
-// Compressed cycle support
+// Compressed cycles (disabled for now)
 // ═══════════════════════════════════════════════════════════════════
 #ifndef COMPRESS_CYCLES
 #define COMPRESS_CYCLES 0
 #endif
 #if COMPRESS_CYCLES
-#include "../v1/firmware/compress_cycles.h"
+#include "../v1/firmware/compress.h"
 #endif
-inline void ResetCompressCycles() {
+inline void ResetCompressCycles() {}
 #if COMPRESS_CYCLES
-  // Reset compression state
-#endif
-}
-#if COMPRESS_CYCLES
-inline void InsertCycleWithCompression(uint chore) {
-  // Stub — full implementation in compress_cycles.h
-}
-inline void FlushPartialCycleBuffer() {
-  // Stub
-}
+inline void InsertCycleWithCompression(uint chore) {}
+inline void FlushPartialCycleBuffer() {}
 #endif
 
 // ═══════════════════════════════════════════════════════════════════
-// rp2350_reset_standard — restart into standard (non-flash) mode
+// Counter globals
 // ═══════════════════════════════════════════════════════════════════
-void rp2350_reset_standard(void) {
-  // Set flag for standard boot mode
-  boot_mode = 0;
-  boot_mode_check = BOOT_MODE_CHECKER;
-  // Software reset
-  watchdog_reboot(0, 0, 0);
-  while (true) tight_loop_contents();
-}
+volatile uint push_fail_counter = 0;
+volatile uint write_counter = 0;
+
+// rp2350_reset_standard, flash-label, rtc, restart:
+// All provided by v1 headers included via tcl_commands.h.
+#include <hardware/watchdog.h>
 
 // ═══════════════════════════════════════════════════════════════════
-// The Engine — composes v4 infrastructure + v1 CRTP mixins
+// Coroutines
 // ═══════════════════════════════════════════════════════════════════
-//
-// v4 provides: CentipedeEngine (GPIO, pin control, flow control)
-// v1 provides: DoCoco64k, DoFloppy (the real implementations)
-//
-// Forward declarations for trampolines
+#include "../v1/firmware/coro.h"
+
+// ═══════════════════════════════════════════════════════════════════
+// OPEN_DRAIN macro
+// ═══════════════════════════════════════════════════════════════════
+#define OPEN_DRAIN(PIN)        \
+  gpio_init(PIN);              \
+  gpio_set_dir(PIN, GPIO_OUT); \
+  gpio_put(PIN, 0);            \
+  gpio_set_dir(PIN, GPIO_IN);  \
+  gpio_set_pulls(PIN, true, false);
+
+// ═══════════════════════════════════════════════════════════════════
+// V4CoreEngine — the foreground + background engine
+// Extracted from v1/firmware/centipede.cpp CoreEngine<T>
+// ═══════════════════════════════════════════════════════════════════
+
 void IN_RAM core1_trampoline();
 void IN_RAM core0_trampoline();
-
-// The v1 CoreEngine contains the foreground loop, background scheduler,
-// coroutine tasks, and RunCores/RunEngine. We use it directly.
-// The v4 CentipedeEngine is NOT mixed in here — we use v1's CoreEngine
-// which contains the equivalent functionality (InitializePins, etc.)
-// already wired for the v1 code paths.
-//
-// TODO: In the future, refactor v1's CoreEngine to delegate to v4's
-// CentipedeEngine for pin control, flow control, etc.
-#include "../v1/firmware/centipede_core_engine.h"
-// NOTE: centipede_core_engine.h does not exist yet — see below.
-// For now we include the relevant portions inline.
-
-// Since v1's CoreEngine is defined inside centipede.cpp (not a header),
-// and extracting it cleanly requires careful surgery, we define the
-// Engine composition here using v1's existing CRTP templates.
-
-// ── v1-style CoreEngine (adapted for v4 context) ──
-// This is extracted from v1/firmware/centipede.cpp lines 536-1004.
-// It provides: foreground loop, background scheduler, coroutine tasks,
-// InitializePins, RunCores.
 
 template <class T>
 class V4CoreEngine {
@@ -251,15 +409,21 @@ class V4CoreEngine {
       gpio_set_pulls(i, false, false);
     }
     OUTPUT(G_LED, 1);
+#ifdef G_SND
     INPUT(G_SND);
+#endif
     INPUT(G_CTS);
     INPUT(G_SCS);
+#ifdef G_RESET
     INPUT(G_RESET);
+#endif
     INPUT(G_SLENB);
 
     OPEN_DRAIN(G_HALT);
     OPEN_DRAIN(G_NMI);
+#ifdef G_CART
     OPEN_DRAIN(G_CART);
+#endif
 
     for (uint i = 32; i <= 47; i++) {
       gpio_init(i);
@@ -276,7 +440,6 @@ class V4CoreEngine {
   static inline uint8_t floppy_stack[STACK_SIZE] __attribute__((aligned(8)));
   static inline uint8_t spoon_stack[STACK_SIZE] __attribute__((aligned(8)));
 
-  // Floppy task channel
   static inline volatile uint floppy_pending_chore;
   static inline volatile bool floppy_has_work;
 
@@ -287,7 +450,6 @@ class V4CoreEngine {
         nmi_pending = false;
         gpio_set_dir(G_NMI, GPIO_IN);
       }
-
       keyboard_injector::tick();
 
       uint chore = 0;
@@ -314,7 +476,7 @@ class V4CoreEngine {
           InsertCycleWithCompression(chore);
 #else
           if (chore_byte && usb_tether_ok()) {
-            unsigned char pkt[4] = {C_RAM2_WRITE,  // Actually C_RAM2_READ
+            unsigned char pkt[4] = {C_RAM2_READ,
                                     (unsigned char)(chore >> 16),
                                     (unsigned char)(chore >> 8),
                                     (unsigned char)chore};
@@ -551,20 +713,6 @@ class V4CoreEngine {
   }
 };
 
-// OPEN_DRAIN macro (used by InitializePins)
-#ifndef OPEN_DRAIN
-#define OPEN_DRAIN(PIN)        \
-  gpio_init(PIN);              \
-  gpio_set_dir(PIN, GPIO_OUT); \
-  gpio_put(PIN, 0);            \
-  gpio_set_dir(PIN, GPIO_IN);  \
-  gpio_set_pulls(PIN, true, false);
-#endif
-
-#ifndef ON_RESET_DO_SPOONFEED_CONSOLE
-#define ON_RESET_DO_SPOONFEED_CONSOLE 1
-#endif
-
 // ═══════════════════════════════════════════════════════════════════
 // Engine composition
 // ═══════════════════════════════════════════════════════════════════
@@ -583,12 +731,8 @@ void IN_RAM core1_trampoline() { Engine::foreground(); }
 void IN_RAM core0_trampoline() { Engine::background(); }
 
 // ═══════════════════════════════════════════════════════════════════
-// safe_adjust_flash_speed
+// Flash speed adjustment
 // ═══════════════════════════════════════════════════════════════════
-#ifndef MHz
-#define MHz 250
-#endif
-
 void IN_RAM safe_adjust_flash_speed() {
 #if MHz > 150
   uint32_t ints = save_and_disable_interrupts();
@@ -617,12 +761,16 @@ int IN_RAM main() {
   safe_adjust_flash_speed();
 
   OUTPUT(G_HALT, 0);
+#ifdef G_RESET
   OUTPUT(G_RESET, 0);
+#endif
   for (uint i = 0; i < 5; i++) {
     SET_LED(1); sleep_ms(200);
     SET_LED(0); sleep_ms(200);
   }
+#ifdef G_RESET
   INPUT(G_RESET);
+#endif
   INPUT(G_HALT);
 
   FlashLabel::PrintLabel();
