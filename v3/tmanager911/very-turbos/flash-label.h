@@ -45,18 +45,18 @@ struct FlashLabel {
         const char* q = p + strlen(p) + 1;
 
         // Print the key and value
-        printf("[%s=%s]\n", p, q);
+        cobs_printf("[%s=%s]\n", p, q);
 
         // Advance p to the next key
         p = q + strlen(q) + 1;
       }
     } else {
-      printf("Label did not start with p=1\n");
-      printf("Memory dump at 0x%llx: ", LABEL_ADDR);
+      cobs_printf("Label did not start with p=1\n");
+      cobs_printf("Memory dump at 0x%llx: ", LABEL_ADDR);
       for (int i = 0; i < 16; i++) {
-        printf("%02X ", Label[i]);
+        cobs_printf("%02X ", Label[i]);
       }
-      printf("\n");
+      cobs_printf("\n");
     }
   }
 

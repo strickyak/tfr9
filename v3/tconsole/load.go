@@ -63,12 +63,11 @@ func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
 			n = 60 // max 60 at a time, plus 2-byte addr
 		}
 
-		out := make([]byte, n+4)
+		out := make([]byte, n+3)
 		out[0] = C_PRE_LOAD
-		out[1] = byte(128 + n + 2)
-		out[2] = byte(addr >> 8)
-		out[3] = byte(addr & 255)
-		copy(out[4:], bb[:n])
+		out[1] = byte(addr >> 8)
+		out[2] = byte(addr & 255)
+		copy(out[3:], bb[:n])
 		Logf("PreUploadRom: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
 		WriteBytes(channelToPico, out...)
 
@@ -103,12 +102,11 @@ LOOP:
 				if n > 60 {
 					n = 60 // max 60 at a time, plus 2-byte addr
 				}
-				out := make([]byte, n+4)
+				out := make([]byte, n+3)
 				out[0] = C_PRE_LOAD
-				out[1] = byte(128 + n + 2)
-				out[2] = byte(addr >> 8)
-				out[3] = byte(addr & 255)
-				copy(out[4:], bb[:n])
+				out[1] = byte(addr >> 8)
+				out[2] = byte(addr & 255)
+				copy(out[3:], bb[:n])
 				Logf("PreUploadDecb: n=%d. a=%x d= { % 3x }", n, addr, bb[:n])
 				WriteBytes(channelToPico, out...)
 				sz -= n
@@ -122,7 +120,7 @@ LOOP:
 			if addr != 0 {
 				// 0xFFFE is the address of the reset vector.
 				Logf("PreUploadDecb: reset vector is %x", addr)
-				WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
+				WriteBytes(channelToPico, C_PRE_LOAD, 0xFF, 0xFE, byte(addr>>8), byte(addr&255))
 			}
 
 			bb = bb[5:]
@@ -168,12 +166,11 @@ func PreUploadSrec(filename string, channelToPico chan []byte) {
 		} else if rec.typenum == '1' {
 			Logf("SREC[1] %v", *rec)
 			n := len(rec.data)
-			out := make([]byte, n+4)
+			out := make([]byte, n+3)
 			out[0] = C_PRE_LOAD
-			out[1] = byte(128 + n + 2)
-			out[2] = byte(rec.addr >> 8)
-			out[3] = byte(rec.addr & 255)
-			copy(out[4:], rec.data[:n])
+			out[1] = byte(rec.addr >> 8)
+			out[2] = byte(rec.addr & 255)
+			copy(out[3:], rec.data[:n])
 			Logf("PreUpload: n=%d. a=%x d= { % 3x }", n, rec.addr, rec.data[:n])
 			WriteBytes(channelToPico, out...)
 		} else if rec.typenum == '9' {
@@ -182,7 +179,7 @@ func PreUploadSrec(filename string, channelToPico chan []byte) {
 			if rec.addr != 0 {
 				// 0xFFFE is the address of the reset vector.
 				Logf("PreUploadSrec: reset vector is %x", rec.addr)
-				WriteBytes(channelToPico, C_PRE_LOAD, 128+4, 0xFF, 0xFE, byte(rec.addr>>8), byte(rec.addr&255))
+				WriteBytes(channelToPico, C_PRE_LOAD, 0xFF, 0xFE, byte(rec.addr>>8), byte(rec.addr&255))
 			}
 		}
 	}

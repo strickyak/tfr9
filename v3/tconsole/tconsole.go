@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/strickyak/copico-centipede/v1/tether/cobs"
 )
 
 var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
@@ -236,7 +238,13 @@ func logGetByte(x byte, why string) {
 
 func WriteBytes(channelToPico chan []byte, vec ...byte) {
 	Logf("WriteBytes: [%d.] { % 3x }", len(vec), vec)
-	channelToPico <- vec
+	encoded := cobs.Encode(vec)
+	// Add leading and trailing 0x00 frame delimiters, matching CobsEncodeAndTransmit.
+	framed := make([]byte, 0, len(encoded)+2)
+	framed = append(framed, 0x00)
+	framed = append(framed, encoded...)
+	framed = append(framed, 0x00)
+	channelToPico <- framed
 }
 
 var cr bool
@@ -472,7 +480,7 @@ func MintSerialNum() uint {
 
 var Cycle uint
 
-func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
+func RunSelect(inkey chan byte, cobsChan <-chan []byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 
 	loadArgs := flag.Args()
@@ -493,16 +501,18 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			switch inchar {
 			case 31: // Control Underscore (^_)
 				fmt.Printf("\n*** REBOOT PICO ***\n")
-				WriteBytes(channelToPico, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT, C_REBOOT)
+				WriteBytes(channelToPico, C_REBOOT)
 			}
 			if 1 <= inchar && inchar <= 127 {
-				WriteBytes(channelToPico, inchar)
+				WriteBytes(channelToPico, C_PUTCHAR, inchar)
 			}
 
-		case cmd := <-fromUSB: // SELECT CASE Pico sent a byte over the USB.
+		case packet := <-cobsChan:
+			if len(packet) == 0 {
+				continue
+			}
+			cmd := packet[0]
 			logGetByte(cmd, "cmd")
-
-			bogus := 0
 
 			var ch byte // Used by default and C_PUTCHAR
 
@@ -513,7 +523,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				Logf("C_NOP")
 
 			case C_RAM_CONFIG:
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				if len(pack) >= 1 {
 					log.Printf("C_RAM_CONFIG: $%x", pack[0])
 					switch pack[0] {
@@ -544,7 +554,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			case C_CYCLE:
 				const GLOSS = true
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				if len(pack) == 8 {
 					_cy := (uint(pack[0]) << 24) + (uint(pack[1]) << 16) + (uint(pack[2]) << 8) + uint(pack[3])
 					_fl := pack[4] & 31
@@ -619,7 +629,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			case C_CYCLE_RD3: // centipede: A A D
 				const GLOSS = true
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				if len(pack) == 3 {
 					_data := pack[2]
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
@@ -710,29 +720,28 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				C_LOGGING + 7,
 				C_LOGGING + 8,
 				C_LOGGING + 9:
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				Logf("LOG[%d]: %q", cmd-C_LOGGING, pack)
 
 			case C_DISK_WRITE:
-				//Logf("C_DISK_WRITE[%d]: ...", 111)
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				//Logf("C_DISK_WRITE[%d]: %q ...", 222, pack)
 				EmulateDiskWrite(pack, channelToPico)
 				//Logf("C_DISK_WRITE[%d]: %q", 333, pack)
 
 			case C_DISK_READ:
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				EmulateDiskRead(pack, channelToPico)
 
 			case C_EVENT:
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				OnEvent(pack, pending, person)
 
 			case C_RAM3_WRITE:
 				panic("C_RAM3_WRITE not imp")
 
 			case C_RAM5_WRITE:
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				AssertEQ(len(pack), 6)
 
 				ptop := pack[0]
@@ -764,7 +773,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				}
 
 			case C_RAM2_WRITE:
-				pack := GetPacket(fromUSB, cmd)
+				pack := packet[1:]
 				AssertEQ(len(pack), 3)
 
 				hi := pack[0]
@@ -822,71 +831,44 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			case C_DUMP_RAM, C_DUMP_PHYS:
 				Logf("{{{ %s", CommandStrings[cmd])
-			DUMPING:
-				for {
-					what := getByte(fromUSB)
-					switch what {
-					case C_DUMP_LINE:
-						a := getByte(fromUSB)
-						b := getByte(fromUSB)
-						c := getByte(fromUSB)
-						var d [16]byte
-						for j := uint(0); j < 16; j++ {
-							d[j] = getByte(fromUSB)
-						}
 
-						/*
-							if cmd == C_DUMP_PHYS {
-								for j := uint(0); j < 16; j++ {
-									longaddr := (uint(a)<<16 | uint(b)<<8 | uint(c)) + j
-									longaddr %= the_ram.RamSize()
-									if d[j] != the_ram.GetTrackRam()[longaddr] {
-										Logf("--- WRONG PHYS %06x ( %02x vs %02x ) ---", longaddr, d[j], the_ram.GetTrackRam()[longaddr])
-									}
-								}
-							}
-						*/
-
-						var buf bytes.Buffer
-						fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
-						for j := 0; j < 16; j++ {
-							fmt.Fprintf(&buf, "%02x ", d[j])
-							if j == 7 {
-								buf.WriteByte(' ')
-							}
-						}
-						buf.WriteByte('|')
-						for j := 0; j < 16; j++ {
-							r := d[j]
-							if r > 127 {
-								r = '#'
-							} else {
-								r = r & 63
-								if r < 32 {
-									r += 64
-								}
-								if r == 64 {
-									r = '.'
-								}
-							}
-							buf.WriteByte(r)
-						}
-						buf.WriteByte('|')
-						Logf("%s", buf.String())
-						break
-
-					case C_DUMP_STOP:
-						break DUMPING
-					default:
-						Logf("FUNNY CHAR DURING DUMP: %d.", what)
-						bogus++
-						if bogus > 10 {
-							bogus = 0
-							break DUMPING
+			case C_DUMP_LINE:
+				pack := packet[1:]
+				if len(pack) >= 19 {
+					a := pack[0]
+					b := pack[1]
+					c := pack[2]
+					d := pack[3:19]
+					var buf bytes.Buffer
+					fmt.Fprintf(&buf, ":%06x: ", (uint(a)<<16 | uint(b)<<8 | uint(c)))
+					for j := 0; j < 16; j++ {
+						fmt.Fprintf(&buf, "%02x ", d[j])
+						if j == 7 {
+							buf.WriteByte(' ')
 						}
 					}
+					buf.WriteByte('|')
+					for j := 0; j < 16; j++ {
+						r := d[j]
+						if r > 127 {
+							r = '#'
+						} else {
+							r = r & 63
+							if r < 32 {
+								r += 64
+							}
+							if r == 64 {
+								r = '.'
+							}
+						}
+						buf.WriteByte(r)
+					}
+					buf.WriteByte('|')
+					Logf("%s", buf.String())
 				}
-				Logf("}}} %s", CommandStrings[cmd])
+
+			case C_DUMP_STOP:
+				Logf("}}} C_DUMP_STOP")
 
 			default:
 				if 1 <= cmd && cmd <= 127 {
@@ -901,9 +883,12 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				fallthrough
 
 			case C_PUTCHAR:
-				if cmd == C_PUTCHAR {
-					ch = getByte(fromUSB)
-				} // otherwise use the ch from default case.
+				pack := packet[1:]
+				if cmd != C_PUTCHAR {
+					// Came from default case fallthrough with a bare ASCII byte.
+					pack = []byte{ch}
+				}
+				for _, ch = range pack {
 
 				switch {
 				case 32 <= ch && ch <= 126:
@@ -933,13 +918,6 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 				case ch == 10 || ch == 13:
 					fmt.Printf("%c", ch)
-					/*
-						if previousPutChar == 10 || previousPutChar == 13 {
-							// skip extra newline
-						} else {
-							fmt.Println() // lf skips Println after cr does Println
-						}
-					*/
 
 				default:
 					if *CURLY_DEC {
@@ -950,6 +928,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					cr = false
 				} // end inner switch on ch range
 				previousPutChar = ch
+
+				} // end for range pack
 
 				/*
 					case C_KEY:
@@ -1017,9 +997,28 @@ func Run(inkey chan byte, person Personality) {
 	go ToUsbRoutine(serialPort, channelToPico)
 
 	channelFromPico := make(chan byte, SERIAL_BUFFER_SIZE)
-	var fromUSB <-chan byte = channelFromPico
+	
+	cobsChan := make(chan []byte, 100)
+	go func() {
+		var currentPacket []byte
+		for b := range channelFromPico {
+			if b == 0 {
+				if len(currentPacket) > 0 {
+					decoded, err := cobs.Decode(currentPacket)
+					if err == nil {
+						cobsChan <- decoded
+					} else {
+						log.Printf("COBS decode err: %v", err)
+					}
+					currentPacket = nil
+				}
+			} else {
+				currentPacket = append(currentPacket, b)
+			}
+		}
+	}()
 
-	go RunSelect(inkey, fromUSB, channelToPico, channelFromPico, person)
+	go RunSelect(inkey, cobsChan, channelToPico, channelFromPico, person)
 
 	go TextDaemon()
 

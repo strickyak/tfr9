@@ -23,7 +23,7 @@ const byte Ncl_Rom[] = {
 template <typename T, typename ROMLIST>
 struct DoTurbo9os {
   static void Install_OS() {
-    printf("DoTurbo9os Install_OS...\n");
+    cobs_printf("DoTurbo9os Install_OS...\n");
     is_an_os9 = true;
     // Copy 7 Vectors;  Reset vector comes later.
     for (uint i = 0; i < 7; i++) {
@@ -33,7 +33,7 @@ struct DoTurbo9os {
     // Copy ROM to RAM, ending just before 0xFF00.
     constexpr uint n = ROMLIST::total_size;
     constexpr uint begin = 0xFF00 - n;  // beginning addr of ROM
-    printf("DoTurbo9os Install_OS... n=%04x begin=%04x\n", n, begin);
+    cobs_printf("DoTurbo9os Install_OS... n=%04x begin=%04x\n", n, begin);
     for (uint i = 0; i < n; i++) {
       T::Poke(begin + i, ROMLIST::data[i]);
       TransmitWrite(begin + i, ROMLIST::data[i]);
@@ -47,7 +47,7 @@ struct DoTurbo9os {
     assert(0 == memcmp(ROMLIST::data + name, expect, 6));
 
     uint entry = T::Peek2(begin + 9);  // OS9 module entry offset is 9
-    printf("DoTurbo9os Install_OS... begin=%04x entry=%04x\n", begin,
+    cobs_printf("DoTurbo9os Install_OS... begin=%04x entry=%04x\n", begin,
            begin + entry);
     InstallVector(7, begin + entry);
 

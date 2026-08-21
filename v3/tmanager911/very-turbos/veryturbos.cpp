@@ -18,6 +18,8 @@
 #include <functional>
 #include <vector>
 
+#include "../../../merging/centipede/v1/util/cobs.h"
+
 #define force_inline inline __attribute__((always_inline))
 
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -101,43 +103,36 @@ extern "C" {
 extern int stdio_usb_in_chars(char* buf, int length);
 }
 
-void ShowChar(char c) { putchar(c); }
-
-// putbyte does CR/LF escaping for Binary Data
-void putbyte(byte x) { putchar_raw(x); }
-
-// Put Size with 1-byte / 2-byte encoding
-void putsz(uint n) {
-  assert(n < 4096);
-  if (n < 64) {
-    putbyte(0x80 + n);
-  } else {
-    putbyte(0xC0 + (n >> 6));  // div 64
-    putbyte(0x80 + (n & 63));  // mod 64
-  }
+void ShowChar(char c) {
+  unsigned char pkt[2] = {C_PUTCHAR, (unsigned char)c};
+  CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
 }
 
-void TransmitHeader(byte messtype, uint sz) {
-  putbyte(messtype);
-  if (sz < 64) {
-    putbyte(128 + sz);
-  } else {
-    assert(sz <= 1024);             // really could go up to 4095
-    putbyte(128 + 64 + (sz >> 6));  // send sz mod 64
-    putbyte(128 + (sz & 63));       // send sz div 64
+// putbyte does CR/LF escaping for Binary Data
+void putbyte(byte x) {
+  unsigned char pkt[2] = {C_PUTCHAR, x};
+  CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
+}
+
+void cobs_printf(const char* fmt, ...) {
+  char buf[256];
+  buf[0] = C_PUTCHAR;
+  va_list args;
+  va_start(args, fmt);
+  int len = vsnprintf(buf + 1, sizeof(buf) - 1, fmt, args);
+  va_end(args);
+  if (len > 0) {
+    if (len >= (int)sizeof(buf) - 1) len = sizeof(buf) - 2;
+    CobsEncodeAndTransmit((const unsigned char*)buf, len + 1,
+                          [](int ch) { putchar_raw(ch); });
   }
 }
 
 void TransmitMessage(byte messtype, uint sz, char* buf) {
-  if (messtype < 0xC0) {
-    TransmitHeader(messtype, sz);
-  } else {
-    putbyte(messtype);
-    assert((messtype & 15) == sz);
-  }
-  for (uint i = 0; i < sz; i++) {
-    putbyte(buf[i]);
-  }
+  std::vector<byte> pkt(sz + 1);
+  pkt[0] = messtype;
+  memcpy(pkt.data() + 1, buf, sz);
+  CobsEncodeAndTransmit(pkt.data(), pkt.size(), [](int ch) { putchar_raw(ch); });
 }
 
 void TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
@@ -154,20 +149,20 @@ void TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
 }
 
 void TransmitWrite(uint addr, byte data) {
-  putbyte(C_RAM2_WRITE);
-  putbyte(addr >> 8);
-  putbyte(addr);
-  putbyte(data);
+  byte pkt[4] = {C_RAM2_WRITE, (byte)(addr >> 8), (byte)addr, data};
+  CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
 }
 
-#include "circbuf.h"
+#include "../../../merging/centipede/v1/util/circbuf.h"
 #include "flash-label.h"
 #include "pio_veryturbos.pio.h"
 #include "turbo9os.h"
 #include "turbo9sim.h"
 
-CircBuf<1024> usb_input;
-CircBuf<1024> term_input;
+CircBuf<unsigned char, 1024> usb_input;
+CircBuf<std::string*, 16> usb_cobs_output;
+CobsDecoder<1024, 16> cobs_decoder(usb_input, usb_cobs_output);
+CircBuf<unsigned char, 1024> term_input;
 
 volatile uint delay_busy;
 void Delay(uint n) {
@@ -190,6 +185,8 @@ bool TryGetUsbByte(char* ptr) {
 
 #define Printf if(false)printf
 
+extern byte ram[64 * 1024];
+
 void PollUsbInput() {
   // Try from USB to `usb_input` object.
   while (1) {
@@ -203,32 +200,51 @@ void PollUsbInput() {
     }
   }
 
-  // Try from `usb_input` object to `term_input`, if it Peeks as ASCII
-  while (1) {
-    int peek = usb_input.HasAtLeast(1) ? (int)usb_input.Peek() : -1;
-    if (peek == -1) {
-        Printf("~");
-        break;
-    }
+  // Decode COBS packets.
+  cobs_decoder.Tick();
 
-    Printf("peekI(%u) ", peek);
-    peek &= 0xFF;
-    Printf("peekB(%u) ", peek);
-    if (peek == 0) {
-      break;
-    } else if (1 <= peek && peek <= 126) {
-      byte c = usb_input.Take();
-      Printf("took(%u) ", c);
-      assert((int)c == peek);
-      if (c == 10) {
-        c = 13;
-      }
-      Printf("term_put(%u) ", c);
-      term_input.Put(c);
-    } else {
-      // Non-ASCII
-      byte c = usb_input.Take();
-      Printf("ignore(%d)", c);
+  // Try from `usb_cobs_output` object to `term_input`
+  while (usb_cobs_output.NumBuffered() > 0) {
+    std::string* pkt_ptr = usb_cobs_output.Take();
+    std::string pkt = *pkt_ptr;
+    delete pkt_ptr;
+
+    if (pkt.size() == 0) continue;
+
+    byte cmd = pkt[0];
+    switch (cmd) {
+      case C_PUTCHAR:
+        if (pkt.size() >= 2) {
+          byte c = pkt[1];
+          if (c == 10) c = 13;
+          term_input.Put(c);
+        }
+        break;
+
+      case C_PRE_LOAD:
+        // Packet format: [C_PRE_LOAD, addr_hi, addr_lo, data...]
+        if (pkt.size() >= 3) {
+          uint addr = ((uint)(byte)pkt[1] << 8) | (byte)pkt[2];
+          for (uint i = 3; i < pkt.size(); i++) {
+            ram[addr & 0xFFFF] = (byte)pkt[i];
+            addr++;
+          }
+        }
+        break;
+
+      case C_REBOOT:
+        // Reboot the Pico
+        reset_usb_boot(0, 0);
+        break;
+
+      case C_DISK_READ:
+        // Disk read reply from host: [C_DISK_READ, disk_params..., sector_data...]
+        // TODO: handle disk read replies when disk support is added
+        break;
+
+      default:
+        Printf("ignore_cmd(%d, len=%d)", cmd, (int)pkt.size());
+        break;
     }
   }
 }
@@ -322,7 +338,7 @@ struct Guts {
       }
       PollUsbInput();
       if (T::Turbo9sim_CanRx()) {
-        if (term_input.HasAtLeast(1)) {
+        if (term_input.NumBuffered() > 0) {
           byte ch = term_input.Take();
           Printf("set_rx(%u) ", ch);
           T::Turbo9sim_SetRx(ch);
@@ -425,7 +441,7 @@ struct Guts {
       cycles += GROUP_SIZE;
       epochs++;
       if (epochs == 5000) {
-          printf("[Mc=%g  s=%g  Mcps=%g]",
+          cobs_printf("[Mc=%g  s=%g  Mcps=%g]",
                   double(cycles)/double(1000*1000),
                   double(milliseconds)/double(1000),
                   (double)cycles / double(1000*milliseconds) );
@@ -452,7 +468,7 @@ int main() {
     sleep_ms(200);
     gpio_put(LED, 0);
     sleep_ms(200);
-    printf(":%d:\n", i);
+    cobs_printf(":%d:\n", i);
   }
 
   FlashLabel::InitLabel();
@@ -463,7 +479,7 @@ int main() {
   const uint offset_t911 = pio_add_program(pio0, &t911veryfast_program);
   t911veryfast_program_init(pio0, 0, offset_t911);
 
-  printf(":g:\n");
+  cobs_printf(":g:\n");
   Engine::Turbo9sim_Install(0xFF00);
   multicore_launch_core1(Engine::RunCPU);
 
