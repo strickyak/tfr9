@@ -39,8 +39,8 @@ constexpr uint Q = 30;
 constexpr uint R_W = 31;
 
 bool is_an_os9;  // unused
-using IOReader = std::function<byte(uint addr)>;
-using IOWriter = std::function<void(uint addr, byte data)>;
+using IOReader = byte (*)(uint addr);
+using IOWriter = void (*)(uint addr, byte data);
 IOReader IOReaders[256];
 IOWriter IOWriters[256];
 
@@ -87,13 +87,14 @@ enum message_type : byte {
   C_CYCLE = 200,       // tracing one cycle
 };
 
+byte vector_ram[16];
 void InstallVector(uint i, uint addr) {
-  IOReaders[255 & (0xFFF0 + 2 * i + 0)] = [addr](uint _a) {
-    return (byte)(addr >> 8);
-  };
-  IOReaders[255 & (0xFFF0 + 2 * i + 1)] = [addr](uint _a) {
-    return (byte)(addr >> 0);
-  };
+    vector_ram[2*i+0] = (byte)(addr >> 8);
+    vector_ram[2*i+1] = (byte)addr;
+
+    IOReaders[255 & (0xFFF0 + 2 * i + 0)] =
+    IOReaders[255 & (0xFFF0 + 2 * i + 1)] =
+        [](uint _a) { return vector_ram[_a & 15]; };
 }
 
 extern "C" {
