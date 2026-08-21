@@ -1,5 +1,5 @@
-#define TRACE 1
-#define MHz 200  // clock speed, 150 is "normal".
+// #define TRACE 0
+#define MHz 250  // clock speed, 150 is "normal".
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
@@ -160,6 +160,7 @@ void TransmitWrite(uint addr, byte data) {
 }
 
 #include "circbuf.h"
+#include "flash-label.h"
 #include "pio_veryturbos.pio.h"
 #include "turbo9os.h"
 #include "turbo9sim.h"
@@ -279,11 +280,13 @@ constexpr uint GROUP_SIZE = 10000;
 uint history[GROUP_SIZE + 64];
 #endif
 
-uint milliseconds;
-uint errors;
+uint milliseconds;  // overflows every 49.71 days.
+struct repeating_timer TimerData;
+bool TimerCallback(repeating_timer_t* rt) {
+  milliseconds++;
+  return true;
+}
 
-#define ERR \
-  if (errors++ < 32) printf
 
 template <typename T>
 struct Guts {
@@ -305,6 +308,8 @@ struct Guts {
 
     int cycles = 0;
     int epochs = 0;
+
+    // OUTER LOOP
     while (true) {
       irq_needed |= T::Turbo9sim_IrqNeeded();  // either Timer or RX
       if (irq_needed != prev_irq_needed) {
@@ -325,6 +330,7 @@ struct Guts {
 
       uint prev_late_pins = 0;
 
+      // INNER LOOP
       for (int i = 0; i < GROUP_SIZE; i++) {
         pio_sm_put(pio0, 0, 0); // put sync word
 
@@ -366,7 +372,7 @@ struct Guts {
 
           if (likely(addr < 0xFF00)) {
             ram[addr] = value;
-#ifdef TRACE
+#if TRACE
             TransmitWrite(addr, value);
 #endif
           } else {
@@ -388,7 +394,7 @@ struct Guts {
         bool is_lic = ((late_pins & (1<<LIC)) != 0);
         bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
 
-#ifdef TRACE
+#if TRACE
         // uint late_pins = hw->gpio_in;  // Read addr from lower pins [0..31]
         if (is_fic) {
 #if 1
@@ -433,13 +439,6 @@ struct Engine : public DoTurbo9os<Engine,
                 public DoTurbo9sim<Engine>,
                 public Guts<Engine> {};
 
-struct repeating_timer TimerData;
-
-bool TimerCallback(repeating_timer_t* rt) {
-  milliseconds++;
-  return true;
-}
-
 int main() {
 #if MHz != 150
   set_sys_clock_khz(MHz * 1000, true);
@@ -455,10 +454,10 @@ int main() {
     printf(":%d:\n", i);
   }
 
-  printf(":r:\n");
+  FlashLabel::InitLabel();
+  FlashLabel::PrintLabel();
   RunReset();
 
-  printf(":p:\n");
   pio_clear_instruction_memory(pio0);
   const uint offset_t911 = pio_add_program(pio0, &t911veryfast_program);
   t911veryfast_program_init(pio0, 0, offset_t911);
