@@ -1,7 +1,7 @@
 // v4_tfr911_main.cpp — Top-level wiring for TFR911H v4 build (STUB).
 //
-// This file shows how to compose the final Engine struct from CRTP mixins.
-// It is not yet buildable — it requires the Pico SDK and PIO programs.
+// This file shows how to compose the final Engine struct from CRTP mixins
+// and wire up the IN_RAM trampolines for the foreground and background loops.
 //
 // Build: cmake with PLATFORM=TFR911.
 
@@ -23,7 +23,7 @@
 #include "v4_core_engine.h"
 #include "v4_engine_tfr911.h"
 
-// ── Global storage ──
+// ── Global storage (BSS — always in RAM) ──
 byte ram[64 * 1024];
 IOReader IOReaders[256];
 IOWriter IOWriters[256];
@@ -31,6 +31,9 @@ byte vector_ram[16];
 
 // ── The Engine ──
 // Compose the TFR911 Engine from CRTP mixins.
+// All methods that are called from the foreground inner loop
+// are FORCE_INLINE static, so they compile into the IN_RAM
+// tfr911_foreground_loop<Engine>() function body.
 struct Engine : public DoTurbo9os<Engine>,
                 public DoTurbo9sim<Engine>,
                 public DoInterrupts<Engine>,
@@ -47,9 +50,22 @@ struct Engine : public DoTurbo9os<Engine>,
   }
 };
 
-// ── Trampoline functions ──
-void core1_trampoline() { Engine::foreground(); }
-void core0_trampoline() { Engine::background(); }
+// ── IN_RAM Trampoline functions ──
+// These are the entry points for each core. They are free functions
+// so they can carry the IN_RAM attribute (GCC limitation: section
+// attributes don't work on class methods).
+//
+// The templated foreground/background loops are also free IN_RAM
+// functions. All T::method() calls from within them are FORCE_INLINE,
+// so the entire hot path compiles into RAM with zero FLASH stalls.
+
+void IN_RAM core1_trampoline() {
+  tfr911_foreground_loop<Engine>();
+}
+
+void IN_RAM core0_trampoline() {
+  v4_background_loop<Engine>();
+}
 
 #if 0  // Not buildable yet without Pico SDK.
 int main() {
@@ -57,7 +73,7 @@ int main() {
   // set_sys_clock_khz(250 * 1000, true);
   // stdio_usb_init();
 
-  // 2. GPIO.
+  // 2. GPIO (IN_FLASH — called once at boot).
   Engine::InitializePins();
 
   // 3. LED blink to indicate boot.
@@ -70,10 +86,11 @@ int main() {
   // 5. Tcl console (blocks until "bye").
   Engine::RunConsole();
 
-  // 6. Install turbo9sim ACIA.
+  // 6. Install turbo9sim ACIA (IN_FLASH — called once).
   Engine::Turbo9sim_Install(0xFF00);
 
   // 7. Launch foreground on core1, background on core0.
+  // Both trampolines are IN_RAM free functions.
   Engine::RunCores(core1_trampoline, core0_trampoline);
 
   // Never reached.

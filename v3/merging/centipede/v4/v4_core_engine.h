@@ -5,18 +5,29 @@
 //
 // CoreEngine<T> provides:
 //   - The CrossCoreFIFO-based fg2bg/bg2fg communication.
-//   - Background coroutine scheduler (drain, floppy, spoon tasks).
-//   - USB polling and COBS packet dispatch.
-//   - Flow control (HALT-based throttling for Centipede; future for TFR911).
-//   - Inline hooks for foreground loops to call on read/write cycles.
+//   - FORCE_INLINE helpers for the foreground loop (PushFifoRead/Write).
+//   - COBS packet encoding.
+//   - Default background event handlers.
 //   - RunCores() to launch foreground on core1, background on core0.
 //
+// The actual foreground and background loops are FREE FUNCTIONS
+// (not class methods) so they can be marked IN_RAM:
+//
+//   template<typename T> void IN_RAM tfr911_foreground_loop();
+//   template<typename T> void IN_RAM centipede_foreground_loop();
+//   template<typename T> void IN_RAM v4_background_loop();
+//
+// GCC does not support __attribute__((section)) on class methods.
+// All T::methods called from these loops are FORCE_INLINE static,
+// so they compile into the IN_RAM function's body with zero call
+// overhead and no FLASH fetch stalls.
+//
 // Platform engines (TFR911Engine, CentipedeEngine) provide:
-//   - foreground() — the inner bus-cycle loop (platform-specific).
-//   - InitializePins() — GPIO setup.
-//   - InitPIO() — PIO program loading.
-//   - Assert/Release IRQ/FIRQ/NMI pins.
-//   - ShowChar(byte ch) — emit a character to the tether via COBS.
+//   - InitializePins() — GPIO setup (IN_FLASH, called once).
+//   - InitPIO() — PIO program loading (IN_FLASH, called once).
+//   - Assert/Release IRQ/FIRQ/NMI pins (FORCE_INLINE).
+//   - HaltOn/HaltOff (FORCE_INLINE).
+//   - ReadRam/WriteRam/ReadIO/WriteIO (FORCE_INLINE).
 
 #include <array>
 #include <atomic>
@@ -81,7 +92,9 @@ inline volatile bool fg_halt_for_flow_control = false;
 #define SAY(CH) PUSH_TO_BG(FG2BG_PUTCHAR, 0, (CH) & 255)
 
 // ── CoreEngine<T> ──
-// The shared background engine. T is the final Engine class (CRTP).
+// The shared engine base class. T is the final Engine class (CRTP).
+// Provides FORCE_INLINE helpers and non-hot-path utility functions.
+// The actual background loop is the free function v4_background_loop<T>().
 template <class T>
 class CoreEngine {
  public:
@@ -89,7 +102,7 @@ class CoreEngine {
   // ── ShowChar / ShowString ──
   // Send a character or string to the tether via the fg2bg FIFO.
   // These are callable from both foreground and background contexts.
-  static void ShowChar(byte ch) {
+  FORCE_INLINE static void ShowChar(byte ch) {
     SAY(ch);
   }
 
@@ -105,12 +118,12 @@ class CoreEngine {
   // This wraps the shared cobs.h CobsEncodeAndTransmit().
   static void CobsTransmit(const unsigned char* data, size_t len) {
     // Delegates to the platform's putchar_raw or equivalent.
-    // Implemented by including cobs.h in the build.
     CobsEncodeAndTransmit(data, len, T::PutCharRaw);
   }
 
   // ── PushFifoRead / PushFifoWrite ──
   // Called by the foreground inner loop to log bus cycles.
+  // FORCE_INLINE so they inline into the IN_RAM foreground function.
   FORCE_INLINE static void PushFifoRead(uint addr, byte data) {
     PUSH_TO_BG(FG2BG_READ, addr, data);
   }
@@ -121,53 +134,10 @@ class CoreEngine {
 
   // ── RunCores ──
   // Launch foreground on core1, background on core0.
-  // core1_fn is the foreground entry point (calls T::foreground()).
-  // core0_fn is the background entry point (calls T::background()).
+  // core1_fn and core0_fn are IN_RAM free function trampolines.
   static void RunCores(void (*core1_fn)(), void (*core0_fn)()) {
     multicore_launch_core1(core1_fn);
     core0_fn();  // Background runs on core0 (never returns).
-  }
-
-  // ── background ──
-  // The background task scheduler. Runs on core0.
-  // Polls USB, decodes COBS, dispatches packets, runs Tcl console.
-  //
-  // In the full implementation this will use coroutines for
-  // drain_task, floppy_task, and spoon_task (Tcl console).
-  // For now, this is a stub that polls USB and dispatches packets.
-  static void background() {
-    T::ShowString("Background: starting.\n");
-
-    while (true) {
-      // 1. Poll USB for incoming bytes and decode COBS packets.
-      T::PollUsbInput();
-
-      // 2. Drain fg2bg FIFO — handle putchar, read/write logs, etc.
-      uint chore;
-      while (fg2bg.pop(chore)) {
-        uint tag  = chore >> 24;
-        uint addr = (chore >> 8) & 0xFFFF;
-        byte data = chore & 0xFF;
-
-        switch (tag) {
-          case FG2BG_PUTCHAR:
-            T::EmitPutChar(data);
-            break;
-          case FG2BG_WRITE:
-            T::OnBackgroundWrite(addr, data);
-            break;
-          case FG2BG_READ:
-            T::OnBackgroundRead(addr, data);
-            break;
-          default:
-            T::OnBackgroundChore(tag, addr, data);
-            break;
-        }
-      }
-
-      // 3. Check bg2fg for console peek/poke (handled by foreground).
-      // (Foreground polls bg2fg directly in its loop.)
-    }
   }
 
   // ── Default background event handlers ──
@@ -190,5 +160,57 @@ class CoreEngine {
     // Default: ignore unknown chores.
   }
 };
+
+// ══════════════════════════════════════════════════════════════════
+// v4_background_loop<T>() — The shared background task loop.
+//
+// Runs on core0. Polls USB, drains fg2bg FIFO, dispatches packets.
+// In the full implementation this will use coroutines for
+// drain_task, floppy_task, and spoon_task (Tcl console).
+//
+// This is a free function so it CAN be marked IN_RAM if needed,
+// although the background is less performance-critical than the
+// foreground.
+//
+// Called from a trampoline:
+//   void IN_RAM core0_trampoline() {
+//       v4_background_loop<Engine>();
+//   }
+// ══════════════════════════════════════════════════════════════════
+template <typename T>
+void IN_RAM v4_background_loop() {
+  T::ShowString("Background: starting.\n");
+
+  while (true) {
+    // 1. Poll USB for incoming bytes and decode COBS packets.
+    T::PollUsbInput();
+
+    // 2. Drain fg2bg FIFO — handle putchar, read/write logs, etc.
+    uint chore;
+    while (fg2bg.pop(chore)) {
+      uint tag  = chore >> 24;
+      uint addr = (chore >> 8) & 0xFFFF;
+      byte data = chore & 0xFF;
+
+      switch (tag) {
+        case FG2BG_PUTCHAR:
+          T::EmitPutChar(data);
+          break;
+        case FG2BG_WRITE:
+          T::OnBackgroundWrite(addr, data);
+          break;
+        case FG2BG_READ:
+          T::OnBackgroundRead(addr, data);
+          break;
+        default:
+          T::OnBackgroundChore(tag, addr, data);
+          break;
+      }
+    }
+
+    // 3. Check bg2fg for console peek/poke (handled by foreground).
+    // (Foreground polls bg2fg directly in its loop.)
+  }
+}
 
 #endif  // V4_CORE_ENGINE_H_

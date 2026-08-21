@@ -1,7 +1,7 @@
 // v4_centipede_main.cpp — Top-level wiring for Centipede v4 build (STUB).
 //
-// This file shows how to compose the final Engine struct from CRTP mixins.
-// It is not yet buildable — it requires the Pico SDK and PIO programs.
+// This file shows how to compose the final Engine struct from CRTP mixins
+// and wire up the IN_RAM trampolines for the foreground and background loops.
 //
 // Build: cmake with PLATFORM=CENTIPEDE.
 
@@ -23,7 +23,7 @@
 #include "v4_core_engine.h"
 #include "v4_engine_centipede.h"
 
-// ── Global storage ──
+// ── Global storage (BSS — always in RAM) ──
 byte ram[64 * 1024];
 IOReader IOReaders[256];
 IOWriter IOWriters[256];
@@ -31,6 +31,9 @@ byte vector_ram[16];
 
 // ── The Engine ──
 // Compose the Centipede Engine from CRTP mixins.
+// All methods that are called from the foreground inner loop
+// are FORCE_INLINE static, so they compile into the IN_RAM
+// centipede_foreground_loop<Engine>() function body.
 struct Engine : public DontOS<Engine>,         // OS loaded by Tcl, not compiled-in ROM.
                 public DontTurbo9sim<Engine>,   // Uses PIA-based I/O, not sim ACIA.
                 public DoInterrupts<Engine>,
@@ -40,9 +43,21 @@ struct Engine : public DontOS<Engine>,         // OS loaded by Tcl, not compiled
                 public CentipedeEngine<Engine> {
 };
 
-// ── Trampoline functions ──
-void core1_trampoline() { Engine::foreground(); }
-void core0_trampoline() { Engine::background(); }
+// ── IN_RAM Trampoline functions ──
+// These are the entry points for each core. They are free functions
+// so they can carry the IN_RAM attribute.
+//
+// CRITICAL for Centipede: the foreground MUST run entirely from RAM.
+// Any FLASH cache miss will cause the Pico to stall and miss bus
+// cycles on the Gerbil PIO wheel, corrupting data.
+
+void IN_RAM core1_trampoline() {
+  centipede_foreground_loop<Engine>();
+}
+
+void IN_RAM core0_trampoline() {
+  v4_background_loop<Engine>();
+}
 
 #if 0  // Not buildable yet without Pico SDK.
 int main() {
@@ -50,7 +65,7 @@ int main() {
   // set_sys_clock_khz(250 * 1000, true);
   // stdio_usb_init();
 
-  // 2. GPIO.
+  // 2. GPIO (IN_FLASH — called once at boot).
   Engine::InitializePins();
 
   // 3. LED blink.
@@ -64,6 +79,7 @@ int main() {
   Engine::RunConsole();
 
   // 6. Launch foreground on core1, background on core0.
+  // Both trampolines are IN_RAM free functions.
   Engine::RunCores(core1_trampoline, core0_trampoline);
 
   // Never reached.

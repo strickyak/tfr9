@@ -15,11 +15,11 @@
 
 template <typename T>
 struct DontFloppy {
-  static void BackgroundFifoFloppyLatch(byte chore_byte) {}
-  static void BackgroundFifoFloppyCommand(/* Coro& self, */ uint chore, byte chore_byte) {}
-  static void BackgroundFifoFloppyW256(/* Coro& self */) {}
-  static void ReadScsFloppy(const uint& abus, byte& dbus) { dbus = 0xFF; }
-  static void WriteScsFloppy(const uint& abus, byte& dbus) {}
+  FORCE_INLINE static void BackgroundFifoFloppyLatch(byte chore_byte) {}
+  FORCE_INLINE static void BackgroundFifoFloppyCommand(/* Coro& self, */ uint chore, byte chore_byte) {}
+  FORCE_INLINE static void BackgroundFifoFloppyW256(/* Coro& self */) {}
+  FORCE_INLINE static void ReadScsFloppy(const uint& abus, byte& dbus) { dbus = 0xFF; }
+  FORCE_INLINE static void WriteScsFloppy(const uint& abus, byte& dbus) {}
 };
 
 template <typename T>
