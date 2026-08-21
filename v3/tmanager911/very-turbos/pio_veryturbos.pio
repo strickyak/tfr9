@@ -14,9 +14,9 @@
 .wrap_target
 Loop:
     pull block      side 0  ; value ignored; just for synchronization
-    nop         [6] side 0  ; 5ok 4bad ; first phase = side 0
+    nop         [7] side 0  ; WAS[6] ; first phase = side 0
 
-    nop         [6] side 2  ; 5ok 4bad
+    nop         [7] side 2  ; WAS[6]
     in pins,32      side 2
 
     push            side 3  ; third phase = side 3
@@ -24,8 +24,8 @@ Loop:
 
 Write:
     nop        [7]  side 3  ; third phase = side 3 ; z8 -1 z9 -2
- nop [0] side 3  ; for 250MHz => ~3.3MHz
- nop [0] side 1  ; for 250MHz => ~3.3MHz
+ nop [2] side 3  ; WAS[0] for 250MHz => ~3.3MHz
+ nop [2] side 1  ; WAS[0] for 250MHz => ~3.3MHz
     nop        [7]  side 1  ; fourth phase = side 1
     in pins, 32     side 1
     push            side 1
@@ -37,12 +37,12 @@ Read:
     out pindirs, 8   side 3
     pull block      side 3
     out pins,8      side 3
- nop [0] side 3  ; for 250MHz => ~3.3MHz
+ nop [2] side 3  ; WAS[0] for 250MHz => ~3.3MHz
 
     in pins, 32     side 3 ; LATE PINS
     push            side 1 ; LATE PINS
 
- nop [0] side 1  ; for 250MHz => ~3.3MHz
+ nop [2] side 1  ; WAS[0] for 250MHz => ~3.3MHz
     nop             side 1
     nop     [7]     side 1  ; 6ok 5bad ; fourth phase = side 1
 
