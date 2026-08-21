@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/strickyak/copico-centipede/v1/tether/cobs"
+	"github.com/strickyak/tfr9-merging-centipede/v1/tether/cobs"
 )
 
 var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")

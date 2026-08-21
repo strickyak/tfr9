@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/strickyak/copico-centipede/v1/lib"
-	"github.com/strickyak/copico-centipede/v1/tether/cobs"
+	"github.com/strickyak/tfr9-merging-centipede/v1/lib"
+	"github.com/strickyak/tfr9-merging-centipede/v1/tether/cobs"
 
 	"bytes"
 	"flag"
