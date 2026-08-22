@@ -357,6 +357,20 @@ after draining some FIFO entries. This defeated the watermark-based
 throttling, causing FIFO overflow. HALT for flow control must be managed
 exclusively by `FlowControlCheck()` on the foreground core.
 
+### 7. Cross-core config structs need `volatile` fields
+`CentipedeConfig` is modified by the menu (background core 0) and read by
+the foreground loop (core 1). Without `volatile`, GCC `-O2` propagates the
+initial values from `main()` as compile-time constants into the
+`FORCE_INLINE` foreground loop, ignoring runtime changes from the other core.
+Symptom: `trace_reads=true` set by the menu has no effect — only I/O-page
+reads appear (from the `trace_writes` fallback condition). Fix: make all
+`CentipedeConfig` fields `volatile bool`.
+
+### 8. Protocol constants C_RAM2_READ ≠ C_RAM2_WRITE
+`C_RAM2_WRITE = 195` (0xC3), `C_RAM2_READ = 211` (0xD3). These are different
+command bytes — confusing them causes read packets to be decoded as writes
+by the tether, making read tracing silently fail.
+
 ## 11. Build System
 
 ```bash
