@@ -34,7 +34,8 @@
 #define STACK_SIZE   (20 * 1024)
 
 enum TracingSpeed { NO_SPEED, SLOW_SPEED, MEDIUM_SPEED, FAST_SPEED };
-constexpr TracingSpeed Speed = MEDIUM_SPEED;
+// constexpr TracingSpeed Speed = MEDIUM_SPEED;
+constexpr TracingSpeed Speed = SLOW_SPEED;
 
 #ifndef CENTIPEDE_REV
 #define CENTIPEDE_REV 3226  // 32z
@@ -268,8 +269,8 @@ byte ram[64 * 1024];
 // Protocol constants (matching v1's enum values)
 // ═══════════════════════════════════════════════════════════════════
 #define C_PUTCHAR 193
-#define C_RAM2_READ  195
-#define C_RAM2_WRITE 195  // Same code, context determines meaning.
+#define C_RAM2_WRITE 195  // 0xC3
+#define C_RAM2_READ  211  // 0xD3
 #define C_DISK_READ  173
 #define C_DISK_WRITE 174
 
