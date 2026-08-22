@@ -1,5 +1,6 @@
 
-go run github.com/strickyak/tfr9-merging-centipede/v1/tether -centipede -level 1 -borges /tmp/veryturbos-chelsea-2026-08-18/borges/  2>_log  | tee _out
+mkdir -p /tmp/pc
+go run github.com/strickyak/tfr9-merging-centipede/v1/tether -pc /tmp/pc -centipede -level 1 -borges /tmp/veryturbos-chelsea-2026-08-18/borges/  2>_log  | tee _out
 exit
 
 COMMENT << END
