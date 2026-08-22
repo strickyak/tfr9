@@ -1,0 +1,514 @@
+// v4_tfr911h_main.cpp — TFR911H v4 build (no Tcl, no LittleFS).
+//
+// Self-contained compilation unit that produces tfr911h_v4.uf2.
+// Includes TFR911 headers from tmanager911/very-turbos/ directly.
+// Boots OS9 from compiled-in RomList, ACIA console via USB.
+//
+// Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
+
+#define MHz 250  // clock speed
+
+#include <hardware/clocks.h>
+#include <hardware/pio.h>
+#include <hardware/structs/systick.h>
+#include <hardware/timer.h>
+#include <hardware/watchdog.h>
+#include <pico/bootrom.h>
+#include <pico/multicore.h>
+#include <pico/rand.h>
+#include <pico/stdlib.h>
+#include <pico/time.h>
+#include <pico/unique_id.h>
+#include <stdio.h>
+
+#include <cstring>
+
+// COBS encoder/decoder (shared with Centipede)
+#include "cobs.h"
+
+#define FORCE_INLINE inline __attribute__((always_inline))
+#define force_inline FORCE_INLINE
+#define IN_RAM __not_in_flash("tfr911")
+
+#define LIKELY(x) __builtin_expect(!!(x), 1)
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define likely(x) LIKELY(x)
+#define unlikely(x) UNLIKELY(x)
+
+using byte = unsigned char;
+
+// ═══════════════════════════════════════════════════════════════════
+// TFR911H GPIO Pin Assignments
+// ═══════════════════════════════════════════════════════════════════
+constexpr uint RESET = 20;
+constexpr uint NMI = 21;
+constexpr uint IRQ = 22;
+constexpr uint FIRQ = 23;
+constexpr uint HALT = 24;
+constexpr uint LED = 25;
+constexpr uint LIC = 26;
+constexpr uint AVMA = 27;
+constexpr uint BS = 28;
+constexpr uint E = 29;
+constexpr uint Q = 30;
+constexpr uint R_W = 31;
+
+// ═══════════════════════════════════════════════════════════════════
+// IO function pointer types and arrays
+// ═══════════════════════════════════════════════════════════════════
+bool is_an_os9;
+using IOReader = byte (*)(uint addr);
+using IOWriter = void (*)(uint addr, byte data);
+IOReader IOReaders[256];
+IOWriter IOWriters[256];
+
+// ═══════════════════════════════════════════════════════════════════
+// Protocol constants
+// ═══════════════════════════════════════════════════════════════════
+enum message_type : byte {
+  C_LOGGING = 130,
+  C_PRE_LOAD = 163,
+  C_RAM_CONFIG = 164,
+  C_DUMP_RAM = 167,
+  C_DUMP_LINE = 168,
+  C_DUMP_STOP = 169,
+  C_DUMP_PHYS = 170,
+  C_EVENT = 172,
+  C_DISK_READ = 173,
+  C_DISK_WRITE = 174,
+  EVENT_RTI = 176,
+  EVENT_SWI2 = 177,
+  T_HELLO = 178,
+  T_COMMAND = 179,
+  C_REBOOT = 192,
+  C_PUTCHAR = 193,
+  C_RAM2_WRITE = 195,
+  C_RAM3_WRITE = 196,
+  C_RAM5_WRITE = 198,
+  C_CYCLE = 200,
+};
+
+enum cycle_kind : byte {
+  CY_UNUSED = 0,
+  CY_SEEN = 1,
+  CY_UNSEEN = 2,
+  CY_MORE = 3,
+  CY_READ = 4,
+  CY_WRITE = 5,
+  CY_IDLE = 6,
+  CY_FIC = 7,
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// Globals
+// ═══════════════════════════════════════════════════════════════════
+byte ram[64 * 1024];
+
+byte vector_ram[16];
+void InstallVector(uint i, uint addr) {
+  vector_ram[2 * i + 0] = (byte)(addr >> 8);
+  vector_ram[2 * i + 1] = (byte)addr;
+
+  IOReaders[255 & (0xFFF0 + 2 * i + 0)] =
+  IOReaders[255 & (0xFFF0 + 2 * i + 1)] =
+      [](uint _a) -> byte { return vector_ram[_a & 15]; };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COBS output helpers
+// ═══════════════════════════════════════════════════════════════════
+extern "C" {
+extern int stdio_usb_in_chars(char* buf, int length);
+}
+
+void ShowChar(char c) {
+  unsigned char pkt[2] = {C_PUTCHAR, (unsigned char)c};
+  CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
+}
+
+void putbyte(byte x) {
+  unsigned char pkt[2] = {C_PUTCHAR, x};
+  CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
+}
+
+void cobs_printf(const char* fmt, ...) {
+  char buf[256];
+  buf[0] = C_PUTCHAR;
+  va_list args;
+  va_start(args, fmt);
+  int len = vsnprintf(buf + 1, sizeof(buf) - 1, fmt, args);
+  va_end(args);
+  if (len > 0) {
+    if (len >= (int)sizeof(buf) - 1) len = sizeof(buf) - 2;
+    CobsEncodeAndTransmit((const unsigned char*)buf, len + 1,
+                          [](int ch) { putchar_raw(ch); });
+  }
+}
+
+void TransmitMessage(byte messtype, uint sz, const byte* buf) {
+  byte pkt[sz + 1];
+  pkt[0] = messtype;
+  memcpy(pkt + 1, buf, sz);
+  CobsEncodeAndTransmit(pkt, sz + 1, [](int ch) { putchar_raw(ch); });
+}
+
+void TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
+  byte r[8];
+  r[0] = cy >> 24;
+  r[1] = cy >> 16;
+  r[2] = cy >> 8;
+  r[3] = cy >> 0;
+  r[4] = flags + (kind << 5);
+  r[5] = data;
+  r[6] = addr >> 8;
+  r[7] = addr >> 0;
+  TransmitMessage(C_CYCLE, 8, r);
+}
+
+void TransmitWrite(uint addr, byte data) {
+  byte pkt[4] = {C_RAM2_WRITE, (byte)(addr >> 8), (byte)addr, data};
+  CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CircBuf + USB/COBS input pipeline
+// ═══════════════════════════════════════════════════════════════════
+#include "circbuf.h"
+
+// PIO header (generated by cmake)
+#include "pio_veryturbos.pio.h"
+
+// Flash label
+#include "../../../tmanager911/very-turbos/flash-label.h"
+
+CircBuf<unsigned char, 1024> usb_input;
+CircBuf<std::string*, 16> usb_cobs_output;
+CobsDecoder<1024, 16> cobs_decoder(usb_input, usb_cobs_output);
+CircBuf<unsigned char, 1024> term_input;
+
+volatile uint delay_busy;
+void Delay(uint n) {
+  for (uint i = 0; i < n * 10; i++) {
+    delay_busy += i;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ACIA simulation state
+// ═══════════════════════════════════════════════════════════════════
+bool acia_irq_enabled;
+bool acia_irq_firing;
+bool acia_char_in_ready;
+int acia_char;
+bool irq_needed;
+bool prev_irq_needed;
+
+bool TryGetUsbByte(char* ptr) {
+  int rc = stdio_usb_in_chars(ptr, 1);
+  return (rc != PICO_ERROR_NO_DATA);
+}
+
+#define Printf if(false)printf
+
+// ═══════════════════════════════════════════════════════════════════
+// USB polling (called from foreground outer loop)
+// ═══════════════════════════════════════════════════════════════════
+void PollUsbInput() {
+  while (1) {
+    char x = 0;
+    bool ok = TryGetUsbByte(&x);
+    if (ok) {
+      usb_input.Put(x);
+    } else {
+      break;
+    }
+  }
+
+  cobs_decoder.Tick();
+
+  while (usb_cobs_output.NumBuffered() > 0) {
+    std::string* pkt_ptr = usb_cobs_output.Take();
+    std::string pkt = *pkt_ptr;
+    delete pkt_ptr;
+
+    if (pkt.size() == 0) continue;
+
+    byte cmd = pkt[0];
+    switch (cmd) {
+      case C_PUTCHAR:
+        if (pkt.size() >= 2) {
+          byte c = pkt[1];
+          if (c == 10) c = 13;
+          term_input.Put(c);
+        }
+        break;
+
+      case C_PRE_LOAD:
+        if (pkt.size() >= 3) {
+          uint addr = ((uint)(byte)pkt[1] << 8) | (byte)pkt[2];
+          for (uint i = 3; i < pkt.size(); i++) {
+            ram[addr & 0xFFFF] = (byte)pkt[i];
+            addr++;
+          }
+        }
+        break;
+
+      case C_REBOOT:
+        reset_usb_boot(0, 0);
+        break;
+
+      case C_DISK_READ:
+        break;
+
+      case T_HELLO:
+        break;
+
+      case T_COMMAND:
+        break;
+
+      default:
+        if (cmd >= 1 && cmd <= 127) {
+          byte c = cmd;
+          if (c == 10) c = 13;
+          term_input.Put(c);
+        }
+        break;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Include TFR911 headers from v1
+// ═══════════════════════════════════════════════════════════════════
+#include "../../../tmanager911/very-turbos/turbo9sim.h"
+#include "../../../tmanager911/very-turbos/romlist.h"
+#include "../../../tmanager911/very-turbos/turbo9os.h"
+
+// ═══════════════════════════════════════════════════════════════════
+// GPIO Initialization — Open-drain for slow control pins
+// ═══════════════════════════════════════════════════════════════════
+uint InitializePinsReturnDirections() {
+  uint directions = 0;
+  for (int i = 0; i < 48; i++) {
+    gpio_init(i);
+    switch (i) {
+      // E, Q, LED: push-pull outputs
+      case E:
+      case Q:
+      case LED:
+        gpio_set_dir(i, GPIO_OUT);
+        gpio_put(i, 1);
+        directions |= (1 << i);
+        break;
+
+      // Slow 6809E control: open-drain
+      // Output latch = 0, direction = input (released, pulled high).
+      // Assert by setting dir to output. Release by setting dir to input.
+      case RESET:
+      case NMI:
+      case IRQ:
+      case FIRQ:
+      case HALT:
+        gpio_set_dir(i, GPIO_OUT);
+        gpio_put(i, 0);             // Latch = 0 (active low)
+        gpio_set_dir(i, GPIO_IN);   // Released (not driving)
+        gpio_set_pulls(i, true, false);  // Internal pull-up
+        break;
+
+      default:
+        gpio_set_dir(i, GPIO_IN);
+        gpio_pull_up(i);
+        break;
+    }
+  }
+  return directions;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RunReset — bit-bang E/Q clocks during RESET (open-drain RESET)
+// ═══════════════════════════════════════════════════════════════════
+void RunReset() {
+  gpio_set_dir(RESET, GPIO_OUT);  // Assert RESET (pulls low via latch=0)
+  for (int i = 0; i < 1000; i++) {
+    Delay(10);
+    gpio_put(Q, 1);
+    Delay(10);
+    gpio_put(E, 1);
+    Delay(10);
+    gpio_put(Q, 0);
+    Delay(10);
+    gpio_put(E, 0);
+  }
+  gpio_set_dir(RESET, GPIO_IN);  // Release RESET (pulled high)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Timer (1ms tick on core 0)
+// ═══════════════════════════════════════════════════════════════════
+constexpr uint GROUP_SIZE = 10000;
+uint milliseconds;
+struct repeating_timer TimerData;
+bool TimerCallback(repeating_timer_t* rt) {
+  milliseconds++;
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Guts<T> — the bus cycle engine (CRTP)
+// ═══════════════════════════════════════════════════════════════════
+template <typename T>
+struct Guts {
+  force_inline static void Poke(uint a, byte b) { ram[a & 0xFFFF] = b; }
+  force_inline static byte Peek(uint a) { return ram[a & 0xFFFF]; }
+  force_inline static uint Peek2(uint a) {
+    return (((uint)Peek(a)) << 8) | Peek(a + 1);
+  }
+
+  static bool ChangeInterruptPin(bool irq_needed) {
+    // Open-drain: assert by setting dir to output, release by input
+    if (irq_needed) {
+      gpio_set_dir(IRQ, GPIO_OUT);
+    } else {
+      gpio_set_dir(IRQ, GPIO_IN);
+    }
+    return true;
+  }
+
+  static void IN_RAM RunCPU() {
+    T::Install_OS();
+
+    volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
+
+    int cycles = 0;
+    int epochs = 0;
+
+    // OUTER LOOP
+    while (true) {
+      irq_needed |= T::Turbo9sim_IrqNeeded();
+      if (irq_needed != prev_irq_needed) {
+        bool ok = ChangeInterruptPin(irq_needed);
+        if (ok) {
+          prev_irq_needed = irq_needed;
+          gpio_put(LED, irq_needed);
+        }
+      }
+      PollUsbInput();
+      if (T::Turbo9sim_CanRx()) {
+        if (term_input.NumBuffered() > 0) {
+          byte ch = term_input.Take();
+          T::Turbo9sim_SetRx(ch);
+        }
+      }
+
+      uint prev_late_pins = 0;
+
+      // INNER LOOP
+      for (int i = 0; i < GROUP_SIZE; i++) {
+        pio_sm_put(pio0, 0, 0);  // put sync word
+
+        byte value = 0;
+        uint pins = pio_sm_get_blocking(pio0, 0);  // get early pins
+        uint prev_addr = 0xFFFF & hw->gpio_hi_in;
+        uint addr;
+        while (true) {
+          addr = 0xFFFF & hw->gpio_hi_in;
+          if (addr == prev_addr) break;
+          prev_addr = addr;
+        }
+
+        const bool reading = (pins & (1 << R_W));
+        byte kind = 0;
+        uint late_pins = 0;
+
+        if (likely(reading)) {
+          // READ CYCLES
+          if (likely(addr < 0xFF00)) {
+            value = ram[addr];
+          } else {
+            IOReader fn = IOReaders[addr & 0xFF];
+            if (fn) {
+              value = fn(addr);
+            } else {
+              value = 0;
+            }
+          }
+          kind = CY_READ;
+        } else {
+          // WRITE CYCLES
+          late_pins = pio_sm_get_blocking(pio0, 0);
+          value = (byte)late_pins;
+
+          if (likely(addr < 0xFF00)) {
+            ram[addr] = value;
+          } else {
+            IOWriter fn = IOWriters[addr & 0xFF];
+            if (fn) {
+              fn(addr, value);
+            }
+          }
+          kind = CY_WRITE;
+        }
+
+        if (likely(reading)) {
+          pio_sm_put(pio0, 0, value);
+          late_pins = pio_sm_get_blocking(pio0, 0);  // LATE PINS
+        }
+
+        prev_late_pins = late_pins;
+      }  // next i
+
+      cycles += GROUP_SIZE;
+      epochs++;
+      if (epochs == 5000) {
+        cobs_printf("[Mc=%g  s=%g  Mcps=%g]",
+                    double(cycles) / double(1000 * 1000),
+                    double(milliseconds) / double(1000),
+                    (double)cycles / double(1000 * milliseconds));
+        epochs = 0;
+      }
+    }  // true
+  }    // func RunCPU
+};     // Guts
+
+// ═══════════════════════════════════════════════════════════════════
+// Engine — CRTP composition
+// ═══════════════════════════════════════════════════════════════════
+struct Engine : public DoTurbo9os<Engine,
+                    RomList<Turbo9os_Rom, Basic09_Rom>>,
+                public DoTurbo9sim<Engine>,
+                public Guts<Engine> {};
+
+// ═══════════════════════════════════════════════════════════════════
+// main()
+// ═══════════════════════════════════════════════════════════════════
+int main() {
+#if MHz != 150
+  set_sys_clock_khz(MHz * 1000, true);
+#endif
+  stdio_usb_init();
+  uint directions = InitializePinsReturnDirections();
+
+  for (int i = 0; i < 3; i++) {
+    gpio_put(LED, 1);
+    sleep_ms(200);
+    gpio_put(LED, 0);
+    sleep_ms(200);
+    cobs_printf(":%d:\n", i);
+  }
+
+  FlashLabel::InitLabel();
+  FlashLabel::PrintLabel();
+  RunReset();
+
+  pio_clear_instruction_memory(pio0);
+  const uint offset_t911 = pio_add_program(pio0, &t911veryfast_program);
+  t911veryfast_program_init(pio0, 0, offset_t911);
+
+  cobs_printf(":g:\n");
+  Engine::Turbo9sim_Install(0xFF00);
+  multicore_launch_core1(Engine::RunCPU);
+
+  alarm_pool_init_default();
+  add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
+  while (true) sleep_ms(1234);
+}
