@@ -38,3 +38,6 @@ pico_add_extra_outputs(${PROJECT})
 
 pico_enable_stdio_usb(${PROJECT} 1)
 pico_enable_stdio_uart(${PROJECT} 0)
+
+# Match v1: the entire binary runs from RAM (no XIP flash stalls)
+pico_set_binary_type(${PROJECT} copy_to_ram)
