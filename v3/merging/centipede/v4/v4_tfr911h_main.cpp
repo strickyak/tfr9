@@ -6,6 +6,7 @@
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
+#define TRACE 1
 #define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
@@ -23,9 +24,6 @@
 
 #include <cstring>
 
-// COBS encoder/decoder (shared with Centipede)
-#include "cobs.h"
-
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define force_inline FORCE_INLINE
 #define IN_RAM __not_in_flash("tfr911")
@@ -34,6 +32,9 @@
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 #define likely(x) LIKELY(x)
 #define unlikely(x) UNLIKELY(x)
+
+// COBS encoder/decoder (shared with Centipede)
+#include "cobs.h"
 
 using byte = unsigned char;
 
@@ -440,6 +441,9 @@ struct Guts {
 
           if (likely(addr < 0xFF00)) {
             ram[addr] = value;
+#if TRACE
+            TransmitWrite(addr, value);
+#endif
           } else {
             IOWriter fn = IOWriters[addr & 0xFF];
             if (fn) {
@@ -453,6 +457,15 @@ struct Guts {
           pio_sm_put(pio0, 0, value);
           late_pins = pio_sm_get_blocking(pio0, 0);  // LATE PINS
         }
+        bool is_lic = ((late_pins & (1<<LIC)) != 0);
+        bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
+
+#if TRACE
+        if (is_fic) {
+          kind = CY_FIC;
+        }
+        TransmitCycle(cycles+i, (byte)is_lic, kind, value, addr);
+#endif
 
         prev_late_pins = late_pins;
       }  // next i
