@@ -11,6 +11,7 @@
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
+#include <hardware/structs/qmi.h>
 #include <hardware/structs/systick.h>
 #include <hardware/timer.h>
 #include <hardware/watchdog.h>
@@ -106,13 +107,17 @@ enum cycle_kind : byte {
 byte ram[64 * 1024];
 
 byte vector_ram[16];
+
+// IN_RAM IO reader for vector_ram — must not stall in flash
+// during the critical PIO read cycle (E=Q=1).
+byte IN_RAM vector_ram_reader(uint _a) { return vector_ram[_a & 15]; }
+
 void InstallVector(uint i, uint addr) {
   vector_ram[2 * i + 0] = (byte)(addr >> 8);
   vector_ram[2 * i + 1] = (byte)addr;
 
   IOReaders[255 & (0xFFF0 + 2 * i + 0)] =
-  IOReaders[255 & (0xFFF0 + 2 * i + 1)] =
-      [](uint _a) -> byte { return vector_ram[_a & 15]; };
+  IOReaders[255 & (0xFFF0 + 2 * i + 1)] = vector_ram_reader;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -283,6 +288,19 @@ void PollUsbInput() {
 // ═══════════════════════════════════════════════════════════════════
 #include "../../../tmanager911/very-turbos/turbo9sim.h"
 #include "../../../tmanager911/very-turbos/romlist.h"
+
+// ═══════════════════════════════════════════════════════════════════
+// IN_RAM IO readers for turbo9sim ACIA
+// The lambda IOReaders installed by Turbo9sim_Install live in flash.
+// During READ cycles, the PIO holds at pull block side 3 (E=Q=1)
+// waiting for data. An XIP cache miss on the lambda body stalls
+// the CPU, and the 6809 latches garbage from the data bus.
+// These IN_RAM wrappers eliminate that stall.
+// ═══════════════════════════════════════════════════════════════════
+byte IN_RAM acia_read_tx(uint addr)      { return sim_last_char_tx; }
+byte IN_RAM acia_read_rx(uint addr)      { sim_status_reg &= ~0x02; return sim_last_char_rx; }
+byte IN_RAM acia_read_status(uint addr)  { return sim_status_reg; }
+byte IN_RAM acia_read_control(uint addr) { return sim_control_reg; }
 #include "../../../tmanager911/very-turbos/turbo9os.h"
 
 // ═══════════════════════════════════════════════════════════════════
@@ -492,12 +510,31 @@ struct Engine : public DoTurbo9os<Engine,
                 public Guts<Engine> {};
 
 // ═══════════════════════════════════════════════════════════════════
+// Flash speed adjustment (for overclocking > 150 MHz)
+// ═══════════════════════════════════════════════════════════════════
+void IN_RAM safe_adjust_flash_speed() {
+#if MHz > 150
+  uint32_t ints = save_and_disable_interrupts();
+  const uint32_t SAFE = 4;
+  uint32_t clkdiv = SAFE;
+  uint32_t rxdelay = 4;
+  hw_write_masked(
+      &qmi_hw->m[0].timing,
+      ((clkdiv << QMI_M0_TIMING_CLKDIV_LSB) & QMI_M0_TIMING_CLKDIV_BITS) |
+          ((rxdelay << QMI_M0_TIMING_RXDELAY_LSB) & QMI_M0_TIMING_RXDELAY_BITS),
+      QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS);
+  restore_interrupts(ints);
+#endif
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // main()
 // ═══════════════════════════════════════════════════════════════════
 int main() {
 #if MHz != 150
   set_sys_clock_khz(MHz * 1000, true);
 #endif
+  safe_adjust_flash_speed();
   stdio_usb_init();
   uint directions = InitializePinsReturnDirections();
 
@@ -519,6 +556,14 @@ int main() {
 
   cobs_printf(":g:\n");
   Engine::Turbo9sim_Install(0xFF00);
+
+  // Override turbo9sim's flash-resident lambda IOReaders with IN_RAM versions.
+  // This prevents XIP stalls during the critical PIO read cycle.
+  IOReaders[0x00] = acia_read_tx;
+  IOReaders[0x01] = acia_read_rx;
+  IOReaders[0x02] = acia_read_status;
+  IOReaders[0x03] = acia_read_control;
+
   multicore_launch_core1(Engine::RunCPU);
 
   alarm_pool_init_default();
