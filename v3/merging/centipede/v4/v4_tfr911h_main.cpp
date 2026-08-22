@@ -6,8 +6,8 @@
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
-#define TRACE 1
-#define MHz 250  // clock speed
+#define TRACE 0
+#define MHz 150  // clock speed
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
@@ -385,7 +385,7 @@ struct Guts {
 
     // OUTER LOOP
     while (true) {
-      irq_needed |= T::Turbo9sim_IrqNeeded();
+      irq_needed = T::Turbo9sim_IrqNeeded();
       if (irq_needed != prev_irq_needed) {
         bool ok = ChangeInterruptPin(irq_needed);
         if (ok) {
