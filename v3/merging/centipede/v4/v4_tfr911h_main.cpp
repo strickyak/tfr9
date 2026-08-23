@@ -24,6 +24,8 @@
 #include <stdio.h>
 
 #include <cstring>
+#include <atomic>
+#include <array>
 
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define force_inline FORCE_INLINE
@@ -36,6 +38,7 @@
 
 // COBS encoder/decoder (shared with Centipede)
 #include "cobs.h"
+#include "../v1/firmware/cross-core.h"
 
 using byte = unsigned char;
 
@@ -63,6 +66,29 @@ using IOReader = byte (*)(uint addr);
 using IOWriter = void (*)(uint addr, byte data);
 IOReader IOReaders[256];
 IOWriter IOWriters[256];
+
+// ═══════════════════════════════════════════════════════════════════
+// Cross-core FIFO: foreground (core 1) → background (core 0)
+// ═══════════════════════════════════════════════════════════════════
+CrossCoreFIFO<uint, 8192> fg2bg;
+
+// Same event tags as Centipede — shared for future background code reuse.
+enum FG2BG_Tags {
+  FG2BG_PUTCHAR = 0,
+  FG2BG_READ    = 1,
+  FG2BG_SPOON_ON_RESET = 2,
+  FG2BG_WRITE   = 3,
+  FG2BG_SYNC_NEEDED = 4,
+  FG2BG_NMI     = 5,
+  FG2BG_FLOPPY_COMMAND = 6,
+  FG2BG_FLOPPY_LATCH   = 7,
+  FG2BG_W_256   = 8,
+  FG2BG_PEEK_REPLY = 9,
+  FG2BG_START_KEYBOARD_INJECTOR = 10,
+};
+
+#define SAY(C) PUSH_TO_BG(FG2BG_PUTCHAR, 0, (C) & 255)
+#define PUSH_TO_BG(TAG, A, D) fg2bg.push(((TAG) << 24) | ((A) << 8) | (D))
 
 // ═══════════════════════════════════════════════════════════════════
 // Protocol constants
@@ -127,9 +153,12 @@ extern "C" {
 extern int stdio_usb_in_chars(char* buf, int length);
 }
 
+// ShowChar — called by the old turbo9sim.h (unqualified) from simTxWriter.
+// Pushes to fg2bg FIFO; background drains and sends over USB.
+// (CoreEngine::ShowChar in v4_core_engine.h is a separate CRTP method
+// used only by Centipede — TFR911 Engine does not inherit from CoreEngine.)
 void ShowChar(char c) {
-  unsigned char pkt[2] = {C_PUTCHAR, (unsigned char)c};
-  CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
+  SAY(c);
 }
 
 void putbyte(byte x) {
@@ -290,17 +319,35 @@ void PollUsbInput() {
 #include "../../../tmanager911/very-turbos/romlist.h"
 
 // ═══════════════════════════════════════════════════════════════════
-// IN_RAM IO readers for turbo9sim ACIA
-// The lambda IOReaders installed by Turbo9sim_Install live in flash.
-// During READ cycles, the PIO holds at pull block side 3 (E=Q=1)
-// waiting for data. An XIP cache miss on the lambda body stalls
-// the CPU, and the 6809 latches garbage from the data bus.
+// IN_RAM IO readers/writers for turbo9sim ACIA
+// The lambda IOReaders/IOWriters installed by Turbo9sim_Install live
+// in flash. During bus cycles, the PIO holds at pull block side 3
+// (E=Q=1) waiting for data. An XIP cache miss on the lambda body
+// stalls the CPU, and the 6809 latches garbage from the data bus.
 // These IN_RAM wrappers eliminate that stall.
 // ═══════════════════════════════════════════════════════════════════
+
+// Readers
 byte IN_RAM acia_read_tx(uint addr)      { return sim_last_char_tx; }
 byte IN_RAM acia_read_rx(uint addr)      { sim_status_reg &= ~0x02; return sim_last_char_rx; }
 byte IN_RAM acia_read_status(uint addr)  { return sim_status_reg; }
 byte IN_RAM acia_read_control(uint addr) { return sim_control_reg; }
+
+// Writers
+void IN_RAM acia_write_tx(uint addr, byte data) {
+  sim_last_char_tx = data;
+  SAY(data);  // Push to background — no USB call from foreground!
+}
+void IN_RAM acia_write_rx(uint addr, byte data) {
+  // No effect (write to RX register).
+}
+void IN_RAM acia_write_status(uint addr, byte data) {
+  if (data & 0x01) { sim_timer_irq = false; sim_status_reg &= ~0x01; }
+  if (data & 0x02) { sim_rx_ready_irq = false; sim_status_reg &= ~0x02; }
+}
+void IN_RAM acia_write_control(uint addr, byte data) {
+  sim_control_reg = data;
+}
 #include "../../../tmanager911/very-turbos/turbo9os.h"
 
 // ═══════════════════════════════════════════════════════════════════
@@ -366,6 +413,7 @@ void RunReset() {
 // ═══════════════════════════════════════════════════════════════════
 constexpr uint GROUP_SIZE = 10000;
 uint milliseconds;
+volatile int cycles;  // Updated by foreground, read by background for stats
 struct repeating_timer TimerData;
 bool TimerCallback(repeating_timer_t* rt) {
   milliseconds++;
@@ -398,10 +446,10 @@ struct Guts {
 
     volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
 
-    int cycles = 0;
-    int epochs = 0;
+    cycles = 0;
 
-    // OUTER LOOP
+    // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
+    // USB I/O and terminal RX are handled by background on core 0.
     while (true) {
       irq_needed = T::Turbo9sim_IrqNeeded();
       if (irq_needed != prev_irq_needed) {
@@ -411,13 +459,17 @@ struct Guts {
           gpio_put(LED, irq_needed);
         }
       }
-      PollUsbInput();
-      if (T::Turbo9sim_CanRx()) {
-        if (term_input.NumBuffered() > 0) {
-          byte ch = term_input.Take();
-          T::Turbo9sim_SetRx(ch);
-        }
-      }
+
+      // TODO: When TRACE is enabled and FG2BG_READ/WRITE events flood
+      // the FIFO, add watermark-based HALT flow control here:
+      //   if (fg2bg.size() > FG2BG_HIGH_WATERMARK) {
+      //     gpio_set_dir(HALT, GPIO_OUT);  // Assert HALT (open-drain)
+      //     fg_halt_for_flow_control = true;
+      //   }
+      //   if (fg_halt_for_flow_control && fg2bg.size() < FG2BG_LOW_WATERMARK) {
+      //     gpio_set_dir(HALT, GPIO_IN);   // Release HALT
+      //     fg_halt_for_flow_control = false;
+      //   }
 
       uint prev_late_pins = 0;
 
@@ -460,7 +512,7 @@ struct Guts {
           if (likely(addr < 0xFF00)) {
             ram[addr] = value;
 #if TRACE
-            TransmitWrite(addr, value);
+            PUSH_TO_BG(FG2BG_WRITE, addr, value);
 #endif
           } else {
             IOWriter fn = IOWriters[addr & 0xFF];
@@ -478,25 +530,10 @@ struct Guts {
         bool is_lic = ((late_pins & (1<<LIC)) != 0);
         bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
 
-#if TRACE
-        if (is_fic) {
-          kind = CY_FIC;
-        }
-        TransmitCycle(cycles+i, (byte)is_lic, kind, value, addr);
-#endif
-
         prev_late_pins = late_pins;
       }  // next i
 
       cycles += GROUP_SIZE;
-      epochs++;
-      if (epochs == 5000) {
-        cobs_printf("[Mc=%g  s=%g  Mcps=%g]",
-                    double(cycles) / double(1000 * 1000),
-                    double(milliseconds) / double(1000),
-                    (double)cycles / double(1000 * milliseconds));
-        epochs = 0;
-      }
     }  // true
   }    // func RunCPU
 };     // Guts
@@ -520,7 +557,7 @@ void IN_RAM Engine__RunCPU() {
 // ═══════════════════════════════════════════════════════════════════
 struct repeating_timer Timer60HzData;
 bool IN_RAM Timer60HzCallback(repeating_timer_t* rt) {
-  Engine::Turbo9sim_SetTimerFired();
+  Engine::Turbo9sim_SetTimerFired();  // Sets sim_status_reg bit; foreground polls it
   return true;
 }
 
@@ -540,6 +577,57 @@ void IN_RAM safe_adjust_flash_speed() {
       QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS);
   restore_interrupts(ints);
 #endif
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Background loop (core 0) — FIFO drain + USB I/O + terminal RX
+// ═══════════════════════════════════════════════════════════════════
+void IN_RAM tfr911_background() {
+  uint bg_epochs = 0;
+
+  while (true) {
+    // Drain fg2bg FIFO — handle events pushed by foreground.
+    uint chore = 0;
+    while (fg2bg.pop(chore)) {
+      uint chore_num = chore >> 24;
+      byte chore_byte = chore & 0xFF;
+      switch (chore_num) {
+        case FG2BG_PUTCHAR:
+          if (chore_byte) putbyte(chore_byte);
+          break;
+        // Future: FG2BG_READ, FG2BG_WRITE for trace logging
+        default:
+          break;
+      }
+    }
+
+    // Poll USB input (read chars from host → term_input CircBuf)
+    PollUsbInput();
+
+    // Deliver RX chars to turbo9sim.
+    // Sets sim_status_reg bits, which the foreground's
+    // Turbo9sim_IrqNeeded() polls each outer loop iteration.
+    if (Engine::Turbo9sim_CanRx()) {
+      if (term_input.NumBuffered() > 0) {
+        byte ch = term_input.Take();
+        Engine::Turbo9sim_SetRx(ch);
+      }
+    }
+
+#if 1
+    // Periodic stats (every ~5 seconds at typical iteration rate).
+    bg_epochs++;
+    if (bg_epochs >= 50000) {
+      if (milliseconds > 0) {
+        cobs_printf("[Mc=%g  s=%g  Mcps=%g]",
+                    double(cycles) / double(1000 * 1000),
+                    double(milliseconds) / double(1000),
+                    (double)cycles / double(1000 * milliseconds));
+      }
+      bg_epochs = 0;
+    }
+#endif
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -572,17 +660,22 @@ int main() {
   cobs_printf(":g:\n");
   Engine::Turbo9sim_Install(0xFF00);
 
-  // Override turbo9sim's flash-resident lambda IOReaders with IN_RAM versions.
-  // This prevents XIP stalls during the critical PIO read cycle.
+  // Override turbo9sim's flash-resident lambda IOReaders/IOWriters with
+  // IN_RAM versions. This prevents XIP stalls during PIO bus cycles.
   IOReaders[0x00] = acia_read_tx;
   IOReaders[0x01] = acia_read_rx;
   IOReaders[0x02] = acia_read_status;
   IOReaders[0x03] = acia_read_control;
+  IOWriters[0x00] = acia_write_tx;
+  IOWriters[0x01] = acia_write_rx;
+  IOWriters[0x02] = acia_write_status;
+  IOWriters[0x03] = acia_write_control;
 
-  multicore_launch_core1(Engine__RunCPU);
+  multicore_launch_core1(Engine__RunCPU);  // Core 1 = foreground (PIO bus cycles)
 
   alarm_pool_init_default();
   add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
   add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
-  while (true) sleep_ms(1234);
+
+  tfr911_background();  // Core 0 = background (FIFO drain + USB) — never returns
 }
