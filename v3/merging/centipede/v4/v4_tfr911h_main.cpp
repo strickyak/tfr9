@@ -473,23 +473,6 @@ uint InitializePinsReturnDirections() {
   return directions;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// RunReset — bit-bang E/Q clocks during RESET (open-drain RESET)
-// ═══════════════════════════════════════════════════════════════════
-void RunReset() {
-  gpio_set_dir(RESET, GPIO_OUT);  // Assert RESET (pulls low via latch=0)
-  for (int i = 0; i < 1000; i++) {
-    Delay(10);
-    gpio_put(Q, 1);
-    Delay(10);
-    gpio_put(E, 1);
-    Delay(10);
-    gpio_put(Q, 0);
-    Delay(10);
-    gpio_put(E, 0);
-  }
-  gpio_set_dir(RESET, GPIO_IN);  // Release RESET (pulled high)
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // Timer (1ms tick on core 0)
@@ -537,11 +520,13 @@ struct Guts {
 #endif
 
 #if DUMP_FIRST_CYCLES
-    // Diagnostic: capture the first N cycles into a buffer,
-    // then push them to background for printing after the dump.
+    // Diagnostic: capture the first N bus cycles starting from the
+    // reset vector fetch (addr=0xFFFE). Skips HALT-induced idle
+    // cycles (addr=0xFFFF) that occur before HALT is released.
     struct CycleDump { uint16_t addr; uint8_t value; uint8_t rw; };
     static CycleDump dump_buf[DUMP_FIRST_CYCLES];
     int dump_count = 0;
+    bool dump_triggered = false;  // Start recording on first addr==0xFFFE
 #endif
 
     // Signal background that we've reached the inner loop.
@@ -611,9 +596,6 @@ struct Guts {
 
           if (likely(addr < 0xFF00)) {
             ram[addr] = value;
-#if TRACE
-            PUSH_TO_BG(FG2BG_WRITE, addr, value);
-#endif
           } else {
             IOWriter fn = IOWriters[addr & 0xFF];
             if (fn) {
@@ -631,14 +613,15 @@ struct Guts {
         bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
 
 #if DUMP_FIRST_CYCLES
-        if (dump_count < DUMP_FIRST_CYCLES) {
+        if (!dump_triggered && addr == 0xFFFE) {
+          dump_triggered = true;  // Start recording from the reset vector fetch
+        }
+        if (dump_triggered && dump_count < DUMP_FIRST_CYCLES) {
           dump_buf[dump_count] = { (uint16_t)addr, value, (uint8_t)(reading ? 'r' : 'W') };
           dump_count++;
           if (dump_count == DUMP_FIRST_CYCLES) {
-            // Push a marker, then each cycle as two PUTCHAR messages
             // Format: "D:AAAA=VV:R\n" for each cycle
             for (int d = 0; d < DUMP_FIRST_CYCLES; d++) {
-              // Encode addr high nybbles
               SAY('D'); SAY(':');
               SAY(HexAlphabet[(dump_buf[d].addr >> 12) & 0xF]);
               SAY(HexAlphabet[(dump_buf[d].addr >> 8) & 0xF]);
@@ -945,7 +928,7 @@ void IN_RAM tfr911_background() {
           }
           break;
 #endif
-        // Future: FG2BG_READ, FG2BG_WRITE for trace logging
+        // FG2BG_WRITE silently dropped until full cycle logging is implemented.
         default:
           break;
       }
