@@ -7,7 +7,7 @@
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
 #define TRACE 0
-#define MHz 150  // clock speed
+#define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
@@ -393,7 +393,7 @@ struct Guts {
     return true;
   }
 
-  static void IN_RAM RunCPU() {
+  static void FORCE_INLINE RunCPU() {
     T::Install_OS();
 
     volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
@@ -509,6 +509,12 @@ struct Engine : public DoTurbo9os<Engine,
                 public DoTurbo9sim<Engine>,
                 public Guts<Engine> {};
 
+// This IN_RAM Engine Launcher will contain the inlined Engine::RunCPU,
+// so that method will effectively be IN_RAM as well.
+void IN_RAM Engine__RunCPU() {
+    Engine::RunCPU();
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Flash speed adjustment (for overclocking > 150 MHz)
 // ═══════════════════════════════════════════════════════════════════
@@ -564,7 +570,7 @@ int main() {
   IOReaders[0x02] = acia_read_status;
   IOReaders[0x03] = acia_read_control;
 
-  multicore_launch_core1(Engine::RunCPU);
+  multicore_launch_core1(Engine__RunCPU);
 
   alarm_pool_init_default();
   add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
