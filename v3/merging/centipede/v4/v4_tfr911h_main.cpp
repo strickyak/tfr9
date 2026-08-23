@@ -516,6 +516,15 @@ void IN_RAM Engine__RunCPU() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// 60Hz Timer for turbo9sim
+// ═══════════════════════════════════════════════════════════════════
+struct repeating_timer Timer60HzData;
+bool IN_RAM Timer60HzCallback(repeating_timer_t* rt) {
+  Engine::Turbo9sim_SetTimerFired();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Flash speed adjustment (for overclocking > 150 MHz)
 // ═══════════════════════════════════════════════════════════════════
 void IN_RAM safe_adjust_flash_speed() {
@@ -574,5 +583,6 @@ int main() {
 
   alarm_pool_init_default();
   add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
+  add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
   while (true) sleep_ms(1234);
 }
