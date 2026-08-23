@@ -36,7 +36,9 @@ struct DoTurbo9os {
     cobs_printf("DoTurbo9os Install_OS... n=%04x begin=%04x\n", n, begin);
     for (uint i = 0; i < n; i++) {
       T::Poke(begin + i, ROMLIST::data[i]);
+#ifndef OMIT_INSTALL_TRANSMIT
       TransmitWrite(begin + i, ROMLIST::data[i]);
+#endif
     }
 
     assert(T::Peek2(begin) == 0x87CD);  // OS9 module magic number

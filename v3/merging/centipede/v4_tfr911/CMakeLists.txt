@@ -18,14 +18,45 @@ pico_generate_pio_header(${PROJECT}
 
 target_sources(${PROJECT} PRIVATE
     ../v4/v4_tfr911h_main.cpp
+
+    # LittleFS
+    ../v1/littlefs/lfs.c
+    ../v1/littlefs/lfs_util.c
+    ../v1/littlefs/lfs-centipede.c
+
+    # miniz (for compressed VFS operations)
+    ../v1/miniz/miniz.c
+
+    # Tcl 6.7c interpreter
+    ../v1/tcl6.7c/regexp.c
+    ../v1/tcl6.7c/tclAssem.c
+    ../v1/tcl6.7c/tclBasic.c
+    ../v1/tcl6.7c/tclCkalloc.c
+    ../v1/tcl6.7c/tclCmdAH.c
+    ../v1/tcl6.7c/tclCmdIL.c
+    ../v1/tcl6.7c/tclCmdMZ.c
+    ../v1/tcl6.7c/tclEnv.c
+    ../v1/tcl6.7c/tclExpr.c
+    ../v1/tcl6.7c/tclGet.c
+    ../v1/tcl6.7c/tclGlob.c
+    ../v1/tcl6.7c/tclHash.c
+    ../v1/tcl6.7c/tclHistory.c
+    ../v1/tcl6.7c/tclParse.c
+    ../v1/tcl6.7c/tclProc.c
+    ../v1/tcl6.7c/tclUtil.c
+    ../v1/tcl6.7c/tclVar.c
 )
 
 target_include_directories(${PROJECT} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../v4
+    ${CMAKE_CURRENT_LIST_DIR}/../v1/firmware
     ${CMAKE_CURRENT_LIST_DIR}/../v1/util
+    ${CMAKE_CURRENT_LIST_DIR}/../v1/littlefs
+    ${CMAKE_CURRENT_LIST_DIR}/../v1/tcl6.7c
 )
 
 target_link_libraries(${PROJECT} PRIVATE
+    hardware_flash
     hardware_pio
     hardware_watchdog
     pico_bootrom
@@ -39,5 +70,8 @@ pico_add_extra_outputs(${PROJECT})
 pico_enable_stdio_usb(${PROJECT} 1)
 pico_enable_stdio_uart(${PROJECT} 0)
 
-### pico_set_binary_type(${PROJECT} copy_to_ram)
+# Compile definitions
+add_compile_definitions(TCL_MEM_DEBUG=1)
+add_compile_definitions(TCL_GENERIC_ONLY=1)
 
+### pico_set_binary_type(${PROJECT} copy_to_ram)

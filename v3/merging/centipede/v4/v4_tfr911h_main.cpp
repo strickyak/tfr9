@@ -1,13 +1,17 @@
-// v4_tfr911h_main.cpp — TFR911H v4 build (no Tcl, no LittleFS).
+// v4_tfr911h_main.cpp — TFR911H v4 build with Tcl Shell + LittleFS + VFS.
 //
 // Self-contained compilation unit that produces tfr911h_v4.uf2.
 // Includes TFR911 headers from tmanager911/very-turbos/ directly.
-// Boots OS9 from compiled-in RomList, ACIA console via USB.
+// Boots into Tcl REPL on background (core 0).  When the user says
+// `bye`, the 6309 is reset and the foreground PIO bus loop starts.
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
-#define TRACE 0
+#define TRACE 1
 #define SPEED_STATS 1
+#define DEBUG_TCL_REPL 1
+#define OMIT_INSTALL_TRANSMIT 1  // Install_OS runs on core 1; TransmitWrite would race with core 0 USB
+#define DUMP_FIRST_CYCLES 64    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
@@ -22,11 +26,42 @@
 #include <pico/stdlib.h>
 #include <pico/time.h>
 #include <pico/unique_id.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include <cstring>
 #include <atomic>
 #include <array>
+#include <string>
+#include <functional>
+
+// LittleFS (must come before firmware headers that use lfs types)
+// Wrap in extern "C" — these are C headers compiled as C in lfs.c/lfs-centipede.c
+extern "C" {
+#include "../v1/littlefs/lfs-centipede.h"
+#include "../v1/littlefs/lfs.h"
+#include "../v1/littlefs/lfs_util.h"
+}
+
+extern "C" {
+int _getentropy(void* buffer, size_t length) {
+  char* ptr = (char*)buffer;
+  while (length >= 4) {
+    uint32_t r = get_rand_32();
+    memcpy(ptr, &r, 4);
+    ptr += 4;
+    length -= 4;
+  }
+  if (length > 0) {
+    uint32_t r = get_rand_32();
+    memcpy(ptr, &r, length);
+  }
+  return 0;
+}
+int getentropy(void* buffer, size_t length) {
+  return _getentropy(buffer, length);
+}
+}
 
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define force_inline FORCE_INLINE
@@ -40,6 +75,23 @@
 // COBS encoder/decoder (shared with Centipede)
 #include "cobs.h"
 #include "../v1/firmware/cross-core.h"
+
+// Console stubs for TFR911 (must come before tcl_commands.h / tcl_io.h)
+// Block the real console.h from loading by defining its include guard.
+#define FIRMWARE_CONSOLE_H_
+// Block the real gspoon.h — editor.h includes it, but TFR911 doesn't
+// need the full Centipede spoon feeder.  We provide gspoon::g_spoon_coro
+// and gspoon::SleepMillis as stubs below.
+#define _GSPOON_H_
+#include "v4_console_tfr911_stub.h"
+
+// Tcl interpreter
+#include "../v1/tcl6.7c/tcl.h"
+Tcl_Interp* global_tcl_interp = nullptr;
+
+const char HexAlphabet[] =
+    "0123456789ABCDEFXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    "XXXXXXX";
 
 using byte = unsigned char;
 
@@ -151,11 +203,10 @@ void InstallVector(uint i, uint addr) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// COBS output helpers
+// COBS output helpers (via shared cobs_tx.h) + USB pipeline
 // ═══════════════════════════════════════════════════════════════════
-extern "C" {
-extern int stdio_usb_in_chars(char* buf, int length);
-}
+#include "../v1/firmware/cobs_tx.h"
+#include "../v1/firmware/usb_pipeline.h"
 
 // ShowChar — called by the old turbo9sim.h (unqualified) from simTxWriter.
 // Pushes to fg2bg FIFO; background drains and sends over USB.
@@ -168,20 +219,6 @@ void ShowChar(char c) {
 void putbyte(byte x) {
   unsigned char pkt[2] = {C_PUTCHAR, x};
   CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
-}
-
-void cobs_printf(const char* fmt, ...) {
-  char buf[256];
-  buf[0] = C_PUTCHAR;
-  va_list args;
-  va_start(args, fmt);
-  int len = vsnprintf(buf + 1, sizeof(buf) - 1, fmt, args);
-  va_end(args);
-  if (len > 0) {
-    if (len >= (int)sizeof(buf) - 1) len = sizeof(buf) - 2;
-    CobsEncodeAndTransmit((const unsigned char*)buf, len + 1,
-                          [](int ch) { putchar_raw(ch); });
-  }
 }
 
 void TransmitMessage(byte messtype, uint sz, const byte* buf) {
@@ -210,7 +247,7 @@ void TransmitWrite(uint addr, byte data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CircBuf + USB/COBS input pipeline
+// CircBuf + USB/COBS pipeline (PumpUsbCobs compatible)
 // ═══════════════════════════════════════════════════════════════════
 #include "circbuf.h"
 
@@ -220,9 +257,13 @@ void TransmitWrite(uint addr, byte data) {
 // Flash label
 #include "../../../tmanager911/very-turbos/flash-label.h"
 
-CircBuf<unsigned char, 1024> usb_input;
-CircBuf<std::string*, 16> usb_cobs_output;
-CobsDecoder<1024, 16> cobs_decoder(usb_input, usb_cobs_output);
+// USB pipeline buffers — same names as Centipede for usb_pipeline.h compat
+CircBuf<unsigned char, 1024> usb_raw_buf;
+CircBuf<std::string*, 64> usb_packet_buf;
+UsbReceiver usb_receiver(usb_raw_buf);
+CobsDecoder<1024, 64> cobs_decoder(usb_raw_buf, usb_packet_buf);
+
+// Terminal input buffer (chars from USB → turbo9sim RX)
 CircBuf<unsigned char, 1024> term_input;
 
 volatile uint delay_busy;
@@ -242,69 +283,112 @@ int acia_char;
 bool irq_needed;
 bool prev_irq_needed;
 
-bool TryGetUsbByte(char* ptr) {
-  int rc = stdio_usb_in_chars(ptr, 1);
-  return (rc != PICO_ERROR_NO_DATA);
-}
-
 #define Printf if(false)printf
 
+
+
 // ═══════════════════════════════════════════════════════════════════
-// USB polling (called from foreground outer loop)
+// Include TFR911 headers from v1
 // ═══════════════════════════════════════════════════════════════════
-void PollUsbInput() {
-  while (1) {
-    char x = 0;
-    bool ok = TryGetUsbByte(&x);
-    if (ok) {
-      usb_input.Put(x);
-    } else {
-      break;
+#include "../../../tmanager911/very-turbos/turbo9sim.h"
+#include "../../../tmanager911/very-turbos/romlist.h"
+
+// ═══════════════════════════════════════════════════════════════════
+// Coroutines, VFS, Tcl commands, PicoRPC
+// ═══════════════════════════════════════════════════════════════════
+#include "../v1/firmware/coro.h"
+
+// Abort handler
+#include "../v1/firmware/abort.h"
+
+// PCB (protobuf-like encoding for RPC)
+#include "../v1/firmware/pcb.h"
+
+// VFS RPC (must come before tcl_io/vfs/tcl_commands)
+#include "../v1/firmware/vfs_rpc.h"
+
+// Forward-define T_RPC and T_PICO_RPC before tcl_io.h needs them
+#ifndef T_RPC
+#define T_RPC 180
+#endif
+#ifndef T_PICO_RPC
+#define T_PICO_RPC 181
+#endif
+
+// Tcl I/O — TFR911 uses USB only (no CoCo2 screen)
+#include "../v1/firmware/tcl_io.h"
+
+// VFS (file system overlay)
+#include "../v1/firmware/vfs.h"
+
+// RTC — provides get_system_time() needed by SleepMillis
+#include "../v1/firmware/rtc.h"
+
+// gspoon namespace stub — only g_spoon_coro and SleepMillis are needed.
+// TFR911 doesn't use the full gspoon (no CoCo2 screen/keyboard).
+namespace gspoon {
+  Coro* g_spoon_coro = nullptr;
+
+  void SleepMillis(Coro* c, uint64_t ms) {
+    uint32_t start_sec, start_ms;
+    get_system_time(&start_sec, &start_ms);
+    double start_time = (double)start_sec + ((double)start_ms / 1000.0);
+    double seconds = (double)ms / 1000.0;
+    coro_yield(c);
+    while (true) {
+      uint32_t current_sec, current_ms;
+      get_system_time(&current_sec, &current_ms);
+      double current_time = (double)current_sec + ((double)current_ms / 1000.0);
+      if (current_time - start_time >= seconds) break;
+      coro_yield(c);
     }
   }
+}  // namespace gspoon
 
-  cobs_decoder.Tick();
+// LittleFS Tcl commands (ls, cp, cat, etc.)
+#include "../v1/firmware/littlefs.h"
 
-  while (usb_cobs_output.NumBuffered() > 0) {
-    std::string* pkt_ptr = usb_cobs_output.Take();
-    std::string pkt = *pkt_ptr;
-    delete pkt_ptr;
+// Globals needed by pico_rpc.h and tcl_commands.h
+uint32_t boot_mode = 0;
+uint32_t boot_mode_check = 0;
+#define BOOT_MODE_CHECKER 0x56781234u
+bool startup_e_clock_detected = false;
 
-    if (pkt.size() == 0) continue;
+// Stub for menu.h — TFR911 has no floppy config.
+inline void set_floppy_names() {}
 
-    byte cmd = pkt[0];
+// Tcl commands (all built-in shell commands)
+#include "../v1/firmware/tcl_commands.h"
+
+// PicoRPC (inject commands from PC)
+#include "../v1/firmware/pico_rpc.h"
+
+#define TCL_BYE 9
+
+// ═══════════════════════════════════════════════════════════════════
+// USB packet dispatch — delivers typed chars to term_input
+// ═══════════════════════════════════════════════════════════════════
+void PollTermInput() {
+  // Take non-RPC, non-PicoRPC packets from usb_packet_buf as terminal input
+  while (true) {
+    std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
+      return s && s->length() > 0 &&
+             (unsigned char)(*s)[0] != T_RPC &&
+             (unsigned char)(*s)[0] != T_PICO_RPC;
+    });
+    if (!pkt) break;
+    byte cmd = (byte)(*pkt)[0];
     switch (cmd) {
       case C_PUTCHAR:
-        if (pkt.size() >= 2) {
-          byte c = pkt[1];
+        if (pkt->size() >= 2) {
+          byte c = (byte)(*pkt)[1];
           if (c == 10) c = 13;
           term_input.Put(c);
         }
         break;
-
-      case C_PRE_LOAD:
-        if (pkt.size() >= 3) {
-          uint addr = ((uint)(byte)pkt[1] << 8) | (byte)pkt[2];
-          for (uint i = 3; i < pkt.size(); i++) {
-            ram[addr & 0xFFFF] = (byte)pkt[i];
-            addr++;
-          }
-        }
-        break;
-
       case C_REBOOT:
         reset_usb_boot(0, 0);
         break;
-
-      case C_DISK_READ:
-        break;
-
-      case T_HELLO:
-        break;
-
-      case T_COMMAND:
-        break;
-
       default:
         if (cmd >= 1 && cmd <= 127) {
           byte c = cmd;
@@ -313,14 +397,9 @@ void PollUsbInput() {
         }
         break;
     }
+    delete pkt;
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// Include TFR911 headers from v1
-// ═══════════════════════════════════════════════════════════════════
-#include "../../../tmanager911/very-turbos/turbo9sim.h"
-#include "../../../tmanager911/very-turbos/romlist.h"
 
 // ═══════════════════════════════════════════════════════════════════
 // IN_RAM IO readers/writers for turbo9sim ACIA
@@ -429,6 +508,7 @@ bool TimerCallback(repeating_timer_t* rt) {
 // ═══════════════════════════════════════════════════════════════════
 // Guts<T> — the bus cycle engine (CRTP)
 // ═══════════════════════════════════════════════════════════════════
+volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
 template <typename T>
 struct Guts {
   force_inline static void Poke(uint a, byte b) { ram[a & 0xFFFF] = b; }
@@ -455,6 +535,18 @@ struct Guts {
 #if SPEED_STATS
     cycles = 0;
 #endif
+
+#if DUMP_FIRST_CYCLES
+    // Diagnostic: capture the first N cycles into a buffer,
+    // then push them to background for printing after the dump.
+    struct CycleDump { uint16_t addr; uint8_t value; uint8_t rw; };
+    static CycleDump dump_buf[DUMP_FIRST_CYCLES];
+    int dump_count = 0;
+#endif
+
+    // Signal background that we've reached the inner loop.
+    // Background waits for this before releasing RESET/HALT.
+    foreground_running = true;
 
     // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
     // USB I/O and terminal RX are handled by background on core 0.
@@ -538,6 +630,31 @@ struct Guts {
         bool is_lic = ((late_pins & (1<<LIC)) != 0);
         bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
 
+#if DUMP_FIRST_CYCLES
+        if (dump_count < DUMP_FIRST_CYCLES) {
+          dump_buf[dump_count] = { (uint16_t)addr, value, (uint8_t)(reading ? 'r' : 'W') };
+          dump_count++;
+          if (dump_count == DUMP_FIRST_CYCLES) {
+            // Push a marker, then each cycle as two PUTCHAR messages
+            // Format: "D:AAAA=VV:R\n" for each cycle
+            for (int d = 0; d < DUMP_FIRST_CYCLES; d++) {
+              // Encode addr high nybbles
+              SAY('D'); SAY(':');
+              SAY(HexAlphabet[(dump_buf[d].addr >> 12) & 0xF]);
+              SAY(HexAlphabet[(dump_buf[d].addr >> 8) & 0xF]);
+              SAY(HexAlphabet[(dump_buf[d].addr >> 4) & 0xF]);
+              SAY(HexAlphabet[dump_buf[d].addr & 0xF]);
+              SAY('=');
+              SAY(HexAlphabet[(dump_buf[d].value >> 4) & 0xF]);
+              SAY(HexAlphabet[dump_buf[d].value & 0xF]);
+              SAY(':');
+              SAY(dump_buf[d].rw);
+              SAY('\n');
+            }
+          }
+        }
+#endif
+
         prev_late_pins = late_pins;
       }  // next i
 
@@ -596,19 +713,220 @@ void IN_RAM safe_adjust_flash_speed() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Background loop (core 0) — FIFO drain + USB I/O + terminal RX
+// Tcl REPL coroutine (runs on core 0 before 6309 starts)
+// ═══════════════════════════════════════════════════════════════════
+static uint8_t tcl_stack[20 * 1024];  // 20K for Tcl REPL + VFS RPC
+volatile bool tcl_repl_done = false;
+
+static void tcl_repl_task(Coro& self) {
+  rpc::g_vfs_coro = &self;  // VFS RPC yields back to scheduler
+  gspoon::g_spoon_coro = &self;  // ls_cmd etc. call coro_yield(g_spoon_coro)
+  cobs_printf("TFR911 TCL SHELL\n");
+
+  char line[256];
+  while (true) {
+    cobs_printf("> ");
+    int pos = 0;
+    // Read a line from USB (yield while waiting for keys)
+    while (true) {
+      // Check for injected commands from PicoRPC
+      if (!g_pending_injections.empty()) {
+        pcb::RpcRequest req = g_pending_injections.front();
+        g_pending_injections.erase(g_pending_injections.begin());
+        std::string cmd = req.data;
+        cobs_printf("[Injecting: %s]\n", cmd.c_str());
+        int rc = Tcl_Eval(global_tcl_interp, (char*)cmd.c_str(), 0, (char**)0);
+        pcb::RpcResponse resp;
+        resp.serial = req.serial;
+        resp.status = rc;
+        const char* out = global_tcl_interp->result;
+        if (out && out[0]) resp.message = out;
+        pico_rpc::send_response(resp);
+        if (rc == TCL_BYE) goto BYE;
+        cobs_printf("> ");
+        continue;
+      }
+
+      // Poll for keyboard input from USB packets
+      std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
+        return s && s->length() > 0 &&
+               (unsigned char)(*s)[0] != T_RPC &&
+               (unsigned char)(*s)[0] != T_PICO_RPC;
+      });
+      if (pkt) {
+        byte ch = (byte)(*pkt)[0];
+#if DEBUG_TCL_REPL
+        cobs_printf("[key: cmd=%d len=%d", ch, (int)pkt->size());
+        if (ch == C_PUTCHAR && pkt->size() >= 2)
+          cobs_printf(" val=%d", (byte)(*pkt)[1]);
+        cobs_printf("]\n");
+#endif
+        if (ch == C_PUTCHAR && pkt->size() >= 2) ch = (byte)(*pkt)[1];
+        delete pkt;
+        if (ch == 13 || ch == 10) break;  // End of line
+        if (ch == 8 || ch == 127) {  // Backspace
+          if (pos > 0) { pos--; cobs_printf("\x08 \x08"); }
+          continue;
+        }
+        if (ch > 127) {
+#if DEBUG_TCL_REPL
+          cobs_printf("[skip non-ASCII %d]\n", ch);
+#endif
+          continue;  // Skip non-ASCII (like the ² superscript)
+        }
+        if (pos < 255) {
+          line[pos++] = ch;
+          cobs_putchar(ch);
+        }
+        continue;
+      }
+      coro_yield(&self);  // Nothing to do — yield to let PumpUsbCobs run
+    }
+    line[pos] = 0;
+    cobs_putchar('\n');
+
+    if (pos == 0) continue;
+
+    int result = Tcl_Eval(global_tcl_interp, line, 0, (char**)0);
+    const char* output = global_tcl_interp->result;
+    if (output && output[0]) {
+      if (result == TCL_ERROR) cobs_putchar('?');
+      tcl_io::emit_string(output);
+      cobs_putchar('\n');
+    }
+    if (result == TCL_BYE) break;
+  }
+
+BYE:
+  cobs_printf("[BYE — starting 6309]\n");
+  tcl_repl_done = true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Background loop (core 0) — two-phase lifecycle
+// Phase 1: Tcl REPL (6309 idle, core 1 not launched)
+// Phase 2: Bus operation (6309 running, FIFO drain + USB I/O)
 // ═══════════════════════════════════════════════════════════════════
 void IN_RAM tfr911_background() {
+  // ── Phase 1: Tcl REPL ──────────────────────────────────────────
+  // 6309 is not running.  We can write ram[] directly from Tcl.
+  init_lfs();
+  global_tcl_interp = Tcl_CreateInterp();
+  register_tcl_commands(global_tcl_interp);
+
+  Coro tcl_repl;
+  coro_create(&tcl_repl, tcl_repl_task, tcl_stack, sizeof(tcl_stack));
+
+  while (!tcl_repl_done) {
+    coro_resume(&tcl_repl);
+    // Always pump USB — not just when HasWork — to ensure bytes flow
+    // from USB → raw_buf → cobs_decoder → packet_buf.
+    usb_receiver.Tick();
+    cobs_decoder.Tick();
+    RpcEvaluator::Tick();
+    PicoRpcEvaluator::Tick();
+#if DEBUG_TCL_REPL
+    {
+      static int pump_count = 0;
+      pump_count++;
+      if ((pump_count & 0xFFFFF) == 0) {
+        cobs_printf("[repl: raw=%d pkt=%d pump=%d]\n",
+                    usb_raw_buf.NumBuffered(),
+                    usb_packet_buf.NumBuffered(),
+                    pump_count >> 20);
+      }
+    }
+#endif
+  }
+
+  // ── Transition: Reset 6309, launch foreground on core 1 ──────
+  //
+  // The 6309 is CMOS but not fully static — it needs continuous E/Q
+  // clocks or it loses state.  During the Tcl REPL, no clocks were
+  // generated (PIO was idle at pull-block).  So we must do the reset
+  // WITH the PIO/foreground running:
+  //
+  //   1. Assert RESET + HALT (open-drain) from background
+  //   2. Re-init PIO and launch foreground on core 1
+  //   3. Foreground generates E/Q via PIO; 6309 sees IDLE cycles
+  //   4. Background waits for foreground to be running
+  //   5. Hold RESET for ~10ms (~28K E cycles, well above the 8-cycle minimum)
+  //   6. Release RESET (still HALTed)
+  //   7. Wait ~5ms for 6309 to see RESET de-assert
+  //   8. Release HALT → 6309 fetches reset vector (0xFFFE/0xFFFF)
+  //
+  cobs_printf("[bye: asserting RESET+HALT...]\n");
+  gpio_set_dir(RESET, GPIO_OUT);  // Assert RESET (open-drain, latch=0)
+  gpio_set_dir(HALT, GPIO_OUT);   // Assert HALT  (open-drain, latch=0)
+
+  // Re-init PIO — the SM was sitting at pull-block since main().
+  pio_sm_set_enabled(pio0, 0, false);
+  pio_sm_restart(pio0, 0);
+  {
+    pio_clear_instruction_memory(pio0);
+    const uint offset = pio_add_program(pio0, &t911veryfast_program);
+    t911veryfast_program_init(pio0, 0, offset);
+  }
+
+  // Launch foreground on core 1.
+  // Install_OS loads ROM + vectors into ram[], then enters the inner loop.
+  // The inner loop feeds the PIO → E/Q start cycling → 6309 gets clocked.
+  // During HALT+RESET, the 6309 just runs IDLE cycles (addr=0xFFFF).
+  foreground_running = false;
+  cobs_printf("[bye: launching core1...]\n");
+  multicore_launch_core1(Engine__RunCPU);
+
+  // Wait for foreground to reach the inner loop (E/Q now cycling)
+  while (!foreground_running) { sleep_ms(1); }
+  cobs_printf("[bye: foreground running, holding RESET...]\n");
+
+  // Hold RESET for ~10ms (~28K E cycles at ~2.88 Mcps).
+  // 6309 datasheet requires ≥8 E cycles; this is very conservative.
+  sleep_ms(10);
+
+  // Release RESET (6309 still HALTed)
+  gpio_set_dir(RESET, GPIO_IN);  // Release RESET (floats high via pull-up)
+  cobs_printf("[bye: RESET released, holding HALT...]\n");
+
+  // Wait for 6309 to see RESET de-assert and prepare internally
+  sleep_ms(5);
+
+  // Release HALT → 6309 fetches reset vector and starts executing
+  gpio_set_dir(HALT, GPIO_IN);  // Release HALT (floats high via pull-up)
+  cobs_printf("[bye: HALT released, 6309 booting]\n");
+
+  alarm_pool_init_default();
+#if SPEED_STATS
+  add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
+#endif
+  add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
+  cobs_printf("[bye: Phase 2 started]\n");
+
+  // ── Phase 2: Normal bus operation ──────────────────────────────
 #if SPEED_STATS
   int bg_mega_cycles = 0;
 #endif
+#if DEBUG_TCL_REPL
+  int phase2_loops = 0;
+  int phase2_chores = 0;
+#endif
 
   while (true) {
+#if DEBUG_TCL_REPL
+    phase2_loops++;
+    if ((phase2_loops & 0xFFFFF) == 0) {
+      cobs_printf("[ph2: loops=%dM chores=%d fifo=%d]\n",
+                  phase2_loops >> 20, phase2_chores, fg2bg.size());
+    }
+#endif
     // Drain fg2bg FIFO — handle events pushed by foreground.
     uint chore = 0;
     while (fg2bg.pop(chore)) {
       uint chore_num = chore >> 24;
       byte chore_byte = chore & 0xFF;
+#if DEBUG_TCL_REPL
+      phase2_chores++;
+#endif
       switch (chore_num) {
         case FG2BG_PUTCHAR:
           if (chore_byte) putbyte(chore_byte);
@@ -633,12 +951,11 @@ void IN_RAM tfr911_background() {
       }
     }
 
-    // Poll USB input (read chars from host → term_input CircBuf)
-    PollUsbInput();
+    // Pump USB pipeline (COBS decode + RPC + PicoRPC)
+    if (PumpUsbCobsHasWork()) PumpUsbCobs();
 
-    // Deliver RX chars to turbo9sim.
-    // Sets sim_status_reg bits, which the foreground's
-    // Turbo9sim_IrqNeeded() polls each outer loop iteration.
+    // Deliver terminal chars to turbo9sim RX
+    PollTermInput();
     if (Engine::Turbo9sim_CanRx()) {
       if (term_input.NumBuffered() > 0) {
         byte ch = term_input.Take();
@@ -669,8 +986,8 @@ int main() {
 
   FlashLabel::InitLabel();
   FlashLabel::PrintLabel();
-  RunReset();
 
+  // Set up PIO for the 6309 bus engine (but don't start the 6309 yet)
   pio_clear_instruction_memory(pio0);
   const uint offset_t911 = pio_add_program(pio0, &t911veryfast_program);
   t911veryfast_program_init(pio0, 0, offset_t911);
@@ -689,13 +1006,8 @@ int main() {
   IOWriters[0x02] = acia_write_status;
   IOWriters[0x03] = acia_write_control;
 
-  multicore_launch_core1(Engine__RunCPU);  // Core 1 = foreground (PIO bus cycles)
-
-  alarm_pool_init_default();
-#if SPEED_STATS
-  add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
-#endif
-  add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
-
-  tfr911_background();  // Core 0 = background (FIFO drain + USB) — never returns
+  // DON'T launch core 1 here — the Tcl REPL runs first on core 0.
+  // After Tcl says "bye", tfr911_background() resets the 6309 and
+  // launches the foreground on core 1.
+  tfr911_background();  // Never returns
 }
