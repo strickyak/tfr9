@@ -7,6 +7,7 @@
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
 #define TRACE 0
+#define SPEED_STATS 1
 #define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
@@ -85,6 +86,9 @@ enum FG2BG_Tags {
   FG2BG_W_256   = 8,
   FG2BG_PEEK_REPLY = 9,
   FG2BG_START_KEYBOARD_INJECTOR = 10,
+#if SPEED_STATS
+  FG2BG_MEGA_CYCLE = 11,
+#endif
 };
 
 #define SAY(C) PUSH_TO_BG(FG2BG_PUTCHAR, 0, (C) & 255)
@@ -412,13 +416,15 @@ void RunReset() {
 // Timer (1ms tick on core 0)
 // ═══════════════════════════════════════════════════════════════════
 constexpr uint GROUP_SIZE = 10000;
+#if SPEED_STATS
 uint milliseconds;
-volatile int cycles;  // Updated by foreground, read by background for stats
+volatile uint64_t cycles;  // Updated by foreground, read by background for stats
 struct repeating_timer TimerData;
 bool TimerCallback(repeating_timer_t* rt) {
   milliseconds++;
   return true;
 }
+#endif
 
 // ═══════════════════════════════════════════════════════════════════
 // Guts<T> — the bus cycle engine (CRTP)
@@ -446,7 +452,9 @@ struct Guts {
 
     volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
 
+#if SPEED_STATS
     cycles = 0;
+#endif
 
     // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
     // USB I/O and terminal RX are handled by background on core 0.
@@ -533,7 +541,15 @@ struct Guts {
         prev_late_pins = late_pins;
       }  // next i
 
+#if SPEED_STATS
       cycles += GROUP_SIZE;
+      static int cycle_counter = 0;
+      cycle_counter += GROUP_SIZE;
+      if (cycle_counter >= 1000000) {
+        PUSH_TO_BG(FG2BG_MEGA_CYCLE, 0, 0);
+        cycle_counter -= 1000000;
+      }
+#endif
     }  // true
   }    // func RunCPU
 };     // Guts
@@ -583,7 +599,9 @@ void IN_RAM safe_adjust_flash_speed() {
 // Background loop (core 0) — FIFO drain + USB I/O + terminal RX
 // ═══════════════════════════════════════════════════════════════════
 void IN_RAM tfr911_background() {
-  uint bg_epochs = 0;
+#if SPEED_STATS
+  int bg_mega_cycles = 0;
+#endif
 
   while (true) {
     // Drain fg2bg FIFO — handle events pushed by foreground.
@@ -595,6 +613,20 @@ void IN_RAM tfr911_background() {
         case FG2BG_PUTCHAR:
           if (chore_byte) putbyte(chore_byte);
           break;
+#if SPEED_STATS
+        case FG2BG_MEGA_CYCLE:
+          bg_mega_cycles++;
+          if (bg_mega_cycles >= 20) {
+            if (milliseconds > 0) {
+              cobs_printf("[Mc=%g  s=%g  Mcps=%g]",
+                          double(cycles) / double(1000 * 1000),
+                          double(milliseconds) / double(1000),
+                          (double)cycles / double(1000 * milliseconds));
+            }
+            bg_mega_cycles = 0;
+          }
+          break;
+#endif
         // Future: FG2BG_READ, FG2BG_WRITE for trace logging
         default:
           break;
@@ -613,20 +645,6 @@ void IN_RAM tfr911_background() {
         Engine::Turbo9sim_SetRx(ch);
       }
     }
-
-#if 1
-    // Periodic stats (every ~5 seconds at typical iteration rate).
-    bg_epochs++;
-    if (bg_epochs >= 50000) {
-      if (milliseconds > 0) {
-        cobs_printf("[Mc=%g  s=%g  Mcps=%g]",
-                    double(cycles) / double(1000 * 1000),
-                    double(milliseconds) / double(1000),
-                    (double)cycles / double(1000 * milliseconds));
-      }
-      bg_epochs = 0;
-    }
-#endif
   }
 }
 
@@ -674,7 +692,9 @@ int main() {
   multicore_launch_core1(Engine__RunCPU);  // Core 1 = foreground (PIO bus cycles)
 
   alarm_pool_init_default();
+#if SPEED_STATS
   add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
+#endif
   add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
 
   tfr911_background();  // Core 0 = background (FIFO drain + USB) — never returns
