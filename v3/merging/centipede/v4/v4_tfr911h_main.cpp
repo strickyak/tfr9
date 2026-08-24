@@ -10,9 +10,15 @@
 #define TRACE 1
 #define SPEED_STATS 1
 #define DEBUG_TCL_REPL 1
-#define OMIT_INSTALL_TRANSMIT 1  // Install_OS runs on core 1; TransmitWrite would race with core 0 USB
+// TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define DUMP_FIRST_CYCLES 64    // Log the first N bus cycles after boot for debugging
-#define MHz 250  // clock speed
+#define MHz 150  // clock speed
+
+// Override Pico SDK USB stdout timeout: default 500ms causes putchar_raw
+// to silently DROP bytes when USB TX is full, corrupting the COBS stream.
+// A 10-second timeout makes putchar_raw truly block, which lets HALT
+// flow control properly throttle the 6309 to USB bandwidth.
+#define PICO_STDIO_USB_STDOUT_TIMEOUT_US (10 * 1000 * 1000)
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
@@ -141,10 +147,22 @@ enum FG2BG_Tags {
 #if SPEED_STATS
   FG2BG_MEGA_CYCLE = 11,
 #endif
+  FG2BG_FIC   = 12,   // First Instruction Cycle (read with LIC from previous cycle)
 };
 
-#define SAY(C) PUSH_TO_BG(FG2BG_PUTCHAR, 0, (C) & 255)
-#define PUSH_TO_BG(TAG, A, D) fg2bg.push(((TAG) << 24) | ((A) << 8) | (D))
+// SAY: blocking push — console output must never be dropped.
+// Stalls the foreground briefly if the FIFO is full (background drains it).
+#define SAY(C) do { \
+  uint _say_w = ((uint)FG2BG_PUTCHAR << 24) | ((C) & 255); \
+  while (!fg2bg.push(_say_w)) { tight_loop_contents(); } \
+} while(0)
+// PUSH_TO_BG: blocking push for cycle events — trace must be complete.
+// HALT flow control keeps the FIFO near LOW_WATERMARK in steady state;
+// blocking only kicks in on transient bursts (e.g., IRQ register stacking).
+#define PUSH_TO_BG(TAG, A, D) do { \
+  uint _pb_w = ((uint)(TAG) << 24) | (((A) & 0xFFFF) << 8) | ((D) & 0xFF); \
+  while (!fg2bg.push(_pb_w)) { tight_loop_contents(); } \
+} while(0)
 
 // ═══════════════════════════════════════════════════════════════════
 // Protocol constants
@@ -170,6 +188,8 @@ enum message_type : byte {
   C_RAM3_WRITE = 196,
   C_RAM5_WRITE = 198,
   C_CYCLE = 200,
+  C_RAM2_READ = 211,
+  C_FIC_CYCLE = 227,   // 0xE3: First Instruction Cycle, 3-byte payload: AHi ALo Data
 };
 
 enum cycle_kind : byte {
@@ -242,8 +262,13 @@ void TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
 }
 
 void TransmitWrite(uint addr, byte data) {
-  byte pkt[4] = {C_RAM2_WRITE, (byte)(addr >> 8), (byte)addr, data};
-  CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+  // Push through fg2bg FIFO instead of calling putchar_raw directly.
+  // This is safe from core 1 (Install_OS) because the background
+  // drains the FIFO while waiting for foreground_running.
+  uint word = ((uint)FG2BG_WRITE << 24) | ((addr & 0xFFFF) << 8) | data;
+  while (!fg2bg.push(word)) {
+    tight_loop_contents();  // Spin until space available
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -477,7 +502,7 @@ uint InitializePinsReturnDirections() {
 // ═══════════════════════════════════════════════════════════════════
 // Timer (1ms tick on core 0)
 // ═══════════════════════════════════════════════════════════════════
-constexpr uint GROUP_SIZE = 10000;
+constexpr uint GROUP_SIZE = 100; // 10000;
 #if SPEED_STATS
 uint milliseconds;
 volatile uint64_t cycles;  // Updated by foreground, read by background for stats
@@ -491,6 +516,15 @@ bool TimerCallback(repeating_timer_t* rt) {
 // ═══════════════════════════════════════════════════════════════════
 // Guts<T> — the bus cycle engine (CRTP)
 // ═══════════════════════════════════════════════════════════════════
+// HALT-based flow control for cycle logging.
+// When the fg2bg FIFO fills up, the foreground asserts HALT to throttle
+// the 6309.  During HALT the 6309 emits idle cycles at addr=0xFFFF which
+// we skip (no FIFO push), letting the background drain the FIFO.
+#define FG2BG_HIGH_WATERMARK 2100  // 6000  // Assert HALT when FIFO exceeds this
+#define FG2BG_LOW_WATERMARK  2000  // Release HALT when FIFO drains below this
+volatile bool fg_halt_for_flow_control = false;
+volatile int fg_inner_step = 0;  // Diagnostic: where in the inner loop is the foreground?
+
 volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
 template <typename T>
 struct Guts {
@@ -545,24 +579,32 @@ struct Guts {
         }
       }
 
-      // TODO: When TRACE is enabled and FG2BG_READ/WRITE events flood
-      // the FIFO, add watermark-based HALT flow control here:
-      //   if (fg2bg.size() > FG2BG_HIGH_WATERMARK) {
-      //     gpio_set_dir(HALT, GPIO_OUT);  // Assert HALT (open-drain)
-      //     fg_halt_for_flow_control = true;
-      //   }
-      //   if (fg_halt_for_flow_control && fg2bg.size() < FG2BG_LOW_WATERMARK) {
-      //     gpio_set_dir(HALT, GPIO_IN);   // Release HALT
-      //     fg_halt_for_flow_control = false;
-      //   }
+#if TRACE
+      // Flow control: throttle 6309 via HALT when FIFO is filling up.
+      // During HALT, the 6309 puts 0xFFFF on the address bus; we skip
+      // those reads (no push) so the FIFO drains.
+      if (fg_halt_for_flow_control) {
+        if (fg2bg.size() < FG2BG_LOW_WATERMARK) {
+          gpio_set_dir(HALT, GPIO_IN);   // Release HALT
+          fg_halt_for_flow_control = false;
+        }
+      } else {
+        if (fg2bg.size() > FG2BG_HIGH_WATERMARK) {
+          gpio_set_dir(HALT, GPIO_OUT);  // Assert HALT (open-drain)
+          fg_halt_for_flow_control = true;
+        }
+      }
+#endif
 
       uint prev_late_pins = 0;
 
       // INNER LOOP
       for (int i = 0; i < GROUP_SIZE; i++) {
+        fg_inner_step = 1;
         pio_sm_put(pio0, 0, 0);  // put sync word
 
         byte value = 0;
+        fg_inner_step = 2;
         uint pins = pio_sm_get_blocking(pio0, 0);  // get early pins
         uint prev_addr = 0xFFFF & hw->gpio_hi_in;
         uint addr;
@@ -572,7 +614,12 @@ struct Guts {
           prev_addr = addr;
         }
 
-        const bool reading = (pins & (1 << R_W));
+        // Read R/W from GPIO AFTER address stabilization, not from
+        // the PIO's early-pins sample.  The PIO decides read/write
+        // via `jmp pin` (Phase 3), but `in pins, 32` samples at
+        // Phase 2 — 8ns earlier.  During HALT transitions, R/W can
+        // change in that window, causing firmware/PIO desync → deadlock.
+        const bool reading = gpio_get(R_W);
         byte kind = 0;
         uint late_pins = 0;
 
@@ -591,6 +638,7 @@ struct Guts {
           kind = CY_READ;
         } else {
           // WRITE CYCLES
+          fg_inner_step = 4;
           late_pins = pio_sm_get_blocking(pio0, 0);
           value = (byte)late_pins;
 
@@ -606,11 +654,33 @@ struct Guts {
         }
 
         if (likely(reading)) {
+          fg_inner_step = 5;
           pio_sm_put(pio0, 0, value);
+          fg_inner_step = 6;
           late_pins = pio_sm_get_blocking(pio0, 0);  // LATE PINS
         }
+
+        // ── Trace push: AFTER the PIO handshake is complete ──────
+        // All bus timing is done; the 6309 has latched its data.
+        // Pushing here avoids SRAM bus contention during the critical
+        // window between computing the read value and pio_sm_put.
         bool is_lic = ((late_pins & (1<<LIC)) != 0);
         bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
+
+        fg_inner_step = 7;
+#if TRACE
+        if (reading) {
+          if (addr != 0xFFFF) {
+            if (is_fic) {
+              PUSH_TO_BG(FG2BG_FIC, addr, value);
+            } else {
+              PUSH_TO_BG(FG2BG_READ, addr, value);
+            }
+          }
+        } else {
+          PUSH_TO_BG(FG2BG_WRITE, addr, value);
+        }
+#endif
 
 #if DUMP_FIRST_CYCLES
         if (!dump_triggered && addr == 0xFFFE) {
@@ -859,8 +929,33 @@ void IN_RAM tfr911_background() {
   cobs_printf("[bye: launching core1...]\n");
   multicore_launch_core1(Engine__RunCPU);
 
-  // Wait for foreground to reach the inner loop (E/Q now cycling)
-  while (!foreground_running) { sleep_ms(1); }
+  // Wait for foreground to reach the inner loop (E/Q now cycling).
+  // Drain fg2bg FIFO during the wait — Install_OS pushes ~34K ROM
+  // writes through the FIFO, and we need to drain them as
+  // C_RAM2_WRITE packets so the tether sees the ROM contents.
+  while (!foreground_running) {
+    uint chore = 0;
+    while (fg2bg.pop(chore)) {
+      uint chore_num = chore >> 24;
+      byte chore_byte = chore & 0xFF;
+      switch (chore_num) {
+        case FG2BG_PUTCHAR:
+          if (chore_byte) putbyte(chore_byte);
+          break;
+        case FG2BG_WRITE: {
+          unsigned char pkt[4] = {C_RAM2_WRITE,
+              (unsigned char)(chore >> 16),
+              (unsigned char)(chore >> 8),
+              (unsigned char)chore};
+          CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    sleep_ms(1);
+  }
   cobs_printf("[bye: foreground running, holding RESET...]\n");
 
   // Hold RESET for ~10ms (~28K E cycles at ~2.88 Mcps).
@@ -882,7 +977,14 @@ void IN_RAM tfr911_background() {
 #if SPEED_STATS
   add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
 #endif
+
+#if TRACE
+  // Once very 5 seconds, when we are slowed down for TRACE.
+  add_repeating_timer_ms(5000, Timer60HzCallback, nullptr, &Timer60HzData);
+#else
+  // 60Hz otherwise.
   add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
+#endif
   cobs_printf("[bye: Phase 2 started]\n");
 
   // ── Phase 2: Normal bus operation ──────────────────────────────
@@ -898,12 +1000,18 @@ void IN_RAM tfr911_background() {
 #if DEBUG_TCL_REPL
     phase2_loops++;
     if ((phase2_loops & 0xFFFFF) == 0) {
-      cobs_printf("[ph2: loops=%dM chores=%d fifo=%d]\n",
-                  phase2_loops >> 20, phase2_chores, fg2bg.size());
+      cobs_printf("[ph2: loops=%dM chores=%d fifo=%d cy=%u halt=%d step=%d]\n",
+                  phase2_loops >> 20, phase2_chores, fg2bg.size(),
+                  (unsigned)cycles, (int)fg_halt_for_flow_control,
+                  (int)fg_inner_step);
     }
 #endif
     // Drain fg2bg FIFO — handle events pushed by foreground.
+    // Interleave PumpUsbCobs and PollTermInput every 256 drained
+    // events to prevent USB input starvation while still draining
+    // as fast as possible (foreground blocking pushes need prompt drain).
     uint chore = 0;
+    int drain_count = 0;
     while (fg2bg.pop(chore)) {
       uint chore_num = chore >> 24;
       byte chore_byte = chore & 0xFF;
@@ -928,16 +1036,52 @@ void IN_RAM tfr911_background() {
           }
           break;
 #endif
-        // FG2BG_WRITE silently dropped until full cycle logging is implemented.
+#if TRACE
+        case FG2BG_READ: {
+          unsigned char pkt[4] = {C_RAM2_READ,
+              (unsigned char)(chore >> 16),
+              (unsigned char)(chore >> 8),
+              (unsigned char)chore};
+          CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+          break;
+        }
+        case FG2BG_WRITE: {
+          unsigned char pkt[4] = {C_RAM2_WRITE,
+              (unsigned char)(chore >> 16),
+              (unsigned char)(chore >> 8),
+              (unsigned char)chore};
+          CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+          break;
+        }
+        case FG2BG_FIC: {
+          unsigned char pkt[4] = {C_FIC_CYCLE,
+              (unsigned char)(chore >> 16),
+              (unsigned char)(chore >> 8),
+              (unsigned char)chore};
+          CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+          break;
+        }
+#endif
         default:
           break;
       }
+
+      // Every 256 drained events, service USB and terminal input
+      // so the 6309 can receive keystrokes even during heavy tracing.
+      drain_count++;
+      if ((drain_count & 0xFF) == 0) {
+        if (PumpUsbCobsHasWork()) PumpUsbCobs();
+        PollTermInput();
+        if (Engine::Turbo9sim_CanRx()) {
+          if (term_input.NumBuffered() > 0) {
+            Engine::Turbo9sim_SetRx(term_input.Take());
+          }
+        }
+      }
     }
 
-    // Pump USB pipeline (COBS decode + RPC + PicoRPC)
+    // Also service USB/terminal when FIFO is empty (idle periods)
     if (PumpUsbCobsHasWork()) PumpUsbCobs();
-
-    // Deliver terminal chars to turbo9sim RX
     PollTermInput();
     if (Engine::Turbo9sim_CanRx()) {
       if (term_input.NumBuffered() > 0) {

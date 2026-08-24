@@ -104,6 +104,7 @@ const (
 	C_RAM5_WRITE  = 198 // low nybble is 6.  Payload is "PHighest PHi PLo AHi ALo Data"
 	C_CYCLE       = 200 // one machine cycle. low nybble is 8. Payload is "cycle4 kind_fl1 data1 addr2"
 	C_READ_CYCLE  = 211 // *** centipede: one read cycle: A A D
+	C_FIC_CYCLE   = 227 // 0xE3: First Instruction Cycle: A A D (with source lookup)
 
 	// C_NOKEY = 208  // low nybble is 0.
 	// C_KEY = 211  // low nybble is 3.  Payload is { row, col, plane }
@@ -140,6 +141,7 @@ var CommandStrings = map[byte]string{
 	C_RAM3_WRITE:  "C_RAM3_WRITE",
 	C_RAM5_WRITE:  "C_RAM5_WRITE",
 	C_READ_CYCLE:  "C_READ_CYCLE",
+	C_FIC_CYCLE:   "C_FIC_CYCLE",
 
 	C_CYCLE:    "C_CYCLE",
 	C_EVENT:    "C_EVENT",
@@ -1130,6 +1132,33 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 						ReadCycleFunction(_addr, _data)
 					}
+				}
+
+			case C_FIC_CYCLE: // TFR911: First Instruction Cycle: A A D
+				pack := pkt[1:]
+				if len(pack) == 3 {
+					_addr := (uint(pack[0]) << 8) + uint(pack[1])
+					_data := pack[2]
+					Cycle++
+
+					// Source assembly lookup
+					var srcInfo string
+					if LinkSrc != nil {
+						if aline, ok := LinkSrc.Src[_addr]; ok {
+							srcInfo = aline
+						}
+					}
+
+					// Disassembly
+					disasm := ""
+					trackRam := the_ram.GetTrackRam()
+					if trackRam != nil && _addr < uint(len(trackRam)) {
+						if d, _, _, _, ok := lib.Decode(trackRam[_addr:]); ok {
+							disasm = d
+						}
+					}
+
+					Logf("cy-F %04x   -> %02x  #%d  %s  %s", _addr, _data, Cycle, disasm, srcInfo)
 				}
 
 			case C_LOGGING,
