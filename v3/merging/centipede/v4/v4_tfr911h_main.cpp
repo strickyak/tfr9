@@ -12,13 +12,7 @@
 #define DEBUG_TCL_REPL 1
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define DUMP_FIRST_CYCLES 64    // Log the first N bus cycles after boot for debugging
-#define MHz 150  // clock speed
-
-// Override Pico SDK USB stdout timeout: default 500ms causes putchar_raw
-// to silently DROP bytes when USB TX is full, corrupting the COBS stream.
-// A 10-second timeout makes putchar_raw truly block, which lets HALT
-// flow control properly throttle the 6309 to USB bandwidth.
-#define PICO_STDIO_USB_STDOUT_TIMEOUT_US (10 * 1000 * 1000)
+#define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
