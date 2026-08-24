@@ -12,6 +12,7 @@
 #define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define HALT_TEST 1
+#define CLOCK_IRQ 0             // 0 to disable 60Hz timer IRQ during debugging
 #define DUMP_FIRST_CYCLES 16    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
 
@@ -470,14 +471,17 @@ uint InitializePinsReturnDirections() {
         directions |= (1 << i);
         break;
 
-      // Slow 6809E control: open-drain
-      // Output latch = 0, direction = input (released, pulled high).
-      // Assert by setting dir to output. Release by setting dir to input.
+      // Slow 6809E control: active-low, active-driven.
+      // HALT is push-pull (driven HIGH = released).
+      // RESET, NMI, IRQ, FIRQ remain open-drain.
+      case HALT:
+        gpio_set_dir(i, GPIO_OUT);
+        gpio_put(i, 1);             // Released (driven HIGH)
+        break;
       case RESET:
       case NMI:
       case IRQ:
       case FIRQ:
-      case HALT:
         gpio_set_dir(i, GPIO_OUT);
         gpio_put(i, 0);             // Latch = 0 (active low)
         gpio_set_dir(i, GPIO_IN);   // Released (not driving)
@@ -523,6 +527,11 @@ volatile bool fg_halt_for_flow_control = false;
 volatile bool fg_wants_halt = false;
 volatile bool bg_wants_halt = false;
 volatile int fg_inner_step = 0;  // Diagnostic: where in the inner loop is the foreground?
+
+// HaltOn/HaltOff: encapsulate HALT pin control.
+// HALT is push-pull: driven LOW = 6309 halted, driven HIGH = 6309 running.
+FORCE_INLINE void IN_RAM HaltOn()  { gpio_put(HALT, 0); }  // Assert HALT
+FORCE_INLINE void IN_RAM HaltOff() { gpio_put(HALT, 1); }  // Release HALT
 
 volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
 template <typename T>
@@ -585,13 +594,13 @@ struct Guts {
       if (fg_halt_for_flow_control) {
         if (fg2bg.size() < FG2BG_LOW_WATERMARK) {
           fg_wants_halt = false;
-          if (!bg_wants_halt) gpio_set_dir(HALT, GPIO_IN);
+          if (!bg_wants_halt) HaltOff();
           fg_halt_for_flow_control = false;
         }
       } else {
         if (fg2bg.size() > FG2BG_HIGH_WATERMARK) {
           fg_wants_halt = true;
-          gpio_set_dir(HALT, GPIO_OUT);  // Assert HALT (open-drain)
+          HaltOn();
           fg_halt_for_flow_control = true;
         }
       }
@@ -751,8 +760,11 @@ void IN_RAM Engine__RunCPU() {
 // 60Hz Timer for turbo9sim
 // ═══════════════════════════════════════════════════════════════════
 struct repeating_timer Timer60HzData;
+volatile bool halt_suppress_timer = false;
 bool IN_RAM Timer60HzCallback(repeating_timer_t* rt) {
-  Engine::Turbo9sim_SetTimerFired();  // Sets sim_status_reg bit; foreground polls it
+  if (!halt_suppress_timer) {
+    Engine::Turbo9sim_SetTimerFired();
+  }
   return true;
 }
 
@@ -1067,9 +1079,12 @@ static void halt_test_task(Coro& self) {
       coro_yield(&self);
     }
 
+    // Suppress timer IRQs during HALT so the 6309 doesn't see
+    // 180 accumulated IRQs on resume (causes OS9/BASIC09 crash).
     cobs_printf("\n[halt_test: Asserting HALT for 3 seconds]\n");
+    halt_suppress_timer = true;
     bg_wants_halt = true;
-    gpio_set_dir(HALT, GPIO_OUT);
+    HaltOn();
 
     // Hold HALT for 3 seconds
     start = time_us_64();
@@ -1079,8 +1094,9 @@ static void halt_test_task(Coro& self) {
 
     cobs_printf("\n[halt_test: Releasing HALT]\n");
     bg_wants_halt = false;
+    halt_suppress_timer = false;
     if (!fg_wants_halt) {
-      gpio_set_dir(HALT, GPIO_IN);
+      HaltOff();
     }
   }
 }
@@ -1189,7 +1205,7 @@ void IN_RAM tfr911_background() {
         //
         cobs_printf("[bye: asserting RESET+HALT...]\n");
         gpio_set_dir(RESET, GPIO_OUT);
-        gpio_set_dir(HALT, GPIO_OUT);
+        HaltOn();
 
         pio_sm_set_enabled(pio0, 0, false);
         pio_sm_restart(pio0, 0);
@@ -1233,17 +1249,19 @@ void IN_RAM tfr911_background() {
         gpio_set_dir(RESET, GPIO_IN);
         cobs_printf("[bye: RESET released, holding HALT...]\n");
         sleep_ms(5);
-        gpio_set_dir(HALT, GPIO_IN);
+        HaltOff();
         cobs_printf("[bye: HALT released, 6309 booting]\n");
 
         alarm_pool_init_default();
 #if SPEED_STATS
         add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
 #endif
+#if CLOCK_IRQ
 #if TRACE
         add_repeating_timer_ms(5000, Timer60HzCallback, nullptr, &Timer60HzData);
 #else
         add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
+#endif
 #endif
         last_status_time = time_us_64();
         cobs_printf("[bye: Phase 2 started]\n");
