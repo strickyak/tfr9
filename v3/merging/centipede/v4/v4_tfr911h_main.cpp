@@ -14,7 +14,7 @@
 #define HALT_TEST 0
 #define CLOCK_IRQ 0             // 0 to disable 60Hz timer IRQ during debugging
 #define DUMP_FIRST_CYCLES 16    // Log the first N bus cycles after boot for debugging
-#define MHz 150  // clock speed
+#define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
