@@ -1,0 +1,215 @@
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/centipede.cpp ./firmware/centipede.cpp differ: byte 6342, line 267
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/centipede.cpp	2026-08-07 17:44:14.348432678 -0400
++++ ./firmware/centipede.cpp	2026-08-21 16:43:51.135125452 -0400
+@@ -264,11 +264,11 @@
+ #include "disk11_rom.h"  // byte disk11_rom[8192]...
+ #include "egg.h"
+ 
+-using IOReader = std::function<byte(uint addr)>;
+-using IOWriter = std::function<void(uint addr, byte data)>;
++using IOReader = byte (*)(uint addr);
++using IOWriter = void (*)(uint addr, byte data);
+ 
+-IOReader Readers[256];
+-IOWriter Writers[256];
++IOReader IOReaders[256];
++IOWriter IOWriters[256];
+ 
+ byte ram[64 * 1024];
+ 
+@@ -865,7 +865,7 @@
+                 dbus = sense;
+                 GERBIL_DRIVE(dbus);
+               } else {
+-                auto r = Readers[abus & 0xFF];
++                auto r = IOReaders[abus & 0xFF];
+                 if (r) {
+                   dbus = r(abus);
+                   GERBIL_DRIVE(dbus);
+@@ -903,7 +903,7 @@
+             dbus = (byte)(GERBIL_GET());
+ 
+             if (0xFF00 <= abus) {
+-              auto w = Writers[abus & 0xFF];
++              auto w = IOWriters[abus & 0xFF];
+               if (w) {
+                 w(abus, dbus);
+               }
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/coco64k.h ./firmware/coco64k.h differ: byte 738, line 24
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/coco64k.h	2026-07-25 23:43:10.108124893 -0400
++++ ./firmware/coco64k.h	2026-08-21 16:44:08.437256412 -0400
+@@ -21,15 +21,15 @@
+ 
+   static void InitCoco64k() {
+     for (uint a = 0xFFD4; a < 0xFFE0; a++) {
+-      Writers[255 & a] = WriteOtherSamBit;
++      IOWriters[255 & a] = WriteOtherSamBit;
+     }
+ 
+     SamP1Bit = false;
+     SamTyBit = false;
+-    Writers[0xD4] = WriteFFD4_P1Clear;
+-    Writers[0xD5] = WriteFFD5_P1Set;
+-    Writers[0xDE] = WriteFFDE_TyClear;
+-    Writers[0xDF] = WriteFFDF_TySet;
++    IOWriters[0xD4] = WriteFFD4_P1Clear;
++    IOWriters[0xD5] = WriteFFD5_P1Set;
++    IOWriters[0xDE] = WriteFFDE_TyClear;
++    IOWriters[0xDF] = WriteFFDF_TySet;
+   }
+ 
+   static void WriteOtherSamBit(uint a, byte d) {
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/config.h ./firmware/config.h differ: byte 71, line 5
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/config.h	2026-08-07 04:30:13.353004369 -0400
++++ ./firmware/config.h	2026-08-21 22:09:13.436928520 -0400
+@@ -2,12 +2,12 @@
+ #define FIRMWARE_H_
+ 
+ struct CentipedeConfig {
+-    bool    ram_64k;
+-    bool    rom_disk11;
+-    bool    floppy_fd;
+-    bool    floppy_pc;
+-    bool    trace_writes;
+-    bool    trace_reads;
++    volatile bool    ram_64k;
++    volatile bool    rom_disk11;
++    volatile bool    floppy_fd;
++    volatile bool    floppy_pc;
++    volatile bool    trace_writes;
++    volatile bool    trace_reads;
+ 
+     void SetAll(bool b) {
+         this->ram_64k = b;
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/orchestra90.h ./firmware/orchestra90.h differ: byte 288, line 13
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./firmware/orchestra90.h	2026-07-25 23:43:10.110701111 -0400
++++ ./firmware/orchestra90.h	2026-08-21 16:44:20.605348863 -0400
+@@ -10,8 +10,8 @@
+ void WriteRight(uint a, byte d) { pwm_set_chan_level(5, PWM_CHAN_B, d); }
+ 
+ void initPorts() {
+-  Writers[0x7A] = WriteLeft;
+-  Writers[0x7B] = WriteRight;
++  IOWriters[0x7A] = WriteLeft;
++  IOWriters[0x7B] = WriteRight;
+ }
+ 
+ void initHardware() {
++main module (github.com/strickyak/tfr9) does not contain package github.com/strickyak/tfr9/v3/merging/centipede/v1/tether
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/pico_rpc.go ./tether/pico_rpc.go differ: byte 247, line 9
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/pico_rpc.go	2026-08-07 18:57:32.773230333 -0400
++++ ./tether/pico_rpc.go	2026-08-21 00:53:37.309549305 -0400
+@@ -6,7 +6,7 @@
+ // Uses the same pcb encoding as VFS RPC but with tag T_PICO_RPC (181).
+ 
+ import (
+-	"github.com/strickyak/copico-centipede/v1/tether/cobs"
++	"github.com/strickyak/tfr9-merging-centipede/v1/tether/cobs"
+ 
+ 	"bytes"
+ 	"encoding/binary"
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/tconsole.go ./tether/tconsole.go differ: byte 47, line 4
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/tconsole.go	2026-08-08 22:57:38.144038231 -0400
++++ ./tether/tconsole.go	2026-08-23 20:27:54.051844680 -0400
+@@ -1,8 +1,8 @@
+ package main
+ 
+ import (
+-	"github.com/strickyak/copico-centipede/v1/lib"
+-	"github.com/strickyak/copico-centipede/v1/tether/cobs"
++	"github.com/strickyak/tfr9-merging-centipede/v1/lib"
++	"github.com/strickyak/tfr9-merging-centipede/v1/tether/cobs"
+ 
+ 	"bytes"
+ 	"flag"
+@@ -104,6 +104,7 @@
+ 	C_RAM5_WRITE  = 198 // low nybble is 6.  Payload is "PHighest PHi PLo AHi ALo Data"
+ 	C_CYCLE       = 200 // one machine cycle. low nybble is 8. Payload is "cycle4 kind_fl1 data1 addr2"
+ 	C_READ_CYCLE  = 211 // *** centipede: one read cycle: A A D
++	C_FIC_CYCLE   = 227 // 0xE3: First Instruction Cycle: A A D (with source lookup)
+ 
+ 	// C_NOKEY = 208  // low nybble is 0.
+ 	// C_KEY = 211  // low nybble is 3.  Payload is { row, col, plane }
+@@ -140,6 +141,7 @@
+ 	C_RAM3_WRITE:  "C_RAM3_WRITE",
+ 	C_RAM5_WRITE:  "C_RAM5_WRITE",
+ 	C_READ_CYCLE:  "C_READ_CYCLE",
++	C_FIC_CYCLE:   "C_FIC_CYCLE",
+ 
+ 	C_CYCLE:    "C_CYCLE",
+ 	C_EVENT:    "C_EVENT",
+@@ -1071,8 +1073,9 @@
+ 				}
+ 
+ 			case C_CYCLE:
+-				Panicf("%v", "C_CYCLE not implemented in this tether")
+-				panic(0)
++				// TFR911 uncompressed cycle format with FIC marking.
++				pack := pkt[1:]
++				HandleCCycle(pack, person, channelToPico)
+ 
+ 			case C_COMPRESSED_CYCLES: // 175
+ 				// Packet format: [cmd, numCycles, write_counter_lsb, push_fail_lsb, compressed...]
+@@ -1131,6 +1134,33 @@
+ 					}
+ 				}
+ 
++			case C_FIC_CYCLE: // TFR911: First Instruction Cycle: A A D
++				pack := pkt[1:]
++				if len(pack) == 3 {
++					_addr := (uint(pack[0]) << 8) + uint(pack[1])
++					_data := pack[2]
++					Cycle++
++
++					// Source assembly lookup
++					var srcInfo string
++					if LinkSrc != nil {
++						if aline, ok := LinkSrc.Src[_addr]; ok {
++							srcInfo = aline
++						}
++					}
++
++					// Disassembly
++					disasm := ""
++					trackRam := the_ram.GetTrackRam()
++					if trackRam != nil && _addr < uint(len(trackRam)) {
++						if d, _, _, _, ok := lib.Decode(trackRam[_addr:]); ok {
++							disasm = d
++						}
++					}
++
++					Logf("cy-F %04x   -> %02x  #%d  %s  %s", _addr, _data, Cycle, disasm, srcInfo)
++				}
++
+ 			case C_LOGGING,
+ 				C_LOGGING + 1,
+ 				C_LOGGING + 2,
+@@ -1565,7 +1595,7 @@
+ 	CY_READ
+ 	CY_WRITE
+ 	CY_IDLE
+-	CY_UNUSED7
++	CY_FIC // first instruction cycle (TFR911's HD63C09EP LIC pin)
+ )
+ 
+ var LogLimit = flag.Uint64("logmax", 1<<30, "maximum bytes to log to stderr")
+cmp: /home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/tether: No such file or directory
+diff: /home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/tether: No such file or directory
+cmp: /home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/tfr911_compat.go: No such file or directory
+diff: /home/strick/modoc/coco-shelf/copico-centipede/v1/./tether/tfr911_compat.go: No such file or directory
+/home/strick/modoc/coco-shelf/copico-centipede/v1/./util/circbuf.h ./util/circbuf.h differ: byte 75, line 6
+--- /home/strick/modoc/coco-shelf/copico-centipede/v1/./util/circbuf.h	2026-07-25 23:43:10.136004459 -0400
++++ ./util/circbuf.h	2026-08-21 23:09:40.962124323 -0400
+@@ -3,9 +3,9 @@
+ 
+ #include <functional>
+ 
+-#ifndef IN_RAM
+-#define IN_RAM
+-#endif
++//#ifndef IN_RAM
++//#define IN_RAM
++//#endif
+ 
+ using byte = unsigned char;
+ using uint = unsigned int;
