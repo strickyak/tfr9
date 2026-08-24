@@ -12,7 +12,7 @@
 #define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define HALT_TEST 0
-#define CLOCK_IRQ 0             // 0 to disable 60Hz timer IRQ during debugging
+#define CLOCK_IRQ 1             // 0 to disable 60Hz timer IRQ during debugging
 #define DUMP_FIRST_CYCLES 16    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
 
