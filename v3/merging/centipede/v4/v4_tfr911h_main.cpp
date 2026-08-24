@@ -7,11 +7,11 @@
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
-#define TRACE 1
+#define TRACE 0
 #define SPEED_STATS 1
-#define DEBUG_TCL_REPL 1
+#define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
-#define DUMP_FIRST_CYCLES 64    // Log the first N bus cycles after boot for debugging
+#define DUMP_FIRST_CYCLES 16    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
 
 #include <hardware/clocks.h>
