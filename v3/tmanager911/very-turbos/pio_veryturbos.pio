@@ -17,10 +17,25 @@ Loop:
     nop         [7] side 0  ; WAS[6] ; first phase = side 0
 
     nop         [7] side 2  ; WAS[6]
-    in pins,32      side 2
 
-    push            side 3  ; third phase = side 3
-    jmp pin, Read   side 3
+;<<<<<<< OLD
+;   in pins,32      side 2
+;
+;   push            side 3  ; third phase = side 3
+;   jmp pin, Read   side 3
+;======= NEW
+
+    in pins,32      side 2
+    mov osr, isr    side 2   ; Copy the captured pins to OSR
+
+    push            side 3   ; (this clears ISR, but we saved it in OSR)
+
+
+    ; --- Isolate bit 31 ---
+    out null, 31    side 3   ; Discard bits 0-30 from OSR
+    out y, 1        side 3   ; Shift the remaining bit (bit 31) into Y
+    jmp y--, Read   side 3   ; R/W=0 means write, so jump if Y is nonzero.
+;>>>>>>> NEW
 
 Write:
     nop        [7]  side 3  ; third phase = side 3 ; z8 -1 z9 -2
