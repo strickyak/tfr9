@@ -11,6 +11,7 @@
 #define SPEED_STATS 1
 #define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
+#define HALT_TEST 1
 #define DUMP_FIRST_CYCLES 16    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
 
@@ -123,7 +124,8 @@ IOWriter IOWriters[256];
 // ═══════════════════════════════════════════════════════════════════
 // Cross-core FIFO: foreground (core 1) → background (core 0)
 // ═══════════════════════════════════════════════════════════════════
-CrossCoreFIFO<uint, 8192> fg2bg;
+CrossCoreFIFO<uint, 8192> fg2bg;        // Events: trace logs, MEGA_CYCLE, etc.
+CrossCoreFIFO<byte, 8192> fg2bg_chars;  // Characters: SAY output (high priority)
 
 // Same event tags as Centipede — shared for future background code reuse.
 enum FG2BG_Tags {
@@ -144,12 +146,11 @@ enum FG2BG_Tags {
   FG2BG_FIC   = 12,   // First Instruction Cycle (read with LIC from previous cycle)
 };
 
-// SAY: blocking push — console output must never be dropped.
-// Stalls the foreground briefly if the FIFO is full (background drains it).
-#define SAY(C) do { \
-  uint _say_w = ((uint)FG2BG_PUTCHAR << 24) | ((C) & 255); \
-  while (!fg2bg.push(_say_w)) { tight_loop_contents(); } \
-} while(0)
+// Say: push a console character to the high-priority chars FIFO.
+// Spin-waits if full (8192 slots — should never fill in practice).
+FORCE_INLINE void IN_RAM Say(byte c) {
+  while (!fg2bg_chars.push(c)) { tight_loop_contents(); }
+}
 // PUSH_TO_BG: blocking push for cycle events — trace must be complete.
 // HALT flow control keeps the FIFO near LOW_WATERMARK in steady state;
 // blocking only kicks in on transient bursts (e.g., IRQ register stacking).
@@ -227,7 +228,7 @@ void InstallVector(uint i, uint addr) {
 // (CoreEngine::ShowChar in v4_core_engine.h is a separate CRTP method
 // used only by Centipede — TFR911 Engine does not inherit from CoreEngine.)
 void ShowChar(char c) {
-  SAY(c);
+  Say((byte)c);
 }
 
 void putbyte(byte x) {
@@ -438,7 +439,7 @@ byte IN_RAM acia_read_control(uint addr) { return sim_control_reg; }
 // Writers
 void IN_RAM acia_write_tx(uint addr, byte data) {
   sim_last_char_tx = data;
-  SAY(data);  // Push to background — no USB call from foreground!
+  Say(data);  // Push to high-priority chars FIFO
 }
 void IN_RAM acia_write_rx(uint addr, byte data) {
   // No effect (write to RX register).
@@ -500,6 +501,8 @@ constexpr uint GROUP_SIZE = 100; // 10000;
 #if SPEED_STATS
 uint milliseconds;
 volatile uint64_t cycles;  // Updated by foreground, read by background for stats
+volatile uint64_t fg_idle_cycles;   // Cycles where addr==0xFFFF (HALT-induced)
+volatile uint64_t fg_active_cycles; // Cycles where addr!=0xFFFF (real execution)
 struct repeating_timer TimerData;
 bool TimerCallback(repeating_timer_t* rt) {
   milliseconds++;
@@ -517,6 +520,8 @@ bool TimerCallback(repeating_timer_t* rt) {
 #define FG2BG_HIGH_WATERMARK 2100  // 6000  // Assert HALT when FIFO exceeds this
 #define FG2BG_LOW_WATERMARK  2000  // Release HALT when FIFO drains below this
 volatile bool fg_halt_for_flow_control = false;
+volatile bool fg_wants_halt = false;
+volatile bool bg_wants_halt = false;
 volatile int fg_inner_step = 0;  // Diagnostic: where in the inner loop is the foreground?
 
 volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
@@ -579,11 +584,13 @@ struct Guts {
       // those reads (no push) so the FIFO drains.
       if (fg_halt_for_flow_control) {
         if (fg2bg.size() < FG2BG_LOW_WATERMARK) {
-          gpio_set_dir(HALT, GPIO_IN);   // Release HALT
+          fg_wants_halt = false;
+          if (!bg_wants_halt) gpio_set_dir(HALT, GPIO_IN);
           fg_halt_for_flow_control = false;
         }
       } else {
         if (fg2bg.size() > FG2BG_HIGH_WATERMARK) {
+          fg_wants_halt = true;
           gpio_set_dir(HALT, GPIO_OUT);  // Assert HALT (open-drain)
           fg_halt_for_flow_control = true;
         }
@@ -591,6 +598,9 @@ struct Guts {
 #endif
 
       uint prev_late_pins = 0;
+#if SPEED_STATS
+      int idle_in_group = 0;
+#endif
 
       // INNER LOOP
       for (int i = 0; i < GROUP_SIZE; i++) {
@@ -613,6 +623,9 @@ struct Guts {
         // via `jmp pin` (Phase 3), but `in pins, 32` samples at
         // Phase 2 — 8ns earlier.  During HALT transitions, R/W can
         // change in that window, causing firmware/PIO desync → deadlock.
+#if SPEED_STATS
+        if (addr == 0xFFFF) idle_in_group++;
+#endif
         const bool reading = gpio_get(R_W);
         byte kind = 0;
         uint late_pins = 0;
@@ -686,17 +699,17 @@ struct Guts {
           if (dump_count == DUMP_FIRST_CYCLES) {
             // Format: "D:AAAA=VV:R\n" for each cycle
             for (int d = 0; d < DUMP_FIRST_CYCLES; d++) {
-              SAY('D'); SAY(':');
-              SAY(HexAlphabet[(dump_buf[d].addr >> 12) & 0xF]);
-              SAY(HexAlphabet[(dump_buf[d].addr >> 8) & 0xF]);
-              SAY(HexAlphabet[(dump_buf[d].addr >> 4) & 0xF]);
-              SAY(HexAlphabet[dump_buf[d].addr & 0xF]);
-              SAY('=');
-              SAY(HexAlphabet[(dump_buf[d].value >> 4) & 0xF]);
-              SAY(HexAlphabet[dump_buf[d].value & 0xF]);
-              SAY(':');
-              SAY(dump_buf[d].rw);
-              SAY('\n');
+              Say('D'); Say(':');
+              Say(HexAlphabet[(dump_buf[d].addr >> 12) & 0xF]);
+              Say(HexAlphabet[(dump_buf[d].addr >> 8) & 0xF]);
+              Say(HexAlphabet[(dump_buf[d].addr >> 4) & 0xF]);
+              Say(HexAlphabet[dump_buf[d].addr & 0xF]);
+              Say('=');
+              Say(HexAlphabet[(dump_buf[d].value >> 4) & 0xF]);
+              Say(HexAlphabet[dump_buf[d].value & 0xF]);
+              Say(':');
+              Say(dump_buf[d].rw);
+              Say('\n');
             }
           }
         }
@@ -707,6 +720,8 @@ struct Guts {
 
 #if SPEED_STATS
       cycles += GROUP_SIZE;
+      fg_idle_cycles += idle_in_group;
+      fg_active_cycles += (GROUP_SIZE - idle_in_group);
       static int cycle_counter = 0;
       cycle_counter += GROUP_SIZE;
       if (cycle_counter >= 1000000) {
@@ -951,172 +966,43 @@ BYE:
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Background loop (core 0) — two-phase lifecycle
-// Phase 1: Tcl REPL (6309 idle, core 1 not launched)
-// Phase 2: Bus operation (6309 running, FIFO drain + USB I/O)
+// drain_chars — drain high-priority character FIFO (inline, not a coroutine)
+// Runs on the scheduler's own stack. Processes ALL pending chars each call.
 // ═══════════════════════════════════════════════════════════════════
-void IN_RAM tfr911_background() {
-  // ── Phase 1: Tcl REPL ──────────────────────────────────────────
-  // 6309 is not running.  We can write ram[] directly from Tcl.
-  init_lfs();
-  global_tcl_interp = Tcl_CreateInterp();
-  register_tcl_commands(global_tcl_interp);
+static uint32_t bg_chars_drained = 0;
 
-  Coro tcl_repl;
-  coro_create(&tcl_repl, tcl_repl_task, tcl_stack, sizeof(tcl_stack));
-
-  while (!tcl_repl_done) {
-    coro_resume(&tcl_repl);
-    // Always pump USB — not just when HasWork — to ensure bytes flow
-    // from USB → raw_buf → cobs_decoder → packet_buf.
-    usb_receiver.Tick();
-    cobs_decoder.Tick();
-    RpcEvaluator::Tick();
-    PicoRpcEvaluator::Tick();
-#if DEBUG_TCL_REPL
-    {
-      static int pump_count = 0;
-      pump_count++;
-      if ((pump_count & 0xFFFFF) == 0) {
-        cobs_printf("[repl: raw=%d pkt=%d pump=%d]\n",
-                    usb_raw_buf.NumBuffered(),
-                    usb_packet_buf.NumBuffered(),
-                    pump_count >> 20);
-      }
-    }
-#endif
+inline void drain_chars() {
+  if (!usb_tether_ok()) {
+    // USB disconnected — discard to prevent blocking
+    byte discard;
+    while (fg2bg_chars.pop(discard)) {}
+    return;
   }
-
-  // ── Transition: Reset 6309, launch foreground on core 1 ──────
-  //
-  // The 6309 is CMOS but not fully static — it needs continuous E/Q
-  // clocks or it loses state.  During the Tcl REPL, no clocks were
-  // generated (PIO was idle at pull-block).  So we must do the reset
-  // WITH the PIO/foreground running:
-  //
-  //   1. Assert RESET + HALT (open-drain) from background
-  //   2. Re-init PIO and launch foreground on core 1
-  //   3. Foreground generates E/Q via PIO; 6309 sees IDLE cycles
-  //   4. Background waits for foreground to be running
-  //   5. Hold RESET for ~10ms (~28K E cycles, well above the 8-cycle minimum)
-  //   6. Release RESET (still HALTed)
-  //   7. Wait ~5ms for 6309 to see RESET de-assert
-  //   8. Release HALT → 6309 fetches reset vector (0xFFFE/0xFFFF)
-  //
-  cobs_printf("[bye: asserting RESET+HALT...]\n");
-  gpio_set_dir(RESET, GPIO_OUT);  // Assert RESET (open-drain, latch=0)
-  gpio_set_dir(HALT, GPIO_OUT);   // Assert HALT  (open-drain, latch=0)
-
-  // Re-init PIO — the SM was sitting at pull-block since main().
-  pio_sm_set_enabled(pio0, 0, false);
-  pio_sm_restart(pio0, 0);
-  {
-    pio_clear_instruction_memory(pio0);
-    const uint offset = pio_add_program(pio0, &t911veryfast_program);
-    t911veryfast_program_init(pio0, 0, offset);
+  byte c;
+  while (fg2bg_chars.pop(c)) {
+    putbyte(c);
+    bg_chars_drained++;
   }
+}
 
-  // Launch foreground on core 1.
-  // Install_OS loads ROM + vectors into ram[], then enters the inner loop.
-  // The inner loop feeds the PIO → E/Q start cycling → 6309 gets clocked.
-  // During HALT+RESET, the 6309 just runs IDLE cycles (addr=0xFFFF).
-  foreground_running = false;
-  cobs_printf("[bye: launching core1...]\n");
-  multicore_launch_core1(Engine__RunCPU);
+// ═══════════════════════════════════════════════════════════════════
+// drain_task — drain fg2bg events FIFO (coroutine, one event per resume)
+// Follows the Centipede pattern exactly: pop one chore, process it, yield.
+// The scheduler pumps USB between every coro_resume.
+// ═══════════════════════════════════════════════════════════════════
+static uint8_t drain_stack[4096] __attribute__((aligned(8)));
+static uint32_t bg_events_drained = 0;
 
-  // Wait for foreground to reach the inner loop (E/Q now cycling).
-  // Drain fg2bg FIFO during the wait — Install_OS pushes ~34K ROM
-  // writes through the FIFO, and we need to drain them as
-  // C_RAM2_WRITE packets so the tether sees the ROM contents.
-  while (!foreground_running) {
-    uint chore = 0;
-    while (fg2bg.pop(chore)) {
-      uint chore_num = chore >> 24;
-      byte chore_byte = chore & 0xFF;
-      switch (chore_num) {
-        case FG2BG_PUTCHAR:
-          if (chore_byte) putbyte(chore_byte);
-          break;
-        case FG2BG_WRITE: {
-          unsigned char pkt[4] = {C_RAM2_WRITE,
-              (unsigned char)(chore >> 16),
-              (unsigned char)(chore >> 8),
-              (unsigned char)chore};
-          CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
-          break;
-        }
-        default:
-          break;
-      }
-    }
-    sleep_ms(1);
-  }
-  cobs_printf("[bye: foreground running, holding RESET...]\n");
-
-  // Hold RESET for ~10ms (~28K E cycles at ~2.88 Mcps).
-  // 6309 datasheet requires ≥8 E cycles; this is very conservative.
-  sleep_ms(10);
-
-  // Release RESET (6309 still HALTed)
-  gpio_set_dir(RESET, GPIO_IN);  // Release RESET (floats high via pull-up)
-  cobs_printf("[bye: RESET released, holding HALT...]\n");
-
-  // Wait for 6309 to see RESET de-assert and prepare internally
-  sleep_ms(5);
-
-  // Release HALT → 6309 fetches reset vector and starts executing
-  gpio_set_dir(HALT, GPIO_IN);  // Release HALT (floats high via pull-up)
-  cobs_printf("[bye: HALT released, 6309 booting]\n");
-
-  alarm_pool_init_default();
-#if SPEED_STATS
-  add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
-#endif
-
-#if TRACE
-  // Once very 5 seconds, when we are slowed down for TRACE.
-  add_repeating_timer_ms(5000, Timer60HzCallback, nullptr, &Timer60HzData);
-#else
-  // 60Hz otherwise.
-  add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
-#endif
-  cobs_printf("[bye: Phase 2 started]\n");
-
-  // ── Phase 2: Normal bus operation ──────────────────────────────
+static void drain_task(Coro& self) {
 #if SPEED_STATS
   int bg_mega_cycles = 0;
 #endif
-#if DEBUG_TCL_REPL
-  int phase2_loops = 0;
-  int phase2_chores = 0;
-#endif
-
   while (true) {
-#if DEBUG_TCL_REPL
-    phase2_loops++;
-    if ((phase2_loops & 0xFFFFF) == 0) {
-      cobs_printf("[ph2: loops=%dM chores=%d fifo=%d cy=%u halt=%d step=%d]\n",
-                  phase2_loops >> 20, phase2_chores, fg2bg.size(),
-                  (unsigned)cycles, (int)fg_halt_for_flow_control,
-                  (int)fg_inner_step);
-    }
-#endif
-    // Drain fg2bg FIFO — handle events pushed by foreground.
-    // Interleave PumpUsbCobs and PollTermInput every 256 drained
-    // events to prevent USB input starvation while still draining
-    // as fast as possible (foreground blocking pushes need prompt drain).
     uint chore = 0;
-    int drain_count = 0;
-    while (fg2bg.pop(chore)) {
+    if (fg2bg.pop(chore)) {
+      bg_events_drained++;
       uint chore_num = chore >> 24;
-      byte chore_byte = chore & 0xFF;
-#if DEBUG_TCL_REPL
-      phase2_chores++;
-#endif
       switch (chore_num) {
-        case FG2BG_PUTCHAR:
-          if (chore_byte) putbyte(chore_byte);
-          break;
 #if SPEED_STATS
         case FG2BG_MEGA_CYCLE:
           bg_mega_cycles++;
@@ -1160,32 +1046,232 @@ void IN_RAM tfr911_background() {
         default:
           break;
       }
+    }
+    // Yield after every chore (or empty pop), exactly like Centipede.
+    // The scheduler pumps USB between every coro_resume.
+    coro_yield(&self);
+  }
+}
 
-      // Every 256 drained events, service USB and terminal input
-      // so the 6309 can receive keystrokes even during heavy tracing.
-      drain_count++;
-      if ((drain_count & 0xFF) == 0) {
-        if (PumpUsbCobsHasWork()) PumpUsbCobs();
-        PollTermInput();
-        if (Engine::Turbo9sim_CanRx()) {
-          if (term_input.NumBuffered() > 0) {
-            Engine::Turbo9sim_SetRx(term_input.Take());
-          }
-        }
-      }
+// ═══════════════════════════════════════════════════════════════════
+// halt_test_task — toggle HALT every 3 seconds to test flow control
+// ═══════════════════════════════════════════════════════════════════
+#if HALT_TEST
+static uint8_t halt_test_stack[2048] __attribute__((aligned(8)));
+
+static void halt_test_task(Coro& self) {
+  while (true) {
+    // Run for 3 seconds
+    uint64_t start = time_us_64();
+    while (time_us_64() - start < 3000000) {
+      coro_yield(&self);
     }
 
-    // Also service USB/terminal when FIFO is empty (idle periods)
-    if (PumpUsbCobsHasWork()) PumpUsbCobs();
-    PollTermInput();
-    if (Engine::Turbo9sim_CanRx()) {
-      if (term_input.NumBuffered() > 0) {
-        byte ch = term_input.Take();
-        Engine::Turbo9sim_SetRx(ch);
-      }
+    cobs_printf("\n[halt_test: Asserting HALT for 3 seconds]\n");
+    bg_wants_halt = true;
+    gpio_set_dir(HALT, GPIO_OUT);
+
+    // Hold HALT for 3 seconds
+    start = time_us_64();
+    while (time_us_64() - start < 3000000) {
+      coro_yield(&self);
+    }
+
+    cobs_printf("\n[halt_test: Releasing HALT]\n");
+    bg_wants_halt = false;
+    if (!fg_wants_halt) {
+      gpio_set_dir(HALT, GPIO_IN);
     }
   }
 }
+#endif
+
+// ═══════════════════════════════════════════════════════════════════
+// periodic_status — print diagnostics every 5 seconds (inline)
+// ═══════════════════════════════════════════════════════════════════
+static uint64_t last_status_time = 0;
+static uint32_t last_chars_drained = 0;
+static uint32_t last_events_drained = 0;
+#if SPEED_STATS
+static uint64_t last_idle = 0;
+static uint64_t last_active = 0;
+#endif
+
+inline void periodic_status() {
+  uint64_t now = time_us_64();
+  if (now - last_status_time < 5000000) return;
+  last_status_time = now;
+
+  uint32_t chars_delta = bg_chars_drained - last_chars_drained;
+  uint32_t events_delta = bg_events_drained - last_events_drained;
+  last_chars_drained = bg_chars_drained;
+  last_events_drained = bg_events_drained;
+
+#if SPEED_STATS
+  uint64_t idle_delta = fg_idle_cycles - last_idle;
+  uint64_t active_delta = fg_active_cycles - last_active;
+  last_idle = fg_idle_cycles;
+  last_active = fg_active_cycles;
+  cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u idle=%uM active=%uM halt=%d bg_halt=%d]\n",
+              (int)fg2bg_chars.size(), 8192,
+              (int)fg2bg.size(), 8192,
+              chars_delta, events_delta,
+              (unsigned)(idle_delta / 1000000),
+              (unsigned)(active_delta / 1000000),
+              (int)fg_wants_halt,
+              (int)bg_wants_halt);
+#else
+  cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u halt=%d bg_halt=%d]\n",
+              (int)fg2bg_chars.size(), 8192,
+              (int)fg2bg.size(), 8192,
+              chars_delta, events_delta,
+              (int)fg_wants_halt,
+              (int)bg_wants_halt);
+#endif
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Background loop (core 0) — Unified Cooperative Scheduler
+//
+// Phase 1: Tcl REPL (6309 idle, core 1 not launched)
+// Phase 2: Bus operation (6309 running, coroutine-based drain)
+//
+// The scheduler pumps USB between every coroutine resume, exactly
+// like the Centipede.  drain_chars() runs inline at the top of
+// every iteration so console output is never delayed.
+// ═══════════════════════════════════════════════════════════════════
+void IN_RAM tfr911_background() {
+  // ── Initialize ──────────────────────────────────────────────────
+  init_lfs();
+  global_tcl_interp = Tcl_CreateInterp();
+  register_tcl_commands(global_tcl_interp);
+
+  // Create all coroutines upfront
+  Coro tcl_repl_coro;
+  coro_create(&tcl_repl_coro, tcl_repl_task, tcl_stack, sizeof(tcl_stack));
+
+  Coro drain_coro;
+  coro_create(&drain_coro, drain_task, drain_stack, sizeof(drain_stack));
+
+#if HALT_TEST
+  Coro halt_test_coro;
+  coro_create(&halt_test_coro, halt_test_task, halt_test_stack, sizeof(halt_test_stack));
+#endif
+
+  bool phase2 = false;
+
+  // ── Unified Scheduler Loop ─────────────────────────────────────
+  while (true) {
+    // HIGH PRIORITY: drain console characters first (inline, fast)
+    drain_chars();
+
+    if (!phase2) {
+      // ── Phase 1: Tcl REPL ──────────────────────────────────────
+      coro_resume(&tcl_repl_coro);
+      PumpUsbCobs();
+
+      if (tcl_repl_done) {
+        // ── Transition to Phase 2 ────────────────────────────────
+        //
+        // The 6309 is CMOS but not fully static — it needs continuous
+        // E/Q clocks or it loses state.  During the Tcl REPL, no
+        // clocks were generated.  So we must do the reset WITH the
+        // PIO/foreground running:
+        //
+        //   1. Assert RESET + HALT (open-drain) from background
+        //   2. Re-init PIO and launch foreground on core 1
+        //   3. Foreground generates E/Q; 6309 sees IDLE cycles
+        //   4. Background waits for foreground to be running
+        //   5. Hold RESET for ~10ms (~28K E cycles)
+        //   6. Release RESET (still HALTed)
+        //   7. Wait ~5ms for 6309 to see RESET de-assert
+        //   8. Release HALT → 6309 fetches reset vector
+        //
+        cobs_printf("[bye: asserting RESET+HALT...]\n");
+        gpio_set_dir(RESET, GPIO_OUT);
+        gpio_set_dir(HALT, GPIO_OUT);
+
+        pio_sm_set_enabled(pio0, 0, false);
+        pio_sm_restart(pio0, 0);
+        pio_clear_instruction_memory(pio0);
+        uint offset = pio_add_program(pio0, &t911veryfast_program);
+        t911veryfast_program_init(pio0, 0, offset);
+
+        foreground_running = false;
+        cobs_printf("[bye: launching core1...]\n");
+        multicore_launch_core1(Engine__RunCPU);
+
+        // Drain ROM writes from fg2bg while waiting for foreground.
+        // Install_OS pushes ~34K FG2BG_WRITE entries.
+        // sleep_ms(1) gives Core 1 time to grab USB mutex for prints.
+        while (!foreground_running) {
+          uint chore = 0;
+          while (fg2bg.pop(chore)) {
+            uint chore_num = chore >> 24;
+            byte chore_byte = chore & 0xFF;
+            switch (chore_num) {
+              case FG2BG_PUTCHAR:
+                if (chore_byte) putbyte(chore_byte);
+                break;
+              case FG2BG_WRITE: {
+                unsigned char pkt[4] = {C_RAM2_WRITE,
+                    (unsigned char)(chore >> 16),
+                    (unsigned char)(chore >> 8),
+                    (unsigned char)chore};
+                CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+                break;
+              }
+              default:
+                break;
+            }
+          }
+          sleep_ms(1);
+        }
+
+        cobs_printf("[bye: foreground running, holding RESET...]\n");
+        sleep_ms(10);
+        gpio_set_dir(RESET, GPIO_IN);
+        cobs_printf("[bye: RESET released, holding HALT...]\n");
+        sleep_ms(5);
+        gpio_set_dir(HALT, GPIO_IN);
+        cobs_printf("[bye: HALT released, 6309 booting]\n");
+
+        alarm_pool_init_default();
+#if SPEED_STATS
+        add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
+#endif
+#if TRACE
+        add_repeating_timer_ms(5000, Timer60HzCallback, nullptr, &Timer60HzData);
+#else
+        add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
+#endif
+        last_status_time = time_us_64();
+        cobs_printf("[bye: Phase 2 started]\n");
+        phase2 = true;
+      }
+    } else {
+      // ── Phase 2: 6309 running ──────────────────────────────────
+      coro_resume(&drain_coro);
+      PumpUsbCobs();
+
+#if HALT_TEST
+      coro_resume(&halt_test_coro);
+      PumpUsbCobs();
+#endif
+
+      // Deliver terminal input to 6309 ACIA emulator
+      PollTermInput();
+      if (Engine::Turbo9sim_CanRx()) {
+        if (term_input.NumBuffered() > 0) {
+          Engine::Turbo9sim_SetRx(term_input.Take());
+        }
+      }
+
+      periodic_status();
+    }
+  }
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 // main()
