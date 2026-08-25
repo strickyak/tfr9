@@ -521,11 +521,11 @@ bool TimerCallback(repeating_timer_t* rt) {
 // When the fg2bg FIFO fills up, the foreground asserts HALT to throttle
 // the 6309.  During HALT the 6309 emits idle cycles at addr=0xFFFF which
 // we skip (no FIFO push), letting the background drain the FIFO.
-#define FG2BG_HIGH_WATERMARK 2100  // 6000  // Assert HALT when FIFO exceeds this
+#define FG2BG_HIGH_WATERMARK 3000  // 6000  // Assert HALT when FIFO exceeds this
 #define FG2BG_LOW_WATERMARK  2000  // Release HALT when FIFO drains below this
-volatile bool fg_halt_for_flow_control = false;
-volatile bool fg_wants_halt = false;
-volatile bool bg_wants_halt = false;
+//== volatile bool fg_halt_for_flow_control = false;
+//== volatile bool fg_wants_halt = false;
+volatile std::atomic<bool> bg_wants_halt;
 
 // LED is push-pull: Positive Logic (1 == ON)                                                           //
 FORCE_INLINE void IN_RAM LedOn()  { gpio_put(LED, 1); }
@@ -571,6 +571,7 @@ struct Guts {
     static CycleDump dump_buf[DUMP_FIRST_CYCLES];
     int dump_count = 0;
     bool dump_triggered = false;  // Start recording on first addr==0xFFFE
+    bool actually_halted = false;
 #endif
 
     // Signal background that we've reached the inner loop.
@@ -603,6 +604,15 @@ struct Guts {
           HaltOn();
           fg_halt_for_flow_control = true;
         }
+      }
+#else
+      bool halt_wanted = bg_wants_halt.load(std::memory_order_relaxed);
+      if (halt_wanted && !actually_halted) {
+          HaltOn();
+          actually_halted = true;
+      } else if (!halt_wanted && actually_halted) {
+          HaltOff();
+          actually_halted = false;
       }
 #endif
 
@@ -1089,29 +1099,29 @@ static void halt_test_task(Coro& self) {
   while (true) {
     // Run for 3 seconds
     uint64_t start = time_us_64();
-    while (time_us_64() - start < 3000000) {
+    while (time_us_64() - start < 3'000'000) {
       coro_yield(&self);
     }
 
     // Suppress timer IRQs during HALT so the 6309 doesn't see
     // 180 accumulated IRQs on resume (causes OS9/BASIC09 crash).
-    cobs_printf("\n[halt_test: Asserting HALT for 3 seconds]\n");
+    cobs_printf("\nHALT\n");
     halt_suppress_timer = true;
-    bg_wants_halt = true;
-    HaltOn();
+    bg_wants_halt.store(true, std::memory_order_relaxed);
+    //== HaltOn();
 
     // Hold HALT for 3 seconds
     start = time_us_64();
-    while (time_us_64() - start < 3000000) {
+    while (time_us_64() - start < 3'000'000) {
       coro_yield(&self);
     }
 
-    cobs_printf("\n[halt_test: Releasing HALT]\n");
-    bg_wants_halt = false;
+    cobs_printf("\nGO\n");
+    bg_wants_halt.store(false, std::memory_order_relaxed);
     halt_suppress_timer = false;
-    if (!fg_wants_halt) {
-      HaltOff();
-    }
+    //== if (!fg_wants_halt) {
+      //== HaltOff();
+    //== }
   }
 }
 #endif
@@ -1148,14 +1158,14 @@ inline void periodic_status() {
               chars_delta, events_delta,
               (unsigned)(idle_delta / 1000000),
               (unsigned)(active_delta / 1000000),
-              (int)fg_wants_halt,
+              666, //== (int)fg_wants_halt,
               (int)bg_wants_halt);
 #else
   cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u halt=%d bg_halt=%d]\n",
               (int)fg2bg_chars.size(), 8192,
               (int)fg2bg.size(), 8192,
               chars_delta, events_delta,
-              (int)fg_wants_halt,
+              666, //== (int)fg_wants_halt,
               (int)bg_wants_halt);
 #endif
 }
