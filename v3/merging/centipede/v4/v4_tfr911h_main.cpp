@@ -8,12 +8,12 @@
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
 #define JUST_WAIT_DONT_HALT 1
-#define OCCASIONAL_HALTING 1
-#define TRACE 0
+#define OCCASIONAL_HALTING 0
+#define TRACE 1
 #define SPEED_STATS 1
 #define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
-#define HALT_TEST 1
+#define HALT_TEST 0
 #define HALT_IS_OPEN_DRAIN 1
 #define CLOCK_IRQ 1             // 0 to disable 60Hz timer IRQ during debugging
 #define DUMP_FIRST_CYCLES 0    // Log the first N bus cycles after boot for debugging
@@ -594,6 +594,7 @@ struct Guts {
         // gpio_put(LED, irq_needed);
       }
 
+#if !JUST_WAIT_DONT_HALT
 #if TRACE
       // Flow control: throttle 6309 via HALT when FIFO is filling up.
       // During HALT, the 6309 puts 0xFFFF on the address bus; we skip
@@ -611,7 +612,7 @@ struct Guts {
           fg_halt_for_flow_control = true;
         }
       }
-#else
+#endif
 #endif
 
 #if JUST_WAIT_DONT_HALT
