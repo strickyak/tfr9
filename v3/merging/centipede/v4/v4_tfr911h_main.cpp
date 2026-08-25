@@ -526,12 +526,15 @@ bool TimerCallback(repeating_timer_t* rt) {
 volatile bool fg_halt_for_flow_control = false;
 volatile bool fg_wants_halt = false;
 volatile bool bg_wants_halt = false;
-volatile int fg_inner_step = 0;  // Diagnostic: where in the inner loop is the foreground?
+
+// LED is push-pull: Positive Logic (1 == ON)                                                           //
+FORCE_INLINE void IN_RAM LedOn()  { gpio_put(LED, 1); }
+FORCE_INLINE void IN_RAM LedOff() { gpio_put(LED, 0); }
 
 // HaltOn/HaltOff: encapsulate HALT pin control.
 // HALT is push-pull: driven LOW = 6309 halted, driven HIGH = 6309 running.
-FORCE_INLINE void IN_RAM HaltOn()  { gpio_put(HALT, 0); }  // Assert HALT
-FORCE_INLINE void IN_RAM HaltOff() { gpio_put(HALT, 1); }  // Release HALT
+FORCE_INLINE void IN_RAM HaltOn()  { gpio_put(HALT, 0); LedOn(); }  // Assert HALT
+FORCE_INLINE void IN_RAM HaltOff() { gpio_put(HALT, 1); LedOff(); }  // Release HALT
 
 volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
 template <typename T>
@@ -542,17 +545,16 @@ struct Guts {
     return (((uint)Peek(a)) << 8) | Peek(a + 1);
   }
 
-  static bool ChangeInterruptPin(bool irq_needed) {
+  static void ChangeInterruptPin(bool irq_needed) {
     // Open-drain: assert by setting dir to output, release by input
     if (irq_needed) {
       gpio_set_dir(IRQ, GPIO_OUT);
     } else {
       gpio_set_dir(IRQ, GPIO_IN);
     }
-    return true;
   }
 
-  static void FORCE_INLINE RunCPU() {
+  static void FORCE_INLINE Foreground() {
     T::Install_OS();
 
     volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
@@ -580,11 +582,9 @@ struct Guts {
     while (true) {
       irq_needed = T::Turbo9sim_IrqNeeded();
       if (irq_needed != prev_irq_needed) {
-        bool ok = ChangeInterruptPin(irq_needed);
-        if (ok) {
-          prev_irq_needed = irq_needed;
-          gpio_put(LED, irq_needed);
-        }
+        ChangeInterruptPin(irq_needed);
+        prev_irq_needed = irq_needed;
+        // gpio_put(LED, irq_needed);
       }
 
 #if TRACE
@@ -613,19 +613,33 @@ struct Guts {
 
       // INNER LOOP
       for (int i = 0; i < GROUP_SIZE; i++) {
-        fg_inner_step = 1;
         pio_sm_put(pio0, 0, 0);  // put sync word
 
         byte value = 0;
-        fg_inner_step = 2;
-        uint pins = pio_sm_get_blocking(pio0, 0);  // get early pins
+
+        // Early pins are used for determing R/W.
+        // The SM and this early_pins come from the same read.
+        uint early_pins = pio_sm_get_blocking(pio0, 0);  // get early pins
+
+        // If R_W was stable on early pins, then tghe address bus should be stable as well.
+        // The address bus is on GPIO[32..47], so we need gpio_hi_in for them.
+#if PARANOID
         uint prev_addr = 0xFFFF & hw->gpio_hi_in;
         uint addr;
         while (true) {
           addr = 0xFFFF & hw->gpio_hi_in;
           if (addr == prev_addr) break;
           prev_addr = addr;
+          while (true) { // Stop and blink lights
+            gpio_put(LED, 1);
+            sleep_ms(200);
+            gpio_put(LED, 0);
+            sleep_ms(200);
+          }
         }
+#else
+        uint addr = 0xFFFF & hw->gpio_hi_in;
+#endif
 
         // Read R/W from GPIO AFTER address stabilization, not from
         // the PIO's early-pins sample.  The PIO decides read/write
@@ -635,7 +649,11 @@ struct Guts {
 #if SPEED_STATS
         if (addr == 0xFFFF) idle_in_group++;
 #endif
+#if 1
+        const bool reading = 0 != (early_pins & (1<<R_W));
+#else
         const bool reading = gpio_get(R_W);
+#endif
         byte kind = 0;
         uint late_pins = 0;
 
@@ -654,7 +672,6 @@ struct Guts {
           kind = CY_READ;
         } else {
           // WRITE CYCLES
-          fg_inner_step = 4;
           late_pins = pio_sm_get_blocking(pio0, 0);
           value = (byte)late_pins;
 
@@ -670,9 +687,7 @@ struct Guts {
         }
 
         if (likely(reading)) {
-          fg_inner_step = 5;
           pio_sm_put(pio0, 0, value);
-          fg_inner_step = 6;
           late_pins = pio_sm_get_blocking(pio0, 0);  // LATE PINS
         }
 
@@ -683,7 +698,6 @@ struct Guts {
         bool is_lic = ((late_pins & (1<<LIC)) != 0);
         bool is_fic = ((prev_late_pins & (1<<LIC)) != 0);
 
-        fg_inner_step = 7;
 #if TRACE
         if (reading) {
           if (addr != 0xFFFF) {
@@ -739,7 +753,7 @@ struct Guts {
       }
 #endif
     }  // true
-  }    // func RunCPU
+  }    // func Foreground
 };     // Guts
 
 // ═══════════════════════════════════════════════════════════════════
@@ -750,10 +764,10 @@ struct Engine : public DoTurbo9os<Engine,
                 public DoTurbo9sim<Engine>,
                 public Guts<Engine> {};
 
-// This IN_RAM Engine Launcher will contain the inlined Engine::RunCPU,
+// This IN_RAM Engine Launcher will contain the inlined Engine::Foreground,
 // so that method will effectively be IN_RAM as well.
-void IN_RAM Engine__RunCPU() {
-    Engine::RunCPU();
+void IN_RAM Engine__Foreground() {
+    Engine::Foreground();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1215,7 +1229,7 @@ void IN_RAM tfr911_background() {
 
         foreground_running = false;
         cobs_printf("[bye: launching core1...]\n");
-        multicore_launch_core1(Engine__RunCPU);
+        multicore_launch_core1(Engine__Foreground);
 
         // Drain ROM writes from fg2bg while waiting for foreground.
         // Install_OS pushes ~34K FG2BG_WRITE entries.
