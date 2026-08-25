@@ -1143,7 +1143,13 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 					// Source assembly lookup
 					var srcInfo string
-					if LinkSrc != nil {
+					if person != nil {
+						modName, modOffset := person.MemoryModuleOf(_addr)
+						if modName != "" {
+							srcInfo = Format(":%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
+						}
+					}
+					if srcInfo == "" && LinkSrc != nil {
 						if aline, ok := LinkSrc.Src[_addr]; ok {
 							srcInfo = aline
 						}
