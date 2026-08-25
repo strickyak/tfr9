@@ -7,12 +7,14 @@
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
-#define OCCASIONAL_HALTING 0
+#define JUST_WAIT_DONT_HALT 1
+#define OCCASIONAL_HALTING 1
 #define TRACE 0
 #define SPEED_STATS 1
 #define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
-#define HALT_TEST 0
+#define HALT_TEST 1
+#define HALT_IS_OPEN_DRAIN 1
 #define CLOCK_IRQ 1             // 0 to disable 60Hz timer IRQ during debugging
 #define DUMP_FIRST_CYCLES 0    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
@@ -465,8 +467,15 @@ void InitializePinsReturnDirections() {
       // HALT is push-pull (driven HIGH = released).
       // RESET, NMI, IRQ, FIRQ remain open-drain.
       case HALT:
+#if HALT_IS_OPEN_DRAIN
+        gpio_set_dir(i, GPIO_OUT);
+        gpio_put(i, 0);             // Latch = 0 (active low)
+        gpio_set_dir(i, GPIO_IN);   // Released (not driving)
+        gpio_set_pulls(i, true, false);  // Internal pull-up
+#else
         gpio_set_dir(i, GPIO_OUT);
         gpio_put(i, 1);             // Released (driven HIGH)
+#endif
         break;
 
       case RESET:
@@ -522,9 +531,15 @@ FORCE_INLINE void IN_RAM LedOn()  { gpio_put(LED, 1); }
 FORCE_INLINE void IN_RAM LedOff() { gpio_put(LED, 0); }
 
 // HaltOn/HaltOff: encapsulate HALT pin control.
+#if HALT_IS_OPEN_DRAIN
+// HALT is open-drain: assert by setting dir to output, release by input. Latch is always 0.
+FORCE_INLINE void IN_RAM HaltOn()  { gpio_set_dir(HALT, GPIO_OUT); LedOn(); }  // Assert HALT
+FORCE_INLINE void IN_RAM HaltOff() { gpio_set_dir(HALT, GPIO_IN); LedOff(); }  // Release HALT
+#else
 // HALT is push-pull: driven LOW = 6309 halted, driven HIGH = 6309 running.
 FORCE_INLINE void IN_RAM HaltOn()  { gpio_put(HALT, 0); LedOn(); }  // Assert HALT
 FORCE_INLINE void IN_RAM HaltOff() { gpio_put(HALT, 1); LedOff(); }  // Release HALT
+#endif
 
 volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
 
@@ -599,6 +614,17 @@ struct Guts {
 #else
 #endif
 
+#if JUST_WAIT_DONT_HALT
+      // Spin here as long as halt is wanted.
+      while (true)  {
+          bool halt_wanted = bg_wants_halt.load(std::memory_order_relaxed)
+            || (fg2bg.size() > FG2BG_HIGH_WATERMARK);
+          if (!halt_wanted) break;
+          LedOn();
+          sleep_us(1);
+      }
+      LedOff();
+#else
       {
           // NEW HALTING: Only foreground contorls HALT.
           bool halt_wanted = bg_wants_halt.load(std::memory_order_relaxed);
@@ -619,6 +645,7 @@ struct Guts {
           }
           sleep_us(1);
       }
+#endif
 
       uint prev_late_pins = 0;
 #if SPEED_STATS
@@ -635,7 +662,7 @@ struct Guts {
         // The SM and this early_pins come from the same read.
         uint early_pins = pio_sm_get_blocking(pio0, 0);  // get early pins
 
-        // If R_W was stable on early pins, then tghe address bus should be stable as well.
+        // If R_W was stable on early pins, then the address bus should be stable as well.
         // The address bus is on GPIO[32..47], so we need gpio_hi_in for them.
 #if PARANOID
         uint prev_addr = 0xFFFF & hw->gpio_hi_in;
@@ -663,8 +690,18 @@ struct Guts {
 #if SPEED_STATS
         if (addr == 0xFFFF) idle_in_group++;
 #endif
+
+#if 1
 #if 1
         const bool reading = 0 != (early_pins & (1<<R_W));
+#else
+        // BS=1 means either Interrupt Acknowledge or HALT. Neither state
+        // can ever perform a valid write. During HALT, R/W is high-impedance,
+        // and the Pico's weak pull-ups take too long to pull it HIGH, resulting
+        // in phantom writes that corrupt RAM. Forcing reading=true when BS=1
+        // prevents this by safely discarding the cycle as a read.
+        const bool reading = (0 != (early_pins & (1<<R_W))) || (0 != (early_pins & (1<<BS)));
+#endif
 #else
         const bool reading = gpio_get(R_W);
 #endif
@@ -1103,7 +1140,7 @@ static void halt_test_task(Coro& self) {
   while (true) {
     // Run for 3 seconds
     uint64_t start = time_us_64();
-    while (time_us_64() - start < 3'000'000) {
+    while (time_us_64() - start < 500'000) {
       coro_yield(&self);
     }
 
@@ -1115,7 +1152,7 @@ static void halt_test_task(Coro& self) {
 
     // Hold HALT for 3 seconds
     start = time_us_64();
-    while (time_us_64() - start < 3'000'000) {
+    while (time_us_64() - start < 500'000) {
       coro_yield(&self);
     }
 
@@ -1229,7 +1266,8 @@ void IN_RAM tfr911_background() {
         //
         cobs_printf("[bye: asserting RESET+HALT...]\n");
         gpio_set_dir(RESET, GPIO_OUT);
-        bg_wants_halt.store(true, std::memory_order_relaxed); //== HaltOn();
+        // bg_wants_halt.store(true, std::memory_order_relaxed); //== HaltOn();
+        //== HaltOn();
 
         pio_sm_set_enabled(pio0, 0, false);
         pio_sm_restart(pio0, 0);
@@ -1273,7 +1311,8 @@ void IN_RAM tfr911_background() {
         gpio_set_dir(RESET, GPIO_IN);
         cobs_printf("[bye: RESET released, holding HALT...]\n");
         sleep_ms(5);
-        bg_wants_halt.store(false, std::memory_order_relaxed); //== HaltOff();
+        // bg_wants_halt.store(false, std::memory_order_relaxed); //== HaltOff();
+        //== HaltOff();
         cobs_printf("[bye: HALT released, 6309 booting]\n");
 
         alarm_pool_init_default();
