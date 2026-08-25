@@ -1,6 +1,10 @@
 set(PROJECT tfr911h_v4)
-cmake_minimum_required(VERSION 3.12)
-set(PICO_BOARD solderparty_rp2350_stamp_xl)
+cmake_minimum_required(VERSION 3.13)
+
+list(APPEND PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
+set(PICO_BOARD tfr911h_rp2350b)
+# set(PICO_BOARD solderparty_rp2350_stamp_xl)
+
 set(PICO_PLATFORM rp2350-arm-s)
 set(PICO_RP2350A 0)
 set(PICO_RP2350B 1)

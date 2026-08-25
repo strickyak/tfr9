@@ -7,14 +7,17 @@
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
+#define OCCASIONAL_HALTING 0
 #define TRACE 0
 #define SPEED_STATS 1
 #define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define HALT_TEST 0
 #define CLOCK_IRQ 1             // 0 to disable 60Hz timer IRQ during debugging
-#define DUMP_FIRST_CYCLES 16    // Log the first N bus cycles after boot for debugging
+#define DUMP_FIRST_CYCLES 0    // Log the first N bus cycles after boot for debugging
 #define MHz 250  // clock speed
+
+constexpr unsigned GROUP_SIZE = 50; // 100; // 10000;
 
 #include <hardware/clocks.h>
 #include <hardware/pio.h>
@@ -228,23 +231,23 @@ void InstallVector(uint i, uint addr) {
 // Pushes to fg2bg FIFO; background drains and sends over USB.
 // (CoreEngine::ShowChar in v4_core_engine.h is a separate CRTP method
 // used only by Centipede — TFR911 Engine does not inherit from CoreEngine.)
-void ShowChar(char c) {
+FORCE_INLINE void IN_RAM ShowChar(char c) {
   Say((byte)c);
 }
 
-void putbyte(byte x) {
+FORCE_INLINE void IN_RAM putbyte(byte x) {
   unsigned char pkt[2] = {C_PUTCHAR, x};
   CobsEncodeAndTransmit(pkt, 2, [](int ch) { putchar_raw(ch); });
 }
 
-void TransmitMessage(byte messtype, uint sz, const byte* buf) {
+FORCE_INLINE void IN_RAM TransmitMessage(byte messtype, uint sz, const byte* buf) {
   byte pkt[sz + 1];
   pkt[0] = messtype;
   memcpy(pkt + 1, buf, sz);
   CobsEncodeAndTransmit(pkt, sz + 1, [](int ch) { putchar_raw(ch); });
 }
 
-void TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
+FORCE_INLINE void IN_RAM TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
   byte r[8];
   r[0] = cy >> 24;
   r[1] = cy >> 16;
@@ -257,7 +260,7 @@ void TransmitCycle(uint cy, byte flags, byte kind, byte data, uint addr) {
   TransmitMessage(C_CYCLE, 8, r);
 }
 
-void TransmitWrite(uint addr, byte data) {
+FORCE_INLINE void IN_RAM TransmitWrite(uint addr, byte data) {
   // Push through fg2bg FIFO instead of calling putchar_raw directly.
   // This is safe from core 1 (Install_OS) because the background
   // drains the FIFO while waiting for foreground_running.
@@ -287,13 +290,6 @@ CobsDecoder<1024, 64> cobs_decoder(usb_raw_buf, usb_packet_buf);
 // Terminal input buffer (chars from USB → turbo9sim RX)
 CircBuf<unsigned char, 1024> term_input;
 
-volatile uint delay_busy;
-void Delay(uint n) {
-  for (uint i = 0; i < n * 10; i++) {
-    delay_busy += i;
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // ACIA simulation state
 // ═══════════════════════════════════════════════════════════════════
@@ -303,10 +299,6 @@ bool acia_char_in_ready;
 int acia_char;
 bool irq_needed;
 bool prev_irq_needed;
-
-#define Printf if(false)printf
-
-
 
 // ═══════════════════════════════════════════════════════════════════
 // Include TFR911 headers from v1
@@ -457,8 +449,7 @@ void IN_RAM acia_write_control(uint addr, byte data) {
 // ═══════════════════════════════════════════════════════════════════
 // GPIO Initialization — Open-drain for slow control pins
 // ═══════════════════════════════════════════════════════════════════
-uint InitializePinsReturnDirections() {
-  uint directions = 0;
+void InitializePinsReturnDirections() {
   for (int i = 0; i < 48; i++) {
     gpio_init(i);
     switch (i) {
@@ -468,7 +459,6 @@ uint InitializePinsReturnDirections() {
       case LED:
         gpio_set_dir(i, GPIO_OUT);
         gpio_put(i, 1);
-        directions |= (1 << i);
         break;
 
       // Slow 6809E control: active-low, active-driven.
@@ -478,6 +468,7 @@ uint InitializePinsReturnDirections() {
         gpio_set_dir(i, GPIO_OUT);
         gpio_put(i, 1);             // Released (driven HIGH)
         break;
+
       case RESET:
       case NMI:
       case IRQ:
@@ -494,14 +485,12 @@ uint InitializePinsReturnDirections() {
         break;
     }
   }
-  return directions;
 }
 
 
 // ═══════════════════════════════════════════════════════════════════
 // Timer (1ms tick on core 0)
 // ═══════════════════════════════════════════════════════════════════
-constexpr uint GROUP_SIZE = 100; // 10000;
 #if SPEED_STATS
 uint milliseconds;
 volatile uint64_t cycles;  // Updated by foreground, read by background for stats
@@ -525,7 +514,8 @@ bool TimerCallback(repeating_timer_t* rt) {
 #define FG2BG_LOW_WATERMARK  2000  // Release HALT when FIFO drains below this
 //== volatile bool fg_halt_for_flow_control = false;
 //== volatile bool fg_wants_halt = false;
-volatile std::atomic<bool> bg_wants_halt;
+
+std::atomic<bool> bg_wants_halt;
 
 // LED is push-pull: Positive Logic (1 == ON)                                                           //
 FORCE_INLINE void IN_RAM LedOn()  { gpio_put(LED, 1); }
@@ -537,6 +527,7 @@ FORCE_INLINE void IN_RAM HaltOn()  { gpio_put(HALT, 0); LedOn(); }  // Assert HA
 FORCE_INLINE void IN_RAM HaltOff() { gpio_put(HALT, 1); LedOff(); }  // Release HALT
 
 volatile bool foreground_running = false;  // Set by core 1 when inner loop starts
+
 template <typename T>
 struct Guts {
   force_inline static void Poke(uint a, byte b) { ram[a & 0xFFFF] = b; }
@@ -571,8 +562,8 @@ struct Guts {
     static CycleDump dump_buf[DUMP_FIRST_CYCLES];
     int dump_count = 0;
     bool dump_triggered = false;  // Start recording on first addr==0xFFFE
-    bool actually_halted = false;
 #endif
+    bool actually_halted = false;
 
     // Signal background that we've reached the inner loop.
     // Background waits for this before releasing RESET/HALT.
@@ -606,15 +597,28 @@ struct Guts {
         }
       }
 #else
-      bool halt_wanted = bg_wants_halt.load(std::memory_order_relaxed);
-      if (halt_wanted && !actually_halted) {
-          HaltOn();
-          actually_halted = true;
-      } else if (!halt_wanted && actually_halted) {
-          HaltOff();
-          actually_halted = false;
-      }
 #endif
+
+      {
+          // NEW HALTING: Only foreground contorls HALT.
+          bool halt_wanted = bg_wants_halt.load(std::memory_order_relaxed);
+
+#if OCCASIONAL_HALTING
+          // Occasional: 98 times off, 1 time on.
+          halt_wanted |= (cycles % 99) == 50;
+#endif
+
+          if (halt_wanted && !actually_halted) {
+              HaltOn();
+              actually_halted = true;
+              sleep_us(1);
+          } else if (!halt_wanted && actually_halted) {
+              HaltOff();
+              actually_halted = false;
+              sleep_us(1);
+          }
+          sleep_us(1);
+      }
 
       uint prev_late_pins = 0;
 #if SPEED_STATS
@@ -749,7 +753,7 @@ struct Guts {
 #endif
 
         prev_late_pins = late_pins;
-      }  // next i
+      }  // next i: END INNER LOOP
 
 #if SPEED_STATS
       cycles += GROUP_SIZE;
@@ -762,9 +766,9 @@ struct Guts {
         cycle_counter -= 1000000;
       }
 #endif
-    }  // true
-  }    // func Foreground
-};     // Guts
+    }  // while (true): END OUTER LOOP
+  }    // End func Foreground
+};     // End struct Guts
 
 // ═══════════════════════════════════════════════════════════════════
 // Engine — CRTP composition
@@ -1108,7 +1112,6 @@ static void halt_test_task(Coro& self) {
     cobs_printf("\nHALT\n");
     halt_suppress_timer = true;
     bg_wants_halt.store(true, std::memory_order_relaxed);
-    //== HaltOn();
 
     // Hold HALT for 3 seconds
     start = time_us_64();
@@ -1119,9 +1122,6 @@ static void halt_test_task(Coro& self) {
     cobs_printf("\nGO\n");
     bg_wants_halt.store(false, std::memory_order_relaxed);
     halt_suppress_timer = false;
-    //== if (!fg_wants_halt) {
-      //== HaltOff();
-    //== }
   }
 }
 #endif
@@ -1229,7 +1229,7 @@ void IN_RAM tfr911_background() {
         //
         cobs_printf("[bye: asserting RESET+HALT...]\n");
         gpio_set_dir(RESET, GPIO_OUT);
-        HaltOn();
+        bg_wants_halt.store(true, std::memory_order_relaxed); //== HaltOn();
 
         pio_sm_set_enabled(pio0, 0, false);
         pio_sm_restart(pio0, 0);
@@ -1273,7 +1273,7 @@ void IN_RAM tfr911_background() {
         gpio_set_dir(RESET, GPIO_IN);
         cobs_printf("[bye: RESET released, holding HALT...]\n");
         sleep_ms(5);
-        HaltOff();
+        bg_wants_halt.store(false, std::memory_order_relaxed); //== HaltOff();
         cobs_printf("[bye: HALT released, 6309 booting]\n");
 
         alarm_pool_init_default();
@@ -1324,7 +1324,7 @@ int main() {
 #endif
   safe_adjust_flash_speed();
   stdio_usb_init();
-  uint directions = InitializePinsReturnDirections();
+  InitializePinsReturnDirections();
 
   for (int i = 0; i < 3; i++) {
     gpio_put(LED, 1);
