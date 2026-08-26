@@ -9,9 +9,8 @@
 
 #define JUST_WAIT_DONT_HALT 1
 #define OCCASIONAL_HALTING 0
-#define TRACE 1
+#define TRACE 0
 #define SPEED_STATS 0
-#define DEBUG_TCL_REPL 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define HALT_TEST 0
 #define HALT_IS_OPEN_DRAIN 1
@@ -864,18 +863,18 @@ static int repl_history_count = 0;
 static void tcl_repl_task(Coro& self) {
   rpc::g_vfs_coro = &self;  // VFS RPC yields back to scheduler
   gspoon::g_spoon_coro = &self;  // ls_cmd etc. call coro_yield(g_spoon_coro)
-  cobs_printf("TFR911 TCL SHELL\n");
+  cobs_printf("\nTFR911 TCL SHELL.  To exit TCL and launch 6809, type  bye \n");
 
   char line[256];
   while (true) {
-    cobs_printf("> ");
+    cobs_printf("TCL> ");
     int line_len = 0;
     int line_cursor = 0;
     int history_index = repl_history_count;
     std::string current_edit = "";
 
     auto redraw_line = [&]() {
-      cobs_printf("\r> ");
+      cobs_printf("\rTCL> ");
       for (int i = 0; i <= line_len; i++) {
         if (i == line_cursor) cobs_printf("\x1b[7m");
         if (i < line_len) {
@@ -905,7 +904,7 @@ static void tcl_repl_task(Coro& self) {
         if (out && out[0]) resp.message = out;
         pico_rpc::send_response(resp);
         if (rc == TCL_BYE) goto BYE;
-        cobs_printf("> ");
+        cobs_printf("TCL> ");
         continue;
       }
 
@@ -917,17 +916,11 @@ static void tcl_repl_task(Coro& self) {
       });
       if (pkt) {
         byte ch = (byte)(*pkt)[0];
-#if DEBUG_TCL_REPL
-        cobs_printf("[key: cmd=%d len=%d", ch, (int)pkt->size());
-        if (ch == C_PUTCHAR && pkt->size() >= 2)
-          cobs_printf(" val=%d", (byte)(*pkt)[1]);
-        cobs_printf("]\n");
-#endif
         if (ch == C_PUTCHAR && pkt->size() >= 2) ch = (byte)(*pkt)[1];
         delete pkt;
         if (ch == 13 || ch == 10) {  // End of line
           cobs_putchar('\r');
-          cobs_printf("> ");
+          cobs_printf("TCL> ");
           line[line_len] = '\0';
           cobs_printf("%s", line);
           cobs_printf("\x1b[K\n");
@@ -987,9 +980,6 @@ static void tcl_repl_task(Coro& self) {
           continue;
         }
         if (ch > 127) {
-#if DEBUG_TCL_REPL
-          cobs_printf("[skip non-ASCII %d]\n", ch);
-#endif
           continue;  // Skip non-ASCII (like the ² superscript)
         }
         if (ch >= 0x20 && line_len < 254) {
