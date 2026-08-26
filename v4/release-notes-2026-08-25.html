@@ -1,0 +1,84 @@
+<h1>tfr9/v4 Release Notes for TFR/911H</h1>
+<p>This v4 release supports the TFR/911H single board computer.</p>
+<p>We could and should port it to the TFR/905H,
+but for now, it's only the TFR/911H.</p>
+<h2>Prerequisites</h2>
+<p>These instructions should work on Ubuntu.</p>
+<p>Install <code>pico-sdk</code> and <code>picotool</code> in the superdirectory
+of the tfr9 directory.  This is often the coco-shelf or
+turbo-shelf directory.  I used version 2.3.0 of these tools.</p>
+<p>You need the Go compiler.  If you don't have the latest,
+you can probably edit the go.mod files to reduce the
+version required.</p>
+<h2>Use the /v4/ directory to build.</h2>
+<pre><code>cd tfr9/v4
+make clean
+make all
+</code></pre>
+<p>The products will be in the <code>build</code> directory.</p>
+<pre><code>/coco-shelf/tfr9/v4$ ls build
+listings              tether.linux-amd64.exe  tether.linux-arm-7.exe  tether.mac-arm64.exe  tether.win-amd64.exe
+tether.linux-386.exe  tether.linux-arm64.exe  tether.mac-amd64.exe    tether.win-386.exe    tfr911h_v4.uf2
+</code></pre>
+<h2>Flash and Run</h2>
+<p>Inside the /v4/ directory, you can <code>make flash</code> to flash
+new firmware into the TFR/911H.  (Hold down the button marked
+FLASH while you either Plug In (power up) the board or
+RESET the board with the button marked RESET.</p>
+<pre><code>make flash
+</code></pre>
+<p>To connect to the board over the USB cable with the tether program,
+you can either <code>make run</code> or you can <code>sh tether.sh</code>.</p>
+<pre><code>make run           OR
+sh tether.sh
+</code></pre>
+<p>If nothing happens, look in the file named <code>_log</code> for errors.</p>
+<h2>The TCL Shell</h2>
+<p>In this release, when you restart the TFR911H, you will initially
+get a TCL SHELL with the prompt &quot;TCL&gt;&quot;.   Hit Enter a time or two
+if you don't see it.</p>
+<p>This shell is not yet very useful, but soon it will be how you
+configure what you want to run on your board.</p>
+<p>To exit the shell and start running the 6809/6309, type &quot;bye&quot;.</p>
+<pre><code>TCL&gt; bye
+</code></pre>
+<p>This is an old version of Tcl from 1993, release 6.7,
+that has been updated for modern gcc and enhanced with
+commands for manipulating data on the TFR/911H.</p>
+<h2>The Pico Filesystem</h2>
+<p>While you are in the TCL SHELL, you can manipulate the 11MB
+filesystem on the FLASH Storage of the Pico.</p>
+<p>THIS IS NOT USEFUL YET, but soon it will be.</p>
+<p>Lots of simple UNIX commands work if you use them in
+their simplest forms:</p>
+<pre><code>cd  pwd  ls  cp  mv  rm  mkdir  rmdir  cat  hd
+df  du  file  wc  grep
+</code></pre>
+<p>There is always a special mount named &quot;/pc&quot;.
+This is a remote mount from a directory on the PC.
+By default it is the directory &quot;/tmp/pc&quot;.</p>
+<p>To load files onto the Pico filesytem, first copy them
+on your PC into the directory &quot;/tmp/pc&quot;.  Then boot the
+TFR/911h and use the TCL shell to copy files from &quot;/pc&quot; to
+the place you want in the Pico filesystem.</p>
+<h2>Turbo9 OS with Basic09</h2>
+<p>AT THE MOMENT, you don't have any choice what OS to run,
+unless you hack it yourself.    You get Turbo9 OS with
+a Basic09 command so you can experiment and do stuff.</p>
+<p>We'll try and get more capabilities Really Soon Now.</p>
+<p>If you type &quot;MDIR&quot; you can see the other commands
+available to you.  This version of Turbo9 OS has no
+disk device, so you cannot save or load files in it.</p>
+<h2>Easiest way to hack your own OS9 onto TFR/911H</h2>
+<p>The file <code>v4/tfr911h/turbo9os.rom.h</code> contains OS9
+modules.  (Notice it begins with $87 $CD).
+The kernel MUST be first, because a simple heuristic
+is used to find the kernel entry for the 6809 RESET vector.
+Rewrite that file with the modules you want to boot.</p>
+<p>Basic09 gets added on by this line:</p>
+<pre><code>/coco-shelf/tfr9/v4$ grep RomList tfr911h/v4_tfr911h_main.cpp
+                    RomList&lt;Turbo9os_Rom, Basic09_Rom&gt;&gt;,
+/coco-shelf/tfr9/v4$
+</code></pre>
+<p>Notice since Kernel is first in Turbo9os_Rom,
+it will be first in the RomList, as it must.</p>
