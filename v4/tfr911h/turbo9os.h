@@ -19,6 +19,9 @@ const byte Basic09_Rom[] = {
 const byte Ncl_Rom[] = {
 #include "ncl.mod.h"
 };
+const byte Ax_Rom[] = {
+#include "ax.mod.h"
+};
 
 template <typename T, typename ROMLIST>
 struct DoTurbo9os {

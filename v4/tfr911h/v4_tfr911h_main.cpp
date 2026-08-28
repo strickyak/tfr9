@@ -9,7 +9,7 @@
 
 #define JUST_WAIT_DONT_HALT 1
 #define OCCASIONAL_HALTING 0
-#define TRACE 0
+#define TRACE 1
 #define SPEED_STATS 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define HALT_TEST 0
@@ -811,7 +811,7 @@ struct Guts {
 // Engine — CRTP composition
 // ═══════════════════════════════════════════════════════════════════
 struct Engine : public DoTurbo9os<Engine,
-                    RomList<Turbo9os_Rom, Basic09_Rom>>,
+                    RomList<Turbo9os_Rom, Ax_Rom>>,
                 public DoTurbo9sim<Engine>,
                 public Guts<Engine> {};
 
@@ -1189,7 +1189,7 @@ inline void periodic_status() {
               666, //== (int)fg_wants_halt,
               (int)bg_wants_halt);
 #else
-  cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u halt=%d bg_halt=%d]\n",
+  if (0) cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u halt=%d bg_halt=%d]\n",
               (int)fg2bg_chars.size(), 8192,
               (int)fg2bg.size(), 8192,
               chars_delta, events_delta,
