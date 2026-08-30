@@ -323,7 +323,6 @@ struct DoFloppy {
             // NMI is edge-triggered — release is via nmi_pending flag
             // in the background drain_task (not the FIFO, which is too slow).
             ASSERT_NMI();
-            PUSH_TO_BG(FG2BG_NMI, 0, 0);  // For background logging
           }
         }
         break;
@@ -390,7 +389,6 @@ struct DoFloppy {
             floppy_ptr = floppy_buf;
             PUSH_TO_BG(FG2BG_W_256, 0, 0);
             ASSERT_NMI();
-            PUSH_TO_BG(FG2BG_NMI, 0, 0);  // For background logging
           } else {
             floppy_ptr = floppy_buf;  // Reset to prevent overrun
           }
