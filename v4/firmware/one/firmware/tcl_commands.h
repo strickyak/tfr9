@@ -1125,7 +1125,7 @@ void register_tcl_commands(Tcl_Interp* interp) {
   Tcl_CreateCommand(interp, (char*)"head", head_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"tail", tail_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"hd", hd_cmd, NULL, NULL);
-  Tcl_CreateCommand(interp, (char*)"md5sum", md5sum_cmd, NULL, NULL);
+  Tcl_CreateCommand(interp, (char*)"md5", md5sum_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"centipede", centipede_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"bye", bye_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"sleep", sleep_cmd, NULL, NULL);
