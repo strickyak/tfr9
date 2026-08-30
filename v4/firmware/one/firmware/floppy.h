@@ -42,7 +42,10 @@ byte floppy_write_chore;   // Snapshot of command byte (set by BG at command tim
 byte floppy_write_latch;   // Snapshot of latch  (set by FG at byte 256)
 byte floppy_write_track;   // Snapshot of track  (set by FG at byte 256)
 byte floppy_write_sector;  // Snapshot of sector (set by FG at byte 256)
-byte floppy_write_buf[256];  // Snapshot of sector data (memcpy'd by FG at byte 256)
+
+// Double-buffered write buffers so foreground can snapshot instantly without memcpy.
+byte floppy_write_bufs[2][256];
+volatile uint8_t floppy_write_active_idx = 0;
 
 // Atomic FDC status register. Written by both cores:
 //   FG: WriteCommand sets initial value; ReadData/WriteData clear at byte 256.
@@ -52,6 +55,7 @@ std::atomic<byte> floppy_status{0};
 
 byte floppy_track;     // FG-written (WriteTrack), BG-read at command time
 byte floppy_sector;    // FG-written (WriteSector), BG-read at command time
+byte floppy_data;      // FG-written (WriteData / data reg for seek)
 volatile byte *floppy_ptr;  // FG-owned during transfers, BG sets after read load
 
 byte floppy_buf[256];  // Shared sector buffer; BG writes (read), FG writes (write)
@@ -80,7 +84,7 @@ struct DontFloppy {
                                           byte chore_byte) {
     cobs_printf("# Floppy Command not installed\n");
   }
-  static void BackgroundFifoFloppyW256(Coro& self) {
+  static void BackgroundFifoFloppyW256(Coro& self, byte chore_byte) {
     cobs_printf("# Floppy W256 not installed\n");
   }
   static void ReadScsFloppy(const uint &abus, byte &dbus) {
@@ -136,9 +140,6 @@ struct DoFloppy {
                                           byte chore_byte) {
     cobs_printf(" f!%02x ", chore_byte);
     switch (chore_byte) {
-      case 0x17:  // seek track
-        floppy_track = floppy_buf[0];
-        break;
 
       case 0x80:  // read sector
         cobs_printf(" %dr%d/%x", floppy_track, floppy_sector, chore_byte);
@@ -233,7 +234,8 @@ struct DoFloppy {
         break;
     }
   }
-  static void BackgroundFifoFloppyW256(Coro& self) {
+  static void BackgroundFifoFloppyW256(Coro& self, byte chore_byte) {
+    byte* write_buf = floppy_write_bufs[chore_byte & 1];
 #if FLOPPY_OVER_VFS
     // Temporarily redirect VFS RPCs to yield via our coroutine.
     Coro* saved_vfs_coro = rpc::g_vfs_coro;
@@ -258,19 +260,17 @@ struct DoFloppy {
         uint dden_offset = (floppy_write_latch & 0x40) ? 18 : 0;
         uint lsn = dden_offset + 18 * floppy_write_track + floppy_write_sector - 1;
         lfs_soff_t seeked = vfs_file_seek(&floppy_vfs_files[hnum], lsn * 256, LFS_SEEK_SET, &self);
-        lfs_ssize_t bytes_written = vfs_file_write(&floppy_vfs_files[hnum], floppy_write_buf, 256);
+        lfs_ssize_t bytes_written = vfs_file_write(&floppy_vfs_files[hnum], write_buf, 256);
         cobs_printf("[W h%d lsn%d sk%d wr%d]", hnum, lsn, (int)seeked, (int)bytes_written);
         if (bytes_written == 256) write_ok = true;
       }
     }
     if (!write_ok) {
       cobs_printf("[W FAIL h%d]", hnum);
-      floppy_ptr = floppy_buf;
       floppy_status.store(0x04, std::memory_order_release);  // Lost Data
       rpc::g_vfs_coro = saved_vfs_coro;
       return;
     }
-    floppy_ptr = floppy_buf;
     cobs_printf(" [sent] ");
 
     rpc::g_vfs_coro = saved_vfs_coro;
@@ -278,7 +278,6 @@ struct DoFloppy {
     if (!usb_tether_ok()) {
       // No USB tether: cannot transmit sector data to PC.
       // Signal Lost Data error (bit 2) so DSKCON reports I/O error to BASIC.
-      floppy_ptr = floppy_buf;
       floppy_status.store(0x04, std::memory_order_release);  // Lost Data
       return;
     }
@@ -290,10 +289,8 @@ struct DoFloppy {
     pkt[3] = floppy_write_latch;
     pkt[4] = floppy_write_track;
     pkt[5] = floppy_write_sector;
-    memcpy(pkt + 6, floppy_write_buf, 256);
+    memcpy(pkt + 6, write_buf, 256);
     CobsEncodeAndTransmit(pkt, 256 + 6, putchar_raw);
-
-    floppy_ptr = floppy_buf;
 
     cobs_printf(" [sent] ");
 #endif
@@ -310,6 +307,12 @@ struct DoFloppy {
         // Without it, reads freeze (DRQ stays asserted between sectors).
         floppy_status.store(
             dbus & 1, std::memory_order_relaxed);
+        break;
+      case 0x9:  // ReadTrack ( read)
+        dbus = floppy_track;
+        break;
+      case 0xA:  // ReadSector ( read)
+        dbus = floppy_sector;
         break;
       case 0xB:  // ReadData ($FF4B read) — FOREGROUND
         dbus = *floppy_ptr++;
@@ -343,16 +346,26 @@ struct DoFloppy {
         if ((dbus & 0xF0) == 0xA0) {
           // WRITE: BUSY + DRQ (0x03) immediately — CoCo must start feeding data.
           floppy_status.store(0x03, std::memory_order_relaxed);
+          floppy_ptr = floppy_write_bufs[floppy_write_active_idx];
         } else if ((dbus & 0xF0) == 0x80) {
           // READ: BUSY only (0x01). Background sets DRQ after loading data.
           floppy_status.store(0x01, std::memory_order_relaxed);
+          floppy_ptr = floppy_buf;
         } else {
           floppy_status.store(0x00, std::memory_order_relaxed);
+          floppy_ptr = floppy_buf;
         }
 
-        floppy_ptr = floppy_buf;  // Reset pointer.
-        if (dbus == 0x17)
-          floppy_track = floppy_buf[0];  // was losing critical race
+        // Type I commands: Restore, Seek, Step, Step-In, Step-Out
+        if ((dbus & 0xF0) == 0x00) {
+          floppy_track = 0;  // RESTORE to track 0
+        } else if ((dbus & 0xF0) == 0x10) {
+          floppy_track = floppy_data;  // SEEK to track in Data Register
+        } else if ((dbus & 0xE0) == 0x40) {
+          if (dbus & 0x10) floppy_track++;
+        } else if ((dbus & 0xE0) == 0x60) {
+          if ((dbus & 0x10) && floppy_track > 0) floppy_track--;
+        }
 
         PUSH_TO_BG(FG2BG_FLOPPY_COMMAND, 0, dbus);
         break;
@@ -362,35 +375,23 @@ struct DoFloppy {
       case 0xA:  // WriteSector
         floppy_sector = dbus;
         break;
-      case 0xB:  // WriteData ($FF4B write) — FOREGROUND
+      case 0xB:  // WriteData ( write) — FOREGROUND
+        floppy_data = dbus;
         *floppy_ptr++ = dbus;
-        if (floppy_ptr >= floppy_limit) {
+        if (floppy_ptr >= floppy_write_bufs[floppy_write_active_idx] + 256) {
           // All 256 bytes received. Clear status unconditionally.
           floppy_status.store(0x00, std::memory_order_relaxed);
           if ((floppy_latch & 0x80) != 0) {
-            // HALT/NMI enabled. Snapshot ALL metadata and data NOW, before
-            // NMI fires and the CoCo immediately starts the next write.
-            //
-            // WHY snapshot latch/track/sector here (not at command time):
-            //   Disk BASIC writes $FF40 (latch) AFTER $FF48 (command).
-            //   At command time, floppy_latch still has the OLD value.
-            //   By byte 256, the correct latch value has been written.
-            //
-            // WHY memcpy floppy_buf into floppy_write_buf:
-            //   After NMI, the CoCo's NMI handler returns to DSKCON which
-            //   immediately starts writing the next sector's data into
-            //   floppy_buf. The background hasn't transmitted yet.
             floppy_write_latch = floppy_latch;
             floppy_write_track = floppy_track;
             floppy_write_sector = floppy_sector;
-            memcpy(floppy_write_buf, floppy_buf, 256);
-            // Reset pointer BEFORE NMI to prevent duplicate triggers if
-            // stray WriteData bytes arrive before the next command.
-            floppy_ptr = floppy_buf;
-            PUSH_TO_BG(FG2BG_W_256, 0, 0);
+            uint8_t completed_idx = floppy_write_active_idx;
+            floppy_write_active_idx ^= 1;
+            floppy_ptr = floppy_write_bufs[floppy_write_active_idx];
+            PUSH_TO_BG(FG2BG_W_256, 0, completed_idx);
             ASSERT_NMI();
           } else {
-            floppy_ptr = floppy_buf;  // Reset to prevent overrun
+            floppy_ptr = floppy_write_bufs[floppy_write_active_idx];  // Reset to prevent overrun
           }
         }
         break;
