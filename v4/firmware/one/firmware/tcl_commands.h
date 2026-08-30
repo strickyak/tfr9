@@ -20,6 +20,7 @@ extern "C" {
 #include "rtc.h"
 #include "vfs_rpc.h"
 #include "keyboard_injector.h"
+#include "md5.h"
 
 static int dummy_traverse_cb(void *data, lfs_block_t block) {
   int* count = (int*)data;
@@ -242,6 +243,67 @@ int hd_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) {
   
   vfs_file_close(&file);
   return TCL_OK;
+}
+
+int md5sum_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) {
+  if (argc < 2) {
+    Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0],
+                     " filename ?filename...?\"", (char*)NULL);
+    return TCL_ERROR;
+  }
+
+  bool any_error = false;
+  bool output_started = false;
+  Tcl_ResetResult(interp);
+
+  for (int i = 1; i < argc; i++) {
+    coro_yield(gspoon::g_spoon_coro);
+    const char* filename = argv[i];
+    vfs_file_t file;
+    int err = vfs_file_open(&file, filename, LFS_O_RDONLY);
+    if (err < 0) {
+      if (output_started) Tcl_AppendResult(interp, "\n", (char*)NULL);
+      Tcl_AppendResult(interp, "md5sum: ", filename, ": No such file or directory", (char*)NULL);
+      output_started = true;
+      any_error = true;
+      continue;
+    }
+
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+
+    uint8_t buf[256];
+    bool read_error = false;
+    while (true) {
+      coro_yield(gspoon::g_spoon_coro);
+      lfs_ssize_t bytes = vfs_file_read(&file, buf, sizeof(buf));
+      if (bytes < 0) {
+        if (output_started) Tcl_AppendResult(interp, "\n", (char*)NULL);
+        Tcl_AppendResult(interp, "md5sum: error reading ", filename, (char*)NULL);
+        output_started = true;
+        any_error = true;
+        read_error = true;
+        break;
+      }
+      if (bytes == 0) break;
+      MD5_Update(&ctx, buf, (size_t)bytes);
+    }
+    vfs_file_close(&file);
+
+    if (!read_error) {
+      unsigned char digest[16];
+      MD5_Final(digest, &ctx);
+      char hex[33];
+      for (int j = 0; j < 16; j++) {
+        snprintf(&hex[j * 2], 3, "%02x", digest[j]);
+      }
+      if (output_started) Tcl_AppendResult(interp, "\n", (char*)NULL);
+      Tcl_AppendResult(interp, hex, "  ", filename, (char*)NULL);
+      output_started = true;
+    }
+  }
+
+  return any_error ? TCL_ERROR : TCL_OK;
 }
 
 int head_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) {
@@ -1063,6 +1125,7 @@ void register_tcl_commands(Tcl_Interp* interp) {
   Tcl_CreateCommand(interp, (char*)"head", head_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"tail", tail_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"hd", hd_cmd, NULL, NULL);
+  Tcl_CreateCommand(interp, (char*)"md5sum", md5sum_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"centipede", centipede_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"bye", bye_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"sleep", sleep_cmd, NULL, NULL);
