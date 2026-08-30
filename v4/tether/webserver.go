@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log"
 	// "math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,11 +53,159 @@ type WebConsoleConfig struct {
 func WebServer(wcc *WebConsoleConfig) {
 	http.HandleFunc("/", serveHome(wcc))
 	http.HandleFunc("/ws", handleWebSocket(wcc))
+	http.HandleFunc("/ram", serveRam)
+	http.HandleFunc("/ram.bin", serveRam)
+	http.HandleFunc("/ram.hex", serveRam)
 
 	fmt.Printf("Internal web server started at %q\n", wcc.Bind)
 	log.Fatal(http.ListenAndServe(wcc.Bind, nil))
 }
 
+func parseUintParam(s string) (uint, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		v, err := strconv.ParseUint(s[2:], 16, 64)
+		return uint(v), err == nil
+	}
+	if strings.HasPrefix(s, "$") {
+		v, err := strconv.ParseUint(s[1:], 16, 64)
+		return uint(v), err == nil
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err == nil {
+		return uint(v), true
+	}
+	v, err = strconv.ParseUint(s, 16, 64)
+	return uint(v), err == nil
+}
+
+func vdgChar(b byte) byte {
+	if (b & 0x80) == 0 {
+		ch := b & 0x3F
+		if ch < 32 {
+			return '@' + ch
+		} else {
+			return ' ' + (ch - 32)
+		}
+	}
+	return '.'
+}
+
+func asciiChar(b byte) byte {
+	if b >= 32 && b <= 126 {
+		return b
+	}
+	return '.'
+}
+
+func serveRam(w http.ResponseWriter, r *http.Request) {
+	if the_ram == nil {
+		http.Error(w, "RAM not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	raw := the_ram.GetTrackRam()
+	if raw == nil {
+		http.Error(w, "RAM not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	q := r.URL.Query()
+	addrStr := q.Get("addr")
+	if addrStr == "" {
+		addrStr = q.Get("offset")
+	}
+	lenStr := q.Get("len")
+	if lenStr == "" {
+		lenStr = q.Get("size")
+	}
+	if lenStr == "" {
+		lenStr = q.Get("length")
+	}
+	format := strings.ToLower(q.Get("format"))
+	if format == "" {
+		if strings.HasSuffix(r.URL.Path, ".bin") {
+			format = "bin"
+		} else if strings.HasSuffix(r.URL.Path, ".hex") {
+			format = "hex"
+		}
+	}
+
+	start := uint(0)
+	if val, ok := parseUintParam(addrStr); ok {
+		if val < uint(len(raw)) {
+			start = val
+		}
+	}
+
+	length := uint(len(raw)) - start
+	if val, ok := parseUintParam(lenStr); ok && val > 0 {
+		if start+val <= uint(len(raw)) {
+			length = val
+		}
+	}
+
+	data := raw[start : start+length]
+
+	switch format {
+	case "bin", "binary", "raw":
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.Write(data)
+
+	case "hex":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write([]byte(hex.EncodeToString(data) + "\n"))
+
+	default:
+		// Default: text/plain hexdump with dual ASCII + VDG character views
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		var buf bytes.Buffer
+		for i := 0; i < len(data); i += 16 {
+			chunkLen := 16
+			if i+chunkLen > len(data) {
+				chunkLen = len(data) - i
+			}
+			curAddr := start + uint(i)
+			fmt.Fprintf(&buf, "%08x  ", curAddr)
+
+			// 16 hex bytes in two groups of 8
+			for j := 0; j < 16; j++ {
+				if j < chunkLen {
+					fmt.Fprintf(&buf, "%02x ", data[i+j])
+				} else {
+					buf.WriteString("   ")
+				}
+				if j == 7 {
+					buf.WriteByte(' ')
+				}
+			}
+
+			// Column 1: Standard ASCII
+			buf.WriteString(" |")
+			for j := 0; j < chunkLen; j++ {
+				buf.WriteByte(asciiChar(data[i+j]))
+			}
+			for j := chunkLen; j < 16; j++ {
+				buf.WriteByte(' ')
+			}
+			buf.WriteString("|")
+
+			// Column 2: VDG 64-char Text
+			buf.WriteString(" |")
+			for j := 0; j < chunkLen; j++ {
+				buf.WriteByte(vdgChar(data[i+j]))
+			}
+			for j := chunkLen; j < 16; j++ {
+				buf.WriteByte(' ')
+			}
+			buf.WriteString("|\n")
+		}
+		w.Write(buf.Bytes())
+	}
+}
 func serveHome(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "index.html", StartupTime, WebContent)
