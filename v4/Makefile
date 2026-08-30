@@ -26,6 +26,12 @@ build/tfr911h_v4.uf2: BUILD-DIR
 	cp -fv tfr911h/build/tfr911h_v4.uf2 build/tfr911h_v4.uf2
 	ls -l $$(pwd)/build/tfr911h_v4.uf2
 
+verbosely-build/tfr911h_v4.uf2: BUILD-DIR
+	cd tfr911h/build && PATH="$(TOP)/bin:$$PATH" PICOTOOL_DIR="$(TOP)/picotool-install" PICO_SDK_PATH="$(TOP)/pico-sdk/" cmake ..
+	cd tfr911h/build && PATH="$(TOP)/bin:$$PATH" PICOTOOL_DIR="$(TOP)/picotool-install" PICO_SDK_PATH="$(TOP)/pico-sdk/" cmake --build . --verbose
+	cp -fv tfr911h/build/tfr911h_v4.uf2 build/tfr911h_v4.uf2
+	ls -l $$(pwd)/build/tfr911h_v4.uf2
+
 LISTING-FILES: BUILD-DIR
 	cd build && unzip -u ../listings.zip
 
