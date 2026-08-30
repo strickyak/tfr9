@@ -1,9 +1,1 @@
-Force the unzip:
-
-cd build && unzip ../listings.zip
-Archive:  ../listings.zip
-replace listings/mfree.0128f947b5? [y]es, [n]o, [A]ll, [N]one, [r]ename: A
-  inflating: listings/mfree.0128f947b5
-  inflating: listings/go.001b9ffffc
-
-===========================================
+none
