@@ -6,10 +6,14 @@ but for now, it's only the TFR/911H.</p>
 <p>These instructions should work on Ubuntu.</p>
 <p>Install <code>pico-sdk</code> and <code>picotool</code> in the superdirectory
 of the tfr9 directory.  This is often the coco-shelf or
-turbo-shelf directory.  I used version 2.3.0 of these tools.</p>
+turbo-shelf directory.  I used version 2.3.0 of these tools.
+The /v4/ Makefile can do this all for you:</p>
+<pre><code>$ cd tfr9/v4
+$ make install-pico-sdk-and-picotool-on-shelf
+</code></pre>
 <p>You need the Go compiler.  If you don't have the latest,
 you can probably edit the go.mod files to reduce the
-version required.</p>
+version required.  Any version 1.20 or later probably works.</p>
 <h2>Use the /v4/ directory to build.</h2>
 <pre><code>cd tfr9/v4
 make clean

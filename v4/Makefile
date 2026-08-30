@@ -33,7 +33,7 @@ verbosely-build/tfr911h_v4.uf2: BUILD-DIR
 	ls -l $$(pwd)/build/tfr911h_v4.uf2
 
 LISTING-FILES: BUILD-DIR
-	cd build && unzip -u ../listings.zip
+	cd build && unzip -u ../misc/listings.zip
 
 TETHERS:  BUILD-DIR  \
 	build/tether.linux-amd64.exe \
@@ -61,3 +61,6 @@ build/tether.mac-arm64.exe: $(TETHER_GO_FILES)
 	GOOS=darwin   GOARCH=arm64      go build -o $@ ./tether/
 build/tether.mac-amd64.exe: $(TETHER_GO_FILES)
 	GOOS=darwin   GOARCH=amd64      go build -o $@ ./tether/
+
+install-pico-sdk-and-picotool-on-shelf:
+	sh misc/install-pico-sdk-and-picotool-on-shelf.sh
