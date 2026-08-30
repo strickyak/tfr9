@@ -7,6 +7,7 @@
 //
 // Based on: v3/tmanager911/very-turbos/veryturbos.cpp (510 lines)
 
+#define TRY_AX_ROM 0
 #define JUST_WAIT_DONT_HALT 1
 #define OCCASIONAL_HALTING 0
 #define TRACE 1
@@ -811,7 +812,11 @@ struct Guts {
 // Engine — CRTP composition
 // ═══════════════════════════════════════════════════════════════════
 struct Engine : public DoTurbo9os<Engine,
+#if TRY_AX_ROM
                     RomList<Turbo9os_Rom, Ax_Rom>>,
+#else
+                    RomList<Turbo9os_Rom, Basic09_Rom>>,
+#endif
                 public DoTurbo9sim<Engine>,
                 public Guts<Engine> {};
 
