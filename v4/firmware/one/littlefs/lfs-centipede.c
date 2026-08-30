@@ -5,6 +5,15 @@
 
 #include "lfs-centipede.h"
 
+#ifdef PICO_LFS_TRACE_CHAR
+extern void centipede_trace_char(char c);
+#define TRACE    centipede_trace_char
+#else
+#define TRACE    pico_lfs_dont_trace_char
+#endif
+
+inline void pico_lfs_dont_trace_char(char c) {}
+
 // 1. Read Method
 int pico_lfs_read(const struct lfs_config *c, lfs_block_t block, 
                   lfs_off_t off, void *buffer, lfs_size_t size) {
@@ -13,8 +22,10 @@ int pico_lfs_read(const struct lfs_config *c, lfs_block_t block,
                                  (block * c->block_size) + off;
 
     // Read directly out of the RP2350 memory-mapped XIP space
+    TRACE('(');
     memcpy(buffer, (const void *)flash_target_addr, size);
     
+    TRACE(')');
     return LFS_ERR_OK;
 }
 
@@ -25,11 +36,13 @@ int __not_in_flash_func(pico_lfs_prog)(const struct lfs_config *c, lfs_block_t b
     uint32_t flash_target_offset = LFS_FLASH_OFFSET + (block * c->block_size) + off;
     
     // Core 0 must lock out interrupts before modifying flash
+    TRACE('[');
     uint32_t ints = save_and_disable_interrupts();
-    
+
     flash_range_program(flash_target_offset, (const uint8_t *)buffer, size);
     
     restore_interrupts(ints);
+    TRACE(']');
     return LFS_ERR_OK;
 }
 
@@ -53,3 +66,5 @@ int pico_lfs_sync(const struct lfs_config *c) {
     // so this is simply a no-op that returns success.
     return LFS_ERR_OK;
 }
+
+#undef TRACE
