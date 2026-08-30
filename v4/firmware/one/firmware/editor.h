@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "pico/stdlib.h"
-#include "gspoon.h" // For tcl_io and inkey_state
 #include "vfs.h"
 #include "../tcl6.7c/tcl.h"
 
