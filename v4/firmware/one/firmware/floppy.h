@@ -69,7 +69,7 @@ char floppy_vfs_paths[4][136];
 
 void set_floppy_names() {
         for (uint i = 0; i < 4; i++) {
-            sprintf(floppy_vfs_paths[i], "/%s/floppy%d.dsk",
+            sprintf(floppy_vfs_paths[i], "/%s/f%d",
                     (centipede_config.floppy_fd ? "fd" : "pc"), i);
         }
 }
