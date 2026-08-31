@@ -21,8 +21,8 @@ struct KeystrokeAction {
 #define TYPING_HALF_TICKS ((TYPING_DELAY_MS / 2) / 20)  // Convert ms to 20ms ticks
 #define PAUSE_TICKS (1000 / 20)  // ~ always 1 second = 50 ticks
 
-// Pre-compiled script array (filled by background)
-inline KeystrokeAction script[MAX_SCRIPT_ACTIONS];
+// Pre-compiled key_script array (filled by background)
+inline KeystrokeAction key_script[MAX_SCRIPT_ACTIONS];
 inline size_t script_len = 0;
 inline size_t script_pc = 0;
 inline uint32_t next_transition_tick = 0;
@@ -98,13 +98,13 @@ inline void start_if_queued() {
         if (script_len + 2 > MAX_SCRIPT_ACTIONS) break;
         
         if (c == '~') {
-            script[script_len++] = {PAUSE_TICKS, -1, -1, false, false};
+            key_script[script_len++] = {PAUSE_TICKS, -1, -1, false, false};
         } else {
             int8_t c_col, c_row;
             bool c_shift, c_clear;
             lookup_char(c, &c_col, &c_row, &c_shift, &c_clear);
-            script[script_len++] = {TYPING_HALF_TICKS, c_col, c_row, c_shift, c_clear};
-            script[script_len++] = {TYPING_HALF_TICKS, -1, -1, false, false};
+            key_script[script_len++] = {TYPING_HALF_TICKS, c_col, c_row, c_shift, c_clear};
+            key_script[script_len++] = {TYPING_HALF_TICKS, -1, -1, false, false};
         }
     }
     
@@ -113,8 +113,8 @@ inline void start_if_queued() {
     
     uint32_t current_ticks = (uint32_t)g_sys_time.ticks_20ms;
     if (script_len > 0) {
-        next_transition_tick = current_ticks + script[0].wait_ticks;
-        set_responses_for_action(script[0]);
+        next_transition_tick = current_ticks + key_script[0].wait_ticks;
+        set_responses_for_action(key_script[0]);
     }
     
     // Make the foreground see it
@@ -122,7 +122,7 @@ inline void start_if_queued() {
     cobs_printf("[keyboard_injector] Active, %d actions\n", (int)script_len);
 }
 
-// Called periodically from background to advance the script based on ticks.
+// Called periodically from background to advance the key_script based on ticks.
 inline void tick() {
     if (!active) return;
     
@@ -135,8 +135,8 @@ inline void tick() {
             cobs_printf("[keyboard_injector] Sequence complete.\n");
             return;
         }
-        set_responses_for_action(script[script_pc]);
-        next_transition_tick = current_ticks + script[script_pc].wait_ticks;
+        set_responses_for_action(key_script[script_pc]);
+        next_transition_tick = current_ticks + key_script[script_pc].wait_ticks;
     }
 }
 
