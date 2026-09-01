@@ -8,6 +8,11 @@ run:
 
 clean:
 	rm -rf build tfr911h/build _log
+	$(MAKE) -C cpu-tracker clean
+
+test-cpu-tracker:
+	$(MAKE) -C cpu-tracker test
+
 
 ##########################################################
 
