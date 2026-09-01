@@ -135,9 +135,8 @@ class CpuTracker {
       return false;
     }
 
-    // Hardware Vector Fetch Hook (Interrupts & Reset)
-    // Vectors live at $FFF0..$FFFE (Reset, NMI, SWI, IRQ, FIRQ, SWI2, SWI3)
-    if (type == CycleType::READ && addr >= 0xFFF0 && addr <= 0xFFFE) {
+    // Hardware Vector Fetch Hook for Interrupts during RESYNC_HUNT
+    if (type == CycleType::READ && addr >= 0xFFF0 && addr <= 0xFFFE && state_ == TrackerState::RESYNC_HUNT) {
       if ((addr & 1) == 0) {
         vector_target_ = (uint16_t(data) << 8);
       } else {
@@ -150,11 +149,20 @@ class CpuTracker {
       return false;
     }
 
-    // Handle repeated/aborted opcode read cycle at current instruction start PC
-    if (type == CycleType::READ && addr == cur_instr_start_pc_ && state_ == TrackerState::OPERAND_BYTES && operand_bytes_read_ == 0) {
-      // Re-fetch at instruction start (e.g. after interrupt dispatch or vector jump)
+    // Handle repeated/duplicate opcode or prefix read cycle at current instruction start PC
+    if (type == CycleType::READ && addr == cur_instr_start_pc_ &&
+        ((state_ == TrackerState::OPERAND_BYTES && operand_bytes_read_ == 0) ||
+         state_ == TrackerState::PREFIX_PAGE)) {
+      predicted_fic = HandleOpcodeFetch(type, addr, data);
       UpdateStats(predicted_fic, is_fic_ground_truth);
-      return false;
+      return predicted_fic;
+    }
+
+    // Handle pseudo-idle read ($FFFF) during DATA_ACCESS:
+    // If a data read was from $FFFF, it was omitted from the log, so the next incoming cycle
+    // is already the next instruction's opcode fetch at regs_.pc!
+    if (type == CycleType::READ && addr == regs_.pc && state_ == TrackerState::DATA_ACCESS && !expected_data_write_) {
+      state_ = TrackerState::OPCODE_FETCH;
     }
 
     switch (state_) {

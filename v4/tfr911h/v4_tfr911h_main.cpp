@@ -584,6 +584,8 @@ struct Guts {
     // Background waits for this before releasing RESET/HALT.
     foreground_running = true;
 
+    uint prev_late_pins = 0;  // memory for delaying LIC one cycle => FIC.
+
     // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
     // USB I/O and terminal RX are handled by background on core 0.
     while (true) {
@@ -648,7 +650,6 @@ struct Guts {
       }
 #endif
 
-      uint prev_late_pins = 0;
 #if SPEED_STATS
       int idle_in_group = 0;
 #endif
