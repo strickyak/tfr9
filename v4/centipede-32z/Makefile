@@ -11,6 +11,13 @@ FIRMWARE:
 	mkdir -p build
 	cp -fv firmware/build/centipede.uf2 build
 
+CENTISCOPE-FIRMWARE:
+	mkdir -p centiscope-firmware/build
+	( cd centiscope-firmware/build && $(PICOENV) cmake .. )
+	( cd centiscope-firmware/build && $(PICOENV) make )
+	mkdir -p build
+	cp -fv centiscope-firmware/build/centiscope.uf2 build
+
 flash: FIRMWARE
 	cp -fv firmware/build/centipede.uf2 /media/$$USER/RP*/.
 
