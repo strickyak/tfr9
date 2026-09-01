@@ -5,6 +5,18 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifndef FG2BG_READ
+#define FG2BG_READ 1
+#endif
+
+#ifndef FG2BG_WRITE
+#define FG2BG_WRITE 3
+#endif
+
+#ifndef FG0BG_FIC
+#define FG0BG_FIC 5 // Discovered in background by CpuTracker (First Instruction Cycle)
+#endif
+
 struct CycleCompressState {
   addr16 prev;
   addr16 zone16[16];
@@ -141,10 +153,16 @@ inline void IN_RAM encode_zone(BitWriter* bw, CycleCompressState* cs,
 
 // Encode address delta relative to cs->prev, then update cs->prev.
 inline void IN_RAM encode_abus(BitWriter* bw, CycleCompressState* cs,
-                               addr16 abus) {
+                               addr16 abus, bool is_old_read = false) {
   int delta = (int)abus - (int)cs->prev;
   if (delta == -1) {
-    bw_write(bw, 0u, 2);  // 00 = decr
+    if (is_old_read) {
+      // "00 00" is reserved for FIC prefix; use zone encoding for old-read decrementing
+      bw_write(bw, 3u, 2);  // 11 = zone encoding follows
+      encode_zone(bw, cs, abus);
+    } else {
+      bw_write(bw, 0u, 2);  // 00 = decr
+    }
   } else if (delta == 0) {
     bw_write(bw, 1u, 2);  // 01 = same
   } else if (delta == 1) {
@@ -171,6 +189,7 @@ void IN_FLASH ResetCompressCycles(void) {
 // Does NOT reset state — call ResetCompressCycles() to start fresh.
 //
 // Each input chore is: [fifo_verb(8) | abus(16) | dbus(8)]
+// fifo_verb may be FG2BG_WRITE, FG2BG_READ, or FG0BG_FIC.
 // pred(abus) returns true for "old" reads whose dbus is known by the receiver.
 //
 // Output format: 2-bit aligned, packed MSB-first. See #if 0 spec below.
@@ -186,8 +205,16 @@ uint IN_RAM CompressCycles(uint8_t* output_buffer, uint32_t* input,
     uint8_t dbus = chore & 0xFF;
     byte fifo_verb = 0xFF & (chore >> 24);
 
+    bool is_fic = (fifo_verb == FG0BG_FIC);
     bool is_write = (fifo_verb == FG2BG_WRITE);
     bool is_old_read = !is_write && pred(abus);
+
+    // If this cycle is an FIC (discovered by CpuTracker in background),
+    // emit the 4-bit FIC prefix (00 00) first.
+    if (is_fic) {
+      bw_write(&bw, 0u, 2);  // 00
+      bw_write(&bw, 0u, 2);  // 00
+    }
 
     // Special case: old read with abus == old_read_cs.prev + 1.
     // Encoded as just "11" (2 bits).  This case must be used here
@@ -206,7 +233,7 @@ uint IN_RAM CompressCycles(uint8_t* output_buffer, uint32_t* input,
     CycleCompressState* cs = is_write      ? &write_cs
                              : is_old_read ? &old_read_cs
                                            : &new_read_cs;
-    encode_abus(&bw, cs, abus);
+    encode_abus(&bw, cs, abus, is_old_read);
 
     // dbus: only for new-read and write (old-read dbus is implicit)
     if (!is_old_read) {
@@ -220,14 +247,16 @@ uint IN_RAM CompressCycles(uint8_t* output_buffer, uint32_t* input,
 #if 0  // protocol spec
 
 The input to CompressCycles are 32-bit words.
-Each word has 3 parts:   The highest byte comes from FG2BG_READ
-or FG2BG_WRITE.  The lowest byte is called dbus.
+Each word has 3 parts:   The highest byte comes from FG2BG_READ,
+FG2BG_WRITE, or FG0BG_FIC.  The lowest byte is called dbus.
 The middle 16 bits are abus.
 
 If (word >> 24) == FG2BG_WRITE, it is a write cycle.
 
-If (word >> 24) == FG2BG_READ, you must call pred to find
+If (word >> 24) == FG2BG_READ or FG0BG_FIC, you must call pred to find
 out if it is an Old Read Cycle or a New Read Cycle.
+FG0BG_FIC indicates a First Instruction Cycle (FIC), discovered in
+the background by the CpuTracker.
 
 The difference is that an Old Read has a well-known dbus value
 that does not need to be encoded in the compression.
@@ -246,20 +275,28 @@ The compressor produces output data with granularity of 2 bits.
 These bits pack into the output from high 2 bits down to low 2 bits.
 Bits pack tightly, leaving no padding.
 
-1.  The first 2 bits tell the cycle type:
+1.  FIC Prefix:
+If the cycle is an FIC (FG0BG_FIC), it is preceded by a 4-bit prefix:
+*   00 00: FIC PREFIX.  Signals that the immediately following read cycle
+    is a First Instruction Cycle.  Does not emit a cycle or advance .prev on its own.
+
+2.  The cycle type (2 bits):
 *   00: read old
 *   01: read new
 *   10: write
 *   11: special: old read "next" -- abus is old_read_cs.prev+1, no further bits.
 
-2.  If the above 2 bits are not 11, they are followed by 2 more bits
+3.  If the above 2 bits are not 11, they are followed by 2 more bits
 that tell if the current abus is very close to the previous abus
 of this cycle type:
 
-*   00: decr i.e. .prev-1
+*   00: decr i.e. .prev-1 (used for new-read and write; old-read decr uses zone encoding)
 *   01: same i.e. .prev
 *   10: incr i.e. .prev+1
 *   11: something else, 4 zone bits follow.
+
+NOTE: "00 00" (old-read + decr) is reserved as the FIC PREFIX.
+Any actual old-read decrementing cycle is encoded via zone encoding ("00 11 ...").
 
 NOTE: "00 10" (old-read + incr) is NEVER emitted because that case is
 always encoded as "11" above.  This makes "00 10" usable as an

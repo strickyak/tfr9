@@ -201,7 +201,7 @@ func PreUploadSrec(filename string, channelToPico chan []byte) {
 	}
 
 	if scanErr := scanner.Err(); scanErr != nil {
-		fmt.Println("Error reading file %q: ", filename, scanErr)
+		fmt.Printf("Error reading file %q: %v\n", filename, scanErr)
 	}
 
 	// TODO -- write ram

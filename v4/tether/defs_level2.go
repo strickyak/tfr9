@@ -1,5 +1,4 @@
-//XXX//go:build level2
-//XXX// +build level2
+// was: go:build level2
 
 package main
 

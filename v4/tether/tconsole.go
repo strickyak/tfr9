@@ -899,23 +899,29 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 			var ch byte // Used by default and C_PUTCHAR
 
-			ReadCycleFunction := func(_addr uint, _data byte) {
-				const GLOSS = 2
+			ReadCycleFunction := func(_addr uint, _data byte, is_fic bool) {
 				Cycle++
 
-				/*
-					modName, modOffset := person.MemoryModuleOf(_addr)
-					aline := Format("%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
-				*/
 				var aline string
-				var ok_src bool
-				if GLOSS > 0 {
-					aline, ok_src = LinkSrc.Src[_addr]
+				var disasm string
 
-					if GLOSS > 1 && ok_src {
-						disasm, numBytes, numCycles, cycleCodes, ok := lib.Decode(the_ram.GetTrackRam()[_addr:])
-						if ok {
-							aline += Format(" ((%q %d,%d %q))", disasm, numBytes, numCycles, cycleCodes)
+				if is_fic {
+					if person != nil {
+						modName, modOffset := person.MemoryModuleOf(_addr)
+						if modName != "" {
+							aline = Format(":%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
+						}
+					}
+					if aline == "" && LinkSrc != nil {
+						if lsrc, ok := LinkSrc.Src[_addr]; ok {
+							aline = lsrc
+						}
+					}
+
+					trackRam := the_ram.GetTrackRam()
+					if trackRam != nil && _addr < uint(len(trackRam)) {
+						if d, _, _, _, ok := lib.Decode(trackRam[_addr:]); ok {
+							disasm = d
 						}
 					}
 				}
@@ -925,7 +931,21 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				aline = strings.ReplaceAll(aline, "(   ", "(")   // seeing empty stuff is not useful.
 				aline = strings.ReplaceAll(aline, "(  ", "(")    // seeing empty stuff is not useful.
 				aline = strings.ReplaceAll(aline, "( ", "(")     // seeing empty stuff is not useful.
-				cline := Format("cy-r %04x   -> %02x  #%d  %s", _addr, _data, Cycle, aline)
+
+				var cline string
+				if is_fic {
+					if disasm != "" && aline != "" {
+						cline = Format("cy-F %04x   -> %02x  #%d  %s  %s", _addr, _data, Cycle, disasm, aline)
+					} else if disasm != "" {
+						cline = Format("cy-F %04x   -> %02x  #%d  %s", _addr, _data, Cycle, disasm)
+					} else if aline != "" {
+						cline = Format("cy-F %04x   -> %02x  #%d  %s", _addr, _data, Cycle, aline)
+					} else {
+						cline = Format("cy-F %04x   -> %02x  #%d", _addr, _data, Cycle)
+					}
+				} else {
+					cline = Format("cy-r %04x   -> %02x  #%d", _addr, _data, Cycle)
+				}
 				Logf("%s", cline)
 
 				ReadCycleHistory = (ReadCycleHistory << 8) | uint64(_data)
@@ -1078,20 +1098,14 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				HandleCCycle(pack, person, channelToPico)
 
 			case C_COMPRESSED_CYCLES: // 175
-				// Packet format: [cmd, numCycles, write_counter_lsb, push_fail_lsb, compressed...]
 				numCycles := int(pkt[1])
 				writeCounterLSB := pkt[2]
 				pushFailLSB := pkt[3]
-
-				// Detect write counter gaps (wraps at 256)
 				if prevWriteCounterValid {
-					expected := (prevWriteCounterLSB + byte(numWritesInPrevPacket)) & 0xFF
+					expected := byte(prevWriteCounterLSB + byte(numWritesInPrevPacket))
 					if writeCounterLSB != expected {
-						gap := int(writeCounterLSB) - int(expected)
-						if gap < 0 {
-							gap += 256
-						}
-						log.Printf("WARNING: write counter gap! expected=%d got=%d (lost ~%d writes)", expected, writeCounterLSB, gap)
+						log.Printf("WARNING: write counter gap detected! got %d, expected %d (prev %d + %d writes)",
+							writeCounterLSB, expected, prevWriteCounterLSB, numWritesInPrevPacket)
 					}
 				}
 				if pushFailLSB != prevPushFailLSB {
@@ -1106,11 +1120,13 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				for _, cy := range cycles {
 					direction, addr, data := (cy>>24)&0xFF, (cy>>8)&0xFFFF, cy&0xFF
 					switch direction {
-					case 1: // read cycle
-						ReadCycleFunction(uint(addr), byte(data))
-					case 3: // write cycle
+					case 1: // read cycle (FG2BG_READ)
+						ReadCycleFunction(uint(addr), byte(data), false)
+					case 3: // write cycle (FG2BG_WRITE)
 						numWritesInPacket++
 						WriteCycleFunction(uint(addr), byte(data))
+					case 5: // FIC read cycle (FG0BG_FIC)
+						ReadCycleFunction(uint(addr), byte(data), true)
 					default:
 						Panicf("Bad direction in DecompressCycles: %x %x %x", direction, addr, data)
 						panic(0)
@@ -1127,10 +1143,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						_addr := (uint(pack[0]) << 8) + uint(pack[1])
 						_data := pack[2]
 
-						// aline, _ := LinkSrc.Src[_addr]
-						// Logf("%04x r %02x %s", _addr, _data, aline)
-
-						ReadCycleFunction(_addr, _data)
+						ReadCycleFunction(_addr, _data, false)
 					}
 				}
 
@@ -1139,32 +1152,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				if len(pack) == 3 {
 					_addr := (uint(pack[0]) << 8) + uint(pack[1])
 					_data := pack[2]
-					Cycle++
 
-					// Source assembly lookup
-					var srcInfo string
-					if person != nil {
-						modName, modOffset := person.MemoryModuleOf(_addr)
-						if modName != "" {
-							srcInfo = Format(":%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
-						}
-					}
-					if srcInfo == "" && LinkSrc != nil {
-						if aline, ok := LinkSrc.Src[_addr]; ok {
-							srcInfo = aline
-						}
-					}
-
-					// Disassembly
-					disasm := ""
-					trackRam := the_ram.GetTrackRam()
-					if trackRam != nil && _addr < uint(len(trackRam)) {
-						if d, _, _, _, ok := lib.Decode(trackRam[_addr:]); ok {
-							disasm = d
-						}
-					}
-
-					Logf("cy-F %04x   -> %02x  #%d  %s  %s", _addr, _data, Cycle, disasm, srcInfo)
+					ReadCycleFunction(_addr, _data, true)
 				}
 
 			case C_LOGGING,
@@ -1331,7 +1320,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					ch = cmd
 				} else {
 					if true {
-						log.Printf("Unexpected cmd byte: $%02x == $d.", cmd, cmd)
+						log.Printf("Unexpected cmd byte: $%02x == %d.", cmd, cmd)
 						fmt.Printf("[x%02x]", cmd)
 					} else {
 						log.Printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ X")

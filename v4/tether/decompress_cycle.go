@@ -16,6 +16,7 @@ import (
 const (
 	dcFifoRead  = uint32(0x01000000)
 	dcFifoWrite = uint32(0x03000000)
+	dcFifoFIC   = uint32(0x05000000)
 )
 
 // Package-level decompressor state, shared across calls for better compression.
@@ -214,6 +215,7 @@ func DecompressCycles(compressed []byte, numCycles int) []uint32 {
 	br := newBitReader(compressed)
 
 	var result []uint32
+	nextIsFIC := false
 
 outer:
 	for len(result) < numCycles {
@@ -227,8 +229,32 @@ outer:
 			// 11 = old read "next": address is old_read_cs.prev + 1, no further bits.
 			dcOldReadCS.prev++
 			dbus := the_ram.Peek1(uint(dcOldReadCS.prev))
-			result = append(result, dcFifoRead|(uint32(dcOldReadCS.prev)<<8)|uint32(dbus))
+			verb := dcFifoRead
+			if nextIsFIC {
+				verb = dcFifoFIC
+				nextIsFIC = false
+			}
+			result = append(result, verb|(uint32(dcOldReadCS.prev)<<8)|uint32(dbus))
 			continue
+		}
+
+		// Read 2-bit prev-delta.
+		deltaBits, ok := br.readBits(2)
+		if !ok {
+			break
+		}
+
+		// FIC Prefix: "00 00" (cycleType 00, deltaBits 00)
+		if cycleType == 0 && deltaBits == 0 {
+			nextIsFIC = true
+			continue // Prefix modifier: does not emit a cycle, next cycle is FIC
+		}
+
+		// Sentinel: old-read + incr (cycle "00", delta "10") is never
+		// a valid encoding — it is always compressed as "11" — so its
+		// presence here signals end-of-buffer padding.
+		if cycleType == 0 && deltaBits == 2 {
+			break
 		}
 
 		// Identify cycle state and FIFO type.
@@ -248,27 +274,15 @@ outer:
 			fifoType = dcFifoWrite
 		}
 
-		// Read 2-bit prev-delta.
-		deltaBits, ok := br.readBits(2)
-		if !ok {
-			break
-		}
-
-		// Sentinel: old-read + incr (cycle "00", delta "10") is never
-		// a valid encoding — it is always compressed as "11" — so its
-		// presence here signals end-of-buffer padding.
-		if isOldRead && deltaBits == 2 {
-			break
-		}
-
 		// Decode address from delta.
 		var abus uint16
 		switch deltaBits {
-		case 0: // 00 = prev - 1
+		case 0: // 00 = prev - 1 (used for new-read and write; old-read decr uses zone)
 			abus = cs.prev - 1
 			cs.prev = abus
 		case 1: // 01 = same
 			abus = cs.prev
+			cs.prev = abus
 		case 2: // 10 = incr (only for new-read and write)
 			abus = cs.prev + 1
 			cs.prev = abus
@@ -291,7 +305,12 @@ outer:
 			dbus = byte(d)
 		}
 
-		result = append(result, fifoType|(uint32(abus)<<8)|uint32(dbus))
+		verb := fifoType
+		if nextIsFIC {
+			verb = dcFifoFIC
+			nextIsFIC = false
+		}
+		result = append(result, verb|(uint32(abus)<<8)|uint32(dbus))
 	}
 
 	// log.Printf("DecompressCycles: => % 9x", result)
