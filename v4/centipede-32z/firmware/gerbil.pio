@@ -1,0 +1,201 @@
+; gerbil.pio — Bus gerbil PIO program for RP2350B
+;
+; Monitors a 6809-style bus using GPIO pins 0..31
+;    for Radio Shack / Tandy Color Computers & such.
+;
+; Pin assignments:
+;   GPIO 0-7   : Data bus (OUT pins, directly driven via mov pins/pindirs)
+;   GPIO 20    : RW (active high = CPU reading, low = CPU writing)
+;                Branched via sampled ISR bit 20.
+;   GPIO 21    : EBAR — used for WAIT in read_path.
+;   GPIO 22    : QBAR — used for WAIT synchronization.
+;   GPIO 28    : SLENB_BAR — tells Coco we are driving DATA BUS.
+;
+; Protocol per bus cycle:
+;   1. Wait for QBAR to fall (1 -> 0): rising edge of Q
+;   2. Delay some cycles for signal settling
+;   3. Sample all 32 GPIO pins and PUSH
+;   4. If RW is LOW (CPU write cycle):
+;        a. Wait for QBAR to rise (0 -> 1): falling edge of Q
+;        b. Sample all 32 GPIO pins again and PUSH (captures write data)
+;      Else (RW is HIGH, CPU read cycle):
+;        a. Pull response from TX FIFO (C code provides 9-bit value)
+;        b. Extract data byte (bits 0-7) into X, drive flag (bit 8) into Y
+;        c. If Y==0: drive X onto data bus, wait for EBAR rise, release bus
+;        d. If Y!=0: don't drive, loop back
+;   5. Loop back to step 1
+;
+; The C code reads 1 word per read cycle, 2 words per write cycle.
+
+.program gerbil
+.side_set 1 pindirs
+
+.wrap_target
+top:
+    ; Step 1: Wait for QBAR (GPIO 22) to drop from 1 to 0.
+    ; First ensure QBAR is high (wait for 1), then wait for it to go low (wait for 0).
+    ;wait 1 gpio 22 side 0   ; stall until QBAR is high
+    wait 1 gpio 22 side 0   ; stall until QBAR is high -- until in phase 4 or 1
+    ;wait 0 gpio 22 side 0   ; stall until QBAR drops low
+    wait 0 gpio 22 side 0   ; stall until QBAR drops low -- until begin of phase 2
+
+    ; Step 2: Delay for signal settling.
+    ; Each nop is 1 PIO clock cycle at clkdiv=1 (i.e., system clock).
+    ; The [n] delay field on instructions can add 0-31 extra cycles.
+    ; Using side-set-free instructions, we can get up to 31 cycles delay
+    ; per instruction via the delay field.  Adjust as needed.
+    nop [15] side 0         ; (tune as needed)  -- sometime in phase 2
+
+    ; Step 3: Sample all 32 pins and push to RX FIFO.
+    in pins, 32 side 0
+    mov x, isr side 0       ; save sampled snapshot in X
+    push side 0             ; send ISR to C -- really just for RW on pin 20.
+
+    ; Step 4: Branch on RW using bit 20 of the sampled snapshot.
+    ; This ensures the branch uses the same RW value sent to C,
+    ; avoiding a race if RW changes between sample and branch.
+    mov osr, x side 0       ; restore snapshot into OSR
+    out null, 20 side 0     ; discard bits 0-19
+    out x, 1 side 0         ; X = bit 20 (RW: 1=read, 0=write)
+
+    wait 0 gpio 21 side 0   ; wait for EBAR (GPIO 21) to drop (E rises), begin of phase 3
+    jmp x-- read_path side 0 ; if X was nonzero (RW=1), jump to read_path
+
+write_path:
+    ; Step 4a (write): Wait for QBAR to rise (0 -> 1), then sample again.
+    ;wait 1 gpio 22 side 0   ; stall until QBAR rises
+    wait 1 gpio 22 side 0   ; stall until QBAR rises -- begin of phase 4.
+    in pins, 32 side 0      ; sample write data (disabled: autopush sends to RX FIFO)
+    push side 0
+    jmp top side 0          ; loop back to beginning
+
+read_path:
+    ; Step 4b (read): Pull response word from TX FIFO.
+    ; C code sends: bits 0-7 = data byte, bit 8 = 1 means drive, 0 means don't drive.
+    ; we are at beginning of phase 3
+    pull block side 0       ; OSR = 32-bit response from TX FIFO (await message from C)
+    ; we could be in phase 3 or 4, depending on how slow/fast things are.
+    out x, 8 side 0         ; X = bottom 8 bits (data byte)
+    out y, 1 side 0         ; Y = bit 8 (1 = drive bus, 0 = skip)
+    jmp !y read_dont_drive side 0 ; if Y==0, skip driving and go straight to wait
+
+    mov pindirs, ~null side 1 ; set 8 OUT pins (GPIO 0-7) to output direction, and SLENB_BAR active (output)
+    mov pins, x side 1      ; drive data byte onto bus
+
+    ; we could be in phase 3 or 4, depending on how slow/fast things are.
+    wait 1 gpio 21 [6] side 1 ; wait for EBAR (GPIO 21) to rise, begin phase 1, plus 6 cycles hold
+    mov pindirs, null side 0  ; set 8 OUT pins back to input direction, and SLENB_BAR inactive (input)
+    jmp top side 0
+
+read_dont_drive:
+    ; we could be in phase 3, or 4, depending on how slow/fast things are.
+    in pins, 32 side 0      ; For DEBUG and LOGGING, what was read?
+    jmp pin rdd_push side 0 ; exit loop when E drops, EBAR rises.  we are in phase 1.
+    jmp read_dont_drive side 0 ; keep sampling until EBAR
+
+rdd_push:
+    ; we are in phase 1
+    push side 0             ;   tell the C code.
+    ; Falls through to .wrap, which hardware-loops back to top.
+.wrap
+
+
+% c-sdk {
+//
+// gerbil_program_init() — Initialize and start the gerbil PIO state machine.
+//
+// Parameters:
+//   pio    — PIO instance (pio0 or pio1)
+//   sm     — State machine index (0..3)
+//   offset — Instruction memory offset (from pio_add_program)
+//
+// Pin assumptions (hard-wired in the .pio program):
+//   GPIO 0..7   — Data bus: OUT pins (directly driven via mov pins/pindirs)
+//   GPIO 0..31  — Sampled by "in pins, 32"
+//   GPIO 20     — RW signal, branched via sampled ISR bit 20
+//   GPIO 21     — EBAR signal, used by "wait ... gpio 21"
+//   GPIO 22     — QBAR signal, used by "wait ... gpio 22"
+//
+IN_FLASH void gerbil_program_init(PIO pio, uint sm, uint offset) {
+    // Get the default config generated by pioasm from the .program directive.
+    pio_sm_config c = gerbil_program_get_default_config(offset);
+
+    // --- Input pin group (for "in pins, 32") ---
+    // Base pin 0, reading 32 pins (GPIO 0..31).
+    sm_config_set_in_pins(&c, 0);
+
+    // --- Output pin group (for "mov pins, x" and "mov pindirs") ---
+    // 8 pins starting at GPIO 0 (data bus GPIO 0..7).
+    sm_config_set_out_pins(&c, 0, 8);
+
+    // --- JMP PIN (for "jmp pin" on EBAR, GPIO 21) ---
+    // Used in read_dont_drive loop to detect EBAR rising (E falling).
+    // RW (GPIO 20) is branched separately via sampled ISR bit 20.
+
+    // --- Input shift register ---
+    // shift_right = false => shift left into ISR.
+    // autopush = false => we use explicit PUSH instructions.
+    // push_threshold = 32.
+    sm_config_set_in_shift(&c, /*shift_right=*/false, /*autopush=*/false, /*push_threshold*/32);
+
+    // --- Output shift register ---
+    // shift_right = true => LSB first (so "out x, 8" gets bits 0-7,
+    //   then "out y, 1" gets bit 8).
+    // autopull = false => we use explicit PULL.
+    // pull_threshold = 32.
+    sm_config_set_out_shift(&c, true, false, 32);
+
+    // --- Clock divider ---
+    // 1.0 = run at full system clock speed.
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    // --- Now trying JMP on EBAR
+    sm_config_set_jmp_pin(&c, 21);
+
+    // --- Side-set for SLENB_BAR (pin 28) ---
+    sm_config_set_sideset_pins(&c, 28);
+
+    // --- Initialize GPIO pins for PIO function ---
+    // On RP2350B, set the GPIO base to 0 so PIO sees GPIO 0..31.
+    pio_set_gpio_base(pio, 0);
+
+    // Initialize dbus 8 pins for PIO function and set as inputs.
+    for (uint pin = 0; pin < 8; pin++) {
+        pio_gpio_init(pio, pin);
+    }
+    // Set dbus 8 pins as inputs from the PIO's perspective.
+    pio_sm_set_consecutive_pindirs(pio, sm, 0, 8, false);
+
+    // Same for RW, EBAR, QBAR
+    for (uint pin = 20; pin < 23; pin++) {
+        pio_gpio_init(pio, pin);
+    }
+    // Set 3 pins as inputs from the PIO's perspective.
+    pio_sm_set_consecutive_pindirs(pio, sm, 20, 3, false);
+
+    // Initialize SLENB_BAR pin (28) for PIO function, open-drain style.
+    pio_gpio_init(pio, 28);
+    pio_sm_set_pins_with_mask(pio, sm, 0, 1u << 28); // Initialize SLENB_BAR to 0 (Active)
+    pio_sm_set_consecutive_pindirs(pio, sm, 28, 1, true); // Set as output
+    gpio_pull_up(28); // Pullup to HIGH
+    pio_sm_set_consecutive_pindirs(pio, sm, 28, 1, false); // Set as input (Inactive)
+
+    // --- Load config and start ---
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+//
+// gerbil_program_get_word() — Blocking read of one 32-bit word from the RX FIFO.
+//
+FORCE_INLINE uint32_t IN_RAM gerbil_program_get_word(PIO pio, uint sm) {
+    return pio_sm_get_blocking(pio, sm);
+}
+
+//
+// gerbil_program_put_word() — Non-blocking write of one 32-bit word to the TX FIFO.
+//
+FORCE_INLINE void IN_RAM gerbil_program_put_word(PIO pio, uint sm, uint32_t data) {
+    pio_sm_put(pio, sm, data);
+}
+%}

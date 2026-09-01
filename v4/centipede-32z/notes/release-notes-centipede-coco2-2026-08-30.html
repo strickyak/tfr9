@@ -1,0 +1,184 @@
+<h1>release-notes-centipede-coco2-2026-08-30.md</h1>
+<p>This has been tested on a coco2 with 16K RAM.</p>
+<p>It seems like it should work on coco1's.</p>
+<p>It might work on coco3 if you turn off the 64k RAM emulation.</p>
+<p>The tether program is tested on Ubuntu 24.04.4 LTS
+but usually works on any platform.</p>
+<p>On windows,
+the tether.*.exe program does not accept <code>=</code> in defining
+command-line flags .  i.e. instead of <code>--pc=/tmp/pc</code>
+you must use <code>--pc /tmp/pc</code>.</p>
+<h2>FLASHING firmware to your centipede.</h2>
+<p>It is very easy to upload a new firmware.</p>
+<p>There are two buttons on the Centipede board, close to
+the USB-C connector.</p>
+<ul>
+<li>The one closest to the USB-C connector is the RESTART button -- it reboots the firmware.</li>
+<li>The one farther is the FLASH button.</li>
+</ul>
+<p>Hold the FLASH button while the Centipede powers up
+or restarts.   That is, hold the FLASH while you plug in
+the USB cable, or if it is already plugged in, while you
+use the RESTART button to reboot the firmware.</p>
+<p>Then the USB cable will present a USB Disk Drive to your PC.
+On Linux it will mount as /media/$USER/RP2340.  ($USER is your user name.)</p>
+<p>Allow it to mount, and then copy the file
+<code>centipede.uf2</code> into that new mount or folder.</p>
+<pre><code class="language-sh">cp -fv centipede.uf2 /media/$USER/RP2340/
+</code></pre>
+<p>After it copies (it takes a few seconds), the device will automatically
+unmount or &quot;eject&quot; itself.</p>
+<h2>Running the tether program</h2>
+<p>On Linux, the &quot;tether.sh&quot; program is designed to make it easy
+to run the tether program.</p>
+<pre><code>sh tether.sh
+</code></pre>
+<p>or</p>
+<pre><code>./tether.sh
+</code></pre>
+<p>This program is more robust than it used to be.  But still, you have
+the most success if you HOLD DOWN THE RESTART BUTTON on the Centipede
+while you launch the tether program.</p>
+<p>If it does not work, look in the file named <code>_log</code>.  This is a temporary
+file that is created by the tether program for error messages and logging
+messages. (It is where the &quot;stderr&quot; path of the tether program is redirected.)</p>
+<p>The <code>_log</code> file can become quite large if tracing reads and writes are
+both turned on.  By default, the <code>_log</code> output has a limit of 1GB
+to prevent you from accidentally filling your disk.  You can use the
+Linux <code>tail</code> command to see the final lines of the <code>_log</code> which is usually
+where an important error message will be.  This shows the last 33 lines:</p>
+<pre><code>tail -33 _log
+</code></pre>
+<h2>RESETTING YOUR TERMINAL</h2>
+<p>Most of the time the tether command restores your terminal mode correctly.
+If it does not (like, if you no longer see echos of what you type),
+here is a formula to fix it on Linux.  The <code>^J</code> means Control-J:</p>
+<pre><code>^J reset ^J
+</code></pre>
+<h2>Loading the base filesystem</h2>
+<p>Connect the USB from your PC to your Centipede.
+If it is also in the Coco2, hold down BREAK while
+it reboots (keep it down 3 seconds, so it is still down
+when it finished booting).  If not in Coco2, just hit
+the RESTART button on the Centipede.</p>
+<p>Then execute this command:</p>
+<pre><code>sh tether.sh --quick-upload ./basefs.zip
+</code></pre>
+<p>You should see lots of spam ending with <code>QUICK-INJECT SUCCESS</code>.</p>
+<p>(This will be the preferred method of distributing software
+for the centipede as a .zip file and uploading it.
+More details later.)</p>
+<h2>BOOTING THE COCO</h2>
+<p>Once you have flashed the Centipede with firmware, you are ready to
+insert it into your Coco2.  Connect the USB cable to your PC.</p>
+<p>Turn on the Coco2.  If your screen does not become black/white monochrome,
+either reboot the Coco2 with the reboot switch on the back, or restart
+the centipede with the RESTART button.</p>
+<p>There are three ways to restart:</p>
+<ul>
+<li>Into the Centipede's &quot;BIOS Menu&quot;</li>
+<li>Into the TCL Shell</li>
+<li>Loading a preset configuration and going directly into BASIC.</li>
+</ul>
+<p>If you hold down no key during reboot, you should get the BIOS Menu.</p>
+<p>If you hold down BREAK (keep it down for 3 seconds, until the
+reboot is over), you get the TCL Shell.</p>
+<p>If you hold down a preset key, like 1 or 2 or 3 or 4 or 5 or 6,
+it loads a preset configuration and goes directly to BASIC.</p>
+<p>Presets:</p>
+<ul>
+<li>1: Use /fd/f[0123] for floppies, with NO tracing.</li>
+<li>2: Use /fd/f[0123] for floppies, with WRITE tracing.</li>
+<li>3: Use /fd/f[0123] for floppies, with READ &amp; WRITE tracing.</li>
+<li>4: Use /pc/f[0123] for floppies, with NO tracing.</li>
+<li>5: Use /pc/f[0123] for floppies, with WRITE tracing.</li>
+<li>6: Use /pc/f[0123] for floppies, with READ &amp; WRITE tracing.</li>
+</ul>
+<p>The difference between /fd and /pc is that the /pc directory
+is a magic mount for accessing files on your PC, by default
+the directory /tmp/pc (if it exists).</p>
+<p>/fd is a normal directory on your Centipede's flash storage.</p>
+<h2>TCL Shell</h2>
+<p>The TCL Shell can be used from either your PC or your Coco2.
+Keys can be typed on either, and things are displayed on both.
+The actual shell runs on the Centipede RP2350B ARM cores.</p>
+<p>The most important thing to know is how to get out:  Type <code>bye</code>.
+That exits the Tcl shell and boots into Coco2 BASIC.</p>
+<p>The second thing to know is that the simplest forms of the
+simplest UNIX/Linux commands work:</p>
+<ul>
+<li><code>ls</code> to list directories</li>
+<li><code>pwd</code> print your current working directory</li>
+<li><code>cd</code> change your current working directory</li>
+<li><code>cp</code> copy files</li>
+<li><code>mv</code> rename files</li>
+<li><code>rm</code> delete files</li>
+<li><code>mkdir</code> make directories</li>
+<li><code>rmdir</code> delete directories</li>
+<li><code>df</code> how much disk is free?</li>
+<li><code>du</code> how much disk does a file use</li>
+<li><code>cat</code> list a text file</li>
+<li><code>hd</code> hex-dump a file</li>
+<li><code>head -N</code> Show first N lines of a file</li>
+<li><code>tail -N</code> Show last N lines of a file</li>
+<li><code>grep</code> Simple grep command.</li>
+<li><code>wc</code> lines, words, chars count.</li>
+<li><code>md5</code> cryptographic hash.</li>
+</ul>
+<p>Some others that are different from UNIX:</p>
+<ul>
+<li><code>zip names</code> directory of .zip archive</li>
+<li><code>zip get</code> get file from .zip archive</li>
+<li><code>lsort [info comm]</code> show available commands</li>
+<li><code>edit</code> a very simple visual text editor</li>
+<li>
+<pre><code> (Ctrl-S or Clear-S to save.)
+</code></pre>
+</li>
+<li>
+<pre><code> (Ctrl-Q or Clear-Q to quit without saving.)
+</code></pre>
+</li>
+</ul>
+<p>The third thing to know is that if you have a directory
+named /fd then files in it named f0 f1 f2 and f3 are your
+floppy drives, if you boot with this configuration.  So just
+copy a floppy image to /fd/f0 and that will be DRIVE 0.</p>
+<p>Fourth, you have access to normal Tcl commands as of
+Tcl version 6.7.  That's an old, small, easily embeddable
+version of Tcl.  It's been enhanced with lots of commands.
+TODO: More about this.</p>
+<p>Fifth, the REPL has a couple of special features.
+One is history: use up, down, left, right to move through
+history.  Another is globbing:  If your command has no
+characters that are metacharacters to TCL, then your command
+will be prefixed by the <code>fs</code> command which does two things:</p>
+<ol>
+<li>Expands glob patterns into filenames, if possible</li>
+<li>Understands <code>&gt;filename</code> to save its output as that filename.
+If you don't want those features, add a <code>;</code> to the end of your
+command.  That's a Tcl metacharacter and it will prevent
+using <code>fs</code> for those features.</li>
+</ol>
+<p>Sixth, you can suffix a filename with <code>!</code> if it is
+a zip archive, a DECB disk image, or an OS9 disk
+image.  Then the name is treated as a directory.</p>
+<p>You can suffix filenames with these also:</p>
+<ul>
+<li><code>!hex</code> -- a read/write view of the file as hex digits</li>
+<li><code>!cr</code> -- views a text file with LF-terminated lines as CR-terminated.</li>
+<li><code>!lf</code> -- views a text file with CR-terminated lines as LF-terminated.</li>
+</ul>
+<h2>To get Erico's ugBASIC DEMO running</h2>
+<p>Create /tmp/pc on your PC:  <code>mkdir /tmp/pc</code></p>
+<p>Copy <code>OPIL_BR_2026-04-22.dsk</code> and <code>OPIL_EN_2026-04-22.dsk</code>
+into it: <code>cp -fv OPIL*.dsk /tmp/pc</code></p>
+<p>Then copy one of those to be /tmp/pc/f0:
+<code> cp /tmp/pc/OPIL_BR_2026-04-22.dsk /tmp/pc/f0</code></p>
+<p>Then restart, holding down <code>5</code> (Use /pc/f[0123] for floppies, with WRITE tracing).</p>
+<pre><code>DIR
+LOAD &quot;LOADER&quot;
+RUN
+</code></pre>
+<p>Optional: with your web browser, go to <code>http://localhost:8080/</code></p>
+<h2>END</h2>
