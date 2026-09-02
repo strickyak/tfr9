@@ -1,6 +1,6 @@
 CXX ?= g++
 CXXFLAGS ?= -std=gnu++20 -O2 -Wall -Wextra -I.
-LOG_FILES ?= ../misc/golden-log-1.txt ../misc/golden-log-2.txt ../misc/golden-log-3.txt
+LOG_FILES ?= ../misc/golden-log-1.txt ../misc/golden-log-2.txt ../misc/golden-log-3.txt ../misc/golden-log-3nofffe.txt
 
 all: test_cpu_tracker
 

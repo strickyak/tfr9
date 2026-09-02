@@ -256,6 +256,7 @@ class CpuTracker {
 
   int resync_count_ = 0;
   uint16_t resync_last_addr_ = 0;
+  uint8_t sync_streak_ = 0;
 
   void UpdateStats(bool predicted, bool ground_truth) {
     if (!is_synced_) return;
@@ -289,6 +290,12 @@ class CpuTracker {
       reset_msb_ = data;
       state_ = TrackerState::OPCODE_FETCH;
       is_synced_ = true;
+      sync_streak_ = 2;
+    } else if (type == CycleType::READ && addr < 0xFFF0) {
+      // Non-vector read cycle (tracing started mid-execution in normal memory):
+      // Transition immediately to RESYNC_HUNT and process this cycle!
+      state_ = TrackerState::RESYNC_HUNT;
+      HandleResyncHunt(type, addr, data);
     }
   }
 
@@ -297,6 +304,11 @@ class CpuTracker {
       LogMispredict("Expected Opcode Read cycle, got Write");
       EnterResyncHunt(addr);
       return false;
+    }
+
+    sync_streak_++;
+    if (sync_streak_ >= 2) {
+      is_synced_ = true;
     }
 
     // Set PC to the opcode address
@@ -309,12 +321,12 @@ class CpuTracker {
       cur_prefix_ = 2;
       regs_.pc++;
       state_ = TrackerState::PREFIX_PAGE;
-      return true; // Prefix fetch is First Instruction Cycle (FIC)!
+      return is_synced_; // Prefix fetch is First Instruction Cycle (FIC)!
     } else if (data == 0x11) {
       cur_prefix_ = 3;
       regs_.pc++;
       state_ = TrackerState::PREFIX_PAGE;
-      return true; // Prefix fetch is First Instruction Cycle (FIC)!
+      return is_synced_; // Prefix fetch is First Instruction Cycle (FIC)!
     }
 
     // Page 1 Opcode
@@ -325,12 +337,12 @@ class CpuTracker {
     if (!cur_op_info_.valid) {
       LogMispredict("Invalid Page 1 Opcode");
       EnterResyncHunt(addr);
-      return true;
+      return is_synced_;
     }
 
     regs_.pc++;
     SetupCyclePlan();
-    return true; // FIC!
+    return is_synced_; // FIC!
   }
 
   void HandlePrefixPage(CycleType type, uint16_t addr, uint8_t data) {
@@ -928,21 +940,33 @@ class CpuTracker {
     state_ = TrackerState::RESYNC_HUNT;
     resync_count_ = 0;
     resync_last_addr_ = addr;
+    sync_streak_ = 0;
+    is_synced_ = false;
     regs_.valid_mask = 0;
   }
 
   bool HandleResyncHunt(CycleType type, uint16_t addr, uint8_t data) {
     if (type == CycleType::READ) {
-      if (addr == resync_last_addr_ + 1) {
-        resync_count_++;
-      } else {
-        resync_count_ = 1;
-      }
-      resync_last_addr_ = addr;
-
-      if (resync_count_ >= 2) {
-        state_ = TrackerState::OPCODE_FETCH;
-        return HandleOpcodeFetch(type, addr, data);
+      if (data == 0x10) {
+        cur_prefix_ = 2;
+        regs_.pc = addr + 1;
+        cur_instr_start_pc_ = addr;
+        state_ = TrackerState::PREFIX_PAGE;
+        return is_synced_;
+      } else if (data == 0x11) {
+        cur_prefix_ = 3;
+        regs_.pc = addr + 1;
+        cur_instr_start_pc_ = addr;
+        state_ = TrackerState::PREFIX_PAGE;
+        return is_synced_;
+      } else if (opcode_tables_.page1[data].valid) {
+        cur_prefix_ = 1;
+        cur_opcode_ = data;
+        cur_op_info_ = opcode_tables_.page1[cur_opcode_];
+        regs_.pc = addr + 1;
+        cur_instr_start_pc_ = addr;
+        SetupCyclePlan();
+        return is_synced_;
       }
     }
     return false;
