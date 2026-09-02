@@ -111,7 +111,7 @@ inline int se6(int v) { return (v >= 32) ? (v - 64) : v; }
 // Encode the zone+page delta portion of an address (called when prev-delta
 // does not fit in -1/0/+1).  Writes zone bits then the appropriate delta.
 // Also updates cs->zone16[zone] and cs->page256[page] as needed.
-inline void IN_RAM encode_zone(BitWriter* bw, CycleCompressState* cs,
+void encode_zone(BitWriter* bw, CycleCompressState* cs,
                                addr16 abus) {
   int zone = abus >> 12;
   bw_write(bw, (uint32_t)zone, 4);
