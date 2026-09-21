@@ -9,7 +9,7 @@ func (o *Plain) HasMMap() bool               { return false }
 func (o *Plain) CurrentHardwareMMap() string { return "hwm?" }
 
 func (o *Plain) MemoryModuleOf(addr uint) (name string, offset uint) {
-	return "plain?", offset
+	return "", 0
 }
 func (o *Plain) Os9String(addr uint) string {
 	return "?Os9String?"
