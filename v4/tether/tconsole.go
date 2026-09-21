@@ -909,7 +909,10 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					if person != nil {
 						modName, modOffset := person.MemoryModuleOf(_addr)
 						if modName != "" {
-							aline = Format(":%q+%04x %s", modName, modOffset, AsmSourceLine(modName, modOffset))
+							asmLine := AsmSourceLine(modName, modOffset)
+							if asmLine != "" {
+								aline = Format(":%q+%04x %s", modName, modOffset, asmLine)
+							}
 						}
 					}
 					if aline == "" && LinkSrc != nil {
