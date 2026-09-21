@@ -1,4 +1,8 @@
-#define MHz 250  // 250
+#define MHz 250
+
+#define FOR_COCO3 1
+#define SAM_BIT_16K 0
+#define SAM_BIT_64K 1
 
 #define ALWAYS_TRACE_READS_IF_ADDR_GE 0xFF00
 #define FIFO_INDICATOR_0500 1
@@ -833,6 +837,7 @@ class CoreEngine {
     const PIO pio = pio0;
     constexpr uint sm = 0;
 
+#if !FOR_COCO3
     // Detect whether a Coco2 is connected and powered on.
     if (!detect_e_clock()) {
       // No Coco2 clock — start USB-only Tcl session.
@@ -850,6 +855,7 @@ class CoreEngine {
       // cobs_printf("Coco2 E clock detected! Entering bus cycle loop.\n");
       cobs_printf(" [+E] "); // Indicate clock detected.
     }
+#endif
 
     // Coco2 is running — enter normal PIO bus cycle loop.
       // ON RESET, GO INTO SPOONFEEDING.
@@ -1140,7 +1146,9 @@ int IN_RAM main() {
   start_20ms_timer();
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
+#if !FOR_COCO3
   centipede_config.SetAll(true);  // enable everything
+#endif
   centipede_config.trace_reads = false;
   centipede_config.floppy_pc = false;
   set_floppy_names();

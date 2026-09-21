@@ -24,6 +24,9 @@ flash: FIRMWARE
 run:
 	sh "tether.sh" 2>&1 | tee _out
 
+run3:
+	sh "tether.sh" +COCO3 2>&1 | tee _out
+
 MISC_BUILD:
 	mkdir -p build
 	cd build && unzip -u ../misc/coco2.zip
