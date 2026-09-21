@@ -10,6 +10,14 @@ mkdir -p /tmp/pc
 #-- this configured for TurbOS9
 # go run "./$HERE/../..//v4/tether/" 2>_log -pc /tmp/pc -level 1 -borges build/listings/ "$@"
 
+ABSLISTS=build/diskbasic.0x8000.list
+case $1 in
+    +COCO3 )
+            shift
+            ABSLISTS=/home/strick/modoc/coco-shelf/toolshed/cocoroms/coco3.rom.list
+        ;;
+esac
+
 case $1 in
     -quick* | --quick* )
 
@@ -21,7 +29,7 @@ go run "./$HERE/../..//v4/tether/" 2>_log "$@"
 
 #-- this configures for coco2 with disk11 basic
 go run "./$HERE/../..//v4/tether/" 2>_log -pc /tmp/pc --no_modules \
-    --abslists build/diskbasic.0x8000.list  \
+    --abslists $ABSLISTS  \
       "$@"  build/coco2.0x8000.rom build/disk11.0xC000.rom
 
     ;;
