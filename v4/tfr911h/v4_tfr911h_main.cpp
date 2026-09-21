@@ -10,7 +10,7 @@
 #define TRY_AX_ROM 0
 #define JUST_WAIT_DONT_HALT 1
 #define OCCASIONAL_HALTING 0
-#define TRACE 1
+#define TRACE 0
 #define SPEED_STATS 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
 #define HALT_TEST 0
