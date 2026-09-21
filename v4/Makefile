@@ -51,21 +51,21 @@ TETHERS:  BUILD-DIR  \
 	build/tether.mac-amd64.exe
 
 build/tether.linux-amd64.exe: $(TETHER_GO_FILES)
-	GOOS=linux   GOARCH=amd64       go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64       go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.linux-386.exe: $(TETHER_GO_FILES)
-	GOOS=linux   GOARCH=386         go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=linux   GOARCH=386         go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.linux-arm-7.exe: $(TETHER_GO_FILES)
-	GOOS=linux   GOARCH=arm GOARM=7 go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm GOARM=7 go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.linux-arm64.exe: $(TETHER_GO_FILES)
-	GOOS=linux   GOARCH=arm64       go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64       go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.win-amd64.exe: $(TETHER_GO_FILES)
-	GOOS=windows GOARCH=amd64       go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64       go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.win-386.exe: $(TETHER_GO_FILES)
-	GOOS=windows GOARCH=386         go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=windows GOARCH=386         go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.mac-arm64.exe: $(TETHER_GO_FILES)
-	GOOS=darwin   GOARCH=arm64      go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=darwin   GOARCH=arm64      go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 build/tether.mac-amd64.exe: $(TETHER_GO_FILES)
-	GOOS=darwin   GOARCH=amd64      go build -o $@ ./tether/
+	CGO_ENABLED=0 GOOS=darwin   GOARCH=amd64      go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
 
 install-pico-sdk-and-picotool-on-shelf:
 	sh misc/install-pico-sdk-and-picotool-on-shelf.sh
