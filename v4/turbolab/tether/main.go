@@ -10,11 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/strickyak/tfr9/v4/turbolab/tether/cobs"
 )
+
+var cpuStarted atomic.Bool
 
 // Command bytes
 const (
@@ -340,9 +343,21 @@ func main() {
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigChan
+		sig := <-sigChan
 		RestoreSttyState()
-		os.Exit(130)
+		if sig == syscall.SIGINT {
+			fmt.Printf("\n[SIGINT]\n")
+			fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
+			os.Exit(130)
+		} else if sig == syscall.SIGTERM {
+			fmt.Printf("\n[SIGTERM]\n")
+			fmt.Fprintf(os.Stderr, "Terminated by SIGTERM; tether exiting.\n")
+			os.Exit(143)
+		} else {
+			fmt.Printf("\n[%v]\n", sig)
+			fmt.Fprintf(os.Stderr, "Terminated by signal %v; tether exiting.\n", sig)
+			os.Exit(1)
+		}
 	}()
 
 	// Connect to serial port
@@ -437,6 +452,11 @@ func main() {
 					if len(currentPacket) > 0 {
 						decoded, err := cobs.Decode(currentPacket)
 						if err == nil && len(decoded) > 0 {
+							cmd := decoded[0]
+							if !cpuStarted.Load() && (cmd == C_TRACE_CYCLES || cmd == C_PUTCHAR || cmd == C_FAULT || cmd == C_CORE_DUMP) {
+								currentPacket = nil
+								continue
+							}
 							if debugUsb {
 								logPacket("IN", decoded)
 							}
@@ -665,6 +685,7 @@ func main() {
 	if err != nil || resp.Status != 0 {
 		Fatalf("Start RPC failed: %v (status=%d %s)", err, resp.Status, resp.Message)
 	}
+	cpuStarted.Store(true)
 
 	// ── Phase 5: Interactive Terminal ──
 	SetSttyCbreak()

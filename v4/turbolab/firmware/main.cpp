@@ -132,6 +132,7 @@ enum FirmwareState {
 
 volatile FirmwareState fw_state = STATE_WAIT_CONFIG;
 volatile bool foreground_running = false;
+volatile bool cpu_started = false;
 volatile bool fault_triggered = false;
 volatile byte fault_reason = 0;
 volatile uint64_t fault_cycle = 0;
@@ -243,24 +244,28 @@ void IN_RAM foreground_loop() {
       uint early_pins = pio_sm_get_blocking(pio0, 0);
       uint addr = 0xFFFF & hw->gpio_hi_in;
 
-      cycles++;
+      if (UNLIKELY(!cpu_started)) {
+        cycles = 0;
+      } else {
+        cycles++;
 
-      // Max checks
-      if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
-        fault_reason = FAULT_MAX_CYCLES;
-        fault_cycle = cycles;
-        fault_addr = addr;
-        fault_triggered = true;
-        HaltOn();
-        return;
-      }
-      if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-        fault_reason = FAULT_MAX_TIME;
-        fault_cycle = cycles;
-        fault_addr = addr;
-        fault_triggered = true;
-        HaltOn();
-        return;
+        // Max checks
+        if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
+          fault_reason = FAULT_MAX_CYCLES;
+          fault_cycle = cycles;
+          fault_addr = addr;
+          fault_triggered = true;
+          HaltOn();
+          return;
+        }
+        if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+          fault_reason = FAULT_MAX_TIME;
+          fault_cycle = cycles;
+          fault_addr = addr;
+          fault_triggered = true;
+          HaltOn();
+          return;
+        }
       }
 
       const bool reading = 0 != (early_pins & (1 << R_W));
@@ -270,7 +275,7 @@ void IN_RAM foreground_loop() {
       byte kind = KIND_IDLE;
 
       // ── Red Page Check ($FF04..$FFEF) ──
-      if (UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
+      if (cpu_started && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
         fault_reason = FAULT_RED_PAGE;
         fault_cycle = cycles;
         fault_addr = addr;
@@ -307,7 +312,7 @@ void IN_RAM foreground_loop() {
 
           // ── Zero Interrupt Vector Check ──
           // If BS=1 (Interrupt Acknowledge) and vector data is 0:
-          if (UNLIKELY(is_bs && value == 0)) {
+          if (cpu_started && UNLIKELY(is_bs && value == 0)) {
             fault_reason = FAULT_ZERO_VECTOR;
             fault_cycle = cycles;
             fault_addr = addr;
@@ -380,7 +385,8 @@ void IN_RAM foreground_loop() {
       }
 
       // Trace filtering
-      bool trigger_met = (cycles >= trigger_cycle) &&
+      bool trigger_met = cpu_started &&
+                         (cycles >= trigger_cycle) &&
                          ((time_us_64() - start_time_us) >= trigger_time_us);
 
       if (trigger_met) {
@@ -512,11 +518,7 @@ void handle_rpc_request(const std::string& pkt) {
     uint offset = pio_add_program(pio0, &hamster_program);
     hamster_program_init(pio0, 0, offset);
 
-    start_time_us = time_us_64();
-    alarm_pool_init_default();
-    add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &timer60hz_data);
-    timer60hz_running = true;
-
+    cpu_started = false;
     foreground_running = false;
     multicore_launch_core1(foreground_loop);
 
@@ -528,7 +530,15 @@ void handle_rpc_request(const std::string& pkt) {
     sleep_ms(10);
     gpio_set_dir(RESET, GPIO_IN);  // Release RESET
     sleep_ms(5);
-    HaltOff();                     // Release HALT -> 6309 starts
+
+    // Release HALT -> 6309 starts executing
+    start_time_us = time_us_64();
+    cpu_started = true;
+    HaltOff();
+
+    alarm_pool_init_default();
+    add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &timer60hz_data);
+    timer60hz_running = true;
 
     fw_state = STATE_RUNNING;
   } else {
@@ -585,6 +595,7 @@ void restart_to_restarted_state() {
   pio_clear_instruction_memory(pio0);
 
   // 5. Reset internal state variables
+  cpu_started = false;
   fault_triggered = false;
   fault_reason = 0;
   fault_cycle = 0;
@@ -627,6 +638,7 @@ void reflash_now_please() {
     multicore_reset_core1();
     foreground_running = false;
   }
+  cpu_started = false;
 
   // 3. Cancel 60Hz timer
   if (timer60hz_running) {
