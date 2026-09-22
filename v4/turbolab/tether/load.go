@@ -50,14 +50,56 @@ func PrepareMemoryImage(files []string) ([]byte, error) {
 		return nil, fmt.Errorf("no image file or OS-9 module files provided")
 	}
 
-	// Synthesize 64KB image from OS-9 module files
-	var combinedMods []byte
+	// Read each module file and check if it contains a kernel/krn module.
+	// In TurbOS / OS-9, the kernel must be at the lowest address of primordial ROM
+	// because it sets D.MLIM to its base address and scans modules upwards to $FF00.
+	type modFileData struct {
+		filename  string
+		data      []byte
+		hasKernel bool
+	}
+
+	var allModData []modFileData
+	var kernelFiles []modFileData
+	var otherFiles []modFileData
+
 	for _, mf := range modFiles {
 		bb, err := os.ReadFile(mf)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read module file %q: %w", mf, err)
 		}
-		combinedMods = append(combinedMods, bb...)
+		mods := ScanImageForOs9Modules(bb)
+		hasK := false
+		for _, m := range mods {
+			low := strings.ToLower(m.Name)
+			if low == "kernel" || low == "krn" {
+				hasK = true
+				break
+			}
+		}
+		mfd := modFileData{filename: mf, data: bb, hasKernel: hasK}
+		allModData = append(allModData, mfd)
+		if hasK {
+			kernelFiles = append(kernelFiles, mfd)
+		} else {
+			otherFiles = append(otherFiles, mfd)
+		}
+	}
+
+	var orderedMods []modFileData
+	if len(kernelFiles) > 0 {
+		if !allModData[0].hasKernel {
+			fmt.Fprintf(os.Stderr, "Note: reordering modules so %s (containing kernel) is loaded first\n", kernelFiles[0].filename)
+		}
+		orderedMods = append(kernelFiles, otherFiles...)
+	} else {
+		orderedMods = allModData
+	}
+
+	// Synthesize 64KB image from OS-9 module files
+	var combinedMods []byte
+	for _, mfd := range orderedMods {
+		combinedMods = append(combinedMods, mfd.data...)
 	}
 
 	if len(combinedMods) < 9 {
@@ -86,9 +128,27 @@ func PrepareMemoryImage(files []string) ([]byte, error) {
 		binary.BigEndian.PutUint16(ramImage[addr:addr+2], vec)
 	}
 
-	// Reset vector at $FFFE points to (beginAddr + kernel entry offset at offset 9)
-	kernelEntryOffset := binary.BigEndian.Uint16(combinedMods[9:11])
-	resetVector := uint16(beginAddr) + kernelEntryOffset
+	// Locate kernel or krn module to determine the reset vector.
+	// If found, reset vector points to kernel's execution entry point.
+	// Otherwise, fall back to the first module in the image.
+	var resetVector uint16
+	scanned := ScanImageForOs9Modules(ramImage)
+	var kernelMod *ScannedModuleInfo
+	for _, m := range scanned {
+		low := strings.ToLower(m.Name)
+		if low == "kernel" || low == "krn" {
+			kernelMod = m
+			break
+		}
+	}
+
+	if kernelMod != nil {
+		kernelEntryOffset := binary.BigEndian.Uint16(ramImage[kernelMod.BaseAddr+9 : kernelMod.BaseAddr+11])
+		resetVector = kernelMod.BaseAddr + kernelEntryOffset
+	} else {
+		kernelEntryOffset := binary.BigEndian.Uint16(combinedMods[9:11])
+		resetVector = uint16(beginAddr) + kernelEntryOffset
+	}
 	binary.BigEndian.PutUint16(ramImage[0xFFFE:0x10000], resetVector)
 
 	return ramImage, nil
