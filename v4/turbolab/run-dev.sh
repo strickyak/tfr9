@@ -6,7 +6,7 @@ TURBOS_ROM=${TURBOS_ROM:-$D/build/turbos/turbos_dev.img.rom}
 TETHER=None
 for t in $D/build/tether.*.exe
 do
-    if $t --exit
+    if $t --exit 2>/dev/null
     then
         TETHER=$t
     fi
