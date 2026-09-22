@@ -152,8 +152,8 @@ func TestTraceFormatterFlags(t *testing.T) {
 
 	// 2. FLAG_BS on reset vector read (with comment) -> ";s reset vector (high)"
 	buf.Reset()
-	tf.FormatCycle(KIND_READ|FLAG_BS, 0xFFFE, 0xD4, 6)
-	exp2 := "r FFFE D4 #6;s reset vector (high)\n"
+	tf.FormatCycle(KIND_READ|FLAG_BS, 0xFFFE, 0xD4, 1)
+	exp2 := "r FFFE D4 #1;s reset vector (high)\n"
 	if got := buf.String(); got != exp2 {
 		t.Errorf("Mismatch for FLAG_BS with comment:\n got: %q\nwant: %q", got, exp2)
 	}

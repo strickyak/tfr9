@@ -216,6 +216,7 @@ void IN_RAM foreground_loop() {
   volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
 
   uint64_t cycles = 0;
+  uint64_t pre_reset_cycles = 0;
   uint prev_late_pins = 0;
   uint16_t prev_addr = 0;
   byte prev_kind = KIND_IDLE;
@@ -253,12 +254,42 @@ void IN_RAM foreground_loop() {
       pio_sm_put(pio0, 0, 0);
       uint early_pins = pio_sm_get_blocking(pio0, 0);
       uint addr = 0xFFFF & hw->gpio_hi_in;
+      const bool reading = 0 != (early_pins & (1 << R_W));
+      const bool is_bs   = 0 != (early_pins & (1 << BS));
 
       if (UNLIKELY(!cpu_started)) {
         cycles = 0;
+        pre_reset_cycles = 0;
         saw_fffe = false;
         reset_achieved = false;
         reset_tracing_started = false;
+      } else if (UNLIKELY(!reset_tracing_started)) {
+        // Wait for CPU reset vector fetch: reading $FFFE with BS=1.
+        // Cycle numbering starts at 1 upon this cycle.
+        if (reading && is_bs && addr == 0xFFFE) {
+          cycles = 1;
+          saw_fffe = true;
+          reset_tracing_started = true;
+        } else {
+          cycles = 0;
+          pre_reset_cycles++;
+          if (UNLIKELY(pre_reset_cycles >= 100000)) {
+            fault_reason = FAULT_ZERO_VECTOR;
+            fault_cycle = 0;
+            fault_addr = addr;
+            fault_triggered = true;
+            HaltOn();
+            return;
+          }
+        }
+        if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+          fault_reason = FAULT_MAX_TIME;
+          fault_cycle = 0;
+          fault_addr = addr;
+          fault_triggered = true;
+          HaltOn();
+          return;
+        }
       } else {
         cycles++;
 
@@ -280,9 +311,6 @@ void IN_RAM foreground_loop() {
           return;
         }
       }
-
-      const bool reading = 0 != (early_pins & (1 << R_W));
-      const bool is_bs   = 0 != (early_pins & (1 << BS));
 
       byte value = 0;
       byte kind = KIND_IDLE;
@@ -344,9 +372,8 @@ void IN_RAM foreground_loop() {
         }
 
         // Check for reset vector fetch ($FFFE then $FFFF)
-        if (addr == 0xFFFE) {
+        if (is_bs && addr == 0xFFFE) {
           saw_fffe = true;
-          reset_tracing_started = true;
         }
 
         // Put data onto data bus for CPU to latch
