@@ -1,4 +1,4 @@
-all: BUILD-DIR build/turbolab_v4.uf2 TETHERS TURBOS
+all: BUILD-DIR build/turbolab_v4.uf2 TETHERS TURBOS LISTINGS
 
 ifndef TOP
 TOP := $(abspath ../../..)
@@ -27,24 +27,28 @@ TETHERS:  BUILD-DIR  \
 	build/tether.mac-arm64.exe  \
 	build/tether.mac-amd64.exe
 build/tether.linux-amd64.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64       go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=linux   GOARCH=amd64       go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.linux-386.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=linux   GOARCH=386         go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=linux   GOARCH=386         go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.linux-arm-7.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm GOARM=7 go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=linux   GOARCH=arm GOARM=7 go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.linux-arm64.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64       go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=linux   GOARCH=arm64       go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.win-amd64.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64       go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=amd64       go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.win-386.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=windows GOARCH=386         go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=386         go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.mac-arm64.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=darwin   GOARCH=arm64      go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=darwin   GOARCH=arm64      go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 build/tether.mac-amd64.exe: $(TETHER_GO_FILES)
-	CGO_ENABLED=0 GOOS=darwin   GOARCH=amd64      go build -a -ldflags '-extldflags "-static"' -o $@ ./tether/
+	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=darwin   GOARCH=amd64      go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 
 TURBOS: BUILD-DIR
 	cd build && unzip -u ../data/turbos-2026-09-21.zip
+
+LISTINGS:
+	mkdir -p build/listings
+	go run ../../../borges-saver/borges-saver.go -outdir build/listings build data
 
 flash: build/turbolab_v4.uf2
 	cp -fv $< /media/$$USER/RP*
@@ -52,4 +56,4 @@ flash: build/turbolab_v4.uf2
 clean:
 	rm -rf build/*
 
-.PHONY: all clean flash BUILD-DIR TETHERS TURBOS
+.PHONY: all clean flash BUILD-DIR TETHERS TURBOS LISTINGS

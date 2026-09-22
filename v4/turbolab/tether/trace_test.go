@@ -135,3 +135,43 @@ func TestListingLabels(t *testing.T) {
 	}
 }
 
+func TestTraceFormatterFlags(t *testing.T) {
+	buf := &bytes.Buffer{}
+	tf := &TraceFormatter{
+		Out:          buf,
+		TraceBitmask: 0xFF,
+	}
+
+	// 1. FLAG_LIC on KIND_OPCODE_CONT (no comment) -> ";_"
+	buf.Reset()
+	tf.FormatCycle(KIND_OPCODE_CONT|FLAG_LIC, 0xD4F4, 0x20, 11)
+	exp1 := "+ D4F4 20 #11;_\n"
+	if got := buf.String(); got != exp1 {
+		t.Errorf("Mismatch for FLAG_LIC:\n got: %q\nwant: %q", got, exp1)
+	}
+
+	// 2. FLAG_BS on reset vector read (with comment) -> ";s reset vector (high)"
+	buf.Reset()
+	tf.FormatCycle(KIND_READ|FLAG_BS, 0xFFFE, 0xD4, 6)
+	exp2 := "r FFFE D4 #6;s reset vector (high)\n"
+	if got := buf.String(); got != exp2 {
+		t.Errorf("Mismatch for FLAG_BS with comment:\n got: %q\nwant: %q", got, exp2)
+	}
+
+	// 3. All flags (BA, BS, LIC, BUSY) -> "as_y"
+	buf.Reset()
+	tf.FormatCycle(KIND_WRITE|FLAG_BA|FLAG_BS|FLAG_LIC|FLAG_BUSY, 0x0400, 0x55, 42)
+	exp3 := "w 0400 55 #42;as_y\n"
+	if got := buf.String(); got != exp3 {
+		t.Errorf("Mismatch for all flags:\n got: %q\nwant: %q", got, exp3)
+	}
+
+	// 4. No flags (legacy format preserved with trailing space)
+	buf.Reset()
+	tf.FormatCycle(KIND_OPCODE_CONT, 0xD4F4, 0x20, 11)
+	exp4 := "+ D4F4 20 #11; \n"
+	if got := buf.String(); got != exp4 {
+		t.Errorf("Mismatch for no flags:\n got: %q\nwant: %q", got, exp4)
+	}
+}
+

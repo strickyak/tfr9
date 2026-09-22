@@ -81,6 +81,12 @@ constexpr uint8_t TRACE_FLAG_I    = 1 << 3;
 constexpr uint8_t TRACE_FLAG_T    = 1 << 4;
 constexpr uint8_t TRACE_FLAG_PLUS = 1 << 5;
 
+// CPU Signal Flags in high 4 bits of TraceRecord.kind
+constexpr uint8_t FLAG_BA   = 0x10;  // 'a'
+constexpr uint8_t FLAG_BS   = 0x20;  // 's'
+constexpr uint8_t FLAG_LIC  = 0x40;  // '_'
+constexpr uint8_t FLAG_BUSY = 0x80;  // 'y'
+
 // ═══════════════════════════════════════════════════════════════════
 // TFR911H Pin Assignments
 // ═══════════════════════════════════════════════════════════════════
@@ -442,12 +448,24 @@ void IN_RAM foreground_loop() {
             emit = (trace_flags & TRACE_FLAG_T) != 0;
             break;
         }
+
+        // Extract CPU signals for high 4 bits of kind: a=BA s=BS _=LIC y=BUSY
+        uint8_t cpu_flags = 0;
+#ifdef PIN_BA
+        if ((prev_late_pins & (1 << PIN_BA)) != 0) cpu_flags |= FLAG_BA;
+#endif
+        if ((early_pins & (1 << BS)) != 0)         cpu_flags |= FLAG_BS;
+        if ((prev_late_pins & (1 << LIC)) != 0)    cpu_flags |= FLAG_LIC;
+#ifdef PIN_BUSY
+        if ((prev_late_pins & (1 << PIN_BUSY)) != 0) cpu_flags |= FLAG_BUSY;
+#endif
+
         if (emit) {
-          TraceRecord rec{cycles, (uint16_t)addr, value, kind};
+          TraceRecord rec{cycles, (uint16_t)addr, value, (uint8_t)((kind & 0x0F) | cpu_flags)};
           fg2bg_trace.push(rec);
         }
         if (is_rti && (trace_flags & TRACE_FLAG_I) && !(emit && kind == KIND_RTI)) {
-          TraceRecord rec_rti{cycles, (uint16_t)addr, value, KIND_RTI};
+          TraceRecord rec_rti{cycles, (uint16_t)addr, value, (uint8_t)(KIND_RTI | cpu_flags)};
           fg2bg_trace.push(rec_rti);
         }
       }

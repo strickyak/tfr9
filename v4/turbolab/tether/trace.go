@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Trace kinds matching firmware
+// Trace kinds matching firmware (low 4 bits)
 const (
 	KIND_IDLE        = 0 // '-'
 	KIND_FIC         = 1 // 'x'
@@ -19,6 +19,27 @@ const (
 	KIND_RTI         = 8 // 'i' RTI
 	KIND_SWI2        = 9 // 't' SWI2
 )
+
+// CPU signal flags in high 4 bits: a=BA s=BS _=LIC y=BUSY
+const (
+	FLAG_BA   = 0x10 // 'a'
+	FLAG_BS   = 0x20 // 's'
+	FLAG_LIC  = 0x40 // '_'
+	FLAG_BUSY = 0x80 // 'y'
+)
+
+func formatSuffix(sigStr, comment string) string {
+	if comment != "" {
+		if sigStr != "" {
+			return ";" + sigStr + " " + comment
+		}
+		return "; " + comment
+	}
+	if sigStr != "" {
+		return ";" + sigStr
+	}
+	return "; "
+}
 
 type TraceFormatter struct {
 	Out          io.Writer
@@ -45,7 +66,24 @@ func (tf *TraceFormatter) FindModule(addr uint16) (string, uint16, bool) {
 	return "", 0, false
 }
 
-func (tf *TraceFormatter) FormatCycle(kind byte, addr uint16, data byte, cycle uint64) {
+func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycle uint64) {
+	kind := rawKind & 0x0F
+	flags := rawKind & 0xF0
+
+	var sigStr string
+	if (flags & FLAG_BA) != 0 {
+		sigStr += "a"
+	}
+	if (flags & FLAG_BS) != 0 {
+		sigStr += "s"
+	}
+	if (flags & FLAG_LIC) != 0 {
+		sigStr += "_"
+	}
+	if (flags & FLAG_BUSY) != 0 {
+		sigStr += "y"
+	}
+
 	switch kind {
 	case KIND_IDLE:
 		// Not currently enabled via flags
@@ -70,70 +108,66 @@ func (tf *TraceFormatter) FormatCycle(kind byte, addr uint16, data byte, cycle u
 			comment = src
 		}
 
-		if comment != "" {
-			fmt.Fprintf(tf.Out, "x %04X %02X #%d; %s\n", addr, data, cycle, comment)
-		} else {
-			fmt.Fprintf(tf.Out, "x %04X %02X #%d; \n", addr, data, cycle)
-		}
+		fmt.Fprintf(tf.Out, "x %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, comment))
 
 	case KIND_OPCODE_CONT:
 		if (tf.TraceBitmask & TRACE_PLUS) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "+ %04X %02X #%d; \n", addr, data, cycle)
+		fmt.Fprintf(tf.Out, "+ %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))
 
 	case KIND_READ:
 		if (tf.TraceBitmask & TRACE_R) == 0 {
 			return
 		}
 		src := tf.Listings.Lookup(addr)
+		var comment string
 		if src != "" {
-			fmt.Fprintf(tf.Out, "r %04X %02X #%d; %s\n", addr, data, cycle, src)
+			comment = src
 		} else if addr == 0xFFFE {
-			fmt.Fprintf(tf.Out, "r %04X %02X #%d; reset vector (high)\n", addr, data, cycle)
+			comment = "reset vector (high)"
 		} else if addr == 0xFFFF {
-			fmt.Fprintf(tf.Out, "r %04X %02X #%d; reset vector (low)\n", addr, data, cycle)
-		} else {
-			fmt.Fprintf(tf.Out, "r %04X %02X #%d; \n", addr, data, cycle)
+			comment = "reset vector (low)"
 		}
+		fmt.Fprintf(tf.Out, "r %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, comment))
 
 	case KIND_WRITE:
 		if (tf.TraceBitmask & TRACE_W) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "w %04X %02X #%d; \n", addr, data, cycle)
+		fmt.Fprintf(tf.Out, "w %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))
 
 	case KIND_IRQ:
 		if (tf.TraceBitmask & TRACE_I) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "i IRQ     #%d; \n", cycle)
+		fmt.Fprintf(tf.Out, "i IRQ     #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	case KIND_FIRQ:
 		if (tf.TraceBitmask & TRACE_I) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "i FIRQ    #%d; \n", cycle)
+		fmt.Fprintf(tf.Out, "i FIRQ    #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	case KIND_NMI:
 		if (tf.TraceBitmask & TRACE_I) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "i NMI     #%d; \n", cycle)
+		fmt.Fprintf(tf.Out, "i NMI     #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	case KIND_RTI:
 		if (tf.TraceBitmask & TRACE_I) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "i RTI     #%d; \n", cycle)
+		fmt.Fprintf(tf.Out, "i RTI     #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	case KIND_SWI2:
 		if (tf.TraceBitmask & TRACE_T) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "t SWI2    #%d; \n", cycle)
+		fmt.Fprintf(tf.Out, "t SWI2    #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	default:
-		fmt.Fprintf(tf.Out, "? %04X %02X #%d; \n", addr, data, cycle)
+		fmt.Fprintf(tf.Out, "? %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))
 	}
 }
