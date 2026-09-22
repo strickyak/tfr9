@@ -15,6 +15,9 @@ The TurboLab configuration has its own firmware (`turbolab/firmware/`) and its o
 
 ## Supported Tether Flags
 
+* `--exit`  
+  Immediately exit(0) without connecting to serial or executing any logic. Tested first and takes precedence over all other flags; enables shell scripts to probe which tether executable runs on the host PC architecture.
+
 * `--wire=/dev/ttyACM0`  
   Serial device connected by USB to Pi Pico (default `/dev/ttyACM0`).
 
@@ -57,7 +60,8 @@ tether [flags] image_file.img | module_files... [listings.list...]
 ```
 
 * `image_file.img`: Exactly 65536 bytes; ends with the 6309 RESET vector at `$FFFE-$FFFF`.
-* `module_files`: Raw OS-9 binary module file(s) to be assembled into the memory image.
+* `module_files`: Raw OS-9 binary module file(s) to be assembled into the memory image. Modules are placed contiguous downward starting just below the I/O vector area (`$FF00`).
+* **Kernel & Reset Vector Resolution**: When raw module files are loaded, Tether scans the modules for one named `kernel` or `krn` (case-insensitive) and sets the 6309 RESET vector at `$FFFE-$FFFF` to that module's execution entry point (`BaseAddr + 9`). If neither is found, it falls back to the entry point of the first loaded module.
 * `*.list`: Assembly listings (e.g., `lwasm` output). May be an absolute listing or an OS-9 module listing.
 
 ---
@@ -126,8 +130,30 @@ tether [flags] image_file.img | module_files... [listings.list...]
 
 ## Output Tracing Format (to `stderr`)
 
-Each traced bus cycle is printed on `stderr`:
+Each traced bus cycle is printed on `stderr`, cleanly separated from 6309 console output on `stdout`.
 
+### Cycle Counter & Reset Synchronization
+* The cycle counter begins at `#1` when the 6309 CPU reads the reset vector high byte at address `$FFFE` with the `BS` (Bus Status) bit asserted (`BS=1`).
+* **Cycle `#1`**: High byte fetch of reset vector (`r FFFE <hi> #1;s reset vector (high)`).
+* **Cycle `#2`**: Low byte fetch of reset vector (`r FFFF <lo> #2;s reset vector (low)`).
+* **Cycle `#3`**: Internal 6309 CPU cycle (not traced).
+* **Cycle `#4`**: First Instruction Cycle (FIC) at the kernel entry address (`x <addr> <op> #4; ...`).
+* Pre-reset cycles (internal 6309 cycles while coming out of reset) are suppressed from trace output, and `cycles` remains `0` until `$FFFE` is read with `BS=1`.
+
+### CPU Status Signals
+The four high bits of the trace `kind` byte report live CPU bus and status signals:
+* `a` (`0x10`): **BA** (Bus Available)
+* `s` (`0x20`): **BS** (Bus Status — sampled from RP2350 GPIO 28)
+* `_` (`0x40`): **LIC** (Last Instruction Cycle — sampled from RP2350 GPIO 26)
+* `y` (`0x80`): **BUSY** (Hitachi 6309 internal pipeline busy signal)
+
+### Semicolon Formatting
+Signal characters appear immediately after the cycle number and semicolon `;` without intervening whitespace:
+* `+ D4F4 20 #6;_` (LIC asserted on the last cycle of an instruction; no comment).
+* `r FFFE D4 #1;s reset vector (high)` (BS asserted during vector read; followed by space and comment).
+* `x D4F2 8E #4; "kernel.0d4eec829c"+0014   ldx #D.FMBM...` (no signals; legacy `; ` space preserved).
+
+### Cycle Kind Prefixes
 * `-         #123000; `  
   Idle cycle (no bus access, with cycle counter).
 * `x 80A1 7E #123001; ["<module>"+<offset> ]%s`  
@@ -135,9 +161,13 @@ Each traced bus cycle is printed on `stderr`:
 * `+ 80A2 00 #123002; `  
   Additional instruction byte (following PC, operand/immediate byte).
 * `r 00F0 7E #123003; `  
-  Data read cycle (non-instruction memory or hardware register read).
+  Data read cycle (non-instruction memory or hardware register read). Annotated automatically with `reset vector (high)` / `reset vector (low)` for `$FFFE` / `$FFFF`.
 * `w 00F1 7E #123004; `  
   Data write cycle.
+* `i IRQ     #123005; ` / `i RTI     #123050; `  
+  Interrupt vector access or Return from Interrupt (`RTI`).
+* `t SWI2    #123100; `  
+  OS-9 system call trap (`SWI2`).
 
 ---
 
@@ -161,10 +191,14 @@ Each traced bus cycle is printed on `stderr`:
     * `$FF01`: ACIA Data register (read/write).
     * `$FF02`: Timer Status / IRQ ACK register (read/write; bit 0 = 60Hz tick interrupt).
     * `$FF03`: Reserved.
+* **Fault Invalidation & Reset Window**:
+  * During the initial 6309 reset sequence (prior to and during the `$FFFE-$FFFF` vector fetch), the CPU drives dummy or floating states on the bus.
+  * To prevent spurious aborts, **Red Page (`FAULT_RED_PAGE`)** and **Zero Vector (`FAULT_ZERO_VECTOR`)** checks are inhibited until the reset vector fetch completes (`$FFFF` read following `$FFFE` with `BS=1`).
+  * If the CPU fails to fetch the reset vector within 100,000 cycles (~61 ms) of HALT release, a watchdog timeout aborts with `FAULT_ZERO_VECTOR`.
 * **Red-Paged I/O Abort**:
-  * The rest of the I/O page (`$FF04`..`$FFEF`) is **Red-Paged**. Any read or write access to this region triggers an immediate CPU abort (`FAULT_RED_PAGE`).
+  * The rest of the I/O page (`$FF04`..`$FFEF`) is **Red-Paged**. Any read or write access to this region once reset is achieved triggers an immediate CPU abort (`FAULT_RED_PAGE`).
 * **Zero Interrupt Vector Abort**:
-  * Reading `$0000` as the target of an interrupt vector triggers an immediate abort (`FAULT_ZERO_VECTOR`).
+  * When an interrupt acknowledge occurs (`BS=1`) and the fetched vector byte is `$00`, an immediate abort is triggered (`FAULT_ZERO_VECTOR`).
 * **Limit Exceeded Abort**:
   * Reaching the configured `--max=c:...` or `--max=t:...` limit triggers `FAULT_MAX_CYCLES` or `FAULT_MAX_TIME`.
 * **Automatic 64KB Core Dump**:
@@ -180,11 +214,57 @@ All packets across the USB CDC-ACM serial link are framed using **COBS** (Consis
 
 | Command ID | Hex | Direction | Name | Description |
 |---|---|---|---|---|
+| 175 | `$AF` | Host -> Pico | `T_REFLASH_NOW_PLEASE` | Force reboot into RP2350 USB BOOTSEL mode (one-way, no RPC reply) |
 | 177 | `$B1` | Host -> Pico | `T_RESTART_NOW_PLEASE` | Force immediate firmware and CPU reset (one-way, no RPC reply) |
 | 178 | `$B2` | Host -> Pico | `T_TERM_CHARS` | Send terminal keyboard input characters to ACIA |
 | 181 | `$B5` | Bidirectional | `T_PICO_RPC` | RPC request/response frame (`config`, `upload`, `start`, `ping`) |
 | 194 | `$C2` | Pico -> Host | `C_RESTARTED` | Startup/reset beacon packet |
-| 200 | `$C8` | Pico -> Host | `C_TRACE_CYCLES` | Batched bus cycle trace buffer |
+| 200 | `$C8` | Pico -> Host | `C_TRACE_CYCLES` | Batched bus cycle trace buffer (bundles 12-byte `TraceRecord` entries) |
 | 201 | `$C9` | Pico -> Host | `C_PICO_CHARS` | Terminal console output characters from ACIA |
 | 202 | `$CA` | Pico -> Host | `C_FAULT` | Fault notification (reason code, cycle, address, data) |
 | 203 | `$CB` | Pico -> Host | `C_CORE_DUMP` | 1KB memory chunk of post-fault core dump |
+
+### Trace Record Structure (`C_TRACE_CYCLES`)
+
+Trace packets bundle up to 20 fixed-size 12-byte binary records:
+
+```text
+Offset  Type      Field   Description
+──────  ────────  ──────  ──────────────────────────────────────────────────────────
+ 0..7   uint64_t  cycle   Cycle counter (little-endian), starts at 1 on $FFFE fetch
+ 8..9   uint16_t  addr    16-bit address on address bus (little-endian)
+  10    uint8_t   data    8-bit data value on data bus
+  11    uint8_t   kind    Packed cycle kind (low nybble) and CPU signals (high nybble)
+```
+
+#### `kind` Byte Bit Allocations:
+* **Bits 0..3 (Cycle Kind)**:
+  * `0`: `KIND_IDLE` (`-`)
+  * `1`: `KIND_FIC` (`x`) — First Instruction Cycle
+  * `2`: `KIND_OPCODE_CONT` (`+`) — Subsequent opcode/operand byte
+  * `3`: `KIND_READ` (`r`) — Data read cycle
+  * `4`: `KIND_WRITE` (`w`) — Data write cycle
+  * `6`: `KIND_IRQ` (`i`)
+  * `7`: `KIND_FIRQ` (`i`)
+  * `8`: `KIND_NMI` (`i`)
+  * `9`: `KIND_SWI2` (`t`)
+* **Bits 4..7 (CPU Status Flags)**:
+  * Bit 4 (`0x10`): `a` = `FLAG_BA` (Bus Available)
+  * Bit 5 (`0x20`): `s` = `FLAG_BS` (Bus Status — GPIO 28)
+  * Bit 6 (`0x40`): `_` = `FLAG_LIC` (Last Instruction Cycle — GPIO 26)
+  * Bit 7 (`0x80`): `y` = `FLAG_BUSY` (Hitachi 6309 Busy signal)
+
+---
+
+## Multi-Architecture Tether Binaries
+
+All Tether binaries are statically linked with `CGO_ENABLED=0` and built across targets via `make TETHERS`:
+
+* `build/tether.linux-amd64.exe` (Linux x86_64)
+* `build/tether.linux-386.exe` (Linux i386)
+* `build/tether.linux-arm64.exe` (Linux ARM64 / AArch64)
+* `build/tether.linux-arm-7.exe` (Linux ARMv7)
+* `build/tether.win-amd64.exe` (Windows x86_64)
+* `build/tether.win-386.exe` (Windows i386)
+* `build/tether.mac-arm64.exe` (macOS Apple Silicon)
+* `build/tether.mac-amd64.exe` (macOS Intel)
