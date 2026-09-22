@@ -86,7 +86,16 @@ func (tf *TraceFormatter) FormatCycle(kind byte, addr uint16, data byte, cycle u
 		if (tf.TraceBitmask & TRACE_R) == 0 {
 			return
 		}
-		fmt.Fprintf(tf.Out, "r %04X %02X #%d; \n", addr, data, cycle)
+		src := tf.Listings.Lookup(addr)
+		if src != "" {
+			fmt.Fprintf(tf.Out, "r %04X %02X #%d; %s\n", addr, data, cycle, src)
+		} else if addr == 0xFFFE {
+			fmt.Fprintf(tf.Out, "r %04X %02X #%d; reset vector (high)\n", addr, data, cycle)
+		} else if addr == 0xFFFF {
+			fmt.Fprintf(tf.Out, "r %04X %02X #%d; reset vector (low)\n", addr, data, cycle)
+		} else {
+			fmt.Fprintf(tf.Out, "r %04X %02X #%d; \n", addr, data, cycle)
+		}
 
 	case KIND_WRITE:
 		if (tf.TraceBitmask & TRACE_W) == 0 {

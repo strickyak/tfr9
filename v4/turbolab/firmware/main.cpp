@@ -215,6 +215,10 @@ void IN_RAM foreground_loop() {
   byte prev_kind = KIND_IDLE;
   bool prev_irq_needed = false;
 
+  bool saw_fffe = false;
+  bool reset_achieved = false;
+  bool reset_tracing_started = false;
+
   LedOff();
   foreground_running = true;
 
@@ -246,6 +250,9 @@ void IN_RAM foreground_loop() {
 
       if (UNLIKELY(!cpu_started)) {
         cycles = 0;
+        saw_fffe = false;
+        reset_achieved = false;
+        reset_tracing_started = false;
       } else {
         cycles++;
 
@@ -275,7 +282,8 @@ void IN_RAM foreground_loop() {
       byte kind = KIND_IDLE;
 
       // ── Red Page Check ($FF04..$FFEF) ──
-      if (cpu_started && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
+      // Disabled until CPU reset is achieved (CPU accesses dummy/floating addresses during reset)
+      if (cpu_started && reset_achieved && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
         fault_reason = FAULT_RED_PAGE;
         fault_cycle = cycles;
         fault_addr = addr;
@@ -312,7 +320,8 @@ void IN_RAM foreground_loop() {
 
           // ── Zero Interrupt Vector Check ──
           // If BS=1 (Interrupt Acknowledge) and vector data is 0:
-          if (cpu_started && UNLIKELY(is_bs && value == 0)) {
+          // Disabled until CPU reset is achieved.
+          if (cpu_started && reset_achieved && UNLIKELY(is_bs && value == 0)) {
             fault_reason = FAULT_ZERO_VECTOR;
             fault_cycle = cycles;
             fault_addr = addr;
@@ -328,6 +337,12 @@ void IN_RAM foreground_loop() {
           LedOn();
         }
 
+        // Check for reset vector fetch ($FFFE then $FFFF)
+        if (addr == 0xFFFE) {
+          saw_fffe = true;
+          reset_tracing_started = true;
+        }
+
         // Put data onto data bus for CPU to latch
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
@@ -335,14 +350,25 @@ void IN_RAM foreground_loop() {
         bool is_fic = ((prev_late_pins & (1 << LIC)) != 0);
 
         if (addr == 0xFFFF) {
-          kind = KIND_IDLE;
-        } else if (is_fic) {
-          kind = KIND_FIC;
-        } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
-                   addr == (prev_addr + 1)) {
-          kind = KIND_OPCODE_CONT;
+          if (saw_fffe) {
+            kind = KIND_READ;
+            reset_achieved = true;
+          } else {
+            kind = KIND_IDLE;
+          }
+          saw_fffe = false;
         } else {
-          kind = KIND_READ;
+          if (saw_fffe && addr != 0xFFFE) {
+            saw_fffe = false;
+          }
+          if (is_fic) {
+            kind = KIND_FIC;
+          } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
+                     addr == (prev_addr + 1)) {
+            kind = KIND_OPCODE_CONT;
+          } else {
+            kind = KIND_READ;
+          }
         }
 
         prev_late_pins = late_pins;
@@ -384,8 +410,9 @@ void IN_RAM foreground_loop() {
         LedOff();
       }
 
-      // Trace filtering
-      bool trigger_met = cpu_started &&
+      // Trace filtering: only emit once reset vector fetch begins ($FFFE),
+      // and when trigger conditions are satisfied.
+      bool trigger_met = cpu_started && reset_tracing_started &&
                          (cycles >= trigger_cycle) &&
                          ((time_us_64() - start_time_us) >= trigger_time_us);
 
