@@ -69,6 +69,7 @@ var (
 	flagDebug    = flag.String("debug", "", "debug options (e.g. --debug=u to log packets in and out on stderr)")
 	flagListings = flag.String("listings", "", "directory with module listings named <name>.<size><crc>")
 	flagReflash  = flag.Bool("reflash", false, "reboot Pico into BOOTSEL mode for reflashing and exit")
+	flagExit     = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 )
 
 func expandUser(path string) string {
@@ -158,7 +159,17 @@ func parseDurationUs(s string) (uint64, error) {
 }
 
 func main() {
+	for _, arg := range os.Args[1:] {
+		if arg == "--exit" || arg == "-exit" || arg == "--exit=true" || arg == "-exit=true" || arg == "--exit=1" || arg == "-exit=1" {
+			os.Exit(0)
+		}
+	}
+
 	flag.Parse()
+
+	if *flagExit {
+		os.Exit(0)
+	}
 
 	// Parse trace flags
 	var traceBitmask int

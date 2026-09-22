@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 )
 
+var EXIT = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 var OMIT_STDERR = flag.Bool("omit_stderr", false, "send stderr to nowhere")
 var NO_KEYBOARD = flag.Bool("n", false, "disable keyboard input")
 var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
@@ -291,8 +292,18 @@ func TryRun(inkey chan byte, person Personality) {
 }
 
 func main() {
+	for _, arg := range os.Args[1:] {
+		if arg == "--exit" || arg == "-exit" || arg == "--exit=true" || arg == "-exit=true" || arg == "--exit=1" || arg == "-exit=1" {
+			os.Exit(0)
+		}
+	}
+
 	log.SetFlags(0)
 	flag.Parse()
+
+	if *EXIT {
+		os.Exit(0)
+	}
 	cobs.UseChecksums = *COBS_CHECKSUMS
 	InstallLimitedLogWriter()
 
