@@ -86,8 +86,10 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 
 	switch kind {
 	case KIND_IDLE:
-		// Not currently enabled via flags
-		return
+		if (tf.TraceBitmask & TRACE_IDLE) == 0 {
+			return
+		}
+		fmt.Fprintf(tf.Out, "- ---- -- #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	case KIND_FIC:
 		isRti := (data == 0x3B)

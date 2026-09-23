@@ -42,6 +42,7 @@ const (
 	TRACE_I    = 1 << 3
 	TRACE_T    = 1 << 4
 	TRACE_PLUS = 1 << 5
+	TRACE_IDLE = 1 << 6
 )
 
 // Fault reasons
@@ -63,7 +64,7 @@ var FaultReasonNames = map[byte]string{
 var (
 	flagWire     = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 	flagBaud     = flag.Uint("baud", 115200, "serial device baud rate")
-	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,r,w,i,t")
+	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,+,r,w,i,t,- (or 1 for all)")
 	flagTrigger  = flag.String("trigger", "", "trigger trace on cycle (c:50000) or seconds (s:5)")
 	flagMax      = flag.String("max", "", "max cycles (c:1m) or max time (t:30s)")
 	flagDebug    = flag.String("debug", "", "debug options (e.g. --debug=u to log packets in and out on stderr)")
@@ -191,8 +192,10 @@ func main() {
 				traceBitmask |= TRACE_I
 			case "t":
 				traceBitmask |= TRACE_T
+			case "-", "idle":
+				traceBitmask |= TRACE_IDLE
 			default:
-				fmt.Fprintf(os.Stderr, "Unknown trace flag: %q (supported: 1, x, +, r, w, i, t)\n", p)
+				fmt.Fprintf(os.Stderr, "Unknown trace flag: %q (supported: 1, x, +, r, w, i, t, -)\n", p)
 				os.Exit(1)
 			}
 		}

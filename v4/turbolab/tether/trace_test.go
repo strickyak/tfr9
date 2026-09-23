@@ -221,3 +221,34 @@ func TestTraceFormatterInterrupts(t *testing.T) {
 	}
 }
 
+func TestTraceFormatterIdle(t *testing.T) {
+	buf := &bytes.Buffer{}
+	tf := &TraceFormatter{
+		Out:          buf,
+		TraceBitmask: TRACE_IDLE, // ONLY '-' enabled!
+	}
+
+	// 1. Idle cycle without flags -> '- ---- -- #3; '
+	buf.Reset()
+	tf.FormatCycle(KIND_IDLE, 0xFFFF, 0x00, 3)
+	exp1 := "- ---- -- #3; \n"
+	if got := buf.String(); got != exp1 {
+		t.Errorf("Idle without flags mismatch:\n got: %q\nwant: %q", got, exp1)
+	}
+
+	// 2. Idle cycle with flags (e.g. LIC) -> '- ---- -- #4;_'
+	buf.Reset()
+	tf.FormatCycle(KIND_IDLE|FLAG_LIC, 0xFFFF, 0x00, 4)
+	exp2 := "- ---- -- #4;_\n"
+	if got := buf.String(); got != exp2 {
+		t.Errorf("Idle with FLAG_LIC mismatch:\n got: %q\nwant: %q", got, exp2)
+	}
+
+	// 3. Normal read suppressed when only TRACE_IDLE enabled
+	buf.Reset()
+	tf.FormatCycle(KIND_READ, 0x0200, 0x12, 5)
+	if got := buf.String(); got != "" {
+		t.Errorf("Normal read should be suppressed under TRACE_IDLE, got: %q", got)
+	}
+}
+

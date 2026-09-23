@@ -159,8 +159,8 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
 * `x D4F2 8E #4; "kernel.0d4eec829c"+0014   ldx #D.FMBM...` (no signals; legacy `; ` space preserved).
 
 ### Cycle Kind Prefixes
-* `-         #123000; `  
-  Idle cycle (no bus access, with cycle counter).
+* `- ---- -- #123000; `  
+  Idle cycle (internal CPU operation without bus transfer, identified by AVMA low delayed 1 cycle; address and data lines float and are formatted as `----` and `--`; enabled via `--trace=-`).
 * `x 80A1 7E #123001; ["<module>"+<offset> ]%s`  
   Opcode fetch (FIC / First Instruction Cycle) at address `$80A1` with opcode byte `$7E`. If the address falls within an OS-9 module, prefixes with lowercase module name, version string, and 4-digit hex offset (e.g., `"krn.0123896745"+0155 `), followed by the disassembled source line `%s`. Lines that do not begin with a label are indented with two extra spaces.
 * `+ 80A2 00 #123002; `  
@@ -248,7 +248,7 @@ Offset  Type      Field   Description
 
 #### `kind` Byte Bit Allocations:
 * **Bits 0..3 (Cycle Kind)**:
-  * `0`: `KIND_IDLE` (`-`)
+  * `0`: `KIND_IDLE` (`-`) — Internal/idle cycle (identified by AVMA low delayed 1 cycle; printed as `- ---- -- #<cycle>`; enabled via `--trace=-`)
   * `1`: `KIND_FIC` (`x`) — First Instruction Cycle (including `RTI` opcode fetch `$3B`)
   * `2`: `KIND_OPCODE_CONT` (`+`) — Subsequent opcode/operand byte
   * `3`: `KIND_READ` (`r`) — Data read cycle (including interrupt vector fetches at `$FFF0`..`$FFFD`)

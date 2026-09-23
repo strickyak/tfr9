@@ -80,6 +80,7 @@ constexpr uint8_t TRACE_FLAG_W    = 1 << 2;
 constexpr uint8_t TRACE_FLAG_I    = 1 << 3;
 constexpr uint8_t TRACE_FLAG_T    = 1 << 4;
 constexpr uint8_t TRACE_FLAG_PLUS = 1 << 5;
+constexpr uint8_t TRACE_FLAG_IDLE = 1 << 6;
 
 // CPU Signal Flags in high 4 bits of TraceRecord.kind
 constexpr uint8_t FLAG_BA   = 0x10;  // 'a'
@@ -261,6 +262,8 @@ void IN_RAM foreground_loop() {
       uint addr = 0xFFFF & hw->gpio_hi_in;
       const bool reading = 0 != (early_pins & (1 << R_W));
       const bool is_bs   = 0 != (early_pins & (1 << BS));
+      const bool vma     = 0 != (prev_late_pins & (1 << AVMA));
+      const bool is_idle = !vma && !is_bs;
 
       if (UNLIKELY(!cpu_started)) {
         cycles = 0;
@@ -303,8 +306,9 @@ void IN_RAM foreground_loop() {
       byte kind = KIND_IDLE;
 
       // ── Red Page Check ($FF04..$FFEF) ──
-      // Disabled until CPU reset is achieved (CPU accesses dummy/floating addresses during reset)
-      if (cpu_started && reset_achieved && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
+      // Disabled during idle cycles (address lines might float)
+      // and disabled until CPU reset is achieved.
+      if (!is_idle && cpu_started && reset_achieved && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
         fault_reason = FAULT_RED_PAGE;
         fault_cycle = cycles;
         fault_addr = addr;
@@ -316,7 +320,9 @@ void IN_RAM foreground_loop() {
 
       if (LIKELY(reading)) {
         // Read cycle
-        if (LIKELY(addr < 0xFF00)) {
+        if (UNLIKELY(is_idle)) {
+          value = 0;
+        } else if (LIKELY(addr < 0xFF00)) {
           value = ram[addr];
         } else if (addr <= 0xFF03) {
           // Turbo9Sim ACIA registers
@@ -367,27 +373,27 @@ void IN_RAM foreground_loop() {
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
 
-        bool is_fic = ((prev_late_pins & (1 << LIC)) != 0);
+        if (UNLIKELY(is_idle)) {
+          kind = KIND_IDLE;
+        } else {
+          bool is_fic = ((prev_late_pins & (1 << LIC)) != 0);
 
-        if (addr == 0xFFFF) {
-          if (saw_fffe) {
+          if (saw_fffe && addr == 0xFFFF) {
             kind = KIND_READ;
             reset_achieved = true;
-          } else {
-            kind = KIND_IDLE;
-          }
-          saw_fffe = false;
-        } else {
-          if (saw_fffe && addr != 0xFFFE) {
             saw_fffe = false;
-          }
-          if (is_fic) {
-            kind = KIND_FIC;
-          } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
-                     addr == (prev_addr + 1)) {
-            kind = KIND_OPCODE_CONT;
           } else {
-            kind = KIND_READ;
+            if (saw_fffe && addr != 0xFFFE) {
+              saw_fffe = false;
+            }
+            if (is_fic) {
+              kind = KIND_FIC;
+            } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
+                       addr == (prev_addr + 1)) {
+              kind = KIND_OPCODE_CONT;
+            } else {
+              kind = KIND_READ;
+            }
           }
         }
 
@@ -397,36 +403,41 @@ void IN_RAM foreground_loop() {
         uint late_pins = pio_sm_get_blocking(pio0, 0);
         value = (byte)late_pins;
 
-        // All writes are disabled during startup until RESET vector fetch ($FFFE+$FFFF) has completed.
-        // Once reset is achieved, writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
-        if (LIKELY(reset_achieved)) {
-          if (LIKELY(addr < 0xFF00)) {
-            ram[addr] = value;
-          } else if (addr <= 0xFF03) {
-            switch (addr & 3) {
-              case 0:
-                sim_last_char_tx = value;
-                fg2bg_chars.push(value);
-                break;
-              case 1:
-                // RX write has no effect
-                break;
-              case 2:
-                if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
-                if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
-                break;
-              case 3:
-                sim_control_reg = value;
-                break;
+        if (UNLIKELY(is_idle)) {
+          kind = KIND_IDLE;
+        } else {
+          // All writes are disabled during startup until RESET vector fetch ($FFFE+$FFFF) has completed.
+          // Once reset is achieved, writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
+          if (LIKELY(reset_achieved)) {
+            if (LIKELY(addr < 0xFF00)) {
+              ram[addr] = value;
+            } else if (addr <= 0xFF03) {
+              switch (addr & 3) {
+                case 0:
+                  sim_last_char_tx = value;
+                  fg2bg_chars.push(value);
+                  break;
+                case 1:
+                  // RX write has no effect
+                  break;
+                case 2:
+                  if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
+                  if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
+                  break;
+                case 3:
+                  sim_control_reg = value;
+                  break;
+              }
+            } else {
+              // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
+              // After reset is achieved, vectors are not write-protected.
+              ram[addr] = value;
             }
-          } else {
-            // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
-            // After reset is achieved, vectors are not write-protected.
-            ram[addr] = value;
           }
+
+          kind = KIND_WRITE;
         }
 
-        kind = (addr == 0xFFFF) ? KIND_IDLE : KIND_WRITE;
         prev_late_pins = late_pins;
       }
 
@@ -445,7 +456,9 @@ void IN_RAM foreground_loop() {
       if (trigger_met) {
         bool emit = false;
         switch (kind) {
-          case KIND_IDLE: emit = false; break;  // Emitted only if idle tracing
+          case KIND_IDLE:
+            emit = (trace_flags & TRACE_FLAG_IDLE) != 0;
+            break;
           case KIND_FIC:
             emit = (trace_flags & TRACE_FLAG_X) != 0;
             break;
