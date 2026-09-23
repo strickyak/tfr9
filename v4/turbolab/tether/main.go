@@ -619,6 +619,34 @@ func main() {
 						_ = os.WriteFile("/tmp/fault.img", fullDump, 0644)
 						fmt.Fprintf(os.Stderr, "Saved 64KB core dump to %s and /tmp/fault.img\n", dumpFile)
 
+						// Drain any trailing packets queued in cobsFromPico
+						for {
+							select {
+							case p := <-cobsFromPico:
+								if len(p) > 0 && p[0] == C_TRACE_CYCLES {
+									if len(p) >= 2 {
+										count := int(p[1])
+										for i := 0; i < count; i++ {
+											off := 2 + i*12
+											if off+12 <= len(p) {
+												cy := binary.LittleEndian.Uint64(p[off : off+8])
+												addr := binary.BigEndian.Uint16(p[off+8 : off+10])
+												data := p[off+10]
+												kind := p[off+11]
+												traceFmt.FormatCycle(kind, addr, data, cy)
+											}
+										}
+									}
+								} else if len(p) > 0 && p[0] == C_PUTCHAR {
+									for _, b := range p[1:] {
+										os.Stdout.Write([]byte{b})
+									}
+								}
+							default:
+								goto allDrained
+							}
+						}
+					allDrained:
 						RestoreSttyState()
 						if faultReason == FAULT_MAX_CYCLES || faultReason == FAULT_MAX_TIME {
 							os.Exit(0)

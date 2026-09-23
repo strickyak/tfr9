@@ -292,24 +292,6 @@ void IN_RAM foreground_loop() {
         }
       } else {
         cycles++;
-
-        // Max checks
-        if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
-          fault_reason = FAULT_MAX_CYCLES;
-          fault_cycle = cycles;
-          fault_addr = addr;
-          fault_triggered = true;
-          HaltOn();
-          return;
-        }
-        if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-          fault_reason = FAULT_MAX_TIME;
-          fault_cycle = cycles;
-          fault_addr = addr;
-          fault_triggered = true;
-          HaltOn();
-          return;
-        }
       }
 
       byte value = 0;
@@ -499,6 +481,26 @@ void IN_RAM foreground_loop() {
 
       prev_addr = addr;
       prev_kind = kind;
+
+      // Max execution checks (at end of cycle so current cycle is completed and traced)
+      if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
+        fault_reason = FAULT_MAX_CYCLES;
+        fault_cycle = cycles;
+        fault_addr = addr;
+        fault_data = value;
+        fault_triggered = true;
+        HaltOn();
+        return;
+      }
+      if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+        fault_reason = FAULT_MAX_TIME;
+        fault_cycle = cycles;
+        fault_addr = addr;
+        fault_data = value;
+        fault_triggered = true;
+        HaltOn();
+        return;
+      }
     }
   }
 }
@@ -620,7 +622,47 @@ void handle_rpc_request(const std::string& pkt) {
   }
 }
 
+void drain_trace_and_chars() {
+  // 1. Drain all console characters
+  byte ch;
+  while (fg2bg_chars.pop(ch)) {
+    unsigned char pkt[] = {C_PUTCHAR, ch};
+    send_cobs(pkt, sizeof(pkt));
+  }
+
+  // 2. Drain all trace cycles until FIFO is empty
+  constexpr size_t MAX_BATCH = 20;
+  TraceRecord batch[MAX_BATCH];
+  while (!fg2bg_trace.empty()) {
+    size_t count = 0;
+    while (count < MAX_BATCH && fg2bg_trace.pop(batch[count])) {
+      count++;
+    }
+    if (count > 0) {
+      uint8_t pkt[1 + 1 + MAX_BATCH * 12];
+      pkt[0] = C_TRACE_CYCLES;
+      pkt[1] = (uint8_t)count;
+      for (size_t i = 0; i < count; i++) {
+        size_t off = 2 + i * 12;
+        memcpy(&pkt[off + 0], &batch[i].cycle, 8);
+        pkt[off + 8] = (uint8_t)(batch[i].addr >> 8);
+        pkt[off + 9] = (uint8_t)(batch[i].addr & 0xFF);
+        pkt[off + 10] = batch[i].data;
+        pkt[off + 11] = batch[i].kind;
+      }
+      send_cobs(pkt, 2 + count * 12);
+      stdio_flush();
+      sleep_us(500);  // Allow USB CDC endpoint to transmit
+    }
+  }
+  stdio_flush();
+}
+
 void transmit_core_dump() {
+  // Drain all pending trace records and console characters before sending fault header
+  drain_trace_and_chars();
+  sleep_ms(5);
+
   // Send C_FAULT header: [C_FAULT, reason, cycle_8B, addr_2B, data_1B]
   uint8_t fault_pkt[13];
   fault_pkt[0] = C_FAULT;
@@ -630,6 +672,8 @@ void transmit_core_dump() {
   fault_pkt[11] = (uint8_t)(fault_addr & 0xFF);
   fault_pkt[12] = fault_data;
   send_cobs(fault_pkt, sizeof(fault_pkt));
+  stdio_flush();
+  sleep_ms(2);
 
   // Send 64KB core dump in 64 chunks of 1024 bytes
   uint8_t dump_pkt[1026];
@@ -793,26 +837,28 @@ int main() {
         send_cobs(pkt, sizeof(pkt));
       }
 
-      // 2. Drain trace cycles (bundle up to 20 records per packet)
+      // 2. Drain trace cycles (bundle up to 20 records per packet, up to 10 batches per iteration)
       constexpr size_t MAX_BATCH = 20;
       TraceRecord batch[MAX_BATCH];
-      size_t count = 0;
-      while (count < MAX_BATCH && fg2bg_trace.pop(batch[count])) {
-        count++;
-      }
-      if (count > 0) {
-        uint8_t pkt[1 + 1 + MAX_BATCH * 12];
-        pkt[0] = C_TRACE_CYCLES;
-        pkt[1] = (uint8_t)count;
-        for (size_t i = 0; i < count; i++) {
-          size_t off = 2 + i * 12;
-          memcpy(&pkt[off + 0], &batch[i].cycle, 8);
-          pkt[off + 8] = (uint8_t)(batch[i].addr >> 8);
-          pkt[off + 9] = (uint8_t)(batch[i].addr & 0xFF);
-          pkt[off + 10] = batch[i].data;
-          pkt[off + 11] = batch[i].kind;
+      for (int b = 0; b < 10 && !fg2bg_trace.empty(); b++) {
+        size_t count = 0;
+        while (count < MAX_BATCH && fg2bg_trace.pop(batch[count])) {
+          count++;
         }
-        send_cobs(pkt, 2 + count * 12);
+        if (count > 0) {
+          uint8_t pkt[1 + 1 + MAX_BATCH * 12];
+          pkt[0] = C_TRACE_CYCLES;
+          pkt[1] = (uint8_t)count;
+          for (size_t i = 0; i < count; i++) {
+            size_t off = 2 + i * 12;
+            memcpy(&pkt[off + 0], &batch[i].cycle, 8);
+            pkt[off + 8] = (uint8_t)(batch[i].addr >> 8);
+            pkt[off + 9] = (uint8_t)(batch[i].addr & 0xFF);
+            pkt[off + 10] = batch[i].data;
+            pkt[off + 11] = batch[i].kind;
+          }
+          send_cobs(pkt, 2 + count * 12);
+        }
       }
 
       // 3. Process USB packets from Tether
