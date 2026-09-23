@@ -49,6 +49,12 @@
 #define ENABLE_TRACING 0
 #endif
 
+// Set to 1 to enable runtime fault checks (Red Page $FF04..$FFEF and Zero Vector $0000).
+// Set to 0 to disable per-cycle fault checks for maximum bus cycle speed.
+#ifndef ENABLE_FAULT_CHECKS
+#define ENABLE_FAULT_CHECKS 0
+#endif
+
 using byte = uint8_t;
 using uint = unsigned int;
 
@@ -276,8 +282,10 @@ void IN_RAM foreground_loop() {
       uint addr = 0xFFFF & hw->gpio_hi_in;
       const bool reading = 0 != (early_pins & (1 << R_W));
       const bool is_bs   = 0 != (early_pins & (1 << BS));
+#if ENABLE_FAULT_CHECKS || ENABLE_TRACING
       const bool vma     = 0 != (prev_late_pins & (1 << AVMA));
       const bool is_idle = !vma && !is_bs;
+#endif
 
       if (UNLIKELY(!cpu_started)) {
         cycles = 0;
@@ -314,6 +322,7 @@ void IN_RAM foreground_loop() {
       byte kind = KIND_IDLE;
 #endif
 
+#if ENABLE_FAULT_CHECKS
       // ── Red Page Check ($FF04..$FFEF) ──
       // Disabled during idle cycles (address lines might float)
       // and disabled until CPU reset is achieved.
@@ -326,12 +335,16 @@ void IN_RAM foreground_loop() {
         HaltOn();
         return;
       }
+#endif
 
       if (LIKELY(reading)) {
         // Read cycle
+#if ENABLE_FAULT_CHECKS || ENABLE_TRACING
         if (UNLIKELY(is_idle)) {
           value = 0;
-        } else if (LIKELY(addr < 0xFF00)) {
+        } else
+#endif
+        if (LIKELY(addr < 0xFF00)) {
           value = ram[addr];
         } else if (addr <= 0xFF03) {
           // Turbo9Sim ACIA registers
@@ -354,6 +367,7 @@ void IN_RAM foreground_loop() {
           // Vectors $FFF0..$FFFF
           value = ram[addr];
 
+#if ENABLE_FAULT_CHECKS
           // ── Zero Interrupt Vector Check ──
           // If BS=1 (Interrupt Acknowledge) and vector data is 0:
           // Disabled until CPU reset is achieved.
@@ -366,6 +380,7 @@ void IN_RAM foreground_loop() {
             HaltOn();
             return;
           }
+#endif
         }
 
         // Interrupt Acknowledge: turn on LED
