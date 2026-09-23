@@ -37,6 +37,12 @@
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
+// Set to 1 to enable hardware timer reads on every cycle (time-based trigger and max-time checks).
+// Set to 0 to disable per-cycle time_us_64() APB bus reads for maximum bus cycle speed.
+#ifndef PER_CYCLE_TIMER_READS
+#define PER_CYCLE_TIMER_READS 0
+#endif
+
 using byte = uint8_t;
 using uint = unsigned int;
 
@@ -442,9 +448,14 @@ void IN_RAM foreground_loop() {
 
       // Trace filtering: only emit once reset vector fetch begins ($FFFE),
       // and when trigger conditions are satisfied.
+#if PER_CYCLE_TIMER_READS
       bool trigger_met = cpu_started && reset_tracing_started &&
                          (cycles >= trigger_cycle) &&
                          ((time_us_64() - start_time_us) >= trigger_time_us);
+#else
+      bool trigger_met = cpu_started && reset_tracing_started &&
+                         (cycles >= trigger_cycle);
+#endif
 
       if (trigger_met) {
         bool emit = false;
@@ -508,6 +519,7 @@ void IN_RAM foreground_loop() {
           HaltOn();
           return;
         }
+#if PER_CYCLE_TIMER_READS
         if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
           fault_reason = FAULT_MAX_TIME;
           fault_cycle = cycles;
@@ -517,6 +529,7 @@ void IN_RAM foreground_loop() {
           HaltOn();
           return;
         }
+#endif
       }
     }
   }
