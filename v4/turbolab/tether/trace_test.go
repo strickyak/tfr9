@@ -175,3 +175,49 @@ func TestTraceFormatterFlags(t *testing.T) {
 	}
 }
 
+func TestTraceFormatterInterrupts(t *testing.T) {
+	buf := &bytes.Buffer{}
+	tf := &TraceFormatter{
+		Out:          buf,
+		TraceBitmask: TRACE_I, // ONLY 'i' enabled!
+	}
+
+	// 1. IRQ vector read (high byte at $FFF8 with BS flag) -> tagged with 'r'
+	buf.Reset()
+	tf.FormatCycle(KIND_READ|FLAG_BS, 0xFFF8, 0x01, 500)
+	exp1 := "r FFF8 01 #500;s IRQ vector (high)\n"
+	if got := buf.String(); got != exp1 {
+		t.Errorf("IRQ high mismatch:\n got: %q\nwant: %q", got, exp1)
+	}
+
+	// 2. IRQ vector read (low byte at $FFF9 with BS flag) -> tagged with 'r'
+	buf.Reset()
+	tf.FormatCycle(KIND_READ|FLAG_BS, 0xFFF9, 0x0C, 501)
+	exp2 := "r FFF9 0C #501;s IRQ vector (low)\n"
+	if got := buf.String(); got != exp2 {
+		t.Errorf("IRQ low mismatch:\n got: %q\nwant: %q", got, exp2)
+	}
+
+	// 3. RTI instruction fetch (opcode $3B) -> tagged with 'x'
+	buf.Reset()
+	tf.FormatCycle(KIND_FIC, 0xD456, 0x3B, 550)
+	exp3 := "x D456 3B #550; rti\n"
+	if got := buf.String(); got != exp3 {
+		t.Errorf("RTI mismatch:\n got: %q\nwant: %q", got, exp3)
+	}
+
+	// 4. Non-interrupt read (e.g. normal RAM read at $0200) -> must be suppressed
+	buf.Reset()
+	tf.FormatCycle(KIND_READ, 0x0200, 0x12, 510)
+	if got := buf.String(); got != "" {
+		t.Errorf("Normal read should be suppressed under TRACE_I, got: %q", got)
+	}
+
+	// 5. Non-RTI opcode fetch (e.g. NOP at $0200) -> must be suppressed
+	buf.Reset()
+	tf.FormatCycle(KIND_FIC, 0x0200, 0x12, 511)
+	if got := buf.String(); got != "" {
+		t.Errorf("Normal opcode should be suppressed under TRACE_I, got: %q", got)
+	}
+}
+

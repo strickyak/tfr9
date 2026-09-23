@@ -458,15 +458,14 @@ void IN_RAM foreground_loop() {
           case KIND_WRITE:
             emit = (trace_flags & TRACE_FLAG_W) != 0;
             break;
-          case KIND_IRQ:
-          case KIND_FIRQ:
-          case KIND_NMI:
-          case KIND_RTI:
-            emit = (trace_flags & TRACE_FLAG_I) != 0;
-            break;
-          case KIND_SWI2:
-            emit = (trace_flags & TRACE_FLAG_T) != 0;
-            break;
+        }
+
+        // Trace flag 'i' enables logging of interrupt cycles (vector fetch and RTI)
+        // tagged with their usual r/w/x status without overriding kind:
+        if ((trace_flags & TRACE_FLAG_I) != 0) {
+          if (is_bs || is_rti) {
+            emit = true;
+          }
         }
 
         // Extract CPU signals for high 4 bits of kind: a=BA s=BS _=LIC y=BUSY
@@ -483,13 +482,6 @@ void IN_RAM foreground_loop() {
         if (emit) {
           TraceRecord rec{cycles, (uint16_t)addr, value, (uint8_t)((kind & 0x0F) | cpu_flags)};
           while (!fg2bg_trace.push(rec)) {
-            if (UNLIKELY(fault_triggered)) break;
-            tight_loop_contents();
-          }
-        }
-        if (is_rti && (trace_flags & TRACE_FLAG_I) && !(emit && kind == KIND_RTI)) {
-          TraceRecord rec_rti{cycles, (uint16_t)addr, value, (uint8_t)(KIND_RTI | cpu_flags)};
-          while (!fg2bg_trace.push(rec_rti)) {
             if (UNLIKELY(fault_triggered)) break;
             tight_loop_contents();
           }

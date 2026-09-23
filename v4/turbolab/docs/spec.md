@@ -249,14 +249,11 @@ Offset  Type      Field   Description
 #### `kind` Byte Bit Allocations:
 * **Bits 0..3 (Cycle Kind)**:
   * `0`: `KIND_IDLE` (`-`)
-  * `1`: `KIND_FIC` (`x`) — First Instruction Cycle
+  * `1`: `KIND_FIC` (`x`) — First Instruction Cycle (including `RTI` opcode fetch `$3B`)
   * `2`: `KIND_OPCODE_CONT` (`+`) — Subsequent opcode/operand byte
-  * `3`: `KIND_READ` (`r`) — Data read cycle
+  * `3`: `KIND_READ` (`r`) — Data read cycle (including interrupt vector fetches at `$FFF0`..`$FFFD`)
   * `4`: `KIND_WRITE` (`w`) — Data write cycle
-  * `6`: `KIND_IRQ` (`i`)
-  * `7`: `KIND_FIRQ` (`i`)
-  * `8`: `KIND_NMI` (`i`)
-  * `9`: `KIND_SWI2` (`t`)
+  * Note: Flag `--trace=i` enables emission of interrupt vector reads (`is_bs`) and `RTI` instruction fetches (`is_rti`) with their natural `r` and `x` tags. Tether identifies the interrupt context from the `s` (`FLAG_BS`) signal and vector addresses, annotating them with their vector names (e.g. `IRQ vector (high)`).
 * **Bits 4..7 (CPU Status Flags)**:
   * Bit 4 (`0x10`): `a` = `FLAG_BA` (Bus Available)
   * Bit 5 (`0x20`): `s` = `FLAG_BS` (Bus Status — GPIO 28)

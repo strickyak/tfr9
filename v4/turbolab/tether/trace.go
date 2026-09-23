@@ -90,7 +90,8 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		return
 
 	case KIND_FIC:
-		if (tf.TraceBitmask & TRACE_X) == 0 {
+		isRti := (data == 0x3B)
+		if (tf.TraceBitmask&TRACE_X) == 0 && !(isRti && (tf.TraceBitmask&TRACE_I) != 0) {
 			return
 		}
 		src := tf.Listings.Lookup(addr)
@@ -107,6 +108,9 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		} else {
 			comment = src
 		}
+		if comment == "" && isRti {
+			comment = "rti"
+		}
 
 		fmt.Fprintf(tf.Out, "x %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, comment))
 
@@ -117,17 +121,50 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		fmt.Fprintf(tf.Out, "+ %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))
 
 	case KIND_READ:
-		if (tf.TraceBitmask & TRACE_R) == 0 {
+		isInterruptVector := (addr >= 0xFFF0 && addr <= 0xFFFD) && ((flags & FLAG_BS) != 0)
+		isResetVector := (addr == 0xFFFE || addr == 0xFFFF)
+		if (tf.TraceBitmask&TRACE_R) == 0 && !((isInterruptVector || isResetVector) && (tf.TraceBitmask&TRACE_I) != 0) {
 			return
 		}
 		src := tf.Listings.Lookup(addr)
 		var comment string
 		if src != "" {
 			comment = src
-		} else if addr == 0xFFFE {
-			comment = "reset vector (high)"
-		} else if addr == 0xFFFF {
-			comment = "reset vector (low)"
+		} else {
+			switch addr {
+			case 0xFFF0:
+				comment = "reserved vector (high)"
+			case 0xFFF1:
+				comment = "reserved vector (low)"
+			case 0xFFF2:
+				comment = "SWI3 vector (high)"
+			case 0xFFF3:
+				comment = "SWI3 vector (low)"
+			case 0xFFF4:
+				comment = "SWI2 vector (high)"
+			case 0xFFF5:
+				comment = "SWI2 vector (low)"
+			case 0xFFF6:
+				comment = "FIRQ vector (high)"
+			case 0xFFF7:
+				comment = "FIRQ vector (low)"
+			case 0xFFF8:
+				comment = "IRQ vector (high)"
+			case 0xFFF9:
+				comment = "IRQ vector (low)"
+			case 0xFFFA:
+				comment = "SWI vector (high)"
+			case 0xFFFB:
+				comment = "SWI vector (low)"
+			case 0xFFFC:
+				comment = "NMI vector (high)"
+			case 0xFFFD:
+				comment = "NMI vector (low)"
+			case 0xFFFE:
+				comment = "reset vector (high)"
+			case 0xFFFF:
+				comment = "reset vector (low)"
+			}
 		}
 		fmt.Fprintf(tf.Out, "r %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, comment))
 
