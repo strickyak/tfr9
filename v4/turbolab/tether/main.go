@@ -609,6 +609,7 @@ func main() {
 					if len(pkt) >= 13 {
 						faultData = pkt[12]
 					}
+					speedEstimator.OnCycle(faultCycle)
 					reasonStr, ok := FaultReasonNames[faultReason]
 					if !ok {
 						reasonStr = fmt.Sprintf("Unknown Fault ($%02X)", faultReason)
@@ -752,6 +753,7 @@ func main() {
 		Fatalf("Start RPC failed: %v (status=%d %s)", err, resp.Status, resp.Message)
 	}
 	cpuStarted.Store(true)
+	speedEstimator.OnCycle(0)
 
 	// ── Phase 5: Interactive Terminal ──
 	SetSttyCbreak()

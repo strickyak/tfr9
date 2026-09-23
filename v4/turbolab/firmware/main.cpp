@@ -43,6 +43,12 @@
 #define PER_CYCLE_TIMER_READS 0
 #endif
 
+// Set to 1 to enable per-cycle instruction tracing, opcode classification, and trace emission.
+// Set to 0 to disable per-cycle trace overhead for maximum bus cycle speed.
+#ifndef ENABLE_TRACING
+#define ENABLE_TRACING 0
+#endif
+
 using byte = uint8_t;
 using uint = unsigned int;
 
@@ -230,8 +236,10 @@ void IN_RAM foreground_loop() {
   uint64_t cycles = 0;
   uint64_t pre_reset_cycles = 0;
   uint prev_late_pins = 0;
+#if ENABLE_TRACING
   uint16_t prev_addr = 0;
   byte prev_kind = KIND_IDLE;
+#endif
   bool prev_irq_needed = false;
 
   bool saw_fffe = false;
@@ -302,7 +310,9 @@ void IN_RAM foreground_loop() {
       }
 
       byte value = 0;
+#if ENABLE_TRACING
       byte kind = KIND_IDLE;
+#endif
 
       // ── Red Page Check ($FF04..$FFEF) ──
       // Disabled during idle cycles (address lines might float)
@@ -372,6 +382,7 @@ void IN_RAM foreground_loop() {
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
 
+#if ENABLE_TRACING
         if (UNLIKELY(is_idle)) {
           kind = KIND_IDLE;
         } else {
@@ -395,6 +406,14 @@ void IN_RAM foreground_loop() {
             }
           }
         }
+#else
+        if (saw_fffe && addr == 0xFFFF) {
+          reset_achieved = true;
+          saw_fffe = false;
+        } else if (saw_fffe && addr != 0xFFFE) {
+          saw_fffe = false;
+        }
+#endif
 
         prev_late_pins = late_pins;
       } else {
@@ -402,6 +421,7 @@ void IN_RAM foreground_loop() {
         uint late_pins = pio_sm_get_blocking(pio0, 0);
         value = (byte)late_pins;
 
+#if ENABLE_TRACING
         if (UNLIKELY(is_idle)) {
           kind = KIND_IDLE;
         } else {
@@ -436,10 +456,36 @@ void IN_RAM foreground_loop() {
 
           kind = KIND_WRITE;
         }
+#else
+        if (LIKELY(reset_achieved)) {
+          if (LIKELY(addr < 0xFF00)) {
+            ram[addr] = value;
+          } else if (addr <= 0xFF03) {
+            switch (addr & 3) {
+              case 0:
+                sim_last_char_tx = value;
+                fg2bg_chars.push(value);
+                break;
+              case 1:
+                break;
+              case 2:
+                if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
+                if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
+                break;
+              case 3:
+                sim_control_reg = value;
+                break;
+            }
+          } else {
+            ram[addr] = value;
+          }
+        }
+#endif
 
         prev_late_pins = late_pins;
       }
 
+#if ENABLE_TRACING
       // Check for RTI ($3B)
       bool is_rti = (reading && kind == KIND_FIC && value == 0x3B && addr < 0xFFF0);
       if (is_rti) {
@@ -507,6 +553,7 @@ void IN_RAM foreground_loop() {
 
       prev_addr = addr;
       prev_kind = kind;
+#endif
 
       // Max execution checks (at end of cycle so current cycle is completed and traced)
       if (reset_tracing_started) {
