@@ -482,11 +482,17 @@ void IN_RAM foreground_loop() {
 
         if (emit) {
           TraceRecord rec{cycles, (uint16_t)addr, value, (uint8_t)((kind & 0x0F) | cpu_flags)};
-          fg2bg_trace.push(rec);
+          while (!fg2bg_trace.push(rec)) {
+            if (UNLIKELY(fault_triggered)) break;
+            tight_loop_contents();
+          }
         }
         if (is_rti && (trace_flags & TRACE_FLAG_I) && !(emit && kind == KIND_RTI)) {
           TraceRecord rec_rti{cycles, (uint16_t)addr, value, (uint8_t)(KIND_RTI | cpu_flags)};
-          fg2bg_trace.push(rec_rti);
+          while (!fg2bg_trace.push(rec_rti)) {
+            if (UNLIKELY(fault_triggered)) break;
+            tight_loop_contents();
+          }
         }
       }
 
@@ -872,6 +878,7 @@ int main() {
           send_cobs(pkt, 2 + count * 12);
         }
       }
+      stdio_flush();
 
       // 3. Process USB packets from Tether
       while (usb_rx_packets.NumBuffered() > 0) {

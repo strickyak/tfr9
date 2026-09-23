@@ -140,6 +140,11 @@ Each traced bus cycle is printed on `stderr`, cleanly separated from 6309 consol
 * **Cycle `#4`**: First Instruction Cycle (FIC) at the kernel entry address (`x <addr> <op> #4; ...`).
 * Pre-reset cycles (internal 6309 cycles while coming out of reset) are suppressed from trace output, and `cycles` remains `0` until `$FFFE` is read with `BS=1`.
 
+### Lossless Trace Flow Control
+* Traced cycles are pushed from Core 1 to Core 0 across the 8192-entry lock-free `fg2bg_trace` FIFO.
+* When tracing is active, if the FIFO becomes full due to USB throughput limits, Core 1 pauses before issuing the next bus cycle to Hamster PIO.
+* Because the 6309E CPU is a static CMOS processor and Hamster PIO holds clocks E and Q low (`side 0`) between cycles, the CPU safely holds state until Core 0 drains records over USB. This guarantees 100% lossless cycle capture without dropped records, and ensures the trace log runs precisely to the specified `--max c:N` limit.
+
 ### CPU Status Signals
 The four high bits of the trace `kind` byte report live CPU bus and status signals:
 * `a` (`0x10`): **BA** (Bus Available)
