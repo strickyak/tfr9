@@ -252,3 +252,49 @@ func TestTraceFormatterIdle(t *testing.T) {
 	}
 }
 
+func TestParseTraceFlags(t *testing.T) {
+	allExceptIdle := TRACE_X | TRACE_PLUS | TRACE_R | TRACE_W | TRACE_I | TRACE_T
+	allWithIdle := allExceptIdle | TRACE_IDLE
+
+	tests := []struct {
+		input       string
+		wantMask    int
+		wantErr     bool
+	}{
+		{"", 0, false},
+		{"1", allExceptIdle, false},
+		{"all", allExceptIdle, false},
+		{"1,idle", allWithIdle, false},
+		{"1,-", allWithIdle, false},
+		{"all,idle", allWithIdle, false},
+		{"all,-", allWithIdle, false},
+		{"-", TRACE_IDLE, false},
+		{"idle", TRACE_IDLE, false},
+		{"x", TRACE_X, false},
+		{"x,w", TRACE_X | TRACE_W, false},
+		{"foo", 0, true},
+	}
+
+	for _, tc := range tests {
+		got, err := parseTraceFlags(tc.input)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parseTraceFlags(%q) expected error, got nil", tc.input)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("parseTraceFlags(%q) unexpected error: %v", tc.input, err)
+			}
+			if got != tc.wantMask {
+				t.Errorf("parseTraceFlags(%q) = 0x%02X, want 0x%02X", tc.input, got, tc.wantMask)
+			}
+			if tc.input == "1" || tc.input == "all" {
+				if got&TRACE_IDLE != 0 {
+					t.Errorf("parseTraceFlags(%q) should NOT include TRACE_IDLE", tc.input)
+				}
+			}
+		}
+	}
+}
+
+

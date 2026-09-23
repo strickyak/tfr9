@@ -160,7 +160,7 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
 
 ### Cycle Kind Prefixes
 * `- ---- -- #123000; `  
-  Idle cycle (internal CPU operation without bus transfer, identified by AVMA low delayed 1 cycle; address and data lines float and are formatted as `----` and `--`; enabled via `--trace=-`).
+  Idle cycle (internal CPU operation without bus transfer, identified by AVMA low delayed 1 cycle; address and data lines float and are formatted as `----` and `--`; enabled via `--trace=-` or `--trace=idle`; `--trace=1` implies all flags except idle, so idle cycles require `--trace=1,-` or `--trace=1,idle`).
 * `x 80A1 7E #123001; ["<module>"+<offset> ]%s`  
   Opcode fetch (FIC / First Instruction Cycle) at address `$80A1` with opcode byte `$7E`. If the address falls within an OS-9 module, prefixes with lowercase module name, version string, and 4-digit hex offset (e.g., `"krn.0123896745"+0155 `), followed by the disassembled source line `%s`. Lines that do not begin with a label are indented with two extra spaces.
 * `+ 80A2 00 #123002; `  
@@ -248,11 +248,12 @@ Offset  Type      Field   Description
 
 #### `kind` Byte Bit Allocations:
 * **Bits 0..3 (Cycle Kind)**:
-  * `0`: `KIND_IDLE` (`-`) — Internal/idle cycle (identified by AVMA low delayed 1 cycle; printed as `- ---- -- #<cycle>`; enabled via `--trace=-`)
+  * `0`: `KIND_IDLE` (`-`) — Internal/idle cycle (identified by AVMA low delayed 1 cycle; printed as `- ---- -- #<cycle>`; enabled via `--trace=-` or `--trace=idle`)
   * `1`: `KIND_FIC` (`x`) — First Instruction Cycle (including `RTI` opcode fetch `$3B`)
   * `2`: `KIND_OPCODE_CONT` (`+`) — Subsequent opcode/operand byte
   * `3`: `KIND_READ` (`r`) — Data read cycle (including interrupt vector fetches at `$FFF0`..`$FFFD`)
   * `4`: `KIND_WRITE` (`w`) — Data write cycle
+  * Note: Flag `--trace=1` (or `all`) implies all trace flags (`x`, `+`, `r`, `w`, `i`, `t`) *except* idle (`-`). To include idle cycles, explicitly specify `--trace=1,-` or `--trace=1,idle`.
   * Note: Flag `--trace=i` enables emission of interrupt vector reads (`is_bs`) and `RTI` instruction fetches (`is_rti`) with their natural `r` and `x` tags. Tether identifies the interrupt context from the `s` (`FLAG_BS`) signal and vector addresses, annotating them with their vector names (e.g. `IRQ vector (high)`).
 * **Bits 4..7 (CPU Status Flags)**:
   * Bit 4 (`0x10`): `a` = `FLAG_BA` (Bus Available)

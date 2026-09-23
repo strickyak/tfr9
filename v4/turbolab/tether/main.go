@@ -64,7 +64,7 @@ var FaultReasonNames = map[byte]string{
 var (
 	flagWire     = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 	flagBaud     = flag.Uint("baud", 115200, "serial device baud rate")
-	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,+,r,w,i,t,- (or 1 for all)")
+	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,+,r,w,i,t,- (or 1 for all except idle; add idle with 1,idle or 1,-)")
 	flagTrigger  = flag.String("trigger", "", "trigger trace on cycle (c:50000) or seconds (s:5)")
 	flagMax      = flag.String("max", "", "max cycles (c:1m) or max time (t:30s)")
 	flagDebug    = flag.String("debug", "", "debug options (e.g. --debug=u to log packets in and out on stderr)")
@@ -159,6 +159,39 @@ func parseDurationUs(s string) (uint64, error) {
 	return uint64(v * 1000000.0), err
 }
 
+func parseTraceFlags(str string) (int, error) {
+	var bitmask int
+	if str == "" {
+		return 0, nil
+	}
+	parts := strings.Split(str, ",")
+	for _, p := range parts {
+		switch strings.TrimSpace(strings.ToLower(p)) {
+		case "1", "all":
+			// Implies all trace flags except idle (-).
+			// To add Idle, must explicitly name it: --trace=1,idle or --trace=1,-
+			bitmask |= TRACE_X | TRACE_PLUS | TRACE_R | TRACE_W | TRACE_I | TRACE_T
+		case "x":
+			bitmask |= TRACE_X
+		case "+":
+			bitmask |= TRACE_PLUS
+		case "r":
+			bitmask |= TRACE_R | TRACE_X | TRACE_I | TRACE_PLUS
+		case "w":
+			bitmask |= TRACE_W
+		case "i":
+			bitmask |= TRACE_I
+		case "t":
+			bitmask |= TRACE_T
+		case "-", "idle":
+			bitmask |= TRACE_IDLE
+		default:
+			return 0, fmt.Errorf("unknown trace flag: %q (supported: 1, x, +, r, w, i, t, -, idle)", p)
+		}
+	}
+	return bitmask, nil
+}
+
 func main() {
 	for _, arg := range os.Args[1:] {
 		if arg == "--exit" || arg == "-exit" || arg == "--exit=true" || arg == "-exit=true" || arg == "--exit=1" || arg == "-exit=1" {
@@ -173,32 +206,10 @@ func main() {
 	}
 
 	// Parse trace flags
-	var traceBitmask int
-	if *flagTrace != "" {
-		parts := strings.Split(*flagTrace, ",")
-		for _, p := range parts {
-			switch strings.TrimSpace(strings.ToLower(p)) {
-			case "1", "all":
-				traceBitmask |= TRACE_X | TRACE_PLUS | TRACE_R | TRACE_W | TRACE_I | TRACE_T
-			case "x":
-				traceBitmask |= TRACE_X
-			case "+":
-				traceBitmask |= TRACE_PLUS
-			case "r":
-				traceBitmask |= TRACE_R | TRACE_X | TRACE_I | TRACE_PLUS
-			case "w":
-				traceBitmask |= TRACE_W
-			case "i":
-				traceBitmask |= TRACE_I
-			case "t":
-				traceBitmask |= TRACE_T
-			case "-", "idle":
-				traceBitmask |= TRACE_IDLE
-			default:
-				fmt.Fprintf(os.Stderr, "Unknown trace flag: %q (supported: 1, x, +, r, w, i, t, -)\n", p)
-				os.Exit(1)
-			}
-		}
+	traceBitmask, err := parseTraceFlags(*flagTrace)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	// Parse trigger
