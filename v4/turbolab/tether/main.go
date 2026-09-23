@@ -212,6 +212,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	speedEstimator := NewCycleSpeedEstimator(traceBitmask != 0)
+
 	// Parse trigger
 	var triggerCycle uint64
 	var triggerTimeUs uint64
@@ -369,6 +371,7 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
+		speedEstimator.PrintReport()
 		RestoreSttyState()
 		if sig == syscall.SIGINT {
 			fmt.Printf("\n[SIGINT]\n")
@@ -429,6 +432,7 @@ func main() {
 		usbDropOnce.Do(func() {
 			fmt.Printf("\n[USB Disconnected: '%s']\n", *flagWire)
 			fmt.Fprintf(os.Stderr, "USB Disconnected: %s: %v\n", *flagWire, err)
+			speedEstimator.PrintReport()
 			RestoreSttyState()
 			os.Exit(1)
 		})
@@ -591,6 +595,7 @@ func main() {
 							addr := binary.BigEndian.Uint16(pkt[off+8 : off+10])
 							data := pkt[off+10]
 							kind := pkt[off+11]
+							speedEstimator.OnCycle(cy)
 							traceFmt.FormatCycle(kind, addr, data, cy)
 						}
 					}
@@ -647,6 +652,7 @@ func main() {
 												addr := binary.BigEndian.Uint16(p[off+8 : off+10])
 												data := p[off+10]
 												kind := p[off+11]
+												speedEstimator.OnCycle(cy)
 												traceFmt.FormatCycle(kind, addr, data, cy)
 											}
 										}
@@ -661,6 +667,7 @@ func main() {
 							}
 						}
 					allDrained:
+						speedEstimator.PrintReport()
 						RestoreSttyState()
 						if faultReason == FAULT_MAX_CYCLES || faultReason == FAULT_MAX_TIME {
 							os.Exit(0)
@@ -760,5 +767,6 @@ func main() {
 		channelToPico <- pkt
 	}
 
+	speedEstimator.PrintReport()
 	RestoreSttyState()
 }

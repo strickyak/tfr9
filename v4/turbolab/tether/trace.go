@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Trace kinds matching firmware (low 4 bits)
@@ -210,3 +213,79 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		fmt.Fprintf(tf.Out, "? %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))
 	}
 }
+
+// CycleSpeedEstimator calculates clock cycles per second from the first
+// cycle report received until tether shutdown.
+type CycleSpeedEstimator struct {
+	mu         sync.Mutex
+	enabled    bool
+	firstTime  time.Time
+	firstCycle uint64
+	lastCycle  uint64
+	once       sync.Once
+	Stderr     io.Writer
+	Stdout     io.Writer
+	nowFunc    func() time.Time
+}
+
+func NewCycleSpeedEstimator(enabled bool) *CycleSpeedEstimator {
+	return &CycleSpeedEstimator{
+		enabled: enabled,
+		Stderr:  os.Stderr,
+		Stdout:  os.Stdout,
+		nowFunc: time.Now,
+	}
+}
+
+func (e *CycleSpeedEstimator) OnCycle(cy uint64) {
+	if e == nil || !e.enabled {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.firstTime.IsZero() {
+		e.firstTime = e.nowFunc()
+		e.firstCycle = cy
+	}
+	e.lastCycle = cy
+}
+
+func (e *CycleSpeedEstimator) Calculate() (cps float64, totalCycles uint64, elapsed time.Duration, ok bool) {
+	if e == nil || !e.enabled {
+		return 0, 0, 0, false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.firstTime.IsZero() || e.lastCycle <= e.firstCycle {
+		return 0, 0, 0, false
+	}
+	now := e.nowFunc()
+	elapsed = now.Sub(e.firstTime)
+	if elapsed <= 0 {
+		return 0, 0, 0, false
+	}
+	totalCycles = e.lastCycle - e.firstCycle
+	cps = float64(totalCycles) / elapsed.Seconds()
+	return cps, totalCycles, elapsed, true
+}
+
+func (e *CycleSpeedEstimator) PrintReport() {
+	if e == nil || !e.enabled {
+		return
+	}
+	e.once.Do(func() {
+		cps, totalCycles, elapsed, ok := e.Calculate()
+		if !ok {
+			return
+		}
+		msg := fmt.Sprintf("Estimated cycles per second: %.0f (%.3f MHz) [%d cycles in %.2fs]",
+			cps, cps/1e6, totalCycles, elapsed.Seconds())
+		if e.Stderr != nil {
+			fmt.Fprintln(e.Stderr, msg)
+		}
+		if e.Stdout != nil {
+			fmt.Fprintf(e.Stdout, "\n[%s]\n", msg)
+		}
+	})
+}
+

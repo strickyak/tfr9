@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"os"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestTraceFormatterFIC(t *testing.T) {
@@ -296,5 +298,67 @@ func TestParseTraceFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestCycleSpeedEstimator(t *testing.T) {
+	// 1. Disabled estimator does nothing
+	disabled := NewCycleSpeedEstimator(false)
+	disabled.OnCycle(100)
+	if _, _, _, ok := disabled.Calculate(); ok {
+		t.Errorf("Disabled estimator should return ok=false")
+	}
+
+	// 2. Enabled estimator with single cycle
+	baseTime := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	currentTime := baseTime
+	timeHook := func() time.Time { return currentTime }
+
+	e := NewCycleSpeedEstimator(true)
+	e.nowFunc = timeHook
+	e.OnCycle(10)
+	// Same cycle or no advance
+	if _, _, _, ok := e.Calculate(); ok {
+		t.Errorf("Single cycle should not yield speed estimate")
+	}
+
+	// 3. Normal cycle progression
+	currentTime = baseTime.Add(2 * time.Second)
+	e.OnCycle(3260010) // 3,260,000 cycles in 2 seconds = 1.63 MHz
+
+	cps, totalCycles, elapsed, ok := e.Calculate()
+	if !ok {
+		t.Fatalf("Expected Calculate() to succeed")
+	}
+	if totalCycles != 3260000 {
+		t.Errorf("totalCycles = %d, want 3260000", totalCycles)
+	}
+	if elapsed != 2*time.Second {
+		t.Errorf("elapsed = %v, want 2s", elapsed)
+	}
+	if cps != 1630000.0 {
+		t.Errorf("cps = %f, want 1630000.0", cps)
+	}
+
+	// 4. Test PrintReport outputs to Stderr and Stdout
+	stderrBuf := &bytes.Buffer{}
+	stdoutBuf := &bytes.Buffer{}
+	e.Stderr = stderrBuf
+	e.Stdout = stdoutBuf
+
+	e.PrintReport()
+	if !strings.Contains(stderrBuf.String(), "Estimated cycles per second: 1630000 (1.630 MHz)") {
+		t.Errorf("stderr missing expected estimate, got: %q", stderrBuf.String())
+	}
+	if !strings.Contains(stdoutBuf.String(), "Estimated cycles per second: 1630000 (1.630 MHz)") {
+		t.Errorf("stdout missing expected estimate, got: %q", stdoutBuf.String())
+	}
+
+	// 5. Test idempotency (PrintReport only prints once)
+	stderrLen := stderrBuf.Len()
+	e.PrintReport()
+	if stderrBuf.Len() != stderrLen {
+		t.Errorf("PrintReport should only print once, got extra output")
+	}
+}
+
 
 

@@ -145,6 +145,13 @@ Each traced bus cycle is printed on `stderr`, cleanly separated from 6309 consol
 * When tracing is active, if the FIFO becomes full due to USB throughput limits, Core 1 pauses before issuing the next bus cycle to Hamster PIO.
 * Because the 6309E CPU is a static CMOS processor and Hamster PIO holds clocks E and Q low (`side 0`) between cycles, the CPU safely holds state until Core 0 drains records over USB. This guarantees 100% lossless cycle capture without dropped records, and ensures the trace log runs precisely to the specified `--max c:N` limit.
 
+### Cycle Speed Estimation at Shutdown
+* When any tracing is enabled (`--trace` with any flag), Tether samples a kernel timestamp (`time.Now()`) upon receiving the first cycle report, and records the latest cycle number received.
+* When Tether shuts down (due to user `^C` / `SIGINT`, limits `--max`, or termination), Tether takes a shutdown kernel timestamp, computes total cycles as `lastCycle - firstCycle`, and divides by elapsed time to estimate execution cycles per second:
+  $$\text{CPS} = \frac{\text{lastCycle} - \text{firstCycle}}{\text{elapsed seconds}}$$
+* Printed on both `stderr` (logged in `_log`) and terminal stdout as Tether exits:
+  `Estimated cycles per second: 180154 (0.180 MHz) [97406 cycles in 0.54s]`
+
 ### CPU Status Signals
 The four high bits of the trace `kind` byte report live CPU bus and status signals:
 * `a` (`0x10`): **BA** (Bus Available)
