@@ -146,7 +146,7 @@ volatile uint64_t fault_cycle = 0;
 volatile uint16_t fault_addr = 0;
 volatile byte fault_data = 0;
 
-uint64_t start_time_us = 0;
+volatile uint64_t start_time_us = 0;
 
 // Turbo9Sim emulated ACIA registers ($FF00..$FF03)
 constexpr byte SIM_TIMER_BIT = 0x01;
@@ -278,6 +278,7 @@ void IN_RAM foreground_loop() {
           cycles = 1;
           saw_fffe = true;
           reset_tracing_started = true;
+          start_time_us = time_us_64();
         } else {
           cycles = 0;
           pre_reset_cycles++;
@@ -289,14 +290,6 @@ void IN_RAM foreground_loop() {
             HaltOn();
             return;
           }
-        }
-        if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-          fault_reason = FAULT_MAX_TIME;
-          fault_cycle = 0;
-          fault_addr = addr;
-          fault_triggered = true;
-          HaltOn();
-          return;
         }
       } else {
         cycles++;
@@ -505,23 +498,25 @@ void IN_RAM foreground_loop() {
       prev_kind = kind;
 
       // Max execution checks (at end of cycle so current cycle is completed and traced)
-      if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
-        fault_reason = FAULT_MAX_CYCLES;
-        fault_cycle = cycles;
-        fault_addr = addr;
-        fault_data = value;
-        fault_triggered = true;
-        HaltOn();
-        return;
-      }
-      if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-        fault_reason = FAULT_MAX_TIME;
-        fault_cycle = cycles;
-        fault_addr = addr;
-        fault_data = value;
-        fault_triggered = true;
-        HaltOn();
-        return;
+      if (reset_tracing_started) {
+        if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
+          fault_reason = FAULT_MAX_CYCLES;
+          fault_cycle = cycles;
+          fault_addr = addr;
+          fault_data = value;
+          fault_triggered = true;
+          HaltOn();
+          return;
+        }
+        if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+          fault_reason = FAULT_MAX_TIME;
+          fault_cycle = cycles;
+          fault_addr = addr;
+          fault_data = value;
+          fault_triggered = true;
+          HaltOn();
+          return;
+        }
       }
     }
   }
@@ -630,6 +625,7 @@ void handle_rpc_request(const std::string& pkt) {
 
     // Release HALT -> 6309 starts executing
     start_time_us = time_us_64();
+    __dmb();
     cpu_started = true;
     HaltOff();
 
@@ -745,6 +741,7 @@ void restart_to_restarted_state() {
   trigger_time_us = 0;
   max_cycles = 0;
   max_time_us = 0;
+  start_time_us = 0;
   sim_status_reg = 0;
   sim_control_reg = 0;
   sim_last_char_tx = 0;

@@ -710,8 +710,13 @@ func main() {
 	}
 
 	// ── Phase 2: Send configuration via RPC ──
-	fmt.Fprintf(os.Stderr, "Sending configuration (trace=0x%02X, trigger_c=%d, max_c=%d)...\n",
-		traceBitmask, triggerCycle, maxCycles)
+	if maxTimeUs > 0 {
+		fmt.Fprintf(os.Stderr, "Sending configuration (trace=0x%02X, trigger_c=%d, max_c=%d, max_t=%.2fs)...\n",
+			traceBitmask, triggerCycle, maxCycles, float64(maxTimeUs)/1e6)
+	} else {
+		fmt.Fprintf(os.Stderr, "Sending configuration (trace=0x%02X, trigger_c=%d, max_c=%d)...\n",
+			traceBitmask, triggerCycle, maxCycles)
+	}
 
 	// Encode trigger and max values in config data (binary struct: 8B trig_c, 8B trig_t, 8B max_c, 8B max_t)
 	configData := make([]byte, 32)
