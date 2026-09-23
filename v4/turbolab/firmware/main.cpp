@@ -201,6 +201,11 @@ void InitializePins() {
         gpio_set_pulls(i, true, false);
         break;
 
+      case R_W:
+        gpio_set_dir(i, GPIO_IN);
+        gpio_pull_up(i);
+        break;
+
       default:
         gpio_set_dir(i, GPIO_IN);
         gpio_pull_up(i);
@@ -392,27 +397,33 @@ void IN_RAM foreground_loop() {
         uint late_pins = pio_sm_get_blocking(pio0, 0);
         value = (byte)late_pins;
 
-        if (LIKELY(addr < 0xFF00)) {
-          ram[addr] = value;
-        } else if (addr <= 0xFF03) {
-          switch (addr & 3) {
-            case 0:
-              sim_last_char_tx = value;
-              fg2bg_chars.push(value);
-              break;
-            case 1:
-              // RX write has no effect
-              break;
-            case 2:
-              if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
-              if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
-              break;
-            case 3:
-              sim_control_reg = value;
-              break;
+        // All writes are disabled during startup until RESET vector fetch ($FFFE+$FFFF) has completed.
+        // Once reset is achieved, writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
+        if (LIKELY(reset_achieved)) {
+          if (LIKELY(addr < 0xFF00)) {
+            ram[addr] = value;
+          } else if (addr <= 0xFF03) {
+            switch (addr & 3) {
+              case 0:
+                sim_last_char_tx = value;
+                fg2bg_chars.push(value);
+                break;
+              case 1:
+                // RX write has no effect
+                break;
+              case 2:
+                if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
+                if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
+                break;
+              case 3:
+                sim_control_reg = value;
+                break;
+            }
+          } else {
+            // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
+            // After reset is achieved, vectors are not write-protected.
+            ram[addr] = value;
           }
-        } else {
-          ram[addr] = value;
         }
 
         kind = (addr == 0xFFFF) ? KIND_IDLE : KIND_WRITE;
@@ -591,6 +602,7 @@ void handle_rpc_request(const std::string& pkt) {
     pio_clear_instruction_memory(pio0);
     uint offset = pio_add_program(pio0, &hamster_program);
     hamster_program_init(pio0, 0, offset);
+    gpio_pull_up(R_W);
 
     cpu_started = false;
     foreground_running = false;

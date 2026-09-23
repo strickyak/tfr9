@@ -81,6 +81,7 @@ void hamster_program_init(PIO pio, uint sm, uint offset) {
    pio_gpio_init(pio, 30);
    pio_sm_set_consecutive_pindirs(pio, sm, 29, 2, true/*out*/);
    pio_gpio_init(pio, 31);
+   gpio_pull_up(31);
    pio_sm_set_consecutive_pindirs(pio, sm, 31, 1, false/*in*/);
 
    pio_sm_config cf = hamster_program_get_default_config(offset);

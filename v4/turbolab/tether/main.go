@@ -675,6 +675,7 @@ func main() {
 			channelToPico <- []byte{T_RESTART_NOW_PLEASE}
 		}
 	}
+	os.Stdout.WriteString("\n")
 
 	if *flagReflash {
 		isReflashing = true

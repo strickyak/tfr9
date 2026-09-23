@@ -191,8 +191,12 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
     * `$FF01`: ACIA Data register (read/write).
     * `$FF02`: Timer Status / IRQ ACK register (read/write; bit 0 = 60Hz tick interrupt).
     * `$FF03`: Reserved.
+* **Startup Write Suppression & R_W Pull-Up**:
+  * During the initial 6309 reset sequence (prior to and during the `$FFFE-$FFFF` vector fetch), the CPU drives dummy or floating states on the bus, often with `$FFFF` on the address bus and a low/glitchy `R_W`.
+  * **Electrical Pull-Up**: The RP2350 internal pull-up is enabled on `R_W` (GPIO 31) via `gpio_pull_up(R_W)` to prevent the floating line from drifting low.
+  * **Write Suppression**: All writes to RAM and emulated peripherals are strictly disabled until the RESET vector fetch completes (`$FFFF` read following `$FFFE` with `BS=1`). This prevents dummy reset cycles from corrupting memory or the reset vector (`$FFFF`).
+  * **Post-Reset Vector Writability**: Once the reset vector fetch completes (`reset_achieved`), writes are permitted anywhere in RAM, including the vector table (`$FFF0..$FFFF`), ensuring that software can freely install or relocate exception and interrupt handlers in RAM.
 * **Fault Invalidation & Reset Window**:
-  * During the initial 6309 reset sequence (prior to and during the `$FFFE-$FFFF` vector fetch), the CPU drives dummy or floating states on the bus.
   * To prevent spurious aborts, **Red Page (`FAULT_RED_PAGE`)** and **Zero Vector (`FAULT_ZERO_VECTOR`)** checks are inhibited until the reset vector fetch completes (`$FFFF` read following `$FFFE` with `BS=1`).
   * If the CPU fails to fetch the reset vector within 100,000 cycles (~61 ms) of HALT release, a watchdog timeout aborts with `FAULT_ZERO_VECTOR`.
 * **Red-Paged I/O Abort**:
