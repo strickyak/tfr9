@@ -60,6 +60,20 @@ var FaultReasonNames = map[byte]string{
 	FAULT_MAX_TIME:    "Max Time Limit Reached",
 }
 
+func formatCC(cc byte) string {
+	names := "EFHINZVC"
+	var buf strings.Builder
+	for i := 7; i >= 0; i-- {
+		if (cc & (1 << i)) != 0 {
+			buf.WriteByte(names[7-i])
+		} else {
+			buf.WriteByte('.')
+		}
+	}
+	return buf.String()
+}
+
+
 // Flags
 var (
 	flagWire     = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
@@ -616,6 +630,52 @@ func main() {
 					}
 					fmt.Fprintf(os.Stderr, "\n*** PICO FAULT: %s at Cycle #%d (Addr=$%04X, Data=$%02X) ***\n",
 						reasonStr, faultCycle, faultAddr, faultData)
+
+					if len(pkt) >= 31 && pkt[13] != 0 {
+						isNative := pkt[14] != 0
+						pc := binary.BigEndian.Uint16(pkt[15:17])
+						s := binary.BigEndian.Uint16(pkt[17:19])
+						u := binary.BigEndian.Uint16(pkt[19:21])
+						y := binary.BigEndian.Uint16(pkt[21:23])
+						x := binary.BigEndian.Uint16(pkt[23:25])
+						dp := pkt[25]
+						a := pkt[26]
+						b := pkt[27]
+						e := pkt[28]
+						f := pkt[29]
+						cc := pkt[30]
+
+						modeStr := "6809"
+						if isNative {
+							modeStr = "6309 native"
+						}
+						fmt.Fprintf(os.Stderr, "=== CPU Registers (SWI Capture, %s mode) ===\n", modeStr)
+						fmt.Fprintf(os.Stderr, "  PC: $%04X   S: $%04X   U: $%04X   X: $%04X   Y: $%04X\n", pc, s, u, x, y)
+						if isNative {
+							fmt.Fprintf(os.Stderr, "   D: $%02X%02X (A=$%02X B=$%02X)   W: $%02X%02X (E=$%02X F=$%02X)\n", a, b, a, b, e, f, e, f)
+						} else {
+							fmt.Fprintf(os.Stderr, "   D: $%02X%02X (A=$%02X B=$%02X)\n", a, b, a, b)
+						}
+						fmt.Fprintf(os.Stderr, "  DP:   $%02X   CC:   $%02X [%s]\n", dp, cc, formatCC(cc))
+
+						src := traceFmt.Listings.Lookup(pc)
+						modName, offset, hasMod := traceFmt.FindModule(pc)
+						var locStr string
+						if hasMod {
+							locStr = fmt.Sprintf("%s+$%04X", strings.ToLower(modName), offset)
+							if src != "" {
+								locStr += "  " + src
+							}
+						} else if src != "" {
+							locStr = src
+						}
+						if locStr != "" {
+							fmt.Fprintf(os.Stderr, "  At: $%04X: %s\n", pc, locStr)
+						}
+						fmt.Fprintf(os.Stderr, "=============================================\n")
+					} else if len(pkt) >= 31 {
+						fmt.Fprintf(os.Stderr, "(CPU register dump not available)\n")
+					}
 				}
 
 			case C_CORE_DUMP:

@@ -163,6 +163,7 @@ volatile byte fault_reason = 0;
 volatile uint64_t fault_cycle = 0;
 volatile uint16_t fault_addr = 0;
 volatile byte fault_data = 0;
+volatile CpuRegisterDump cpu_registers = {};
 
 volatile uint64_t start_time_us = 0;
 
@@ -286,9 +287,8 @@ FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, bool re
     fault_reason = FAULT_RED_PAGE;
     fault_cycle = cycles;
     fault_addr = addr;
-    fault_data = reading ? ram[addr] : (byte)pio_sm_get_blocking(pio0, 0);
+    fault_data = reading ? ram[addr] : 0;
     fault_triggered = true;
-    HaltOn();
     return true;
   }
 #else
@@ -308,7 +308,6 @@ FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool i
     fault_addr = addr;
     fault_data = value;
     fault_triggered = true;
-    HaltOn();
     return true;
   }
 #else
@@ -464,7 +463,6 @@ FORCE_INLINE bool IN_RAM fg_loop_check_limits(uint64_t cycles, uint addr, byte v
       fault_addr = addr;
       fault_data = value;
       fault_triggered = true;
-      HaltOn();
       return true;
     }
 #if PER_CYCLE_TIMER_READS
@@ -474,7 +472,6 @@ FORCE_INLINE bool IN_RAM fg_loop_check_limits(uint64_t cycles, uint addr, byte v
       fault_addr = addr;
       fault_data = value;
       fault_triggered = true;
-      HaltOn();
       return true;
     }
 #endif
@@ -746,15 +743,157 @@ phase3:
   //          Prepares / executes NMI register dump, then halts CPU
   // ═════════════════════════════════════════════════════════════════
 phase4:
-  HaltOn();
-  // Phase 4 inner loop: hook for future NMI register dump
-  constexpr int GROUP_SIZE_P4 = 50;
-  for (int i = 0; i < GROUP_SIZE_P4; i++) {
-    // When NMI register dumping is activated:
-    // AssertNMI(); run bus cycles to let 6309 push registers to stack, then HaltOn().
-    // Currently, HaltOn() has halted the CPU, so loop exits immediately.
-    break;
+  enum P4State {
+    P4_AWAIT_LIC,
+    P4_INJECT_SWI,
+    P4_AWAIT_STACK_WRITES,
+    P4_DONE
+  };
+
+  P4State p4_state = P4_AWAIT_LIC;
+  // If the last bus cycle of Phase 2/3 already asserted LIC, we can inject immediately
+  if ((prev_late_pins & (1 << LIC)) != 0) {
+    p4_state = P4_INJECT_SWI;
   }
+
+  uint16_t swi_injected_pc = 0;
+  uint16_t write_start = 0;
+  uint16_t write_end = 0;
+  uint8_t  write_streak_count = 0;
+  uint8_t  swi_stack_bytes[16] = {};
+
+  cpu_registers.valid = false;
+  cpu_registers.is_6309_native = false;
+  cpu_registers.streak_len = 0;
+
+  constexpr int P4_MAX_CYCLES = 256;
+  for (int p4_cycle = 0; p4_cycle < P4_MAX_CYCLES; p4_cycle++) {
+    // If waiting for LIC for more than 4 cycles, CPU may be halted in CWAI/SYNC.
+    // Assert IRQ to wake CPU so it can acknowledge interrupt and execute SWI.
+    if (p4_state == P4_AWAIT_LIC && p4_cycle >= 4) {
+      AssertIRQ();
+    }
+
+    // Hamster PIO sync
+    pio_sm_put(pio0, 0, 0);
+    uint early_pins = pio_sm_get_blocking(pio0, 0);
+    uint addr = 0xFFFF & hw->gpio_hi_in;
+    const bool reading = 0 != (early_pins & (1 << R_W));
+    const bool is_bs   = 0 != (early_pins & (1 << BS));
+    cycles++;
+
+    byte value = 0;
+
+    if (LIKELY(reading)) {
+      // Check for SWI or interrupt vector read ($FFFA, $FFFB, etc.)
+      if ((addr == 0xFFFA || addr == 0xFFFB || (is_bs && addr >= 0xFFF8 && addr <= 0xFFFD)) &&
+          (write_streak_count == 12 || write_streak_count == 14)) {
+        HaltOn();
+        p4_state = P4_DONE;
+        value = ram[addr];
+        pio_sm_put(pio0, 0, value);
+        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+        break;
+      }
+
+      // Check for FIRQ vector read ($FFF6 or $FFF7) with BS=1
+      if (is_bs && (addr == 0xFFF6 || addr == 0xFFF7) && write_streak_count == 3) {
+        // Reset streak count for FIRQ, and await LIC of FIRQ sequence
+        write_streak_count = 0;
+        p4_state = P4_AWAIT_LIC;
+      } else if (write_streak_count > 0 && write_streak_count != 12 && write_streak_count != 14) {
+        // Write streak was broken before completing a full register frame
+        write_streak_count = 0;
+      }
+
+      if (p4_state == P4_INJECT_SWI) {
+        // Next FIC cycle after LIC: Inject SWI opcode ($3F)
+        swi_injected_pc = (uint16_t)addr;
+        value = 0x3F;
+        p4_state = P4_AWAIT_STACK_WRITES;
+      } else {
+        // Serve from RAM without ACIA I/O side effects
+        value = ram[addr];
+      }
+
+      pio_sm_put(pio0, 0, value);
+      uint late_pins = pio_sm_get_blocking(pio0, 0);
+
+      // Check if this cycle asserts LIC (ready for next opcode fetch)
+      if (p4_state == P4_AWAIT_LIC && (late_pins & (1 << LIC)) != 0) {
+        p4_state = P4_INJECT_SWI;
+      }
+
+      prev_late_pins = late_pins;
+    } else {
+      // Write cycle
+      uint late_pins = pio_sm_get_blocking(pio0, 0);
+      value = (byte)late_pins;
+
+      // Save write to RAM
+      ram[addr] = value;
+
+      if (p4_state == P4_AWAIT_STACK_WRITES) {
+        if (write_streak_count == 0) {
+          write_start = (uint16_t)addr;
+        }
+        write_end = (uint16_t)addr;
+        if (write_streak_count < 16) {
+          swi_stack_bytes[write_streak_count] = value;
+        }
+        write_streak_count++;
+      }
+
+      // Check if this write cycle asserts LIC
+      if (p4_state == P4_AWAIT_LIC && (late_pins & (1 << LIC)) != 0) {
+        p4_state = P4_INJECT_SWI;
+      }
+
+      prev_late_pins = late_pins;
+    }
+  }
+
+  // Safety fallback: ensure CPU is halted and IRQ released
+  ReleaseIRQ();
+  HaltOn();
+
+  // Unpack register frame if SWI completed successfully
+  if (write_streak_count == 12) {
+    // 6809 mode full register dump
+    cpu_registers.valid = true;
+    cpu_registers.is_6309_native = false;
+    uint16_t pushed_pc = ((uint16_t)swi_stack_bytes[1] << 8) | swi_stack_bytes[0];
+    cpu_registers.pc = swi_injected_pc ? swi_injected_pc : (pushed_pc ? pushed_pc - 1 : 0);
+    cpu_registers.s = write_start + 1;
+    cpu_registers.u = ((uint16_t)swi_stack_bytes[3] << 8) | swi_stack_bytes[2];
+    cpu_registers.y = ((uint16_t)swi_stack_bytes[5] << 8) | swi_stack_bytes[4];
+    cpu_registers.x = ((uint16_t)swi_stack_bytes[7] << 8) | swi_stack_bytes[6];
+    cpu_registers.dp = swi_stack_bytes[8];
+    cpu_registers.b = swi_stack_bytes[9];
+    cpu_registers.a = swi_stack_bytes[10];
+    cpu_registers.e = 0;
+    cpu_registers.f = 0;
+    cpu_registers.cc = swi_stack_bytes[11];
+    cpu_registers.streak_len = 12;
+  } else if (write_streak_count == 14) {
+    // 6309 native mode full register dump
+    cpu_registers.valid = true;
+    cpu_registers.is_6309_native = true;
+    uint16_t pushed_pc = ((uint16_t)swi_stack_bytes[1] << 8) | swi_stack_bytes[0];
+    cpu_registers.pc = swi_injected_pc ? swi_injected_pc : (pushed_pc ? pushed_pc - 1 : 0);
+    cpu_registers.s = write_start + 1;
+    cpu_registers.u = ((uint16_t)swi_stack_bytes[3] << 8) | swi_stack_bytes[2];
+    cpu_registers.y = ((uint16_t)swi_stack_bytes[5] << 8) | swi_stack_bytes[4];
+    cpu_registers.x = ((uint16_t)swi_stack_bytes[7] << 8) | swi_stack_bytes[6];
+    cpu_registers.dp = swi_stack_bytes[8];
+    cpu_registers.f = swi_stack_bytes[9];
+    cpu_registers.e = swi_stack_bytes[10];
+    cpu_registers.b = swi_stack_bytes[11];
+    cpu_registers.a = swi_stack_bytes[12];
+    cpu_registers.cc = swi_stack_bytes[13];
+    cpu_registers.streak_len = 14;
+  }
+
   return;
 } // foreground_loop
 
@@ -919,13 +1058,36 @@ void transmit_core_dump() {
   sleep_ms(5);
 
   // Send C_FAULT header: [C_FAULT, reason, cycle_8B, addr_2B, data_1B]
-  uint8_t fault_pkt[13];
+  // Extended with CPU register dump:
+  // [valid_1B, is_native_1B, pc_2B, s_2B, u_2B, y_2B, x_2B, dp_1B, a_1B, b_1B, e_1B, f_1B, cc_1B]
+  uint8_t fault_pkt[31];
   fault_pkt[0] = C_FAULT;
   fault_pkt[1] = fault_reason;
   memcpy(&fault_pkt[2], (const void*)&fault_cycle, 8);
   fault_pkt[10] = (uint8_t)(fault_addr >> 8);
   fault_pkt[11] = (uint8_t)(fault_addr & 0xFF);
   fault_pkt[12] = fault_data;
+
+  // Extended register payload
+  fault_pkt[13] = cpu_registers.valid ? 1 : 0;
+  fault_pkt[14] = cpu_registers.is_6309_native ? 1 : 0;
+  fault_pkt[15] = (uint8_t)(cpu_registers.pc >> 8);
+  fault_pkt[16] = (uint8_t)(cpu_registers.pc & 0xFF);
+  fault_pkt[17] = (uint8_t)(cpu_registers.s >> 8);
+  fault_pkt[18] = (uint8_t)(cpu_registers.s & 0xFF);
+  fault_pkt[19] = (uint8_t)(cpu_registers.u >> 8);
+  fault_pkt[20] = (uint8_t)(cpu_registers.u & 0xFF);
+  fault_pkt[21] = (uint8_t)(cpu_registers.y >> 8);
+  fault_pkt[22] = (uint8_t)(cpu_registers.y & 0xFF);
+  fault_pkt[23] = (uint8_t)(cpu_registers.x >> 8);
+  fault_pkt[24] = (uint8_t)(cpu_registers.x & 0xFF);
+  fault_pkt[25] = cpu_registers.dp;
+  fault_pkt[26] = cpu_registers.a;
+  fault_pkt[27] = cpu_registers.b;
+  fault_pkt[28] = cpu_registers.e;
+  fault_pkt[29] = cpu_registers.f;
+  fault_pkt[30] = cpu_registers.cc;
+
   send_cobs(fault_pkt, sizeof(fault_pkt));
   stdio_flush();
   sleep_ms(2);
@@ -942,6 +1104,8 @@ void transmit_core_dump() {
 }
 
 void restart_to_restarted_state() {
+  memset((void*)&cpu_registers, 0, sizeof(cpu_registers));
+
   // 1. Assert RESET and HALT on 6309 CPU
   gpio_set_dir(RESET, GPIO_OUT);
   gpio_put(RESET, 0);

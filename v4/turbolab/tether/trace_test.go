@@ -360,5 +360,22 @@ func TestCycleSpeedEstimator(t *testing.T) {
 	}
 }
 
+func TestFormatCC(t *testing.T) {
+	tests := []struct {
+		cc   byte
+		want string
+	}{
+		{0x00, "........"},
+		{0xFF, "EFHINZVC"},
+		{0xD0, "EF.I...."},
+		{0x81, "E......C"},
+		{0x04, ".....Z.."},
+	}
 
-
+	for _, tc := range tests {
+		got := formatCC(tc.cc)
+		if got != tc.want {
+			t.Errorf("formatCC(0x%02X) = %q, want %q", tc.cc, got, tc.want)
+		}
+	}
+}
