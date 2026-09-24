@@ -206,11 +206,16 @@ FORCE_INLINE void IN_RAM LedOff() { gpio_put(LED, 0); }
 FORCE_INLINE void IN_RAM HaltOn()  { gpio_set_dir(HALT, GPIO_OUT); }
 FORCE_INLINE void IN_RAM HaltOff() { gpio_set_dir(HALT, GPIO_IN);  }
 
+// RESET is active-low: assert via direction OUT (latch=0), release via IN
+FORCE_INLINE void IN_RAM AssertReset()  { gpio_put(RESET, 0); gpio_set_dir(RESET, GPIO_OUT); }
+FORCE_INLINE void IN_RAM ReleaseReset() { gpio_set_dir(RESET, GPIO_IN);  }
+
 // IRQ and NMI are open-drain
 FORCE_INLINE void IN_RAM AssertIRQ()  { gpio_set_dir(IRQ, GPIO_OUT); }
 FORCE_INLINE void IN_RAM ReleaseIRQ() { gpio_set_dir(IRQ, GPIO_IN);  }
 FORCE_INLINE void IN_RAM AssertNMI()  { gpio_set_dir(NMI, GPIO_OUT); }
 FORCE_INLINE void IN_RAM ReleaseNMI() { gpio_set_dir(NMI, GPIO_IN);  }
+
 
 
 void InitializePins() {
@@ -292,12 +297,12 @@ FORCE_INLINE void IN_RAM fg_loop_handle_io_write(uint addr, byte value) {
   }
 }
 
-FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, bool reset_achieved, uint64_t cycles, bool reading) {
+FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, uint64_t cycles, bool reading) {
 #if ENABLE_FAULT_CHECKS
   // Red Page Check ($FF04..$FFEF)
-  // Disabled during idle cycles (address lines might float)
-  // and disabled until CPU reset is achieved.
-  if (!is_idle && cpu_started && reset_achieved && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
+  // Disabled during idle cycles (address lines might float).
+  // Note: Only called in Phase 2 and Phase 3 (after CPU reset is achieved).
+  if (!is_idle && cpu_started && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
     fault_reason = FAULT_RED_PAGE;
     fault_cycle = cycles;
     fault_addr = addr;
@@ -306,17 +311,17 @@ FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, bool re
     return true;
   }
 #else
-  (void)addr; (void)is_idle; (void)reset_achieved; (void)cycles; (void)reading;
+  (void)addr; (void)is_idle; (void)cycles; (void)reading;
 #endif
   return false;
 }
 
-FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool is_bs, bool reset_achieved, uint64_t cycles) {
+FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool is_bs, uint64_t cycles) {
 #if ENABLE_FAULT_CHECKS
   // Zero Interrupt Vector Check:
   // If BS=1 (Interrupt Acknowledge) and vector data is 0:
-  // Disabled until CPU reset is achieved.
-  if (cpu_started && reset_achieved && UNLIKELY(is_bs && value == 0)) {
+  // Note: Only called in Phase 2 and Phase 3 (after CPU reset is achieved).
+  if (cpu_started && UNLIKELY(is_bs && value == 0)) {
     fault_reason = FAULT_ZERO_VECTOR;
     fault_cycle = cycles;
     fault_addr = addr;
@@ -325,12 +330,12 @@ FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool i
     return true;
   }
 #else
-  (void)addr; (void)value; (void)is_bs; (void)reset_achieved; (void)cycles;
+  (void)addr; (void)value; (void)is_bs; (void)cycles;
 #endif
   return false;
 }
 
-FORCE_INLINE byte IN_RAM fg_loop_handle_read(uint addr, bool is_idle, bool is_bs, bool reset_achieved, uint64_t cycles) {
+FORCE_INLINE byte IN_RAM fg_loop_handle_read(uint addr, bool is_idle, bool is_bs, uint64_t cycles) {
 #if ENABLE_FAULT_CHECKS || ENABLE_TRACING
   if (UNLIKELY(is_idle)) {
     return 0;
@@ -343,41 +348,29 @@ FORCE_INLINE byte IN_RAM fg_loop_handle_read(uint addr, bool is_idle, bool is_bs
   } else {
     // Vectors $FFF0..$FFFF
     byte val = ram[addr];
-    fg_loop_check_zero_vector(addr, val, is_bs, reset_achieved, cycles);
+    fg_loop_check_zero_vector(addr, val, is_bs, cycles);
     return val;
   }
 }
 
-FORCE_INLINE void IN_RAM fg_loop_handle_write(uint addr, byte value, bool reset_achieved) {
-  // All writes are disabled during startup until RESET vector fetch ($FFFE+$FFFF) has completed.
-  // Once reset is achieved, writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
-  if (LIKELY(reset_achieved)) {
-    if (LIKELY(addr < 0xFF00)) {
-      ram[addr] = value;
-    } else if (addr <= 0xFF03) {
-      fg_loop_handle_io_write(addr, value);
-    } else {
-      // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
-      ram[addr] = value;
-    }
+FORCE_INLINE void IN_RAM fg_loop_handle_write(uint addr, byte value) {
+  // Writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
+  if (LIKELY(addr < 0xFF00)) {
+    ram[addr] = value;
+  } else if (addr <= 0xFF03) {
+    fg_loop_handle_io_write(addr, value);
+  } else {
+    // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
+    ram[addr] = value;
   }
 }
 
-FORCE_INLINE byte IN_RAM fg_loop_classify_read_cycle(uint addr, bool is_idle, uint prev_late_pins, bool& saw_fffe, byte prev_kind, uint16_t prev_addr, bool& reset_achieved) {
+FORCE_INLINE byte IN_RAM fg_loop_classify_read_cycle(uint addr, bool is_idle, uint prev_late_pins, byte prev_kind, uint16_t prev_addr) {
 #if ENABLE_TRACING
   if (UNLIKELY(is_idle)) {
     return KIND_IDLE;
   }
   bool is_fic = ((prev_late_pins & (1 << LIC)) != 0);
-
-  if (saw_fffe && addr == 0xFFFF) {
-    reset_achieved = true;
-    saw_fffe = false;
-    return KIND_READ;
-  }
-  if (saw_fffe && addr != 0xFFFE) {
-    saw_fffe = false;
-  }
   if (is_fic) {
     return KIND_FIC;
   } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
@@ -387,18 +380,12 @@ FORCE_INLINE byte IN_RAM fg_loop_classify_read_cycle(uint addr, bool is_idle, ui
     return KIND_READ;
   }
 #else
-  (void)is_idle; (void)prev_late_pins; (void)prev_kind; (void)prev_addr;
-  if (saw_fffe && addr == 0xFFFF) {
-    reset_achieved = true;
-    saw_fffe = false;
-  } else if (saw_fffe && addr != 0xFFFE) {
-    saw_fffe = false;
-  }
+  (void)addr; (void)is_idle; (void)prev_late_pins; (void)prev_kind; (void)prev_addr;
   return 0;
 #endif
 }
 
-FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins, bool reset_tracing_started) {
+FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins) {
 #if ENABLE_TRACING
   // Check for RTI ($3B)
   bool is_rti = (reading && kind == KIND_FIC && value == 0x3B && addr < 0xFFF0);
@@ -406,14 +393,13 @@ FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte va
     LedOff();
   }
 
-  // Trace filtering: only emit once reset vector fetch begins ($FFFE),
-  // and when trigger conditions are satisfied.
+  // Trace filtering: only emit when trigger conditions are satisfied.
 #if PER_CYCLE_TIMER_READS
-  bool trigger_met = cpu_started && reset_tracing_started &&
+  bool trigger_met = cpu_started &&
                      (cycles >= trigger_cycle) &&
                      ((time_us_64() - start_time_us) >= trigger_time_us);
 #else
-  bool trigger_met = cpu_started && reset_tracing_started &&
+  bool trigger_met = cpu_started &&
                      (cycles >= trigger_cycle);
 #endif
 
@@ -469,59 +455,26 @@ FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte va
 #endif
 }
 
-FORCE_INLINE bool IN_RAM fg_loop_check_limits(uint64_t cycles, uint addr, byte value, bool reset_tracing_started) {
-  if (reset_tracing_started) {
-    if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
-      fault_reason = FAULT_MAX_CYCLES;
-      fault_cycle = cycles;
-      fault_addr = addr;
-      fault_data = value;
-      fault_triggered = true;
-      return true;
-    }
-#if PER_CYCLE_TIMER_READS
-    if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-      fault_reason = FAULT_MAX_TIME;
-      fault_cycle = cycles;
-      fault_addr = addr;
-      fault_data = value;
-      fault_triggered = true;
-      return true;
-    }
-#endif
-  }
-  return false;
-}
-
-FORCE_INLINE bool IN_RAM fg_loop_handle_reset_sync(bool reading, bool is_bs, uint addr, uint64_t& cycles, uint64_t& pre_reset_cycles, bool& saw_fffe, bool& reset_achieved, bool& reset_tracing_started) {
-  if (UNLIKELY(!cpu_started)) {
-    cycles = 0;
-    pre_reset_cycles = 0;
-    saw_fffe = false;
-    reset_achieved = false;
-    reset_tracing_started = false;
+FORCE_INLINE bool IN_RAM fg_loop_check_limits(uint64_t cycles, uint addr, byte value) {
+  if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
+    fault_reason = FAULT_MAX_CYCLES;
+    fault_cycle = cycles;
+    fault_addr = addr;
+    fault_data = value;
+    fault_triggered = true;
     return true;
   }
-  // Wait for CPU reset vector fetch: reading $FFFE with BS=1.
-  // Cycle numbering starts at 1 upon this cycle.
-  if (reading && is_bs && addr == 0xFFFE) {
-    cycles = 1;
-    saw_fffe = true;
-    reset_tracing_started = true;
-    start_time_us = time_us_64();
-  } else {
-    cycles = 0;
-    pre_reset_cycles++;
-    if (UNLIKELY(pre_reset_cycles >= 100000)) {
-      fault_reason = FAULT_ZERO_VECTOR;
-      fault_cycle = 0;
-      fault_addr = addr;
-      fault_triggered = true;
-      HaltOn();
-      return false;
-    }
+#if PER_CYCLE_TIMER_READS
+  if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+    fault_reason = FAULT_MAX_TIME;
+    fault_cycle = cycles;
+    fault_addr = addr;
+    fault_data = value;
+    fault_triggered = true;
+    return true;
   }
-  return true;
+#endif
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -540,14 +493,12 @@ void IN_RAM foreground_loop() {
   bool prev_irq_needed = false;
 
   bool saw_fffe = false;
-  bool reset_achieved = false;
-  bool reset_tracing_started = false;
 
   LedOff();
   foreground_running = true;
 
   // ═════════════════════════════════════════════════════════════════
-  // Phase 1: Before the Reset Vector is fetched
+  // Phase 1: Before the Reset Vector is fetched ($FFFE+$FFFF)
   // ═════════════════════════════════════════════════════════════════
   while (true) {
     if (UNLIKELY(fault_triggered)) {
@@ -562,36 +513,58 @@ void IN_RAM foreground_loop() {
       const bool reading = 0 != (early_pins & (1 << R_W));
       const bool is_bs   = 0 != (early_pins & (1 << BS));
 
-      if (UNLIKELY(!reset_tracing_started)) {
-        if (!fg_loop_handle_reset_sync(reading, is_bs, addr, cycles, pre_reset_cycles, saw_fffe, reset_achieved, reset_tracing_started)) {
-          goto phase4;
+      // Case A: CPU is still held in RESET / HALT by Core 0
+      if (UNLIKELY(!cpu_started)) {
+        if (LIKELY(reading)) {
+          pio_sm_put(pio0, 0, ram[addr]);
         }
-      } else {
-        cycles++;
+        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+        saw_fffe = false;
+        pre_reset_cycles = 0;
+        continue;
       }
 
-      if (LIKELY(reading)) {
-        byte value = fg_loop_handle_read(addr, false, is_bs, false, 0);
-        if (is_bs && addr == 0xFFFE) {
+      // Case B: CPU is running out of reset (cpu_started == true)
+      if (!saw_fffe) {
+        if (reading && is_bs && addr == 0xFFFE) {
+          // Reset vector high-byte fetch observed!
           saw_fffe = true;
-        }
-
-        pio_sm_put(pio0, 0, value);
-        prev_late_pins = pio_sm_get_blocking(pio0, 0);
-
-        if (saw_fffe && addr == 0xFFFF) {
-          saw_fffe = false;
-          reset_achieved = true;
-        } else if (saw_fffe && addr != 0xFFFE) {
-          saw_fffe = false;
+        } else {
+          pre_reset_cycles++;
+          if (UNLIKELY(pre_reset_cycles >= 100000)) {
+            fault_reason = FAULT_ZERO_VECTOR;
+            fault_cycle = 0;
+            fault_addr = addr;
+            fault_triggered = true;
+            HaltOn();
+            goto phase4;
+          }
         }
       } else {
-        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+        // saw_fffe is true: awaiting reset vector low-byte ($FFFF)
+        if (reading && is_bs && addr == 0xFFFF) {
+          // Reset vector successfully fetched!
+          saw_fffe = false;
+          cycles = 2; // Cycle 1 = $FFFE, Cycle 2 = $FFFF
+          start_time_us = time_us_64();
+          byte value = ram[addr];
+          pio_sm_put(pio0, 0, value);
+          prev_late_pins = pio_sm_get_blocking(pio0, 0);
+          goto phase2;
+        } else if (reading && is_bs && addr == 0xFFFE) {
+          // CPU still holding/stretching $FFFE read, maintain saw_fffe state
+        } else {
+          // False start or noise on address bus; reset search
+          saw_fffe = false;
+          pre_reset_cycles++;
+        }
       }
 
-      if (reset_achieved) {
-        goto phase2;
+      byte value = ram[addr];
+      if (LIKELY(reading)) {
+        pio_sm_put(pio0, 0, value);
       }
+      prev_late_pins = pio_sm_get_blocking(pio0, 0);
     }
   }
 
@@ -654,14 +627,14 @@ phase2:
       cycles++;
 
 #if ENABLE_FAULT_CHECKS
-      if (fg_loop_check_red_page(addr, is_idle, true, cycles, reading)) {
+      if (fg_loop_check_red_page(addr, is_idle, cycles, reading)) {
         goto phase4;
       }
 #endif
 
       byte value = 0;
       if (LIKELY(reading)) {
-        value = fg_loop_handle_read(addr, is_idle, is_bs, true, cycles);
+        value = fg_loop_handle_read(addr, is_idle, is_bs, cycles);
         if (UNLIKELY(fault_triggered)) goto phase4;
         if (UNLIKELY(is_bs)) LedOn();
 
@@ -670,10 +643,10 @@ phase2:
       } else {
         prev_late_pins = pio_sm_get_blocking(pio0, 0);
         value = (byte)prev_late_pins;
-        fg_loop_handle_write(addr, value, true);
+        fg_loop_handle_write(addr, value);
       }
 
-      if (fg_loop_check_limits(cycles, addr, value, true)) {
+      if (fg_loop_check_limits(cycles, addr, value)) {
         goto phase4;
       }
     }
@@ -718,34 +691,34 @@ phase3:
       byte kind = KIND_IDLE;
 
 #if ENABLE_FAULT_CHECKS
-      if (fg_loop_check_red_page(addr, is_idle, true, cycles, reading)) {
+      if (fg_loop_check_red_page(addr, is_idle, cycles, reading)) {
         goto phase4;
       }
 #endif
 
       if (LIKELY(reading)) {
-        value = fg_loop_handle_read(addr, is_idle, is_bs, true, cycles);
+        value = fg_loop_handle_read(addr, is_idle, is_bs, cycles);
         if (UNLIKELY(fault_triggered)) goto phase4;
         if (UNLIKELY(is_bs)) LedOn();
 
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
 
-        kind = fg_loop_classify_read_cycle(addr, is_idle, prev_late_pins, saw_fffe, prev_kind, prev_addr, reset_achieved);
+        kind = fg_loop_classify_read_cycle(addr, is_idle, prev_late_pins, prev_kind, prev_addr);
         prev_late_pins = late_pins;
       } else {
         uint late_pins = pio_sm_get_blocking(pio0, 0);
         value = (byte)late_pins;
-        fg_loop_handle_write(addr, value, true);
+        fg_loop_handle_write(addr, value);
         kind = is_idle ? KIND_IDLE : KIND_WRITE;
         prev_late_pins = late_pins;
       }
 
-      fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins, true);
+      fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
       prev_addr = addr;
       prev_kind = kind;
 
-      if (fg_loop_check_limits(cycles, addr, value, true)) {
+      if (fg_loop_check_limits(cycles, addr, value)) {
         goto phase4;
       }
     }
@@ -1010,7 +983,7 @@ void handle_rpc_request(const std::string& pkt) {
     fg2bg_chars.clear();
 
     // Boot CPU
-    gpio_set_dir(RESET, GPIO_OUT);
+    AssertReset();
     HaltOn();
 
 #if RUNTIME_PIO_ASSEMBLER
@@ -1044,7 +1017,7 @@ void handle_rpc_request(const std::string& pkt) {
 
     // Hold RESET for ~10ms
     sleep_ms(10);
-    gpio_set_dir(RESET, GPIO_IN);  // Release RESET
+    ReleaseReset();
     sleep_ms(5);
 
     // Release HALT -> 6309 starts executing
@@ -1156,8 +1129,7 @@ void restart_to_restarted_state() {
   memset((void*)&cpu_registers, 0, sizeof(cpu_registers));
 
   // 1. Assert RESET and HALT on 6309 CPU
-  gpio_set_dir(RESET, GPIO_OUT);
-  gpio_put(RESET, 0);
+  AssertReset();
   HaltOn();
   ReleaseIRQ();
   ReleaseNMI();
@@ -1214,8 +1186,7 @@ void restart_to_restarted_state() {
 
 void reflash_now_please() {
   // 1. Assert RESET and HALT on 6309 CPU
-  gpio_set_dir(RESET, GPIO_OUT);
-  gpio_put(RESET, 0);
+  AssertReset();
   HaltOn();
   ReleaseIRQ();
 
