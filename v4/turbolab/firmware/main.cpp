@@ -195,9 +195,12 @@ FORCE_INLINE void IN_RAM LedOff() { gpio_put(LED, 0); }
 FORCE_INLINE void IN_RAM HaltOn()  { gpio_set_dir(HALT, GPIO_OUT); }
 FORCE_INLINE void IN_RAM HaltOff() { gpio_set_dir(HALT, GPIO_IN);  }
 
-// IRQ is open-drain
+// IRQ and NMI are open-drain
 FORCE_INLINE void IN_RAM AssertIRQ()  { gpio_set_dir(IRQ, GPIO_OUT); }
 FORCE_INLINE void IN_RAM ReleaseIRQ() { gpio_set_dir(IRQ, GPIO_IN);  }
+FORCE_INLINE void IN_RAM AssertNMI()  { gpio_set_dir(NMI, GPIO_OUT); }
+FORCE_INLINE void IN_RAM ReleaseNMI() { gpio_set_dir(NMI, GPIO_IN);  }
+
 
 void InitializePins() {
   for (int i = 0; i < 48; i++) {
@@ -769,9 +772,9 @@ phase4:
   constexpr int P4_MAX_CYCLES = 256;
   for (int p4_cycle = 0; p4_cycle < P4_MAX_CYCLES; p4_cycle++) {
     // If waiting for LIC for more than 4 cycles, CPU may be halted in CWAI/SYNC.
-    // Assert IRQ to wake CPU so it can acknowledge interrupt and execute SWI.
+    // Assert NMI to wake CPU so it can acknowledge interrupt and execute SWI.
     if (p4_state == P4_AWAIT_LIC && p4_cycle >= 4) {
-      AssertIRQ();
+      AssertNMI();
     }
 
     // Hamster PIO sync
@@ -853,7 +856,8 @@ phase4:
     }
   }
 
-  // Safety fallback: ensure CPU is halted and IRQ released
+  // Safety fallback: ensure CPU is halted and NMI/IRQ released
+  ReleaseNMI();
   ReleaseIRQ();
   HaltOn();
 
@@ -1111,6 +1115,7 @@ void restart_to_restarted_state() {
   gpio_put(RESET, 0);
   HaltOn();
   ReleaseIRQ();
+  ReleaseNMI();
 
   // 2. Stop Core 1 if running
   if (foreground_running) {

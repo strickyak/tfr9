@@ -283,14 +283,18 @@ Verified live on Hitachi 6309E + RP2350B hardware:
    ```
 3. **Shell Idle / CWAI state (`--max c:10m`)**:
    - The CPU was asleep in `CWAI #$AF` waiting for input.
-   - Phase 4 asserted IRQ after 4 cycles of waiting for LIC, waking the processor.
-   - The processor read vector `$FFF8/$FFF9`, LIC asserted, SWI was injected at `$010C` (the IRQ handler entry), and pushed the 12 registers.
+   - Phase 4 asserted `/NMI` (open-drain, pulled low) after 4 cycles of waiting for LIC, waking the processor.
+   - Non-maskable interrupt guarantees wakeup even if IRQs were masked.
+   - The processor read vector `$FFFC/$FFFD`, LIC asserted, SWI was injected at `$0109` (the NMI handler entry), and pushed the 12 registers.
    ```text
+   Shell
+
+   TOS:
    *** PICO FAULT: Max Cycles Limit Reached at Cycle #10000000 (Addr=$FFFF, Data=$00) ***
    === CPU Registers (SWI Capture, 6809 mode) ===
-     PC: $010C   S: $079D   U: $07AF   X: $0000   Y: $0222
+     PC: $0109   S: $079D   U: $07AF   X: $0000   Y: $0222
       D: $0000 (A=$00 B=$00)
-     DP:   $00   CC:   $94 [E..I.Z..]
+     DP:   $00   CC:   $D4 [EF.I.Z..]
    =============================================
    ```
 
