@@ -89,61 +89,81 @@ func (p Params) ShortString() string {
 		p.Values["T1"], p.Values["T2"], p.Values["T3"], p.Values["T4"], p.Values["T5"])
 }
 
-// GenerateNeighbor samples a neighbor in reachable neighborhood {-2, -1, 0, +1, +2} per parameter.
-// Mode "single": perturb a single parameter by {-2, -1, +1, +2}.
-// Mode "multi": perturb each parameter by {-2, -1, 0, +1, +2} (with at least one non-zero).
-func GenerateNeighbor(current Params, mode string, rng *rand.Rand) Params {
-	allowedSteps := []int{-2, -1, 1, 2}
-	allowedStepsWithZero := []int{-2, -1, 0, 1, 2}
+// GenerateNeighbor samples a neighbor by selecting neighborDimensions parameters to adjust,
+// with each adjusted parameter receiving an integer delta in [-distance, +distance].
+func GenerateNeighbor(current Params, neighborDimensions int, distance int, rng *rand.Rand) Params {
+	if neighborDimensions < 1 {
+		neighborDimensions = 1
+	}
+	if neighborDimensions > len(DefaultParamDefs) {
+		neighborDimensions = len(DefaultParamDefs)
+	}
+	if distance < 1 {
+		distance = 1
+	}
+
+	var nonZeroDeltas []int
+	for d := -distance; d <= distance; d++ {
+		if d != 0 {
+			nonZeroDeltas = append(nonZeroDeltas, d)
+		}
+	}
+	var allDeltas []int
+	for d := -distance; d <= distance; d++ {
+		allDeltas = append(allDeltas, d)
+	}
 
 	for attempts := 0; attempts < 100; attempts++ {
 		candidate := current.Clone()
+		perm := rng.Perm(len(DefaultParamDefs))
+		chosenIndices := perm[:neighborDimensions]
 
-		if mode == "multi" {
-			changed := false
-			for _, def := range DefaultParamDefs {
-				delta := allowedStepsWithZero[rng.Intn(len(allowedStepsWithZero))]
-				if delta == 0 {
-					continue
-				}
-				newVal := candidate.Values[def.Name] + delta
-				if newVal < def.Min {
-					newVal = def.Min
-				} else if newVal > def.Max {
-					newVal = def.Max
-				}
-				if newVal != candidate.Values[def.Name] {
-					candidate.Values[def.Name] = newVal
-					changed = true
-				}
+		// Choose one primary index among the chosen ones that is guaranteed to try a non-zero step
+		primaryIdx := chosenIndices[rng.Intn(len(chosenIndices))]
+
+		changed := false
+		for _, idx := range chosenIndices {
+			def := DefaultParamDefs[idx]
+			var delta int
+			if idx == primaryIdx {
+				delta = nonZeroDeltas[rng.Intn(len(nonZeroDeltas))]
+			} else {
+				delta = allDeltas[rng.Intn(len(allDeltas))]
 			}
-			if changed {
-				return candidate
+			if delta == 0 {
+				continue
 			}
-		} else {
-			// "single" mode: pick one parameter and perturb it
-			perm := rng.Perm(len(DefaultParamDefs))
-			for _, idx := range perm {
-				def := DefaultParamDefs[idx]
-				rng.Shuffle(len(allowedSteps), func(i, j int) {
-					allowedSteps[i], allowedSteps[j] = allowedSteps[j], allowedSteps[i]
-				})
-				for _, delta := range allowedSteps {
-					newVal := candidate.Values[def.Name] + delta
-					if newVal < def.Min {
-						newVal = def.Min
-					} else if newVal > def.Max {
-						newVal = def.Max
-					}
-					if newVal != candidate.Values[def.Name] {
-						candidate.Values[def.Name] = newVal
-						return candidate
-					}
-				}
+			newVal := candidate.Values[def.Name] + delta
+			if newVal < def.Min {
+				newVal = def.Min
+			} else if newVal > def.Max {
+				newVal = def.Max
+			}
+			if newVal != candidate.Values[def.Name] {
+				candidate.Values[def.Name] = newVal
+				changed = true
 			}
 		}
+
+		if changed {
+			return candidate
+		}
 	}
-	return current.Clone()
+
+	// Fallback in case bounds prevented any change across attempts
+	candidate := current.Clone()
+	for _, idx := range rng.Perm(len(DefaultParamDefs)) {
+		def := DefaultParamDefs[idx]
+		val := candidate.Values[def.Name]
+		if val < def.Max {
+			candidate.Values[def.Name] = val + 1
+			return candidate
+		} else if val > def.Min {
+			candidate.Values[def.Name] = val - 1
+			return candidate
+		}
+	}
+	return candidate
 }
 
 // TrialResult holds the outcome of running a single tether execution.
@@ -264,12 +284,22 @@ func main() {
 		flagTimeout    = flag.Duration("timeout", 75*time.Second, "per-trial execution timeout")
 		flagPenalty    = flag.Float64("penalty", 600.0, "penalty runtime in seconds for failed trials (default 10 min)")
 		flagLog        = flag.String("log", "annealing.csv", "path to CSV log output file")
-		flagNeighbor   = flag.String("neighbor", "single", "reachable neighborhood mode: 'single' (1 param) or 'multi' (all params)")
+		flagNeighbor   = flag.Int("neighbor", 1, "number of dimensions to adjust at a time when taking a step (default 1)")
+		flagDistance   = flag.Int("distance", 2, "largest integer delta to adjust at a time (default 2, steps in {-2, -1, 0, 1, 2})")
 		flagSeed       = flag.Int64("seed", 0, "PRNG seed (0 to use current timestamp)")
 		flagInitial    = flag.String("initial", "", "override initial tuning parameters (e.g. MHZ=250,K1=9,...)")
 		flagInterDelay = flag.Duration("delay", 500*time.Millisecond, "delay between trials to settle serial port")
 	)
 	flag.Parse()
+
+	if *flagNeighbor < 1 || *flagNeighbor > len(DefaultParamDefs) {
+		fmt.Fprintf(os.Stderr, "Error: -neighbor must be between 1 and %d (got %d)\n", len(DefaultParamDefs), *flagNeighbor)
+		os.Exit(1)
+	}
+	if *flagDistance < 1 {
+		fmt.Fprintf(os.Stderr, "Error: -distance must be >= 1 (got %d)\n", *flagDistance)
+		os.Exit(1)
+	}
 
 	// Setup PRNG seed
 	seed := *flagSeed
@@ -362,7 +392,8 @@ func main() {
 	fmt.Printf("Target:     %s %s\n", *flagTether, *flagBinary)
 	fmt.Printf("Initial:    --tuning=%s\n", params.TuningFlag())
 	fmt.Printf("Bounds:     +-10 from initial (nonnegative)\n")
-	fmt.Printf("Neighbor:   {-2, -1, 0, +1, +2} (%s mode)\n", *flagNeighbor)
+	fmt.Printf("Neighbor:   %d dimension(s) per step (max delta +- %d, steps in [-%d..+%d])\n",
+		*flagNeighbor, *flagDistance, *flagDistance, *flagDistance)
 	fmt.Printf("Initial T:  %.3f (cooling: %.3f)\n", temp, *flagCooling)
 	fmt.Printf("Penalty:    %.1fs (timeout: %v)\n", *flagPenalty, *flagTimeout)
 	fmt.Printf("Log file:   %s\n", *flagLog)
@@ -410,7 +441,7 @@ func main() {
 			break
 		}
 
-		candidate := GenerateNeighbor(params, *flagNeighbor, rng)
+		candidate := GenerateNeighbor(params, *flagNeighbor, *flagDistance, rng)
 		res := RunTrial(ctx, trial, candidate, *flagTether, *flagBinary, *flagWire, *flagTimeout, *flagPenalty, workDir)
 		if ctx.Err() != nil {
 			break

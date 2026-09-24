@@ -44,9 +44,10 @@ The optimization engine repeatedly evaluates candidate parameter vectors against
 | **T5** | 12 | 2  | 22 | Bus timing phase delay 5 |
 
 ### Reachable Neighborhood
-From any state $P$, candidate neighbor $P'$ is sampled with perturbations $\delta_i \in \{-2, -1, 0, +1, +2\}$ clamped to each parameter's $[ \text{min}_i, \text{max}_i ]$:
-- **`single` mode** (default): Randomly selects one parameter $i$ and perturbs it by $\delta_i \in \{-2, -1, +1, +2\}$. This provides smooth, granular hill climbing.
-- **`multi` mode**: Independently perturbs all parameters by $\delta_i \in \{-2, -1, 0, +1, +2\}$ simultaneously (ensuring at least one parameter changes).
+From any state $P$, candidate neighbor $P'$ is sampled by selecting `--neighbor=N` dimensions (default 1) to adjust simultaneously, each perturbed by an integer delta in $[-\text{distance}, +\text{distance}]$ (default `--distance=2`, steps in $\{-2, -1, 0, +1, +2\}$) and clamped to each parameter's $[ \text{min}_i, \text{max}_i ]$:
+- **`--neighbor=1`** (default): Randomly selects one parameter dimension and perturbs it by $\delta \in \{-d, \dots, -1, +1, \dots, +d\}$. This provides smooth, granular hill climbing.
+- **`--neighbor=N` ($N > 1$)**: Selects $N$ distinct parameter dimensions (up to all 9 dimensions with `--neighbor=9`), perturbing each by $\delta \in \{-d, \dots, +d\}$ (ensuring at least one parameter changes).
+- **`--distance=D`** (default 2): Specifies the maximum integer delta per dimension (e.g. $D=2 \implies \{-2, -1, 0, 1, 2\}$).
 
 ---
 
@@ -155,9 +156,9 @@ To start the search from a custom baseline:
 ```
 
 #### 5. Multi-Parameter Perturbations
-To perturb multiple timing parameters simultaneously:
+To perturb multiple timing parameters simultaneously (e.g. 3 dimensions at a time with distance 2):
 ```bash
-./build/annealing.exe --neighbor=multi --max-trials=100 --temp=2.0 --cooling=0.955
+./build/annealing.exe --neighbor=3 --distance=2 --max-trials=100 --temp=2.0 --cooling=0.955
 ```
 
 ---
@@ -174,7 +175,8 @@ To perturb multiple timing parameters simultaneously:
 | `--max-trials` | `100` | Maximum number of candidate trials to run (`0` for unlimited) |
 | `--timeout` | `1m15s` (`75s`) | Per-trial execution timeout before aborting and killing process |
 | `--penalty` | `600.0` | Penalty fitness in seconds assigned to failed or timed-out trials |
-| `--neighbor` | `single` | Neighborhood mode: `single` (1 parameter) or `multi` (all parameters) |
+| `--neighbor` | `1` | Number of parameter dimensions to adjust per step (`1` to `9`) |
+| `--distance` | `2` | Largest integer delta to adjust per dimension (steps in $[-\text{dist}..\text{dist}]$) |
 | `--initial` | *(defaults)* | Override initial tuning string (e.g. `MHZ=250,K1=9,...`) |
 | `--delay` | `500ms` | Settling delay between trials to allow USB CDC buffers to clear |
 | `--seed` | `0` | PRNG seed (`0` to seed from current wall-clock timestamp) |

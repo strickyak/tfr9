@@ -29,12 +29,12 @@ func TestInitialParams(t *testing.T) {
 	}
 }
 
-func TestGenerateNeighbor_Single(t *testing.T) {
+func TestGenerateNeighbor_SingleDimension(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 	base := NewInitialParams(250)
 
 	for i := 0; i < 50; i++ {
-		neighbor := GenerateNeighbor(base, "single", rng)
+		neighbor := GenerateNeighbor(base, 1, 2, rng)
 		diffCount := 0
 		for _, def := range DefaultParamDefs {
 			oldV := base.Values[def.Name]
@@ -54,17 +54,44 @@ func TestGenerateNeighbor_Single(t *testing.T) {
 			}
 		}
 		if diffCount != 1 {
-			t.Fatalf("Single mode must change exactly 1 parameter, changed %d", diffCount)
+			t.Fatalf("neighbor=1 mode must change exactly 1 parameter, changed %d", diffCount)
 		}
 	}
 }
 
-func TestGenerateNeighbor_Multi(t *testing.T) {
+func TestGenerateNeighbor_MultiDimensionsAndDistance(t *testing.T) {
 	rng := rand.New(rand.NewSource(123))
 	base := NewInitialParams(250)
 
+	// Test neighbor=3, distance=4
 	for i := 0; i < 50; i++ {
-		neighbor := GenerateNeighbor(base, "multi", rng)
+		neighbor := GenerateNeighbor(base, 3, 4, rng)
+		diffCount := 0
+		for _, def := range DefaultParamDefs {
+			oldV := base.Values[def.Name]
+			newV := neighbor.Values[def.Name]
+
+			// Check bounds
+			if newV < def.Min || newV > def.Max {
+				t.Fatalf("Param %s value %d out of bounds [%d, %d]", def.Name, newV, def.Min, def.Max)
+			}
+
+			diff := newV - oldV
+			if diff != 0 {
+				diffCount++
+				if diff < -4 || diff > 4 {
+					t.Fatalf("Param %s delta %d not in [-4, +4]", def.Name, diff)
+				}
+			}
+		}
+		if diffCount < 1 || diffCount > 3 {
+			t.Fatalf("neighbor=3 must change between 1 and 3 parameters, changed %d", diffCount)
+		}
+	}
+
+	// Test neighbor=9 (all dimensions), distance=2
+	for i := 0; i < 50; i++ {
+		neighbor := GenerateNeighbor(base, 9, 2, rng)
 		diffCount := 0
 		for _, def := range DefaultParamDefs {
 			oldV := base.Values[def.Name]
@@ -79,12 +106,12 @@ func TestGenerateNeighbor_Multi(t *testing.T) {
 			if diff != 0 {
 				diffCount++
 				if diff < -2 || diff > 2 {
-					t.Fatalf("Param %s delta %d not in {-2, -1, 0, 1, 2}", def.Name, diff)
+					t.Fatalf("Param %s delta %d not in [-2, +2]", def.Name, diff)
 				}
 			}
 		}
 		if diffCount == 0 {
-			t.Fatalf("Multi mode must change at least 1 parameter")
+			t.Fatalf("neighbor=9 must change at least 1 parameter")
 		}
 	}
 }
