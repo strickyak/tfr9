@@ -311,7 +311,7 @@ func main() {
 	}
 
 	if len(binArgs) == 0 && !*flagReflash {
-		fmt.Fprintf(os.Stderr, "Usage: tether [flags] image_file.img | module_files... [listings.list...]\n")
+		fmt.Fprintf(os.Stderr, "Usage: tether [flags] image_file.img | decb_file.decb | module_files... [listings.list...]\n")
 		os.Exit(1)
 	}
 
