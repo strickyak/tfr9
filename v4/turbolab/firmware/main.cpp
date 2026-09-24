@@ -40,19 +40,19 @@
 // Set to 1 to enable hardware timer reads on every cycle (time-based trigger and max-time checks).
 // Set to 0 to disable per-cycle time_us_64() APB bus reads for maximum bus cycle speed.
 #ifndef PER_CYCLE_TIMER_READS
-#define PER_CYCLE_TIMER_READS 0
+#define PER_CYCLE_TIMER_READS 1
 #endif
 
 // Set to 1 to enable per-cycle instruction tracing, opcode classification, and trace emission.
 // Set to 0 to disable per-cycle trace overhead for maximum bus cycle speed.
 #ifndef ENABLE_TRACING
-#define ENABLE_TRACING 0
+#define ENABLE_TRACING 1
 #endif
 
 // Set to 1 to enable runtime fault checks (Red Page $FF04..$FFEF and Zero Vector $0000).
 // Set to 0 to disable per-cycle fault checks for maximum bus cycle speed.
 #ifndef ENABLE_FAULT_CHECKS
-#define ENABLE_FAULT_CHECKS 0
+#define ENABLE_FAULT_CHECKS 1
 #endif
 
 using byte = uint8_t;
@@ -234,6 +234,286 @@ void InitializePins() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Factored Foreground Bus Loop Helpers (All FORCE_INLINE IN_RAM)
+// ═══════════════════════════════════════════════════════════════════
+
+FORCE_INLINE byte IN_RAM fg_loop_handle_io_read(uint addr) {
+  switch (addr & 3) {
+    case 0:
+      return sim_last_char_tx;
+    case 1:
+      if (!term_input.Empty()) {
+        byte val = term_input.Take();
+        if (term_input.Empty()) {
+          sim_status_reg &= ~SIM_RX_BIT;
+        }
+        return val;
+      }
+      return 0;
+    case 2:
+      return sim_status_reg;
+    case 3:
+      return sim_control_reg;
+  }
+  return 0;
+}
+
+FORCE_INLINE void IN_RAM fg_loop_handle_io_write(uint addr, byte value) {
+  switch (addr & 3) {
+    case 0:
+      sim_last_char_tx = value;
+      fg2bg_chars.push(value);
+      break;
+    case 1:
+      // RX write has no effect
+      break;
+    case 2:
+      if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
+      if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
+      break;
+    case 3:
+      sim_control_reg = value;
+      break;
+  }
+}
+
+FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, bool reset_achieved, uint64_t cycles, bool reading) {
+#if ENABLE_FAULT_CHECKS
+  // Red Page Check ($FF04..$FFEF)
+  // Disabled during idle cycles (address lines might float)
+  // and disabled until CPU reset is achieved.
+  if (!is_idle && cpu_started && reset_achieved && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
+    fault_reason = FAULT_RED_PAGE;
+    fault_cycle = cycles;
+    fault_addr = addr;
+    fault_data = reading ? ram[addr] : (byte)pio_sm_get_blocking(pio0, 0);
+    fault_triggered = true;
+    HaltOn();
+    return true;
+  }
+#else
+  (void)addr; (void)is_idle; (void)reset_achieved; (void)cycles; (void)reading;
+#endif
+  return false;
+}
+
+FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool is_bs, bool reset_achieved, uint64_t cycles) {
+#if ENABLE_FAULT_CHECKS
+  // Zero Interrupt Vector Check:
+  // If BS=1 (Interrupt Acknowledge) and vector data is 0:
+  // Disabled until CPU reset is achieved.
+  if (cpu_started && reset_achieved && UNLIKELY(is_bs && value == 0)) {
+    fault_reason = FAULT_ZERO_VECTOR;
+    fault_cycle = cycles;
+    fault_addr = addr;
+    fault_data = value;
+    fault_triggered = true;
+    HaltOn();
+    return true;
+  }
+#else
+  (void)addr; (void)value; (void)is_bs; (void)reset_achieved; (void)cycles;
+#endif
+  return false;
+}
+
+FORCE_INLINE byte IN_RAM fg_loop_handle_read(uint addr, bool is_idle, bool is_bs, bool reset_achieved, uint64_t cycles) {
+#if ENABLE_FAULT_CHECKS || ENABLE_TRACING
+  if (UNLIKELY(is_idle)) {
+    return 0;
+  }
+#endif
+  if (LIKELY(addr < 0xFF00)) {
+    return ram[addr];
+  } else if (addr <= 0xFF03) {
+    return fg_loop_handle_io_read(addr);
+  } else {
+    // Vectors $FFF0..$FFFF
+    byte val = ram[addr];
+    fg_loop_check_zero_vector(addr, val, is_bs, reset_achieved, cycles);
+    return val;
+  }
+}
+
+FORCE_INLINE void IN_RAM fg_loop_handle_write(uint addr, byte value, bool reset_achieved) {
+  // All writes are disabled during startup until RESET vector fetch ($FFFE+$FFFF) has completed.
+  // Once reset is achieved, writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
+  if (LIKELY(reset_achieved)) {
+    if (LIKELY(addr < 0xFF00)) {
+      ram[addr] = value;
+    } else if (addr <= 0xFF03) {
+      fg_loop_handle_io_write(addr, value);
+    } else {
+      // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
+      ram[addr] = value;
+    }
+  }
+}
+
+FORCE_INLINE byte IN_RAM fg_loop_classify_read_cycle(uint addr, bool is_idle, uint prev_late_pins, bool& saw_fffe, byte prev_kind, uint16_t prev_addr, bool& reset_achieved) {
+#if ENABLE_TRACING
+  if (UNLIKELY(is_idle)) {
+    return KIND_IDLE;
+  }
+  bool is_fic = ((prev_late_pins & (1 << LIC)) != 0);
+
+  if (saw_fffe && addr == 0xFFFF) {
+    reset_achieved = true;
+    saw_fffe = false;
+    return KIND_READ;
+  }
+  if (saw_fffe && addr != 0xFFFE) {
+    saw_fffe = false;
+  }
+  if (is_fic) {
+    return KIND_FIC;
+  } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
+             addr == (prev_addr + 1)) {
+    return KIND_OPCODE_CONT;
+  } else {
+    return KIND_READ;
+  }
+#else
+  (void)is_idle; (void)prev_late_pins; (void)prev_kind; (void)prev_addr;
+  if (saw_fffe && addr == 0xFFFF) {
+    reset_achieved = true;
+    saw_fffe = false;
+  } else if (saw_fffe && addr != 0xFFFE) {
+    saw_fffe = false;
+  }
+  return 0;
+#endif
+}
+
+FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins, bool reset_tracing_started) {
+#if ENABLE_TRACING
+  // Check for RTI ($3B)
+  bool is_rti = (reading && kind == KIND_FIC && value == 0x3B && addr < 0xFFF0);
+  if (is_rti) {
+    LedOff();
+  }
+
+  // Trace filtering: only emit once reset vector fetch begins ($FFFE),
+  // and when trigger conditions are satisfied.
+#if PER_CYCLE_TIMER_READS
+  bool trigger_met = cpu_started && reset_tracing_started &&
+                     (cycles >= trigger_cycle) &&
+                     ((time_us_64() - start_time_us) >= trigger_time_us);
+#else
+  bool trigger_met = cpu_started && reset_tracing_started &&
+                     (cycles >= trigger_cycle);
+#endif
+
+  if (trigger_met) {
+    bool emit = false;
+    switch (kind) {
+      case KIND_IDLE:
+        emit = (trace_flags & TRACE_FLAG_IDLE) != 0;
+        break;
+      case KIND_FIC:
+        emit = (trace_flags & TRACE_FLAG_X) != 0;
+        break;
+      case KIND_OPCODE_CONT:
+        emit = (trace_flags & TRACE_FLAG_PLUS) != 0;
+        break;
+      case KIND_READ:
+        emit = (trace_flags & TRACE_FLAG_R) != 0;
+        break;
+      case KIND_WRITE:
+        emit = (trace_flags & TRACE_FLAG_W) != 0;
+        break;
+    }
+
+    // Trace flag 'i' enables logging of interrupt cycles (vector fetch and RTI)
+    // tagged with their usual r/w/x status without overriding kind:
+    if ((trace_flags & TRACE_FLAG_I) != 0) {
+      if (is_bs || is_rti) {
+        emit = true;
+      }
+    }
+
+    // Extract CPU signals for high 4 bits of kind: a=BA s=BS _=LIC y=BUSY
+    uint8_t cpu_flags = 0;
+#ifdef PIN_BA
+    if ((prev_late_pins & (1 << PIN_BA)) != 0) cpu_flags |= FLAG_BA;
+#endif
+    if ((early_pins & (1 << BS)) != 0)         cpu_flags |= FLAG_BS;
+    if ((prev_late_pins & (1 << LIC)) != 0)    cpu_flags |= FLAG_LIC;
+#ifdef PIN_BUSY
+    if ((prev_late_pins & (1 << PIN_BUSY)) != 0) cpu_flags |= FLAG_BUSY;
+#endif
+
+    if (emit) {
+      TraceRecord rec{cycles, (uint16_t)addr, value, (uint8_t)((kind & 0x0F) | cpu_flags)};
+      while (!fg2bg_trace.push(rec)) {
+        if (UNLIKELY(fault_triggered)) break;
+        tight_loop_contents();
+      }
+    }
+  }
+#else
+  (void)cycles; (void)addr; (void)value; (void)kind; (void)reading; (void)is_bs; (void)early_pins; (void)prev_late_pins;
+#endif
+}
+
+FORCE_INLINE bool IN_RAM fg_loop_check_limits(uint64_t cycles, uint addr, byte value, bool reset_tracing_started) {
+  if (reset_tracing_started) {
+    if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
+      fault_reason = FAULT_MAX_CYCLES;
+      fault_cycle = cycles;
+      fault_addr = addr;
+      fault_data = value;
+      fault_triggered = true;
+      HaltOn();
+      return true;
+    }
+#if PER_CYCLE_TIMER_READS
+    if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+      fault_reason = FAULT_MAX_TIME;
+      fault_cycle = cycles;
+      fault_addr = addr;
+      fault_data = value;
+      fault_triggered = true;
+      HaltOn();
+      return true;
+    }
+#endif
+  }
+  return false;
+}
+
+FORCE_INLINE bool IN_RAM fg_loop_handle_reset_sync(bool reading, bool is_bs, uint addr, uint64_t& cycles, uint64_t& pre_reset_cycles, bool& saw_fffe, bool& reset_achieved, bool& reset_tracing_started) {
+  if (UNLIKELY(!cpu_started)) {
+    cycles = 0;
+    pre_reset_cycles = 0;
+    saw_fffe = false;
+    reset_achieved = false;
+    reset_tracing_started = false;
+    return true;
+  }
+  // Wait for CPU reset vector fetch: reading $FFFE with BS=1.
+  // Cycle numbering starts at 1 upon this cycle.
+  if (reading && is_bs && addr == 0xFFFE) {
+    cycles = 1;
+    saw_fffe = true;
+    reset_tracing_started = true;
+    start_time_us = time_us_64();
+  } else {
+    cycles = 0;
+    pre_reset_cycles++;
+    if (UNLIKELY(pre_reset_cycles >= 100000)) {
+      fault_reason = FAULT_ZERO_VECTOR;
+      fault_cycle = 0;
+      fault_addr = addr;
+      fault_triggered = true;
+      HaltOn();
+      return false;
+    }
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Core 1: Foreground Real-Time Bus Engine
 // ═══════════════════════════════════════════════════════════════════
 void IN_RAM foreground_loop() {
@@ -255,28 +535,161 @@ void IN_RAM foreground_loop() {
   LedOff();
   foreground_running = true;
 
+  // ═════════════════════════════════════════════════════════════════
+  // Phase 1: Before the Reset Vector is fetched
+  // ═════════════════════════════════════════════════════════════════
   while (true) {
     if (UNLIKELY(fault_triggered)) {
-      HaltOn();
-      break;
+      goto phase4;
     }
 
-    // Check term_input to update SIM_RX_BIT
+    constexpr int GROUP_SIZE = 50;
+    for (int i = 0; i < GROUP_SIZE; i++) {
+      pio_sm_put(pio0, 0, 0);
+      uint early_pins = pio_sm_get_blocking(pio0, 0);
+      uint addr = 0xFFFF & hw->gpio_hi_in;
+      const bool reading = 0 != (early_pins & (1 << R_W));
+      const bool is_bs   = 0 != (early_pins & (1 << BS));
+
+      if (UNLIKELY(!reset_tracing_started)) {
+        if (!fg_loop_handle_reset_sync(reading, is_bs, addr, cycles, pre_reset_cycles, saw_fffe, reset_achieved, reset_tracing_started)) {
+          goto phase4;
+        }
+      } else {
+        cycles++;
+      }
+
+      if (LIKELY(reading)) {
+        byte value = fg_loop_handle_read(addr, false, is_bs, false, 0);
+        if (is_bs && addr == 0xFFFE) {
+          saw_fffe = true;
+        }
+
+        pio_sm_put(pio0, 0, value);
+        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+
+        if (saw_fffe && addr == 0xFFFF) {
+          saw_fffe = false;
+          reset_achieved = true;
+        } else if (saw_fffe && addr != 0xFFFE) {
+          saw_fffe = false;
+        }
+      } else {
+        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+      }
+
+      if (reset_achieved) {
+        goto phase2;
+      }
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  // Phase 2: Before the trigger is met, and tracing is off
+  // ═════════════════════════════════════════════════════════════════
+phase2:
+#if ENABLE_TRACING
+  if (trace_flags != 0 && cycles >= trigger_cycle) {
+#if PER_CYCLE_TIMER_READS
+    if ((time_us_64() - start_time_us) >= trigger_time_us) {
+      goto phase3;
+    }
+#else
+    goto phase3;
+#endif
+  }
+#endif
+
+  while (true) {
+    if (UNLIKELY(fault_triggered)) {
+      goto phase4;
+    }
+
     if (!term_input.Empty()) {
       sim_status_reg |= SIM_RX_BIT;
     }
 
-    // Check IRQ status
     bool irq_needed = (sim_status_reg & sim_control_reg) != 0;
     if (irq_needed != prev_irq_needed) {
       if (irq_needed) AssertIRQ(); else ReleaseIRQ();
       prev_irq_needed = irq_needed;
     }
 
-    // Inner bus cycle loop (GROUP_SIZE = 50)
     constexpr int GROUP_SIZE = 50;
     for (int i = 0; i < GROUP_SIZE; i++) {
-      // Synchronize with Hamster PIO
+#if ENABLE_TRACING
+      if (UNLIKELY(trace_flags != 0 && (cycles + 1) >= trigger_cycle)) {
+#if PER_CYCLE_TIMER_READS
+        if ((time_us_64() - start_time_us) >= trigger_time_us) {
+          goto phase3;
+        }
+#else
+        goto phase3;
+#endif
+      }
+#endif
+
+      pio_sm_put(pio0, 0, 0);
+      uint early_pins = pio_sm_get_blocking(pio0, 0);
+      uint addr = 0xFFFF & hw->gpio_hi_in;
+      const bool reading = 0 != (early_pins & (1 << R_W));
+      const bool is_bs   = 0 != (early_pins & (1 << BS));
+#if ENABLE_FAULT_CHECKS
+      const bool vma     = 0 != (prev_late_pins & (1 << AVMA));
+      const bool is_idle = !vma && !is_bs;
+#else
+      const bool is_idle = false;
+#endif
+      cycles++;
+
+#if ENABLE_FAULT_CHECKS
+      if (fg_loop_check_red_page(addr, is_idle, true, cycles, reading)) {
+        goto phase4;
+      }
+#endif
+
+      byte value = 0;
+      if (LIKELY(reading)) {
+        value = fg_loop_handle_read(addr, is_idle, is_bs, true, cycles);
+        if (UNLIKELY(fault_triggered)) goto phase4;
+        if (UNLIKELY(is_bs)) LedOn();
+
+        pio_sm_put(pio0, 0, value);
+        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+      } else {
+        prev_late_pins = pio_sm_get_blocking(pio0, 0);
+        value = (byte)prev_late_pins;
+        fg_loop_handle_write(addr, value, true);
+      }
+
+      if (fg_loop_check_limits(cycles, addr, value, true)) {
+        goto phase4;
+      }
+    }
+  }
+
+#if ENABLE_TRACING
+  // ═════════════════════════════════════════════════════════════════
+  // Phase 3: After the trigger is met, and tracing is on
+  // ═════════════════════════════════════════════════════════════════
+phase3:
+  while (true) {
+    if (UNLIKELY(fault_triggered)) {
+      goto phase4;
+    }
+
+    if (!term_input.Empty()) {
+      sim_status_reg |= SIM_RX_BIT;
+    }
+
+    bool irq_needed = (sim_status_reg & sim_control_reg) != 0;
+    if (irq_needed != prev_irq_needed) {
+      if (irq_needed) AssertIRQ(); else ReleaseIRQ();
+      prev_irq_needed = irq_needed;
+    }
+
+    constexpr int GROUP_SIZE = 50;
+    for (int i = 0; i < GROUP_SIZE; i++) {
       pio_sm_put(pio0, 0, 0);
       uint early_pins = pio_sm_get_blocking(pio0, 0);
       uint addr = 0xFFFF & hw->gpio_hi_in;
@@ -285,317 +698,65 @@ void IN_RAM foreground_loop() {
 #if ENABLE_FAULT_CHECKS || ENABLE_TRACING
       const bool vma     = 0 != (prev_late_pins & (1 << AVMA));
       const bool is_idle = !vma && !is_bs;
+#else
+      const bool is_idle = false;
 #endif
-
-      if (UNLIKELY(!cpu_started)) {
-        cycles = 0;
-        pre_reset_cycles = 0;
-        saw_fffe = false;
-        reset_achieved = false;
-        reset_tracing_started = false;
-      } else if (UNLIKELY(!reset_tracing_started)) {
-        // Wait for CPU reset vector fetch: reading $FFFE with BS=1.
-        // Cycle numbering starts at 1 upon this cycle.
-        if (reading && is_bs && addr == 0xFFFE) {
-          cycles = 1;
-          saw_fffe = true;
-          reset_tracing_started = true;
-          start_time_us = time_us_64();
-        } else {
-          cycles = 0;
-          pre_reset_cycles++;
-          if (UNLIKELY(pre_reset_cycles >= 100000)) {
-            fault_reason = FAULT_ZERO_VECTOR;
-            fault_cycle = 0;
-            fault_addr = addr;
-            fault_triggered = true;
-            HaltOn();
-            return;
-          }
-        }
-      } else {
-        cycles++;
-      }
+      cycles++;
 
       byte value = 0;
-#if ENABLE_TRACING
       byte kind = KIND_IDLE;
-#endif
 
 #if ENABLE_FAULT_CHECKS
-      // ── Red Page Check ($FF04..$FFEF) ──
-      // Disabled during idle cycles (address lines might float)
-      // and disabled until CPU reset is achieved.
-      if (!is_idle && cpu_started && reset_achieved && UNLIKELY(addr >= 0xFF04 && addr <= 0xFFEF)) {
-        fault_reason = FAULT_RED_PAGE;
-        fault_cycle = cycles;
-        fault_addr = addr;
-        fault_data = reading ? ram[addr] : (byte)pio_sm_get_blocking(pio0, 0);
-        fault_triggered = true;
-        HaltOn();
-        return;
+      if (fg_loop_check_red_page(addr, is_idle, true, cycles, reading)) {
+        goto phase4;
       }
 #endif
 
       if (LIKELY(reading)) {
-        // Read cycle
-#if ENABLE_FAULT_CHECKS || ENABLE_TRACING
-        if (UNLIKELY(is_idle)) {
-          value = 0;
-        } else
-#endif
-        if (LIKELY(addr < 0xFF00)) {
-          value = ram[addr];
-        } else if (addr <= 0xFF03) {
-          // Turbo9Sim ACIA registers
-          switch (addr & 3) {
-            case 0: value = sim_last_char_tx; break;
-            case 1:
-              if (!term_input.Empty()) {
-                value = term_input.Take();
-                if (term_input.Empty()) {
-                  sim_status_reg &= ~SIM_RX_BIT;
-                }
-              } else {
-                value = 0;
-              }
-              break;
-            case 2: value = sim_status_reg; break;
-            case 3: value = sim_control_reg; break;
-          }
-        } else {
-          // Vectors $FFF0..$FFFF
-          value = ram[addr];
+        value = fg_loop_handle_read(addr, is_idle, is_bs, true, cycles);
+        if (UNLIKELY(fault_triggered)) goto phase4;
+        if (UNLIKELY(is_bs)) LedOn();
 
-#if ENABLE_FAULT_CHECKS
-          // ── Zero Interrupt Vector Check ──
-          // If BS=1 (Interrupt Acknowledge) and vector data is 0:
-          // Disabled until CPU reset is achieved.
-          if (cpu_started && reset_achieved && UNLIKELY(is_bs && value == 0)) {
-            fault_reason = FAULT_ZERO_VECTOR;
-            fault_cycle = cycles;
-            fault_addr = addr;
-            fault_data = value;
-            fault_triggered = true;
-            HaltOn();
-            return;
-          }
-#endif
-        }
-
-        // Interrupt Acknowledge: turn on LED
-        if (UNLIKELY(is_bs)) {
-          LedOn();
-        }
-
-        // Check for reset vector fetch ($FFFE then $FFFF)
-        if (is_bs && addr == 0xFFFE) {
-          saw_fffe = true;
-        }
-
-        // Put data onto data bus for CPU to latch
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
 
-#if ENABLE_TRACING
-        if (UNLIKELY(is_idle)) {
-          kind = KIND_IDLE;
-        } else {
-          bool is_fic = ((prev_late_pins & (1 << LIC)) != 0);
-
-          if (saw_fffe && addr == 0xFFFF) {
-            kind = KIND_READ;
-            reset_achieved = true;
-            saw_fffe = false;
-          } else {
-            if (saw_fffe && addr != 0xFFFE) {
-              saw_fffe = false;
-            }
-            if (is_fic) {
-              kind = KIND_FIC;
-            } else if ((prev_kind == KIND_FIC || prev_kind == KIND_OPCODE_CONT) &&
-                       addr == (prev_addr + 1)) {
-              kind = KIND_OPCODE_CONT;
-            } else {
-              kind = KIND_READ;
-            }
-          }
-        }
-#else
-        if (saw_fffe && addr == 0xFFFF) {
-          reset_achieved = true;
-          saw_fffe = false;
-        } else if (saw_fffe && addr != 0xFFFE) {
-          saw_fffe = false;
-        }
-#endif
-
+        kind = fg_loop_classify_read_cycle(addr, is_idle, prev_late_pins, saw_fffe, prev_kind, prev_addr, reset_achieved);
         prev_late_pins = late_pins;
       } else {
-        // Write cycle
         uint late_pins = pio_sm_get_blocking(pio0, 0);
         value = (byte)late_pins;
-
-#if ENABLE_TRACING
-        if (UNLIKELY(is_idle)) {
-          kind = KIND_IDLE;
-        } else {
-          // All writes are disabled during startup until RESET vector fetch ($FFFE+$FFFF) has completed.
-          // Once reset is achieved, writes are permitted anywhere in RAM, including the vector table $FFF0..$FFFF.
-          if (LIKELY(reset_achieved)) {
-            if (LIKELY(addr < 0xFF00)) {
-              ram[addr] = value;
-            } else if (addr <= 0xFF03) {
-              switch (addr & 3) {
-                case 0:
-                  sim_last_char_tx = value;
-                  fg2bg_chars.push(value);
-                  break;
-                case 1:
-                  // RX write has no effect
-                  break;
-                case 2:
-                  if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
-                  if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
-                  break;
-                case 3:
-                  sim_control_reg = value;
-                  break;
-              }
-            } else {
-              // Vectors $FFF0..$FFFF (and non-red-page >= $FF04)
-              // After reset is achieved, vectors are not write-protected.
-              ram[addr] = value;
-            }
-          }
-
-          kind = KIND_WRITE;
-        }
-#else
-        if (LIKELY(reset_achieved)) {
-          if (LIKELY(addr < 0xFF00)) {
-            ram[addr] = value;
-          } else if (addr <= 0xFF03) {
-            switch (addr & 3) {
-              case 0:
-                sim_last_char_tx = value;
-                fg2bg_chars.push(value);
-                break;
-              case 1:
-                break;
-              case 2:
-                if (value & SIM_TIMER_BIT) sim_status_reg &= ~SIM_TIMER_BIT;
-                if (value & SIM_RX_BIT)    sim_status_reg &= ~SIM_RX_BIT;
-                break;
-              case 3:
-                sim_control_reg = value;
-                break;
-            }
-          } else {
-            ram[addr] = value;
-          }
-        }
-#endif
-
+        fg_loop_handle_write(addr, value, true);
+        kind = is_idle ? KIND_IDLE : KIND_WRITE;
         prev_late_pins = late_pins;
       }
 
-#if ENABLE_TRACING
-      // Check for RTI ($3B)
-      bool is_rti = (reading && kind == KIND_FIC && value == 0x3B && addr < 0xFFF0);
-      if (is_rti) {
-        LedOff();
-      }
-
-      // Trace filtering: only emit once reset vector fetch begins ($FFFE),
-      // and when trigger conditions are satisfied.
-#if PER_CYCLE_TIMER_READS
-      bool trigger_met = cpu_started && reset_tracing_started &&
-                         (cycles >= trigger_cycle) &&
-                         ((time_us_64() - start_time_us) >= trigger_time_us);
-#else
-      bool trigger_met = cpu_started && reset_tracing_started &&
-                         (cycles >= trigger_cycle);
-#endif
-
-      if (trigger_met) {
-        bool emit = false;
-        switch (kind) {
-          case KIND_IDLE:
-            emit = (trace_flags & TRACE_FLAG_IDLE) != 0;
-            break;
-          case KIND_FIC:
-            emit = (trace_flags & TRACE_FLAG_X) != 0;
-            break;
-          case KIND_OPCODE_CONT:
-            emit = (trace_flags & TRACE_FLAG_PLUS) != 0;
-            break;
-          case KIND_READ:
-            emit = (trace_flags & TRACE_FLAG_R) != 0;
-            break;
-          case KIND_WRITE:
-            emit = (trace_flags & TRACE_FLAG_W) != 0;
-            break;
-        }
-
-        // Trace flag 'i' enables logging of interrupt cycles (vector fetch and RTI)
-        // tagged with their usual r/w/x status without overriding kind:
-        if ((trace_flags & TRACE_FLAG_I) != 0) {
-          if (is_bs || is_rti) {
-            emit = true;
-          }
-        }
-
-        // Extract CPU signals for high 4 bits of kind: a=BA s=BS _=LIC y=BUSY
-        uint8_t cpu_flags = 0;
-#ifdef PIN_BA
-        if ((prev_late_pins & (1 << PIN_BA)) != 0) cpu_flags |= FLAG_BA;
-#endif
-        if ((early_pins & (1 << BS)) != 0)         cpu_flags |= FLAG_BS;
-        if ((prev_late_pins & (1 << LIC)) != 0)    cpu_flags |= FLAG_LIC;
-#ifdef PIN_BUSY
-        if ((prev_late_pins & (1 << PIN_BUSY)) != 0) cpu_flags |= FLAG_BUSY;
-#endif
-
-        if (emit) {
-          TraceRecord rec{cycles, (uint16_t)addr, value, (uint8_t)((kind & 0x0F) | cpu_flags)};
-          while (!fg2bg_trace.push(rec)) {
-            if (UNLIKELY(fault_triggered)) break;
-            tight_loop_contents();
-          }
-        }
-      }
-
+      fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins, true);
       prev_addr = addr;
       prev_kind = kind;
-#endif
 
-      // Max execution checks (at end of cycle so current cycle is completed and traced)
-      if (reset_tracing_started) {
-        if (UNLIKELY(max_cycles > 0 && cycles >= max_cycles)) {
-          fault_reason = FAULT_MAX_CYCLES;
-          fault_cycle = cycles;
-          fault_addr = addr;
-          fault_data = value;
-          fault_triggered = true;
-          HaltOn();
-          return;
-        }
-#if PER_CYCLE_TIMER_READS
-        if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-          fault_reason = FAULT_MAX_TIME;
-          fault_cycle = cycles;
-          fault_addr = addr;
-          fault_data = value;
-          fault_triggered = true;
-          HaltOn();
-          return;
-        }
-#endif
+      if (fg_loop_check_limits(cycles, addr, value, true)) {
+        goto phase4;
       }
     }
   }
-}
+#endif
+
+  // ═════════════════════════════════════════════════════════════════
+  // Phase 4: After the final condition is met (max cycles, fault, ^C)
+  //          Prepares / executes NMI register dump, then halts CPU
+  // ═════════════════════════════════════════════════════════════════
+phase4:
+  HaltOn();
+  // Phase 4 inner loop: hook for future NMI register dump
+  constexpr int GROUP_SIZE_P4 = 50;
+  for (int i = 0; i < GROUP_SIZE_P4; i++) {
+    // When NMI register dumping is activated:
+    // AssertNMI(); run bus cycles to let 6309 push registers to stack, then HaltOn().
+    // Currently, HaltOn() has halted the CPU, so loop exits immediately.
+    break;
+  }
+  return;
+} // foreground_loop
 
 // ═══════════════════════════════════════════════════════════════════
 // Core 0: Background Administration & USB Pipeline
