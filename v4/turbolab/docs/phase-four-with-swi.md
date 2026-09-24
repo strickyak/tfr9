@@ -298,3 +298,31 @@ Verified live on Hitachi 6309E + RP2350B hardware:
    =============================================
    ```
 
+
+## Example breaking from a loop
+
+```
+x DFED 26 #99985; "kernel.0d4eec829c"+0b0f   bne loop@ branch not zero (more to clear)
++ DFEE FB #99986;
+x DFEA A7 #99988; "kernel.0d4eec829c"+0b0c loop@ sta d,x clear byte at ,X
++ DFEB 8B #99989;
++ DFEC 5C #99990;
++ DFED 26 #99991;
+w CFC4 00 #99995;_
+x DFEC 5C #99996; "kernel.0d4eec829c"+0b0e   incb count loop up
++ DFED 26 #99997;_
+x DFED 26 #99998; "kernel.0d4eec829c"+0b0f   bne loop@ branch not zero (more to clear)
++ DFEE FB #99999;
+
+*** PICO FAULT: Max Cycles Limit Reached at Cycle #100000 (Addr=$FFFF, Data=$00) ***
+=== CPU Registers (SWI Capture, 6809 mode) ===
+  PC: $DFEA   S: $04CE   U: $04D6   X: $CF00   Y: $0222
+   D: $00C5 (A=$00 B=$C5)
+  DP:   $00   CC:   $D8 [EF.IN...]
+  At: $DFEA: kernel.0d4eec829c+$0B0C  loop@ sta d,x clear byte at ,X
+=============================================
+Saved 64KB core dump to /tmp/turbolab-fault-20260924-011245.img and /tmp/fault.img
+Estimated cycles per second: 19977 (0.020 MHz) [100000 cycles in 5.01s]
+strick@xor:~/modoc/coco-shelf/tfr9/v4/turbolab$
+```
+
