@@ -86,6 +86,7 @@ var (
 	flagReflash  = flag.Bool("reflash", false, "reboot Pico into BOOTSEL mode for reflashing and exit")
 	flagExit     = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 	flagTuning   = flag.String("tuning", "", "firmware timing tuning: MHZ,K1,K2,T1,T2,... (or key=val pairs, e.g. --tuning=250,K1=9,K2=19,T1=16)")
+	flagN        = flag.Bool("n", false, "no stdin: do not configure stty or run ReadLine; wait for completion")
 )
 
 func expandUser(path string) string {
@@ -389,15 +390,19 @@ func main() {
 	}
 
 	// Save terminal state and setup cleanup
-	SaveSttyState()
-	defer RestoreSttyState()
+	if !*flagN {
+		SaveSttyState()
+		defer RestoreSttyState()
+	}
 
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
 		speedEstimator.PrintReport()
-		RestoreSttyState()
+		if !*flagN {
+			RestoreSttyState()
+		}
 		if sig == syscall.SIGINT {
 			fmt.Printf("\n[SIGINT]\n")
 			fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
@@ -836,6 +841,12 @@ func main() {
 	speedEstimator.OnCycle(0)
 
 	// ── Phase 5: Interactive Terminal ──
+	if *flagN {
+		// When -n is specified, there will never be any stdin.
+		// Do not configure stty or run ReadLine; wait until process is terminated (e.g. by fault or signal).
+		select {}
+	}
+
 	SetSttyCbreak()
 	fmt.Fprintf(os.Stderr, "=== TurboLab Running (Type to send, ^C or enter line '^C' to send interrupt) ===\n")
 

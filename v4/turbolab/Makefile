@@ -43,6 +43,10 @@ build/tether.mac-arm64.exe: $(TETHER_GO_FILES)
 build/tether.mac-amd64.exe: $(TETHER_GO_FILES)
 	cd tether && GOWORK=off CGO_ENABLED=0 GOOS=darwin   GOARCH=amd64      go build -a -ldflags '-extldflags "-static"' -o ../$@ .
 
+ANNEALING: BUILD-DIR build/annealing.exe
+build/annealing.exe: tool/annealing.go
+	GOWORK=off go build -o $@ $<
+
 TURBOS: BUILD-DIR
 	cd build && unzip -u ../data/turbos-2026-09-21.zip
 
@@ -56,4 +60,4 @@ flash: build/turbolab_v4.uf2
 clean:
 	rm -rf build/*
 
-.PHONY: all clean flash BUILD-DIR TETHERS TURBOS LISTINGS
+.PHONY: all clean flash BUILD-DIR TETHERS TURBOS LISTINGS ANNEALING

@@ -36,15 +36,15 @@ func TestParseDecb_Pi(t *testing.T) {
 	}
 
 	// Verify payload at $1000
-	// Byte 5.. in pi.decb is: 0x4F, 0x1F, 0x8B, 0x8E, 0x02, 0x00...
-	expectedPayload := data[5 : 5+280]
-	actualPayload := ramImage[0x1000 : 0x1000+280]
+	sz := int(binary.BigEndian.Uint16(data[1:3]))
+	expectedPayload := data[5 : 5+sz]
+	actualPayload := ramImage[0x1000 : 0x1000+sz]
 	if !bytes.Equal(expectedPayload, actualPayload) {
 		t.Fatalf("Memory at $1000 does not match payload")
 	}
 
 	// Verify unwritten memory regions remain 0
-	if ramImage[0x0000] != 0 || ramImage[0x0FFF] != 0 || ramImage[0x1118] != 0 || ramImage[0xFFFD] != 0 {
+	if ramImage[0x0000] != 0 || ramImage[0x0FFF] != 0 || ramImage[0x1000+sz] != 0 || ramImage[0xFFFD] != 0 {
 		t.Fatalf("Unexpected non-zero bytes in unwritten memory")
 	}
 }

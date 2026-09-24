@@ -39,6 +39,19 @@ ARRAY_A      equ     $0200
              org     $1000
 
 START:
+             ; ---  Repeat entire program N times
+N   equ 4
+             ldb #N
+AGAIN:
+             pshs b
+             bsr RUN
+             puls b
+             decb
+             bne AGAIN
+             swi                 ; Exit program via SWI
+             ; -----------------------------------------------------------------
+
+RUN:
              ; Ensure Direct Page register points to $00
              clra
              tfr     a,dp
@@ -230,8 +243,8 @@ NEXT_DIGIT:
              lda     #$0A
              sta     PUTCHAR_PORT
 
-HALT:
-             swi                 ; Exit program via SWI
+RETURN:
+             rts                 ; Finished one round
 
 ; ==============================================================================
 ;  Subroutine: EMIT_DIGIT
