@@ -85,6 +85,7 @@ var (
 	flagListings = flag.String("listings", "", "directory with module listings named <name>.<size><crc>")
 	flagReflash  = flag.Bool("reflash", false, "reboot Pico into BOOTSEL mode for reflashing and exit")
 	flagExit     = flag.Bool("exit", false, "immediately exit(0) without doing anything")
+	flagTuning   = flag.String("tuning", "", "firmware timing tuning: MHZ,K1,K2,T1,T2,... (or key=val pairs, e.g. --tuning=250,K1=9,K2=19,T1=16)")
 )
 
 func expandUser(path string) string {
@@ -224,6 +225,16 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	// Parse timing tuning flag
+	tuningParams, err := ParseTuningFlag(*flagTuning)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid tuning flag: %v\n", err)
+		os.Exit(1)
+	}
+	if *flagTuning != "" {
+		fmt.Fprintf(os.Stderr, "Custom timing configured: %s\n", tuningParams.String())
 	}
 
 	speedEstimator := NewCycleSpeedEstimator(traceBitmask != 0)
@@ -789,6 +800,15 @@ func main() {
 	resp, err := picoRpcCall("config", traceBitmask, int64(triggerCycle), int(triggerTimeUs), int64(maxCycles), configData)
 	if err != nil || resp.Status != 0 {
 		Fatalf("Config RPC failed: %v (status=%d %s)", err, resp.Status, resp.Message)
+	}
+
+	if *flagTuning != "" {
+		fmt.Fprintf(os.Stderr, "Sending tuning parameters (%s)...\n", tuningParams.String())
+		tuningData := tuningParams.Encode()
+		resp, err = picoRpcCall("tuning", 0, 0, 0, 0, tuningData)
+		if err != nil || resp.Status != 0 {
+			Fatalf("Tuning RPC failed: %v (status=%d %s)", err, resp.Status, resp.Message)
+		}
 	}
 
 	// ── Phase 3: Upload 65536-byte memory image in 1KB chunks ──

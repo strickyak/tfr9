@@ -2,8 +2,9 @@
 #include <iostream>
 #include <iomanip>
 #include <cassert>
+#define RUNTIME_PIO_ASSEMBLER 1
 #include "pio_assembler.h"
-#include "hamster.tmp.cxx"
+#include "hamster.h"
 
 // Golden instructions from hamster.pio.h (29 instructions)
 static const uint16_t golden_instructions[] = {

@@ -176,9 +176,15 @@ hamster[16];                       // Insert 16 cycles of delay
 
 ---
 
-## 6. The Hamster Bus Engine Implementation
+## 6. The Hamster Bus Engine Implementation (`hamster.h`)
 
-[`turbolab/firmware/hamster.tmp.cxx`](file:///home/strick/modoc/coco-shelf/tfr9/v4/turbolab/firmware/hamster.tmp.cxx) implements the complete 6309E synchronous bus engine matching [`hamster.pio`](file:///home/strick/modoc/coco-shelf/tfr9/v4/turbolab/firmware/hamster.pio).
+[`turbolab/firmware/hamster.h`](file:///home/strick/modoc/coco-shelf/tfr9/v4/turbolab/firmware/hamster.h) implements the complete 6309E synchronous bus engine in header-only library style, matching [`hamster.pio`](file:///home/strick/modoc/coco-shelf/tfr9/v4/turbolab/firmware/hamster.pio). It is enabled in [`turbolab/firmware/main.cpp`](file:///home/strick/modoc/coco-shelf/tfr9/v4/turbolab/firmware/main.cpp) guarded by `#if RUNTIME_PIO_ASSEMBLER`.
+
+### Tunable Timing Variables
+The timing parameters are exposed as runtime variables (references to 1-indexed arrays `tuning_k[1..9]` and `tuning_t[1..9]`, plus `tuning_mhz`), allowing dynamic reconfiguration without recompiling or reflashing:
+- `MHZ`: System clock frequency in MHz (default: 250).
+- `K1..K9`: Phase transition cycle offsets relative to program labels (defaults: `K1=9, K2=19, K3=11, K4=8`).
+- `T1..T9`: Bus action delay durations in clock cycles (defaults: `T1=16, T2=0, T3=22, T4=3, T5=12`).
 
 ### 6309 Bus Timing & Phase Mapping
 The 6309E processor requires two quadrature clock inputs: $E$ (pin 29) and $Q$ (pin 30). The bus cycle divides into 4 distinct phases:
@@ -281,5 +287,28 @@ g++ -std=c++17 -Wall -Wextra -Werror -I. test_pio_assembler.cpp -o test_pio_asse
 ```
 
 Test results:
-- **Test 1**: Assembles `hamster.tmp.cxx`, confirms 28 instructions generated, validates `.wrap_target` and `.wrap`.
+- **Test 1**: Assembles `hamster.h`, confirms 28 instructions generated, validates `.wrap_target` and `.wrap`.
 - **Test 2**: Simulates edge-case failure modes (overflow > 32 instructions, unresolved labels, negative delays, duplicate label bindings) and verifies that every paranoid check triggers and aborts cleanly.
+
+---
+
+## 10. Dynamic Runtime Tuning via Tether (`--tuning`)
+
+With `PioAssembler`, the firmware timing can be tuned on the fly from the tether command line without modifying C++ code, recompiling, or reflashing the board:
+
+```bash
+# Set system clock to 200 MHz and adjust bus phase transitions and delays
+tether --tuning=200,8,16,13,0,18,2,10 image.img
+
+# Or specify parameters with explicit key=value pairs:
+tether --tuning=MHZ=200,K1=8,K2=16,T1=13,T3=18,T4=2,T5=10 image.img
+```
+
+### Protocol Flow
+1. Tether parses `--tuning` into `TuningParams` struct (defined in [`turbolab/tether/tuning.go`](file:///home/strick/modoc/coco-shelf/tfr9/v4/turbolab/tether/tuning.go)).
+2. After the initial handshake, tether sends the parameters as an 84-byte payload via a `"tuning"` RPC call to the Pico.
+3. Firmware receives the payload and updates `tuning_mhz`, `tuning_k[1..9]`, and `tuning_t[1..9]`.
+4. When tether sends `"start"`:
+   - If `tuning_mhz` differs from the current clock, firmware reconfigures the PLL via `set_sys_clock_khz()`.
+   - Firmware invokes `build_hamster_program()` which reassembles the PIO program with the new variables.
+   - The compiled 16-bit words are loaded into PIO 0 instruction memory and Core 1 starts executing.

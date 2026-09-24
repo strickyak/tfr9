@@ -26,7 +26,16 @@
 #include <string>
 #include <vector>
 
+#ifndef RUNTIME_PIO_ASSEMBLER
+#define RUNTIME_PIO_ASSEMBLER 1
+#endif
+
+#if RUNTIME_PIO_ASSEMBLER
+#include "hamster.h"
+#else
 #include "hamster.pio.h"
+#endif
+
 #include "circbuf.h"
 #include "cobs.h"
 #include "cross-core.h"
@@ -36,6 +45,8 @@
 #define IN_RAM __not_in_flash("turbolab")
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+
+static uint32_t current_mhz = 250;
 
 // Set to 1 to enable hardware timer reads on every cycle (time-based trigger and max-time checks).
 // Set to 0 to disable per-cycle time_us_64() APB bus reads for maximum bus cycle speed.
@@ -959,6 +970,26 @@ void handle_rpc_request(const std::string& pkt) {
     }
     resp.status = 0;
     send_rpc_response(resp);
+#if RUNTIME_PIO_ASSEMBLER
+  } else if (req.method == "tuning") {
+    if (req.data.size() >= 84) {
+      const uint32_t* p = (const uint32_t*)req.data.data();
+      tuning_mhz = p[0];
+      for (int i = 1; i <= 9; i++) {
+        tuning_k[i] = p[i];
+      }
+      for (int i = 1; i <= 9; i++) {
+        tuning_t[i] = p[10 + i];
+      }
+      printf("\n[Firmware Tuning Configured: MHZ=%lu, K1=%lu, K2=%lu, K3=%lu, K4=%lu, T1=%lu, T2=%lu, T3=%lu, T4=%lu, T5=%lu]\n",
+             tuning_mhz, K1, K2, K3, K4, T1, T2, T3, T4, T5);
+      resp.status = 0;
+    } else {
+      resp.status = 1;
+      resp.message = "tuning payload too short (expected >= 84 bytes)";
+    }
+    send_rpc_response(resp);
+#endif
   } else if (req.method == "upload") {
     size_t offset = (size_t)req.offset;
     size_t len = req.data.size();
@@ -982,11 +1013,25 @@ void handle_rpc_request(const std::string& pkt) {
     gpio_set_dir(RESET, GPIO_OUT);
     HaltOn();
 
+#if RUNTIME_PIO_ASSEMBLER
+    if (tuning_mhz != current_mhz) {
+      printf("\n[Reconfiguring system clock from %lu MHz to %lu MHz...]\n", current_mhz, tuning_mhz);
+      set_sys_clock_khz(tuning_mhz * 1000, true);
+      current_mhz = tuning_mhz;
+    }
+    pio_sm_set_enabled(pio0, 0, false);
+    pio_sm_restart(pio0, 0);
+    pio_clear_instruction_memory(pio0);
+    PioAssembler hamster = build_hamster_program(/*verbose=*/true);
+    uint offset = hamster.pio_add_program(pio0);
+    hamster_program_init(pio0, 0, offset, hamster);
+#else
     pio_sm_set_enabled(pio0, 0, false);
     pio_sm_restart(pio0, 0);
     pio_clear_instruction_memory(pio0);
     uint offset = pio_add_program(pio0, &hamster_program);
     hamster_program_init(pio0, 0, offset);
+#endif
     gpio_pull_up(R_W);
 
     cpu_started = false;
@@ -1197,7 +1242,12 @@ void reflash_now_please() {
 }
 
 int main() {
+#if RUNTIME_PIO_ASSEMBLER
+  current_mhz = tuning_mhz;
+  set_sys_clock_khz(tuning_mhz * 1000, true);
+#else
   set_sys_clock_khz(250000, true);
+#endif
   stdio_usb_init();
   InitializePins();
 
