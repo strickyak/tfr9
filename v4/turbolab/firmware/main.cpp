@@ -1452,6 +1452,14 @@ void restart_to_restarted_state() {
   sim_control_reg = 0;
   sim_last_char_tx = 0;
 
+#if RUNTIME_PIO_ASSEMBLER
+  reset_tuning_to_defaults();
+  if (current_mhz != tuning_mhz) {
+    set_sys_clock_khz(tuning_mhz * 1000, true);
+    current_mhz = tuning_mhz;
+  }
+#endif
+
   // 6. Clear buffers
   fg2bg_trace.clear();
   fg2bg_chars.clear();

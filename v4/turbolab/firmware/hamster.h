@@ -31,6 +31,16 @@ inline uint32_t tuning_k[10] = {0, 9, 19, 11, 8, 0, 0, 0, 0, 0};
 //   T5 = 12  (delay in READ Phase 4 trailing hold)
 inline uint32_t tuning_t[10] = {0, 16, 0, 22, 3, 12, 0, 0, 0, 0};
 
+inline void reset_tuning_to_defaults() {
+    tuning_mhz = 250;
+    const uint32_t def_k[10] = {0, 9, 19, 11, 8, 0, 0, 0, 0, 0};
+    const uint32_t def_t[10] = {0, 16, 0, 22, 3, 12, 0, 0, 0, 0};
+    for (int i = 0; i < 10; i++) {
+        tuning_k[i] = def_k[i];
+        tuning_t[i] = def_t[i];
+    }
+}
+
 // Convenience references for T[1-9], K[1-9], and MHZ
 #ifdef MHZ
 #undef MHZ
