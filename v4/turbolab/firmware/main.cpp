@@ -315,7 +315,7 @@ FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool i
   // Zero Interrupt Vector Check:
   // If BS=1 (Interrupt Acknowledge) and vector data is 0:
   // Note: Only called in Phase 2 and Phase 3 (after CPU reset is achieved).
-  if (cpu_started && UNLIKELY(is_bs && value == 0)) {
+  if (UNLIKELY(is_bs && value == 0)) {
     fault_reason = FAULT_ZERO_VECTOR;
     fault_cycle = cycles;
     fault_addr = addr;
