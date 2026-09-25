@@ -48,12 +48,6 @@
 
 static uint32_t current_mhz = 250;
 
-// Set to 1 to enable hardware timer reads on every cycle (time-based trigger and max-time checks).
-// Set to 0 to disable per-cycle time_us_64() APB bus reads for maximum bus cycle speed.
-#ifndef PER_CYCLE_TIMER_READS
-#define PER_CYCLE_TIMER_READS 1
-#endif
-
 // Set to 1 to enable per-cycle instruction tracing, opcode classification, and trace emission.
 // Set to 0 to disable per-cycle trace overhead for maximum bus cycle speed.
 #ifndef ENABLE_TRACING
@@ -394,14 +388,7 @@ FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte va
   }
 
   // Trace filtering: only emit when trigger conditions are satisfied.
-#if PER_CYCLE_TIMER_READS
-  bool trigger_met = cpu_started &&
-                     (cycles >= trigger_cycle) &&
-                     ((time_us_64() - start_time_us) >= trigger_time_us);
-#else
-  bool trigger_met = cpu_started &&
-                     (cycles >= trigger_cycle);
-#endif
+  bool trigger_met = cpu_started && (cycles >= trigger_cycle);
 
   if (trigger_met) {
     bool emit = false;
@@ -464,16 +451,6 @@ FORCE_INLINE bool IN_RAM fg_loop_check_limits(uint64_t cycles, uint addr, byte v
     fault_triggered = true;
     return true;
   }
-#if PER_CYCLE_TIMER_READS
-  if (UNLIKELY(max_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
-    fault_reason = FAULT_MAX_TIME;
-    fault_cycle = cycles;
-    fault_addr = addr;
-    fault_data = value;
-    fault_triggered = true;
-    return true;
-  }
-#endif
   return false;
 }
 
@@ -574,13 +551,7 @@ void IN_RAM foreground_loop() {
 phase2:
 #if ENABLE_TRACING
   if (trace_flags != 0 && cycles >= trigger_cycle) {
-#if PER_CYCLE_TIMER_READS
-    if ((time_us_64() - start_time_us) >= trigger_time_us) {
-      goto phase3;
-    }
-#else
     goto phase3;
-#endif
   }
 #endif
 
@@ -603,13 +574,7 @@ phase2:
     for (int i = 0; i < GROUP_SIZE; i++) {
 #if ENABLE_TRACING
       if (UNLIKELY(trace_flags != 0 && (cycles + 1) >= trigger_cycle)) {
-#if PER_CYCLE_TIMER_READS
-        if ((time_us_64() - start_time_us) >= trigger_time_us) {
-          goto phase3;
-        }
-#else
         goto phase3;
-#endif
       }
 #endif
 
