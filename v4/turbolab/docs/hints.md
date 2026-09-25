@@ -123,6 +123,28 @@ turbolab/build/tether.linux-amd64.exe -n --max=@kernel+0x1B turbolab/build/turbo
 turbolab/build/tether.linux-amd64.exe --trigger=@shell turbolab/build/turbos/turbos_dev.img
 ```
 
+### Logging Watchpoints (`--watch=addr1,addr2,...`)
+
+Log individual matching bus cycles to stderr, even when general tracing (`--trace`) is disabled, or before the trigger cycle is reached:
+
+* Target addresses can be numeric literals (`0x0020`, `$0020`, `32`) or symbolic OS-9 module offsets (`@kernel+0x1B`).
+* Supports cycle kind filters:
+  * `0x0020` or `*:0x0020`: Log all cycles accessing `$0020` (reads, writes, and instruction fetches).
+  * `r:0x0020`: Log only read cycles.
+  * `w:0x0020`: Log only write cycles.
+  * `x:0x0020`: Log only instruction fetch (FIC) cycles.
+* Supports optional Nth count trigger (`addr:N`):
+  * `0x1019:3`: Log only the 3rd access to `$1019`.
+* Can be combined with `--trace`, `--trigger`, and `--max`.
+
+```bash
+# Log every access to zero-page address $0020 without tracing other instructions:
+turbolab/build/tether.linux-amd64.exe -n --watch=0x0020 --max=c:50k turbolab/build/turbos/turbos_dev.img
+
+# Watch writes to $0020, and trace instructions once @kernel+0x1B is reached:
+turbolab/build/tether.linux-amd64.exe --watch=w:0x0020 --trigger=@kernel+0x1B --trace=x turbolab/build/turbos/turbos_dev.img
+```
+
 ## Running with Basic09
 
 ```

@@ -49,6 +49,37 @@ type TraceFormatter struct {
 	Listings     MultiListings
 	Modules      []*ScannedModuleInfo
 	TraceBitmask int
+	WatchedAddrs map[uint16][]byte // addr -> types (0=any, 'r', 'w', 'x')
+}
+
+func (tf *TraceFormatter) IsWatched(addr uint16, kind byte) bool {
+	if len(tf.WatchedAddrs) == 0 {
+		return false
+	}
+	types, ok := tf.WatchedAddrs[addr]
+	if !ok {
+		return false
+	}
+	for _, t := range types {
+		if t == 0 {
+			return true
+		}
+		switch t {
+		case 'r':
+			if kind == KIND_READ || kind == KIND_FIC || kind == KIND_OPCODE_CONT {
+				return true
+			}
+		case 'w':
+			if kind == KIND_WRITE {
+				return true
+			}
+		case 'x':
+			if kind == KIND_FIC {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (tf *TraceFormatter) FindModule(addr uint16) (string, uint16, bool) {
@@ -87,16 +118,18 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		sigStr += "y"
 	}
 
+	isWatched := tf.IsWatched(addr, kind)
+
 	switch kind {
 	case KIND_IDLE:
-		if (tf.TraceBitmask & TRACE_IDLE) == 0 {
+		if !isWatched && (tf.TraceBitmask & TRACE_IDLE) == 0 {
 			return
 		}
 		fmt.Fprintf(tf.Out, "- ---- -- #%d%s\n", cycle, formatSuffix(sigStr, ""))
 
 	case KIND_FIC:
 		isRti := (data == 0x3B)
-		if (tf.TraceBitmask&TRACE_X) == 0 && !(isRti && (tf.TraceBitmask&TRACE_I) != 0) {
+		if !isWatched && (tf.TraceBitmask&TRACE_X) == 0 && !(isRti && (tf.TraceBitmask&TRACE_I) != 0) {
 			return
 		}
 		src := tf.Listings.Lookup(addr)
@@ -120,7 +153,7 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		fmt.Fprintf(tf.Out, "x %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, comment))
 
 	case KIND_OPCODE_CONT:
-		if (tf.TraceBitmask & TRACE_PLUS) == 0 {
+		if !isWatched && (tf.TraceBitmask & TRACE_PLUS) == 0 {
 			return
 		}
 		fmt.Fprintf(tf.Out, "+ %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))
@@ -128,7 +161,7 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 	case KIND_READ:
 		isInterruptVector := (addr >= 0xFFF0 && addr <= 0xFFFD) && ((flags & FLAG_BS) != 0)
 		isResetVector := (addr == 0xFFFE || addr == 0xFFFF)
-		if (tf.TraceBitmask&TRACE_R) == 0 && !((isInterruptVector || isResetVector) && (tf.TraceBitmask&TRACE_I) != 0) {
+		if !isWatched && (tf.TraceBitmask&TRACE_R) == 0 && !((isInterruptVector || isResetVector) && (tf.TraceBitmask&TRACE_I) != 0) {
 			return
 		}
 		src := tf.Listings.Lookup(addr)
@@ -174,7 +207,7 @@ func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycl
 		fmt.Fprintf(tf.Out, "r %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, comment))
 
 	case KIND_WRITE:
-		if (tf.TraceBitmask & TRACE_W) == 0 {
+		if !isWatched && (tf.TraceBitmask & TRACE_W) == 0 {
 			return
 		}
 		fmt.Fprintf(tf.Out, "w %04X %02X #%d%s\n", addr, data, cycle, formatSuffix(sigStr, ""))

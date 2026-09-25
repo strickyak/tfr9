@@ -236,6 +236,17 @@ Halt the 6309 CPU and trigger a core dump once a limit is reached:
   ./build/tether -n --max=@kernel+0x1B data/turbos/turbos_dev.img
   ```
 
+#### 3. Logging Watchpoints (`--watch`)
+Log individual matching bus cycles to `stderr`, even when `--trace` is disabled or before `--trigger` has fired:
+- Target addresses: numeric literals (`0x0020`, `$0020`, `32`) or OS-9 module offsets (`@kernel+0x1B`).
+- Match cycle kinds: default is all cycles (reads, writes, fetches), or `r:addr`, `w:addr`, `x:addr`.
+- Optional Nth count filter: `addr:N` (e.g. `0x1019:3` logs only the 3rd hit).
+- Firmware hook: high-performance function pointer (`wp_hook`) in tight loops; zero overhead when unused.
+```bash
+./build/tether -n --watch=0x0020 --max=c:50k data/turbos/turbos_dev.img
+./build/tether --watch=w:0x0020 --trigger=@kernel+0x1B --trace=x data/turbos/turbos_dev.img
+```
+
 ---
 
 ### Hardware Faults and Core Dumps

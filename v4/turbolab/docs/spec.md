@@ -48,6 +48,12 @@ The TurboLab configuration has its own firmware (`turbolab/firmware/`) and its o
 * `--max=c:1m`, `--max=t:30s`, or `--max=[r|w|x:]<addr>[:N]`  
   Maximum execution limit by cycle count (e.g. `c:1m`, `c:64K`), duration (e.g. `t:30s`), or watchpoint event (`r:`, `w:`, `x:`, or `@modulename[+offset][:N]`). Reaching the limit triggers a clean stop and core dump.
 
+* `--watch=[r|w|x:]addr1,[r|w|x:]addr2,...`  
+  Comma-separated list of Logging Watchpoints that print matching bus cycles to stderr, even when general tracing (`--trace`) is disabled or before a trigger condition is met:
+  * Targets can be numeric literals (`0x0020`, `$0020`, decimal) or symbolic module offsets (`@kernel+0x1B`).
+  * Match cycle kinds: default is any cycle (`r`, `w`, or `x`), or specify `r:addr`, `w:addr`, `x:addr`.
+  * Optional Nth count filter (`addr:N`): fire only on the Nth matching access.
+
 * `--listings=listings_dirname`  
   Directory containing pre-assembled OS-9 module listings named `<name>.<size><crc>` (e.g. `kernel.0d4eec829c`, `ioman.070aaecac4`). Primordial modules identified in the RAM image that lack a command-line listing are automatically resolved from this directory.
 
@@ -130,6 +136,34 @@ tether -n --max=w:0x0020:5 turbos_dev.img
 
 # Start tracing when the shell module begins executing:
 tether --trigger=@shell turbos_dev.img
+```
+
+### 4. Logging Watchpoints (`--watch`)
+
+The `--watch` flag sets one or more addresses as "Logging Watchpoints". When a matching cycle occurs on the bus, that cycle is emitted and printed to stderr, even when general tracing (`--trace`) is disabled, or before the trigger condition (`--trigger`) has fired:
+
+* **Cycle Types**:
+  * Default (`addr`): Match any bus cycle touching `addr` (reads, writes, and instruction fetches).
+  * `r:addr`: Match only read cycles.
+  * `w:addr`: Match only write cycles.
+  * `x:addr`: Match only opcode fetch cycles (`FIC=1`).
+* **Address Expressions**:
+  * Hexadecimal literal: `$0020`, `0x0020`
+  * Decimal literal: `32`
+  * OS-9 module offset: `@kernel+0x1B`, `@shell`
+* **Nth Count (`addr:N`)**:
+  * Fire only on the Nth occurrence (e.g. `0x1019:3` logs only the 3rd access).
+* **Firmware Implementation**:
+  * Guarded by `#if ENABLE_WATCHPOINTS`.
+  * Logging Watchpoints are linked together before Trigger and Max watchpoints in a chain.
+  * Called via a high-performance function pointer (`wp_hook`) in the tight CPU loop; when no watchpoints are active, `wp_hook` is `nullptr` and skipped with a single null-pointer test.
+
+```bash
+# Log every access to zero-page address $0020 without tracing:
+tether -n --watch=0x0020 --max=c:50k turbos_dev.img
+
+# Watch writes to $0020 and $0021, and trace instructions when @kernel+0x1B is hit:
+tether --watch=w:0x0020,w:0x0021 --trigger=@kernel+0x1B --trace=x turbos_dev.img
 ```
 
 ---

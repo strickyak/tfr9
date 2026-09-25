@@ -201,3 +201,26 @@ func TestResolveAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestParseWatchList(t *testing.T) {
+	specs, err := parseWatchList("0x0020,w:0x0021,r:@kernel+0x1B,x:@shell")
+	if err != nil {
+		t.Fatalf("parseWatchList failed: %v", err)
+	}
+	if len(specs) != 4 {
+		t.Fatalf("expected 4 specs, got %d", len(specs))
+	}
+
+	if specs[0].Type != 0 || specs[0].AddrExpr != "0x0020" {
+		t.Errorf("specs[0] = %+v, want type 0, addr 0x0020", specs[0])
+	}
+	if specs[1].Type != 'w' || specs[1].AddrExpr != "0x0021" {
+		t.Errorf("specs[1] = %+v, want type 'w', addr 0x0021", specs[1])
+	}
+	if specs[2].Type != 'r' || specs[2].AddrExpr != "@kernel+0x1B" {
+		t.Errorf("specs[2] = %+v, want type 'r', addr @kernel+0x1B", specs[2])
+	}
+	if specs[3].Type != 'x' || specs[3].AddrExpr != "@shell" {
+		t.Errorf("specs[3] = %+v, want type 'x', addr @shell", specs[3])
+	}
+}

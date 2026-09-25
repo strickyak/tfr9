@@ -85,6 +85,7 @@ var (
 	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,+,r,w,i,t,- (or 1 for all except idle; add idle with 1,idle or 1,-)")
 	flagTrigger  = flag.String("trigger", "", "trigger trace on cycle (c:50000), time (s:5), or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
 	flagMax      = flag.String("max", "", "max execution limit: c:<cycles>, t:<duration>, or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
+	flagWatch    = flag.String("watch", "", "comma-separated logging watchpoints to trace: [r|w|x:]addr1,[r|w|x:]addr2,... (e.g. 0x0020,@kernel+0x1B)")
 	flagDebug    = flag.String("debug", "", "debug options (e.g. --debug=u to log packets in and out on stderr)")
 	flagListings = flag.String("listings", "", "directory with module listings named <name>.<size><crc>")
 	flagReflash  = flag.Bool("reflash", false, "reboot Pico into BOOTSEL mode for reflashing and exit")
@@ -275,6 +276,7 @@ func main() {
 	var triggerTimeUs uint64
 	var triggerWp WatchpointConfig
 	var triggerWpSpec *WatchpointSpec
+	var resolvedWatches []WatchpointConfig
 	if *flagTrigger != "" {
 		spec, isWp, err := parseWatchpointSpec(*flagTrigger)
 		if isWp {
@@ -355,7 +357,18 @@ func main() {
 		}
 	}
 
-	speedEstimator := NewCycleSpeedEstimator(traceBitmask != 0)
+	// Parse logging watchpoints
+	var watchSpecs []*WatchpointSpec
+	if *flagWatch != "" {
+		var err error
+		watchSpecs, err = parseWatchList(*flagWatch)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid watch flag: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	speedEstimator := NewCycleSpeedEstimator(traceBitmask != 0 || len(watchSpecs) > 0)
 
 	// Separate positional arguments into image/modules and listings
 	var binArgs []string
@@ -413,6 +426,20 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Resolved max watchpoint %s to $%04X\n",
 					maxWpSpec.AddrExpr, maxWp.Addr)
 			}
+		}
+
+		for _, spec := range watchSpecs {
+			w, err := spec.Resolve(scannedMods)
+			if err != nil {
+				Fatalf("Invalid watchpoint: %v", err)
+			}
+			resolvedWatches = append(resolvedWatches, w)
+			typeStr := "all"
+			if w.Type != 0 {
+				typeStr = string(w.Type)
+			}
+			fmt.Fprintf(os.Stderr, "Configured logging watchpoint %s -> $%04X (type=%s)\n",
+				spec.AddrExpr, w.Addr, typeStr)
 		}
 
 		loadedMods := make(map[string]bool)
@@ -650,11 +677,16 @@ func main() {
 
 	// ── Background Packet Dispatcher ──
 	restartedChan := make(chan struct{}, 1)
+	watchedMap := make(map[uint16][]byte)
+	for _, w := range resolvedWatches {
+		watchedMap[w.Addr] = append(watchedMap[w.Addr], w.Type)
+	}
 	traceFmt := &TraceFormatter{
 		Out:          os.Stderr,
 		Listings:     listings,
 		Modules:      scannedMods,
 		TraceBitmask: traceBitmask,
+		WatchedAddrs: watchedMap,
 	}
 
 	coreDumpChunks := make(map[byte][]byte)
@@ -890,10 +922,22 @@ func main() {
 			descParts = append(descParts, fmt.Sprintf("max_t=%.2fs", float64(maxTimeUs)/1e6))
 		}
 	}
+	if len(resolvedWatches) > 0 {
+		var wList []string
+		for _, w := range resolvedWatches {
+			if w.Type != 0 {
+				wList = append(wList, fmt.Sprintf("%c:$%04X", w.Type, w.Addr))
+			} else {
+				wList = append(wList, fmt.Sprintf("$%04X", w.Addr))
+			}
+		}
+		descParts = append(descParts, fmt.Sprintf("watch=[%s]", strings.Join(wList, ",")))
+	}
 	fmt.Fprintf(os.Stderr, "Sending configuration (%s)...\n", strings.Join(descParts, ", "))
 
-	// Encode trigger and max values in config data (binary struct: 8B trig_c, 8B trig_t, 8B max_c, 8B max_t, 8B trig_wp, 8B max_wp)
-	configData := make([]byte, 48)
+	// Encode trigger, max, and logging watchpoints in config data
+	// (binary struct: 8B trig_c, 8B trig_t, 8B max_c, 8B max_t, 8B trig_wp, 8B max_wp, 8B watch_hdr, N*8B watch_entries)
+	configData := make([]byte, 56+len(resolvedWatches)*8)
 	binary.LittleEndian.PutUint64(configData[0:8], triggerCycle)
 	binary.LittleEndian.PutUint64(configData[8:16], triggerTimeUs)
 	binary.LittleEndian.PutUint64(configData[16:24], maxCycles)
@@ -906,6 +950,15 @@ func main() {
 	configData[41] = 0
 	binary.LittleEndian.PutUint16(configData[42:44], maxWp.Addr)
 	binary.LittleEndian.PutUint32(configData[44:48], maxWp.Count)
+
+	configData[48] = byte(len(resolvedWatches))
+	for i, w := range resolvedWatches {
+		off := 56 + i*8
+		configData[off] = w.Type
+		configData[off+1] = 0
+		binary.LittleEndian.PutUint16(configData[off+2:off+4], w.Addr)
+		binary.LittleEndian.PutUint32(configData[off+4:off+8], w.Count)
+	}
 
 	resp, err := picoRpcCall("config", traceBitmask, int64(triggerCycle), int(triggerTimeUs), int64(maxCycles), configData)
 	if err != nil || resp.Status != 0 {

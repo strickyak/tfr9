@@ -253,3 +253,55 @@ func parseModuleAddress(expr string, scannedMods []*ScannedModuleInfo) (uint16, 
 
 	return addr, nil
 }
+
+// parseWatchList parses a comma-separated list of watch expressions for --watch:
+// e.g. "0x0020,0x0021,@kernel+0x1B,w:0x0030"
+// Each item defaults to type 0 (any cycle: r, w, x) unless prefixed with r:, w:, or x:.
+func parseWatchList(s string) ([]*WatchpointSpec, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
+	var specs []*WatchpointSpec
+	for _, item := range parts {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		var wpType byte = 0 // 0 = any cycle (r, w, x)
+		addrExpr := item
+		count := uint32(0) // 0 = every time
+
+		low := strings.ToLower(item)
+		if strings.HasPrefix(low, "r:") || strings.HasPrefix(low, "w:") || strings.HasPrefix(low, "x:") {
+			wpType = low[0]
+			addrExpr = strings.TrimSpace(item[2:])
+		}
+
+		if strings.Contains(addrExpr, ":") {
+			sub := strings.Split(addrExpr, ":")
+			if len(sub) == 2 {
+				addrExpr = strings.TrimSpace(sub[0])
+				c, err := parseCount(sub[1])
+				if err != nil {
+					return nil, fmt.Errorf("invalid count %q in watchpoint %q: %w", sub[1], item, err)
+				}
+				count = uint32(c)
+			} else {
+				return nil, fmt.Errorf("invalid watchpoint format %q", item)
+			}
+		}
+
+		if addrExpr == "" {
+			return nil, fmt.Errorf("empty address in watchpoint %q", item)
+		}
+
+		specs = append(specs, &WatchpointSpec{
+			Type:     wpType,
+			AddrExpr: addrExpr,
+			Count:    count,
+		})
+	}
+	return specs, nil
+}

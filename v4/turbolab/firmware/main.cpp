@@ -353,41 +353,137 @@ FORCE_INLINE bool IN_RAM fg_loop_check_bra_self(uint addr, byte value, bool is_f
 }
 
 #if ENABLE_WATCHPOINTS
+struct Watchpoint;
+
+typedef bool (*WatchpointCheckFunc)(Watchpoint* wp, uint addr, byte kind, bool reading);
+typedef void (*WatchpointActionFunc)(Watchpoint* wp, uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins);
+
 struct Watchpoint {
   uint16_t addr = 0;
   uint32_t count = 0;
+  WatchpointCheckFunc check = nullptr;
+  WatchpointActionFunc action = nullptr;
+  Watchpoint* next = nullptr;
 };
 
-typedef bool (*WatchpointFunc)(Watchpoint* wp, uint addr, bool reading, bool is_fic, bool is_idle);
+FORCE_INLINE bool IN_RAM wp_match_count(Watchpoint* wp) {
+  if (wp->count > 0) {
+    if (--wp->count == 0) {
+      wp->count = 0xFFFFFFFF;
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
 
-bool IN_RAM wp_check_read(Watchpoint* wp, uint addr, bool reading, bool is_fic, bool is_idle) {
-  (void)is_fic;
-  if (reading && !is_idle && UNLIKELY(addr == wp->addr)) {
-    if (--wp->count == 0) return true;
+bool IN_RAM wp_check_read(Watchpoint* wp, uint addr, byte kind, bool reading) {
+  if (reading && kind != KIND_IDLE && UNLIKELY(addr == wp->addr)) {
+    return wp_match_count(wp);
   }
   return false;
 }
 
-bool IN_RAM wp_check_write(Watchpoint* wp, uint addr, bool reading, bool is_fic, bool is_idle) {
-  (void)is_fic;
-  if (!reading && !is_idle && UNLIKELY(addr == wp->addr)) {
-    if (--wp->count == 0) return true;
+bool IN_RAM wp_check_write(Watchpoint* wp, uint addr, byte kind, bool reading) {
+  (void)reading;
+  if (kind == KIND_WRITE && UNLIKELY(addr == wp->addr)) {
+    return wp_match_count(wp);
   }
   return false;
 }
 
-bool IN_RAM wp_check_exec(Watchpoint* wp, uint addr, bool reading, bool is_fic, bool is_idle) {
-  if (reading && is_fic && !is_idle && UNLIKELY(addr == wp->addr)) {
-    if (--wp->count == 0) return true;
+bool IN_RAM wp_check_exec(Watchpoint* wp, uint addr, byte kind, bool reading) {
+  (void)reading;
+  if (kind == KIND_FIC && UNLIKELY(addr == wp->addr)) {
+    return wp_match_count(wp);
   }
   return false;
 }
 
-Watchpoint trigger_wp = {};
-WatchpointFunc trigger_wp_func = nullptr;
+bool IN_RAM wp_check_any(Watchpoint* wp, uint addr, byte kind, bool reading) {
+  (void)reading;
+  if (kind != KIND_IDLE && UNLIKELY(addr == wp->addr)) {
+    return wp_match_count(wp);
+  }
+  return false;
+}
 
-Watchpoint max_wp = {};
-WatchpointFunc max_wp_func = nullptr;
+bool cycle_logged_by_wp = false;
+bool trigger_wp_hit = false;
+
+void IN_RAM wp_action_log(Watchpoint* wp, uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins) {
+  (void)wp; (void)reading;
+#if ENABLE_TRACING
+  if (!cycle_logged_by_wp) {
+    uint8_t cpu_flags = 0;
+#ifdef PIN_BA
+    if ((prev_late_pins & (1 << PIN_BA)) != 0) cpu_flags |= FLAG_BA;
+#endif
+    if ((early_pins & (1 << BS)) != 0)         cpu_flags |= FLAG_BS;
+    if ((prev_late_pins & (1 << LIC)) != 0)    cpu_flags |= FLAG_LIC;
+#ifdef PIN_BUSY
+    if ((prev_late_pins & (1 << PIN_BUSY)) != 0) cpu_flags |= FLAG_BUSY;
+#endif
+
+    TraceRecord rec{cycles, (uint16_t)addr, value, (uint8_t)((kind & 0x0F) | cpu_flags)};
+    while (!fg2bg_trace.push(rec)) {
+      if (UNLIKELY(fault_triggered)) break;
+      tight_loop_contents();
+    }
+    cycle_logged_by_wp = true;
+  }
+#else
+  (void)cycles; (void)addr; (void)value; (void)kind; (void)is_bs; (void)early_pins; (void)prev_late_pins;
+#endif
+}
+
+void IN_RAM wp_action_trigger(Watchpoint* wp, uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins) {
+  (void)wp; (void)cycles; (void)addr; (void)value; (void)kind; (void)reading; (void)is_bs; (void)early_pins; (void)prev_late_pins;
+  trigger_wp_hit = true;
+}
+
+void IN_RAM wp_action_max(Watchpoint* wp, uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins) {
+  (void)wp; (void)kind; (void)reading; (void)is_bs; (void)early_pins; (void)prev_late_pins;
+  fault_reason = FAULT_MAX_WATCHPOINT;
+  fault_cycle = cycles;
+  fault_addr = addr;
+  fault_data = value;
+  fault_triggered = true;
+}
+
+static constexpr int MAX_WP_POOL = 32;
+Watchpoint wp_pool[MAX_WP_POOL];
+int wp_pool_used = 0;
+Watchpoint* wp_chain_head = nullptr;
+Watchpoint* wp_trigger_node = nullptr;
+Watchpoint* wp_trigger_prev = nullptr;
+
+typedef void (*WatchpointHookFunc)(uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins);
+WatchpointHookFunc wp_hook = nullptr;
+
+FORCE_INLINE void IN_RAM wp_detach_trigger() {
+  if (wp_trigger_node != nullptr) {
+    if (wp_trigger_prev != nullptr) {
+      wp_trigger_prev->next = wp_trigger_node->next;
+    } else {
+      wp_chain_head = wp_trigger_node->next;
+    }
+    wp_trigger_node = nullptr;
+    if (wp_chain_head == nullptr) {
+      wp_hook = nullptr;
+    }
+  }
+}
+
+void IN_RAM run_watchpoint_chain(uint64_t cycles, uint addr, byte value, byte kind, bool reading, bool is_bs, uint early_pins, uint prev_late_pins) {
+  cycle_logged_by_wp = false;
+  for (Watchpoint* wp = wp_chain_head; wp != nullptr; wp = wp->next) {
+    if (wp->check(wp, addr, kind, reading)) {
+      wp->action(wp, cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+      if (UNLIKELY(fault_triggered)) return;
+    }
+  }
+}
 #endif
 
 FORCE_INLINE byte IN_RAM fg_loop_handle_read(uint addr, bool is_idle, bool is_bs, uint64_t cycles) {
@@ -615,6 +711,9 @@ void IN_RAM foreground_loop() {
 phase2:
 #if ENABLE_TRACING
   if (trace_flags != 0 && cycles >= trigger_cycle) {
+#if ENABLE_WATCHPOINTS
+    wp_detach_trigger();
+#endif
     goto phase3;
   }
 #endif
@@ -638,6 +737,9 @@ phase2:
     for (int i = 0; i < GROUP_SIZE; i++) {
 #if ENABLE_TRACING
       if (UNLIKELY(trace_flags != 0 && (cycles + 1) >= trigger_cycle)) {
+#if ENABLE_WATCHPOINTS
+        wp_detach_trigger();
+#endif
         goto phase3;
       }
 #endif
@@ -682,27 +784,26 @@ phase2:
       }
 #endif
 
+      byte kind = is_idle ? KIND_IDLE : (is_fic ? KIND_FIC : (reading ? KIND_READ : KIND_WRITE));
+
 #if ENABLE_WATCHPOINTS
-      if (UNLIKELY(trigger_wp_func != nullptr)) {
-        if (trigger_wp_func(&trigger_wp, addr, reading, is_fic, is_idle)) {
+      if (UNLIKELY(wp_hook != nullptr)) {
+        trigger_wp_hit = false;
+        wp_hook(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+        if (UNLIKELY(fault_triggered)) {
+          goto phase4;
+        }
+        if (UNLIKELY(trigger_wp_hit)) {
           trigger_cycle = cycles;
 #if ENABLE_TRACING
-          byte kind = is_idle ? KIND_IDLE : (is_fic ? KIND_FIC : (reading ? KIND_READ : KIND_WRITE));
-          fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+          if (!cycle_logged_by_wp) {
+            fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+          }
           prev_addr = addr;
           prev_kind = kind;
 #endif
+          wp_detach_trigger();
           goto phase3;
-        }
-      }
-      if (UNLIKELY(max_wp_func != nullptr)) {
-        if (max_wp_func(&max_wp, addr, reading, is_fic, is_idle)) {
-          fault_reason = FAULT_MAX_WATCHPOINT;
-          fault_cycle = cycles;
-          fault_addr = addr;
-          fault_data = value;
-          fault_triggered = true;
-          goto phase4;
         }
       }
 #endif
@@ -774,26 +875,25 @@ phase3:
         prev_late_pins = late_pins;
       }
 
-      fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+#if ENABLE_WATCHPOINTS
+      cycle_logged_by_wp = false;
+      if (UNLIKELY(wp_hook != nullptr)) {
+        wp_hook(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+        if (UNLIKELY(fault_triggered)) {
+          goto phase4;
+        }
+      }
+      if (!cycle_logged_by_wp)
+#endif
+      {
+        fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
+      }
       prev_addr = addr;
       prev_kind = kind;
 
 #if ENABLE_FAULT_CHECKS
       if (fg_loop_check_bra_self(addr, value, kind == KIND_FIC, reading, is_idle, cycles)) {
         goto phase4;
-      }
-#endif
-
-#if ENABLE_WATCHPOINTS
-      if (UNLIKELY(max_wp_func != nullptr)) {
-        if (max_wp_func(&max_wp, addr, reading, kind == KIND_FIC, is_idle)) {
-          fault_reason = FAULT_MAX_WATCHPOINT;
-          fault_cycle = cycles;
-          fault_addr = addr;
-          fault_data = value;
-          fault_triggered = true;
-          goto phase4;
-        }
       }
 #endif
 
@@ -1010,10 +1110,11 @@ void handle_rpc_request(const std::string& pkt) {
     trigger_time_us = (uint64_t)req.length;
     max_cycles = (uint64_t)req.whence;
 #if ENABLE_WATCHPOINTS
-    trigger_wp = {};
-    trigger_wp_func = nullptr;
-    max_wp = {};
-    max_wp_func = nullptr;
+    wp_pool_used = 0;
+    wp_chain_head = nullptr;
+    wp_trigger_node = nullptr;
+    wp_trigger_prev = nullptr;
+    wp_hook = nullptr;
 #endif
     // If data payload contains binary config, unpack:
     if (req.data.size() >= 24) {
@@ -1025,31 +1126,81 @@ void handle_rpc_request(const std::string& pkt) {
         max_time_us = *(const uint64_t*)(p + 24);
       }
 #if ENABLE_WATCHPOINTS
+      wp_pool_used = 0;
+      wp_chain_head = nullptr;
+      wp_trigger_node = nullptr;
+      wp_trigger_prev = nullptr;
+      Watchpoint* last_node = nullptr;
+
+      auto append_wp = [&](WatchpointCheckFunc check, WatchpointActionFunc action, uint16_t addr, uint32_t count) -> Watchpoint* {
+        if (wp_pool_used >= MAX_WP_POOL) return nullptr;
+        Watchpoint* node = &wp_pool[wp_pool_used++];
+        node->addr = addr;
+        node->count = count;
+        node->check = check;
+        node->action = action;
+        node->next = nullptr;
+        if (last_node != nullptr) {
+          last_node->next = node;
+        } else {
+          wp_chain_head = node;
+        }
+        last_node = node;
+        return node;
+      };
+
+      auto get_check_func = [](uint8_t type) -> WatchpointCheckFunc {
+        if (type == 'r' || type == 'R') return wp_check_read;
+        if (type == 'w' || type == 'W') return wp_check_write;
+        if (type == 'x' || type == 'X') return wp_check_exec;
+        return wp_check_any;
+      };
+
+      // 1. Append Logging Watchpoints
+      if (req.data.size() >= 56) {
+        uint8_t num_watches = p[48];
+        for (uint8_t i = 0; i < num_watches; i++) {
+          size_t off = 56 + i * 8;
+          if (off + 8 <= req.data.size()) {
+            uint8_t w_type = p[off];
+            uint16_t w_addr = *(const uint16_t*)(p + off + 2);
+            uint32_t w_count = *(const uint32_t*)(p + off + 4);
+            WatchpointCheckFunc fn = get_check_func(w_type);
+            append_wp(fn, wp_action_log, w_addr, w_count);
+          }
+        }
+      }
+
+      // 2. Append Trigger Watchpoint
       if (req.data.size() >= 48) {
         uint8_t trig_type = p[32];
         uint16_t trig_addr = *(const uint16_t*)(p + 34);
         uint32_t trig_count = *(const uint32_t*)(p + 36);
 
+        if (trig_type != 0 && trig_count > 0) {
+          WatchpointCheckFunc fn = get_check_func(trig_type);
+          wp_trigger_prev = last_node;
+          wp_trigger_node = append_wp(fn, wp_action_trigger, trig_addr, trig_count);
+          trigger_cycle = UINT64_MAX; // Suppress cycle-based trigger in Phase 2
+        }
+      }
+
+      // 3. Append Max Watchpoint
+      if (req.data.size() >= 48) {
         uint8_t max_type = p[40];
         uint16_t max_addr = *(const uint16_t*)(p + 42);
         uint32_t max_count = *(const uint32_t*)(p + 44);
 
-        if (trig_type != 0 && trig_count > 0) {
-          trigger_wp.addr = trig_addr;
-          trigger_wp.count = trig_count;
-          if (trig_type == 'r' || trig_type == 'R') trigger_wp_func = wp_check_read;
-          else if (trig_type == 'w' || trig_type == 'W') trigger_wp_func = wp_check_write;
-          else if (trig_type == 'x' || trig_type == 'X') trigger_wp_func = wp_check_exec;
-          trigger_cycle = UINT64_MAX; // Suppress cycle-based trigger in Phase 2
-        }
-
         if (max_type != 0 && max_count > 0) {
-          max_wp.addr = max_addr;
-          max_wp.count = max_count;
-          if (max_type == 'r' || max_type == 'R') max_wp_func = wp_check_read;
-          else if (max_type == 'w' || max_type == 'W') max_wp_func = wp_check_write;
-          else if (max_type == 'x' || max_type == 'X') max_wp_func = wp_check_exec;
+          WatchpointCheckFunc fn = get_check_func(max_type);
+          append_wp(fn, wp_action_max, max_addr, max_count);
         }
+      }
+
+      if (wp_chain_head != nullptr) {
+        wp_hook = run_watchpoint_chain;
+      } else {
+        wp_hook = nullptr;
       }
 #endif
     }
@@ -1276,10 +1427,11 @@ void restart_to_restarted_state() {
   max_cycles = 0;
   max_time_us = 0;
 #if ENABLE_WATCHPOINTS
-  trigger_wp = {};
-  trigger_wp_func = nullptr;
-  max_wp = {};
-  max_wp_func = nullptr;
+  wp_pool_used = 0;
+  wp_chain_head = nullptr;
+  wp_trigger_node = nullptr;
+  wp_trigger_prev = nullptr;
+  wp_hook = nullptr;
 #endif
   start_time_us = 0;
   sim_status_reg = 0;
