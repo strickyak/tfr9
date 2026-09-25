@@ -82,6 +82,7 @@ constexpr byte T_REFLASH_NOW_PLEASE = 175;
 constexpr byte T_RESTART_NOW_PLEASE = 177;
 constexpr byte T_CONSOLE_LINE       = 179;
 constexpr byte T_PICO_RPC           = 181;
+constexpr byte T_SIGINT             = 183;
 
 // Fault Reason Codes
 constexpr byte FAULT_RED_PAGE       = 1;
@@ -90,6 +91,7 @@ constexpr byte FAULT_MAX_CYCLES     = 3;
 constexpr byte FAULT_MAX_TIME       = 4;
 constexpr byte FAULT_BRA_SELF       = 5;
 constexpr byte FAULT_MAX_WATCHPOINT = 6;
+constexpr byte FAULT_SIGINT         = 7;
 
 // Trace Event Kinds
 constexpr byte KIND_IDLE        = 0;  // '-'
@@ -170,6 +172,7 @@ enum FirmwareState {
 volatile FirmwareState fw_state = STATE_WAIT_CONFIG;
 volatile bool foreground_running = false;
 volatile bool cpu_started = false;
+volatile uint8_t current_phase = 0;
 volatile bool fault_triggered = false;
 volatile byte fault_reason = 0;
 volatile uint64_t fault_cycle = 0;
@@ -633,6 +636,7 @@ void IN_RAM foreground_loop() {
 
   LedOff();
   foreground_running = true;
+  current_phase = 1;
 
   // ═════════════════════════════════════════════════════════════════
   // Phase 1: Before the Reset Vector is fetched ($FFFE+$FFFF)
@@ -709,6 +713,7 @@ void IN_RAM foreground_loop() {
   // Phase 2: Before the trigger is met, and tracing is off
   // ═════════════════════════════════════════════════════════════════
 phase2:
+  current_phase = 2;
 #if ENABLE_TRACING
   if (trace_flags != 0 && cycles >= trigger_cycle) {
 #if ENABLE_WATCHPOINTS
@@ -720,6 +725,10 @@ phase2:
 
   while (true) {
     if (UNLIKELY(fault_triggered)) {
+      if (fault_cycle == 0) {
+        fault_cycle = cycles;
+        fault_addr = prev_addr;
+      }
       goto phase4;
     }
 
@@ -775,8 +784,6 @@ phase2:
       byte value = 0;
       if (LIKELY(reading)) {
         value = fg_loop_handle_read(addr, is_idle, is_bs, cycles);
-        if (UNLIKELY(fault_triggered)) goto phase4;
-
         pio_sm_put(pio0, 0, value);
         prev_late_pins = pio_sm_get_blocking(pio0, 0);
       } else {
@@ -818,6 +825,15 @@ phase2:
       if (fg_loop_check_limits(cycles, addr, value)) {
         goto phase4;
       }
+
+      if (UNLIKELY(fault_triggered)) {
+        if (fault_cycle == 0) {
+          fault_cycle = cycles;
+          fault_addr = addr;
+          fault_data = value;
+        }
+        goto phase4;
+      }
     }
   }
 
@@ -826,8 +842,13 @@ phase2:
   // Phase 3: After the trigger is met, and tracing is on
   // ═════════════════════════════════════════════════════════════════
 phase3:
+  current_phase = 3;
   while (true) {
     if (UNLIKELY(fault_triggered)) {
+      if (fault_cycle == 0) {
+        fault_cycle = cycles;
+        fault_addr = prev_addr;
+      }
       goto phase4;
     }
 
@@ -874,8 +895,6 @@ phase3:
 
       if (LIKELY(reading)) {
         value = fg_loop_handle_read(addr, is_idle, is_bs, cycles);
-        if (UNLIKELY(fault_triggered)) goto phase4;
-
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
 
@@ -914,6 +933,15 @@ phase3:
       if (fg_loop_check_limits(cycles, addr, value)) {
         goto phase4;
       }
+
+      if (UNLIKELY(fault_triggered)) {
+        if (fault_cycle == 0) {
+          fault_cycle = cycles;
+          fault_addr = addr;
+          fault_data = value;
+        }
+        goto phase4;
+      }
     }
   }
 #endif
@@ -923,6 +951,7 @@ phase3:
   //          Prepares / executes NMI register dump, then halts CPU
   // ═════════════════════════════════════════════════════════════════
 phase4:
+  current_phase = 4;
   enum P4State {
     P4_AWAIT_LIC,
     P4_INJECT_SWI,
@@ -1075,6 +1104,9 @@ phase4:
     cpu_registers.streak_len = 14;
   }
 
+  current_phase = 0;
+  foreground_running = false;
+  __dmb();
   return;
 } // foreground_loop
 
@@ -1286,6 +1318,7 @@ void handle_rpc_request(const std::string& pkt) {
 
     cpu_started = false;
     foreground_running = false;
+    multicore_reset_core1();
     multicore_launch_core1(foreground_loop);
 
     while (!foreground_running) {
@@ -1412,10 +1445,8 @@ void restart_to_restarted_state() {
   ReleaseNMI();
 
   // 2. Stop Core 1 if running
-  if (foreground_running) {
-    multicore_reset_core1();
-    foreground_running = false;
-  }
+  multicore_reset_core1();
+  foreground_running = false;
 
   // 3. Cancel 60Hz timer
   if (timer60hz_running) {
@@ -1430,6 +1461,7 @@ void restart_to_restarted_state() {
 
   // 5. Reset internal state variables
   cpu_started = false;
+  current_phase = 0;
   fault_triggered = false;
   fault_reason = 0;
   fault_cycle = 0;
@@ -1483,11 +1515,10 @@ void reflash_now_please() {
   ReleaseIRQ();
 
   // 2. Stop Core 1 if running
-  if (foreground_running) {
-    multicore_reset_core1();
-    foreground_running = false;
-  }
+  multicore_reset_core1();
+  foreground_running = false;
   cpu_started = false;
+  current_phase = 0;
 
   // 3. Cancel 60Hz timer
   if (timer60hz_running) {
@@ -1621,6 +1652,14 @@ int main() {
                 term_input.Put((byte)(*pkt)[i]);
               }
             }
+          } else if (cmd == T_SIGINT || cmd == 183) {
+            if (cpu_started && (current_phase == 2 || current_phase == 3)) {
+              fault_reason = FAULT_SIGINT;
+              fault_cycle = 0;
+              fault_addr = 0;
+              fault_data = 0;
+              fault_triggered = true;
+            }
           } else if (cmd == T_PICO_RPC) {
             handle_rpc_request(*pkt);
           }
@@ -1636,6 +1675,11 @@ int main() {
 
     // ── STATE: FAULT ──
     else if (fw_state == STATE_FAULT) {
+      // Wait for Core 1 to complete Phase 4 SWI register capture and halt CPU (up to 50ms)
+      uint64_t t0 = time_us_64();
+      while (current_phase != 0 && (time_us_64() - t0 < 50000)) {
+        tight_loop_contents();
+      }
       transmit_core_dump();
       fw_state = STATE_HALTED;
     }

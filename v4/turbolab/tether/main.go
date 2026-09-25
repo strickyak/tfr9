@@ -32,6 +32,7 @@ const (
 	T_RESTART_NOW_PLEASE = 177
 	T_CONSOLE_LINE       = 179
 	T_PICO_RPC           = 181
+	T_SIGINT             = 183
 )
 
 // Trace flags
@@ -53,6 +54,7 @@ const (
 	FAULT_MAX_TIME       = 4
 	FAULT_BRA_SELF       = 5
 	FAULT_MAX_WATCHPOINT = 6
+	FAULT_SIGINT         = 7
 )
 
 var FaultReasonNames = map[byte]string{
@@ -62,6 +64,7 @@ var FaultReasonNames = map[byte]string{
 	FAULT_MAX_TIME:       "Max Time Limit Reached",
 	FAULT_BRA_SELF:       "Infinite Loop (BRA $FE)",
 	FAULT_MAX_WATCHPOINT: "Watchpoint Limit Reached",
+	FAULT_SIGINT:         "Host Interrupt (SIGINT)",
 }
 
 func formatCC(cc byte) string {
@@ -127,6 +130,8 @@ func packetName(cmd byte) string {
 		return "T_CONSOLE_LINE"
 	case T_PICO_RPC:
 		return "T_PICO_RPC"
+	case T_SIGINT:
+		return "T_SIGINT"
 	default:
 		return fmt.Sprintf("$%02X", cmd)
 	}
@@ -508,23 +513,59 @@ func main() {
 		defer RestoreSttyState()
 	}
 
+	channelToPico := make(chan []byte, 128)
+	cobsFromPico := make(chan []byte, 256)
+	faultDoneChan := make(chan struct{})
+
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		speedEstimator.PrintReport()
-		if !*flagN {
-			RestoreSttyState()
-		}
 		if sig == syscall.SIGINT {
 			fmt.Printf("\n[SIGINT]\n")
+			if cpuStarted.Load() {
+				channelToPico <- []byte{T_SIGINT}
+				select {
+				case <-faultDoneChan:
+					return
+				case sig2 := <-sigChan:
+					if sig2 == syscall.SIGINT {
+						fmt.Printf("\n[SIGINT]\n")
+					}
+					speedEstimator.PrintReport()
+					if !*flagN {
+						RestoreSttyState()
+					}
+					fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
+					os.Exit(130)
+				case <-time.After(2 * time.Second):
+					speedEstimator.PrintReport()
+					if !*flagN {
+						RestoreSttyState()
+					}
+					fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
+					os.Exit(130)
+				}
+			}
+			speedEstimator.PrintReport()
+			if !*flagN {
+				RestoreSttyState()
+			}
 			fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
 			os.Exit(130)
 		} else if sig == syscall.SIGTERM {
+			speedEstimator.PrintReport()
+			if !*flagN {
+				RestoreSttyState()
+			}
 			fmt.Printf("\n[SIGTERM]\n")
 			fmt.Fprintf(os.Stderr, "Terminated by SIGTERM; tether exiting.\n")
 			os.Exit(143)
 		} else {
+			speedEstimator.PrintReport()
+			if !*flagN {
+				RestoreSttyState()
+			}
 			fmt.Printf("\n[%v]\n", sig)
 			fmt.Fprintf(os.Stderr, "Terminated by signal %v; tether exiting.\n", sig)
 			os.Exit(1)
@@ -583,9 +624,6 @@ func main() {
 
 	// Send leading 0 to flush partial frames
 	serialPort.Write([]byte{0x00})
-
-	channelToPico := make(chan []byte, 128)
-	cobsFromPico := make(chan []byte, 256)
 
 	debugUsb := strings.Contains(*flagDebug, "u")
 
@@ -864,8 +902,15 @@ func main() {
 					allDrained:
 						speedEstimator.PrintReport()
 						RestoreSttyState()
+						select {
+						case <-faultDoneChan:
+						default:
+							close(faultDoneChan)
+						}
 						if faultReason == FAULT_MAX_CYCLES || faultReason == FAULT_MAX_TIME || faultReason == FAULT_MAX_WATCHPOINT {
 							os.Exit(0)
+						} else if faultReason == FAULT_SIGINT {
+							os.Exit(130)
 						} else {
 							os.Exit(1)
 						}
@@ -874,6 +919,17 @@ func main() {
 			}
 		}
 	}()
+
+	if *flagReflash {
+		isReflashing = true
+		channelToPico <- []byte{T_REFLASH_NOW_PLEASE}
+		fmt.Printf("\n[Sent T_REFLASH_NOW_PLEASE to Pico]\n")
+		fmt.Fprintf(os.Stderr, "Sent T_REFLASH_NOW_PLEASE to Pico\n")
+		time.Sleep(1 * time.Second)
+		go func() { _ = serialPort.Close() }()
+		RestoreSttyState()
+		os.Exit(0)
+	}
 
 	// ── Phase 1: Wait for Pico "Restarted" beacon ──
 	fmt.Fprintf(os.Stderr, "Waiting for Pico 'Restarted' beacon...\n")
@@ -892,17 +948,6 @@ func main() {
 		}
 	}
 	os.Stdout.WriteString("\n")
-
-	if *flagReflash {
-		isReflashing = true
-		channelToPico <- []byte{T_REFLASH_NOW_PLEASE}
-		fmt.Printf("\n[Sent T_REFLASH_NOW_PLEASE to Pico]\n")
-		fmt.Fprintf(os.Stderr, "Sent T_REFLASH_NOW_PLEASE to Pico\n")
-		time.Sleep(1 * time.Second)
-		go func() { _ = serialPort.Close() }()
-		RestoreSttyState()
-		os.Exit(0)
-	}
 
 	// ── Phase 2: Send configuration via RPC ──
 	var descParts []string
@@ -1020,11 +1065,16 @@ func main() {
 		if err != nil {
 			break
 		}
+		if line == "\x03" {
+			select {
+			case sigChan <- syscall.SIGINT:
+			default:
+			}
+			continue
+		}
 		// Send line over USB to Pico
 		pkt := append([]byte{T_CONSOLE_LINE}, []byte(line)...)
-		if line != "\x03" {
-			pkt = append(pkt, '\r')
-		}
+		pkt = append(pkt, '\r')
 		channelToPico <- pkt
 	}
 

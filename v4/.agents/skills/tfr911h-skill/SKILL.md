@@ -256,6 +256,7 @@ The firmware monitors the bus for invalid hardware and vector states:
 - **Zero Interrupt Vector (`FAULT_ZERO_VECTOR`)**: An interrupt acknowledge occurs (`BS=1`) but the vector address byte reads `$00`.
 - **Infinite Self-Branch (`FAULT_BRA_SELF`)**: Opcode fetch is `BRA *` (`$20 $FE`), indicating software panic / abort.
 - **Execution Limit Exceeded (`FAULT_MAX_CYCLES` / `FAULT_MAX_TIME` / `FAULT_MAX_WATCHPOINT`)**: The requested `--stop` threshold or watchpoint was reached.
+- **Host Interrupt (`FAULT_SIGINT`)**: Tether received `SIGINT` (`^C`) while 6309 CPU was running in Phase 2 or 3, inducing register frame capture and core dump.
 
 #### Core Dump Handling
 When any fault or stop limit occurs:

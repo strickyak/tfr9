@@ -321,6 +321,8 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
   * When an opcode fetch (FIC) is `BRA` (`$20`) with relative offset `$FE` (i.e. `BRA *` / `BRA .`), representing an infinite loop commonly used for software panic or abort conditions, an immediate abort is triggered (`FAULT_BRA_SELF`).
 * **Limit Exceeded Abort**:
   * Reaching the configured `--stop=c:...`, `--stop=t:...`, or `--stop=r/w/x:...` limit triggers `FAULT_MAX_CYCLES`, `FAULT_MAX_TIME`, or `FAULT_MAX_WATCHPOINT`.
+* **Host Interrupt Abort (`FAULT_SIGINT`)**:
+  * When Tether receives `SIGINT` (`^C`), it transmits `T_SIGINT` (`183`) to Pico. If the CPU is running in Phase 2 or Phase 3, Pico induces `FAULT_SIGINT`, halts the 6309 CPU via SWI register-capture, and dumps registers and 64KB core image back to Tether.
 * **Automatic 64KB Core Dump**:
   * Upon any abort, the CPU is immediately halted and Core 1 reads the full 64KB RAM image.
   * The Pico streams the memory image to Tether in 64 chunks of 1024 bytes via `C_CORE_DUMP` (cmd 203).
@@ -338,6 +340,7 @@ All packets across the USB CDC-ACM serial link are framed using **COBS** (Consis
 | 177 | `$B1` | Host -> Pico | `T_RESTART_NOW_PLEASE` | Force immediate firmware and CPU reset (one-way, no RPC reply) |
 | 178 | `$B2` | Host -> Pico | `T_TERM_CHARS` | Send terminal keyboard input characters to ACIA |
 | 181 | `$B5` | Bidirectional | `T_PICO_RPC` | RPC request/response frame (`config`, `upload`, `start`, `ping`) |
+| 183 | `$B7` | Host -> Pico | `T_SIGINT` | Host interrupt signal (induces `FAULT_SIGINT` in Phase 2/3) |
 | 194 | `$C2` | Pico -> Host | `C_RESTARTED` | Startup/reset beacon packet |
 | 200 | `$C8` | Pico -> Host | `C_TRACE_CYCLES` | Batched bus cycle trace buffer (bundles 12-byte `TraceRecord` entries) |
 | 201 | `$C9` | Pico -> Host | `C_PICO_CHARS` | Terminal console output characters from ACIA |
