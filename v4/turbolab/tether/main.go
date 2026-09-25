@@ -731,6 +731,9 @@ func main() {
 		TraceBitmask: traceBitmask,
 		WatchedAddrs: watchedMap,
 	}
+	if (traceBitmask & TRACE_I) != 0 {
+		traceFmt.Os9Tracer = NewOs9Tracer(os.Stderr)
+	}
 
 	coreDumpChunks := make(map[byte][]byte)
 	var faultReason byte

@@ -190,6 +190,14 @@ volatile byte sim_status_reg = 0;
 volatile byte sim_control_reg = 0;
 volatile byte sim_last_char_tx = 0;
 
+#if ENABLE_TRACING
+static uint8_t swi2_write_fuse = 0;
+static bool swi2_num_needed = false;
+static uint8_t rti_read_fuse = 0;
+static bool prefix10_seen = false;
+static uint16_t prefix10_addr = 0;
+#endif
+
 struct repeating_timer timer60hz_data;
 volatile bool timer60hz_running = false;
 volatile bool waiting_for_tether_packet = true;
@@ -550,6 +558,24 @@ FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte va
     LedOff();
   }
 
+  if (reading) {
+    if (kind == KIND_FIC && value == 0x10 && addr < 0xFFF0) {
+      prefix10_seen = true;
+      prefix10_addr = (uint16_t)addr;
+    } else {
+      if (prefix10_seen) {
+        prefix10_seen = false;
+        if (value == 0x3F && addr == (uint16_t)(prefix10_addr + 1)) {
+          swi2_num_needed = true;
+          swi2_write_fuse = 12; // 12 stack writes to emit!
+        }
+      }
+    }
+    if (is_rti) {
+      rti_read_fuse = 13; // 1 intermediate read + 12 stack reads to emit!
+    }
+  }
+
   // Trace filtering: only emit when trigger conditions are satisfied.
   bool trigger_met = cpu_started && (cycles >= trigger_cycle);
 
@@ -574,10 +600,33 @@ FORCE_INLINE void IN_RAM fg_loop_trace_cycle(uint64_t cycles, uint addr, byte va
     }
 
     // Trace flag 'i' enables logging of interrupt cycles (vector fetch and RTI)
-    // tagged with their usual r/w/x status without overriding kind:
+    // as well as SWI2 OS-9 API calls and RTI register returns:
     if ((trace_flags & TRACE_FLAG_I) != 0) {
       if (is_bs || is_rti) {
         emit = true;
+      }
+      if (prefix10_seen) {
+        emit = true;
+      }
+      if (swi2_write_fuse > 0) {
+        if (!reading && kind == KIND_WRITE) {
+          emit = true;
+          swi2_write_fuse--;
+        } else if (reading && swi2_num_needed) {
+          emit = true;
+          if (kind != KIND_OPCODE_CONT || value != 0x3F) {
+            swi2_num_needed = false;
+          }
+        }
+      }
+      if (rti_read_fuse > 0 && !is_rti && reading) {
+        emit = true;
+        if (rti_read_fuse == 12 && (value & 0x80) == 0) {
+          // CC.E == 0: FIRQ only pops 2 more bytes (PC.hi, PC.lo)
+          rti_read_fuse = 2;
+        } else {
+          rti_read_fuse--;
+        }
       }
     }
 
@@ -635,6 +684,13 @@ void IN_RAM foreground_loop() {
   bool saw_fffe = false;
 
   LedOff();
+#if ENABLE_TRACING
+  swi2_write_fuse = 0;
+  swi2_num_needed = false;
+  rti_read_fuse = 0;
+  prefix10_seen = false;
+  prefix10_addr = 0;
+#endif
   foreground_running = true;
   current_phase = 1;
 

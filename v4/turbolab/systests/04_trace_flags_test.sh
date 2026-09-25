@@ -50,4 +50,14 @@ run_tether -n --trace=x --stop=c:20 "$BUILD_DIR/turbos/turbos_core.img"
 assert_contains "$TETHER_STDERR" "\"kernel.0b81d8162b\"+001b" "Annotated kernel module name and offset"
 assert_exit_code 0 $TETHER_EXIT "Tether exited cleanly"
 
+# 7. Test Interrupt & SWI2 OS-9 API Tracing (--trace=i)
+log_test "Interrupt & SWI2 OS-9 API trace (--trace=i)"
+run_tether -n --trace=i --stop=c:60000 "$BUILD_DIR/turbos/turbos_core.img"
+assert_contains "$TETHER_STDERR" "i SWI2 _1_" "SWI2 OS-9 API call traced with label _1_"
+assert_contains "$TETHER_STDERR" "F$Link" "Decoded OS-9 system call name"
+assert_contains "$TETHER_STDERR" "i RTI  _1_" "Matching RTI marked with label _1_"
+assert_contains "$TETHER_STDERR" 'returning to SWI2 $00 (F$Link)' "RTI indicates return to SWI2 trap"
+assert_contains "$TETHER_STDERR" "SWI2 vector" "Interrupt vector fetch annotated"
+assert_exit_code 0 $TETHER_EXIT "Tether exited cleanly"
+
 print_summary "Suite 4 (Trace Flags)"

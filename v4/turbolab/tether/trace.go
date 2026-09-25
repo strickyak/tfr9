@@ -50,6 +50,7 @@ type TraceFormatter struct {
 	Modules      []*ScannedModuleInfo
 	TraceBitmask int
 	WatchedAddrs map[uint16][]byte // addr -> types (0=any, 'r', 'w', 'x')
+	Os9Tracer    *Os9Tracer
 }
 
 func (tf *TraceFormatter) IsWatched(addr uint16, kind byte) bool {
@@ -101,6 +102,10 @@ func (tf *TraceFormatter) FindModule(addr uint16) (string, uint16, bool) {
 }
 
 func (tf *TraceFormatter) FormatCycle(rawKind byte, addr uint16, data byte, cycle uint64) {
+	if tf.Os9Tracer != nil {
+		tf.Os9Tracer.OnCycle(rawKind, addr, data, cycle)
+	}
+
 	kind := rawKind & 0x0F
 	flags := rawKind & 0xF0
 
