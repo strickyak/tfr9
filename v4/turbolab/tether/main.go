@@ -144,14 +144,41 @@ func logPacket(direction string, pkt []byte) {
 }
 
 func parseCount(s string) (uint64, error) {
-	s = strings.TrimSpace(strings.ToLower(s))
+	s = strings.TrimSpace(s)
 	multiplier := uint64(1)
-	if strings.HasSuffix(s, "m") {
+	if strings.HasSuffix(s, "G") {
+		multiplier = 1024 * 1024 * 1024
+		s = s[:len(s)-1]
+	} else if strings.HasSuffix(s, "g") {
+		multiplier = 1000000000
+		s = s[:len(s)-1]
+	} else if strings.HasSuffix(s, "M") {
+		multiplier = 1024 * 1024
+		s = s[:len(s)-1]
+	} else if strings.HasSuffix(s, "m") {
 		multiplier = 1000000
+		s = s[:len(s)-1]
+	} else if strings.HasSuffix(s, "K") {
+		multiplier = 1024
 		s = s[:len(s)-1]
 	} else if strings.HasSuffix(s, "k") {
 		multiplier = 1000
 		s = s[:len(s)-1]
+	}
+
+	if strings.HasPrefix(s, "$") {
+		val, err := strconv.ParseUint(s[1:], 16, 64)
+		if err != nil {
+			return 0, err
+		}
+		return val * multiplier, nil
+	}
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		val, err := strconv.ParseUint(s[2:], 16, 64)
+		if err != nil {
+			return 0, err
+		}
+		return val * multiplier, nil
 	}
 	val, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
@@ -179,60 +206,6 @@ func parseDurationUs(s string) (uint64, error) {
 	return uint64(v * 1000000.0), err
 }
 
-type WatchpointConfig struct {
-	Type  byte // 'r', 'w', 'x' or 0
-	Addr  uint16
-	Count uint32
-}
-
-func parseAddress(s string) (uint16, error) {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "$") {
-		v, err := strconv.ParseUint(s[1:], 16, 16)
-		return uint16(v), err
-	}
-	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
-		v, err := strconv.ParseUint(s[2:], 16, 16)
-		return uint16(v), err
-	}
-	v, err := strconv.ParseUint(s, 16, 16)
-	if err == nil {
-		return uint16(v), nil
-	}
-	v, err = strconv.ParseUint(s, 10, 16)
-	return uint16(v), err
-}
-
-func parseWatchpoint(s string) (WatchpointConfig, bool, error) {
-	parts := strings.Split(s, ":")
-	if len(parts) < 2 || len(parts) > 3 {
-		return WatchpointConfig{}, false, nil
-	}
-	t := strings.ToLower(parts[0])
-	if t != "r" && t != "w" && t != "x" {
-		return WatchpointConfig{}, false, nil
-	}
-	addr, err := parseAddress(parts[1])
-	if err != nil {
-		return WatchpointConfig{}, true, fmt.Errorf("invalid watchpoint address %q: %w", parts[1], err)
-	}
-	count := uint32(1)
-	if len(parts) == 3 {
-		c, err := parseCount(parts[2])
-		if err != nil {
-			return WatchpointConfig{}, true, fmt.Errorf("invalid watchpoint count %q: %w", parts[2], err)
-		}
-		if c == 0 {
-			return WatchpointConfig{}, true, fmt.Errorf("watchpoint count must be >= 1")
-		}
-		count = uint32(c)
-	}
-	return WatchpointConfig{
-		Type:  t[0],
-		Addr:  addr,
-		Count: count,
-	}, true, nil
-}
 
 func parseTraceFlags(str string) (int, error) {
 	var bitmask int
@@ -301,21 +274,22 @@ func main() {
 	var triggerCycle uint64
 	var triggerTimeUs uint64
 	var triggerWp WatchpointConfig
+	var triggerWpSpec *WatchpointSpec
 	if *flagTrigger != "" {
-		wp, isWp, err := parseWatchpoint(*flagTrigger)
+		spec, isWp, err := parseWatchpointSpec(*flagTrigger)
 		if isWp {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Invalid trigger watchpoint: %v\n", err)
 				os.Exit(1)
 			}
-			triggerWp = wp
+			triggerWpSpec = spec
 			if traceBitmask == 0 {
 				traceBitmask = TRACE_X | TRACE_PLUS | TRACE_R | TRACE_W | TRACE_I | TRACE_T
 			}
 		} else {
 			parts := strings.SplitN(*flagTrigger, ":", 2)
 			if len(parts) != 2 {
-				fmt.Fprintf(os.Stderr, "Invalid trigger format %q (expected c:<cycles>, s:<seconds>, or r/w/x:<addr>[:N])\n", *flagTrigger)
+				fmt.Fprintf(os.Stderr, "Invalid trigger format %q (expected c:<cycles>, s:<seconds>, or [r|w|x:]<addr>[:N])\n", *flagTrigger)
 				os.Exit(1)
 			}
 			switch parts[0] {
@@ -334,7 +308,7 @@ func main() {
 				}
 				triggerTimeUs = us
 			default:
-				fmt.Fprintf(os.Stderr, "Unknown trigger type %q (expected 'c', 's', 'r', 'w', or 'x')\n", parts[0])
+				fmt.Fprintf(os.Stderr, "Unknown trigger type %q (expected 'c', 's', 'r', 'w', 'x', or @module)\n", parts[0])
 				os.Exit(1)
 			}
 		}
@@ -344,18 +318,19 @@ func main() {
 	var maxCycles uint64
 	var maxTimeUs uint64
 	var maxWp WatchpointConfig
+	var maxWpSpec *WatchpointSpec
 	if *flagMax != "" {
-		wp, isWp, err := parseWatchpoint(*flagMax)
+		spec, isWp, err := parseWatchpointSpec(*flagMax)
 		if isWp {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Invalid max watchpoint: %v\n", err)
 				os.Exit(1)
 			}
-			maxWp = wp
+			maxWpSpec = spec
 		} else {
 			parts := strings.SplitN(*flagMax, ":", 2)
 			if len(parts) != 2 {
-				fmt.Fprintf(os.Stderr, "Invalid max format %q (expected c:<cycles>, t:<duration>, or r/w/x:<addr>[:N])\n", *flagMax)
+				fmt.Fprintf(os.Stderr, "Invalid max format %q (expected c:<cycles>, t:<duration>, or [r|w|x:]<addr>[:N])\n", *flagMax)
 				os.Exit(1)
 			}
 			switch parts[0] {
@@ -374,7 +349,7 @@ func main() {
 				}
 				maxTimeUs = us
 			default:
-				fmt.Fprintf(os.Stderr, "Unknown max type %q (expected 'c', 't', 'r', 'w', or 'x')\n", parts[0])
+				fmt.Fprintf(os.Stderr, "Unknown max type %q (expected 'c', 't', 'r', 'w', 'x', or @module)\n", parts[0])
 				os.Exit(1)
 			}
 		}
@@ -414,6 +389,30 @@ func main() {
 		for _, m := range scannedMods {
 			fmt.Fprintf(os.Stderr, "Found primordial module %q at $%04X-$%04X (size $%04X, CRC %s)\n",
 				m.Name, m.BaseAddr, m.BaseAddr+m.Size, m.Size, m.CrcHex)
+		}
+
+		if triggerWpSpec != nil {
+			var err error
+			triggerWp, err = triggerWpSpec.Resolve(scannedMods)
+			if err != nil {
+				Fatalf("Invalid trigger watchpoint: %v", err)
+			}
+			if strings.HasPrefix(triggerWpSpec.AddrExpr, "@") {
+				fmt.Fprintf(os.Stderr, "Resolved trigger watchpoint %s to $%04X\n",
+					triggerWpSpec.AddrExpr, triggerWp.Addr)
+			}
+		}
+
+		if maxWpSpec != nil {
+			var err error
+			maxWp, err = maxWpSpec.Resolve(scannedMods)
+			if err != nil {
+				Fatalf("Invalid max watchpoint: %v", err)
+			}
+			if strings.HasPrefix(maxWpSpec.AddrExpr, "@") {
+				fmt.Fprintf(os.Stderr, "Resolved max watchpoint %s to $%04X\n",
+					maxWpSpec.AddrExpr, maxWp.Addr)
+			}
 		}
 
 		loadedMods := make(map[string]bool)

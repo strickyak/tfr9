@@ -37,11 +37,16 @@ The TurboLab configuration has its own firmware (`turbolab/firmware/`) and its o
   * `i`: Interrupt and RTI events.
   * `t`: OS-9 Traps (API call and return).
 
-* `--trigger=c:50000`, `--trigger=s:5`, or `--trigger=r/w/x:0x1234[:N]`  
-  Trigger trace after cycle count (e.g. `c:50000`), duration in seconds (e.g. `s:5`), or watchpoint event (`r:0x1234[:N]` on Nth read, `w:0x1234[:N]` on Nth write, `x:0x1234[:N]` on Nth opcode fetch with FIC). Trace output prior to trigger is suppressed.
+* `--trigger=c:50k`, `--trigger=s:5`, or `--trigger=[r|w|x:]<addr>[:N]`  
+  Trigger trace after cycle count (e.g. `c:50k`), duration in seconds (e.g. `s:5`), or watchpoint event:
+  * Event types: `r:` (Nth read), `w:` (Nth write), `x:` (Nth opcode fetch with FIC).
+  * Address formats: numeric literal (`0x1234`, `$1234`, or decimal), or module-relative `@modulename+offset` (or `@modulename` with offset 0). The offset can be decimal or hexadecimal (`$10`, `0x10`, `16`).
+  * Shorthand: `@modulename[+offset][:N]` defaults to execution watchpoint `x:`.
+  * Count suffixes: `k=1000`, `m=1000000`, `g=1000000000` (decimal SI) and `K=1024`, `M=1048576`, `G=1073741824` (binary).
+  * Trace output prior to trigger is suppressed.
 
-* `--max=c:1m`, `--max=t:30s`, or `--max=r/w/x:0x1234[:N]`  
-  Maximum execution limit by cycle count (e.g. `c:1m`), duration (e.g. `t:30s`), or watchpoint event (`r:`, `w:`, `x:`). Reaching the limit triggers a clean stop and core dump.
+* `--max=c:1m`, `--max=t:30s`, or `--max=[r|w|x:]<addr>[:N]`  
+  Maximum execution limit by cycle count (e.g. `c:1m`, `c:64K`), duration (e.g. `t:30s`), or watchpoint event (`r:`, `w:`, `x:`, or `@modulename[+offset][:N]`). Reaching the limit triggers a clean stop and core dump.
 
 * `--listings=listings_dirname`  
   Directory containing pre-assembled OS-9 module listings named `<name>.<size><crc>` (e.g. `kernel.0d4eec829c`, `ioman.070aaecac4`). Primordial modules identified in the RAM image that lack a command-line listing are automatically resolved from this directory.

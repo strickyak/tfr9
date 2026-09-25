@@ -207,22 +207,33 @@ Use triggers and limits to isolate specific bug windows and prevent log files fr
 Suppress trace printing until a specific point in execution:
 - `--trigger=c:<cycles>`: Begin emitting trace only after reaching cycle count:
   ```bash
-  ./build/tether -trace=x --trigger=c:500000 data/turbos/turbos_dev.img data/turbos/*.list
+  ./build/tether -trace=x --trigger=c:500k data/turbos/turbos_dev.img data/turbos/*.list
   ```
 - `--trigger=s:<seconds>`: Begin emitting trace after elapsed wall-clock duration:
   ```bash
   ./build/tether -trace=x --trigger=s:2.5 data/turbos/turbos_dev.img data/turbos/*.list
   ```
+- `--trigger=[r|w|x:]<addr>[:N]` or `--trigger=@modulename[+offset][:N]`: Begin emitting trace on the Nth read (`r:`), write (`w:`), or execution (`x:` / default) of an address or module symbol:
+  ```bash
+  ./build/tether --trigger=x:@kernel+0x1B data/turbos/turbos_dev.img data/turbos/*.list
+  ```
 
 #### 2. Automatic Termination (`--max`)
 Halt the 6309 CPU and trigger a core dump once a limit is reached:
-- `--max=c:<cycles>`: Terminate after cycle count (supports `k` and `m` suffixes):
+- `--max=c:<cycles>`: Terminate after cycle count:
+  - Suffixes: `k=1000`, `m=1000000`, `g=1000000000` (decimal SI) and `K=1024`, `M=1048576`, `G=1073741824` (binary).
   ```bash
-  ./build/tether -trace=x --max=c:1m data/turbos/turbos_dev.img data/turbos/*.list
+  ./build/tether -trace=x --max=c:64K data/turbos/turbos_dev.img data/turbos/*.list
   ```
 - `--max=t:<duration>`: Terminate after time duration (e.g. `500ms`, `5s`, `1m`):
   ```bash
   ./build/tether -trace=x --max=t:10s data/turbos/turbos_dev.img data/turbos/*.list
+  ```
+- `--max=[r|w|x:]<addr>[:N]` or `--max=@modulename[+offset][:N]`: Terminate on Nth watchpoint event:
+  - Supports decimal or hexadecimal offsets: `@kernel+27`, `@kernel+0x1B`, `@kernel+$1B`.
+  - Shorthand `@modulename+offset` defaults to execution (`x:`).
+  ```bash
+  ./build/tether -n --max=@kernel+0x1B data/turbos/turbos_dev.img
   ```
 
 ---
