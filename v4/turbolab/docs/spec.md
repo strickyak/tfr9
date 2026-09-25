@@ -67,7 +67,70 @@ tether [flags] image_file.img | module_files... [listings.list...]
 * `image_file.img`: Exactly 65536 bytes; ends with the 6309 RESET vector at `$FFFE-$FFFF`.
 * `module_files`: Raw OS-9 binary module file(s) to be assembled into the memory image. Modules are placed contiguous downward starting just below the I/O vector area (`$FF00`).
 * **Kernel & Reset Vector Resolution**: When raw module files are loaded, Tether scans the modules for one named `kernel` or `krn` (case-insensitive) and sets the 6309 RESET vector at `$FFFE-$FFFF` to that module's execution entry point (`BaseAddr + 9`). If neither is found, it falls back to the entry point of the first loaded module.
-* `*.list`: Assembly listings (e.g., `lwasm` output). May be an absolute listing or an OS-9 module listing.
+---
+
+## Triggers, Limits, and Watchpoints (`--trigger` and `--max`)
+
+The `--trigger` flag delays trace streaming until a specific condition occurs.  
+The `--max` flag sets an automatic termination threshold that freezes the CPU and produces a full 64KB core dump.
+
+### 1. Cycle Limits (`c:<count>`)
+Limits execution to a specified number of 6309 clock cycles:
+* **Decimal SI suffixes (powers of 10)**:
+  * `k` = $1,000$ ($10^3$)
+  * `m` = $1,000,000$ ($10^6$)
+  * `g` = $1,000,000,000$ ($10^9$)
+* **Binary suffixes (powers of 2, "big" letters for "big" units)**:
+  * `K` = $1,024$ ($2^{10}$)
+  * `M` = $1,048,576$ ($2^{20}$)
+  * `G` = $1,073,741,824$ ($2^{30}$)
+* Numeric counts can also be specified in hex (e.g. `c:$1000` or `c:0x1000`).
+* Examples:
+  * `--max=c:50k`: Stop after exactly 50,000 cycles.
+  * `--max=c:64K`: Stop after 65,536 cycles.
+  * `--trigger=c:1M`: Begin tracing after 1,048,576 cycles.
+
+### 2. Time Limits (`s:<duration>` or `t:<duration>`)
+* `--trigger=s:<duration>`: Delay trace output by wall-clock time (e.g. `s:5`, `s:2.5s`).
+* `--max=t:<duration>`: Terminate after wall-clock duration (e.g. `t:500ms`, `t:10s`, `t:1m`).
+
+### 3. Memory & Module Watchpoints
+Hardware watchpoints monitor bus transactions on Core 1 in real time and trigger on matching cycles:
+
+| Prefix | Name | Bus Match Condition |
+|---|---|---|
+| `x:` | **Execution** | Memory read with First Instruction Cycle (`FIC=1`) matching address |
+| `r:` | **Read** | Any memory read cycle (opcode fetch, operand, or data load) matching address |
+| `w:` | **Write** | Any memory write cycle (`STA`, `STX`, stack pushes, etc.) matching address |
+
+#### Target Address Formats:
+* **Hexadecimal literal**: `$1234` or `0x1234`
+* **Decimal literal**: `4096`
+* **Module-relative symbol**: `@modulename+offset`
+  * Resolves against primordial OS-9 modules scanned from the loaded image (e.g. `kernel`, `init`, `tk`, `ioman`, `scf`, `shell`).
+  * Module names are matched case-insensitively (`@kernel`, `@Kernel`, `@KERNEL`).
+  * Offset can be **decimal** (`+16`, `+27`) or **hexadecimal** (`+$10`, `+$1B`, `+0x10`, `+0x1B`, `+1a`).
+  * Omitting the offset (e.g. `@kernel` or `@shell`) defaults to offset `+0`.
+  * Negative offsets are supported (e.g. `@kernel-2`).
+
+#### Shorthand & Event Counts:
+* **Execution Shorthand**: Specifying `@modulename[+offset]` without a prefix defaults to execution watchpoint `x:` (e.g. `--max=@kernel+0x1B` is shorthand for `--max=x:@kernel+0x1B:1`).
+* **Nth Occurrence (`:N`)**: Appending `:N` triggers on the Nth occurrence of the event (e.g. `w:0x0020:5` stops on the 5th write to `$0020`).
+
+#### Watchpoint Examples:
+```bash
+# Stop on the 1st instruction of the kernel entry point ($D4F9):
+tether -n --max=@kernel+0x1B turbos_dev.img
+
+# Stop on the 10th execution of the kernel entry point:
+tether -n --max=@kernel+0x1B:10 turbos_dev.img
+
+# Stop on the 5th write to DP location $0020:
+tether -n --max=w:0x0020:5 turbos_dev.img
+
+# Start tracing when the shell module begins executing:
+tether --trigger=@shell turbos_dev.img
+```
 
 ---
 

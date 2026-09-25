@@ -88,7 +88,39 @@ w 0021 00 #22;_
 x D4FD 31 #23; "kernel.0d4eec829c"+001f   leay -2,y decrement counter
 + D4FE 3E #24;
 + D4FF 26 #25;
-x D4FF 26 #28; "kernel.0d4eec829c"+0021   bne loop@ continue if not zero
+```
+
+## Running with Triggers and Watchpoints (`--trigger` and `--max`)
+
+You can delay tracing until a specific event using `--trigger`, or stop execution automatically with a core dump using `--max`.
+
+### Cycle Limits (`c:`)
+Specify cycle counts using decimal SI (`k=1000`, `m=1000000`, `g=1000000000`) or binary multipliers (`K=1024`, `M=1048576`, `G=1073741824`):
+
+```bash
+# Run for exactly 50,000 cycles and stop:
+turbolab/build/tether.linux-amd64.exe -n --max=c:50k turbolab/build/turbos/turbos_dev.img
+
+# Run for 64K (65,536) cycles:
+turbolab/build/tether.linux-amd64.exe -n --max=c:64K turbolab/build/turbos/turbos_dev.img
+```
+
+### Module Watchpoints (`@module+offset`)
+Target specific OS-9 modules by name without needing hardcoded hex addresses:
+
+* Offset can be decimal or hexadecimal (`$1B`, `0x1B`, `27`).
+* Default event type is instruction execution (`x:`):
+  * `@kernel+0x1B` is shorthand for `x:@kernel+0x1B:1` (the 1st execution of the instruction at kernel entry).
+* Read and write watchpoints:
+  * `r:@module+offset[:N]`: Halt on the Nth read.
+  * `w:@module+offset[:N]`: Halt on the Nth write.
+
+```bash
+# Halt when the CPU executes the first instruction of the OS-9 kernel entry point ($D4F9):
+turbolab/build/tether.linux-amd64.exe -n --max=@kernel+0x1B turbolab/build/turbos/turbos_dev.img
+
+# Start tracing only when the CPU reaches the shell module:
+turbolab/build/tether.linux-amd64.exe --trigger=@shell turbolab/build/turbos/turbos_dev.img
 ```
 
 ## Running with Basic09
