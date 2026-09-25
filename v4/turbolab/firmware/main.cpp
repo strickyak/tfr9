@@ -311,11 +311,11 @@ FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, uint64_
   return false;
 }
 
-FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool is_bs, uint64_t cycles) {
+FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, uint64_t cycles) {
   // Zero Interrupt Vector Check:
   // If BS=1 (Interrupt Acknowledge) and vector data is 0:
   // Note: Only called in Phase 2 and Phase 3 (after CPU reset is achieved).
-  if (UNLIKELY(is_bs && value == 0)) {
+  if (UNLIKELY(value == 0)) {
     fault_reason = FAULT_ZERO_VECTOR;
     fault_cycle = cycles;
     fault_addr = addr;
@@ -359,7 +359,10 @@ FORCE_INLINE byte IN_RAM fg_loop_handle_read(uint addr, bool is_idle, bool is_bs
   } else {
     // Vectors $FFF0..$FFFF
     byte val = ram[addr];
-    fg_loop_check_zero_vector(addr, val, is_bs, cycles);
+    if (UNLIKELY(is_bs)) {
+      LedOn();
+      fg_loop_check_zero_vector(addr, val, cycles);
+    }
     return val;
   }
 }
@@ -620,7 +623,6 @@ phase2:
       if (LIKELY(reading)) {
         value = fg_loop_handle_read(addr, is_idle, is_bs, cycles);
         if (UNLIKELY(fault_triggered)) goto phase4;
-        if (UNLIKELY(is_bs)) LedOn();
 
         pio_sm_put(pio0, 0, value);
         prev_late_pins = pio_sm_get_blocking(pio0, 0);
@@ -689,7 +691,6 @@ phase3:
       if (LIKELY(reading)) {
         value = fg_loop_handle_read(addr, is_idle, is_bs, cycles);
         if (UNLIKELY(fault_triggered)) goto phase4;
-        if (UNLIKELY(is_bs)) LedOn();
 
         pio_sm_put(pio0, 0, value);
         uint late_pins = pio_sm_get_blocking(pio0, 0);
