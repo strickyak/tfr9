@@ -121,7 +121,7 @@ cd /home/strick/modoc/coco-shelf/tfr9/v4/turbolab
 1. **Listing Resolution**: Tether scans `turbos_dev.img` for OS-9 module headers (`kernel`, `init`, `tk`, `ioman`, `scf`, `scvt`, `term`, `shell`, `mdir`, `mfree`, `procs`, `sleep`). It parses the provided `.list` files and relocates them to each module's base address in the 64KB image.
 2. **Device Connection**: Connects to `/dev/ttyACM0` at 115200 baud.
 3. **Pico Handshake**: Listens for the `C_RESTARTED` beacon. If no beacon is heard after 2 seconds (e.g., if the Pico was already running), Tether sends `T_RESTART_NOW_PLEASE` (`#`). The Pico resets internal state and replies with `C_RESTARTED` (`%`).
-4. **Configuration**: Tether sends the `config` RPC with active trace flags, trigger settings, and max cycle/time limits.
+4. **Configuration**: Tether sends the `config` RPC with active trace flags, trigger settings, and stop cycle/time limits.
 5. **Image Upload**: Uploads the 64KB memory image in 1KB chunks via `upload` RPCs.
 6. **CPU Launch**: Tether issues the `start` RPC. The firmware resets the cycle counter to zero, releases 6309 `HALT`, and starts the 60Hz periodic clock.
 7. **Interactive Terminal**: Tether sets the local terminal to `cbreak` mode (`-echo`, `-ixon`). You are placed in the OS-9 shell:
@@ -218,22 +218,22 @@ Suppress trace printing until a specific point in execution:
   ./build/tether --trigger=x:@kernel+0x1B data/turbos/turbos_dev.img data/turbos/*.list
   ```
 
-#### 2. Automatic Termination (`--max`)
-Halt the 6309 CPU and trigger a core dump once a limit is reached:
-- `--max=c:<cycles>`: Terminate after cycle count:
+#### 2. Automatic Termination (`--stop`)
+Halt the 6309 CPU and trigger a core dump once a limit is reached (flag `--stop`, alias `--max`):
+- `--stop=c:<cycles>`: Terminate after cycle count:
   - Suffixes: `k=1000`, `m=1000000`, `g=1000000000` (decimal SI) and `K=1024`, `M=1048576`, `G=1073741824` (binary).
   ```bash
-  ./build/tether -trace=x --max=c:64K data/turbos/turbos_dev.img data/turbos/*.list
+  ./build/tether -trace=x --stop=c:64K data/turbos/turbos_dev.img data/turbos/*.list
   ```
-- `--max=t:<duration>`: Terminate after time duration (e.g. `500ms`, `5s`, `1m`):
+- `--stop=t:<duration>`: Terminate after time duration (e.g. `500ms`, `5s`, `1m`):
   ```bash
-  ./build/tether -trace=x --max=t:10s data/turbos/turbos_dev.img data/turbos/*.list
+  ./build/tether -trace=x --stop=t:10s data/turbos/turbos_dev.img data/turbos/*.list
   ```
-- `--max=[r|w|x:]<addr>[:N]` or `--max=@modulename[+offset][:N]`: Terminate on Nth watchpoint event:
+- `--stop=[r|w|x:]<addr>[:N]` or `--stop=@modulename[+offset][:N]`: Terminate on Nth watchpoint event:
   - Supports decimal or hexadecimal offsets: `@kernel+27`, `@kernel+0x1B`, `@kernel+$1B`.
   - Shorthand `@modulename+offset` defaults to execution (`x:`).
   ```bash
-  ./build/tether -n --max=@kernel+0x1B data/turbos/turbos_dev.img
+  ./build/tether -n --stop=@kernel+0x1B data/turbos/turbos_dev.img
   ```
 
 #### 3. Logging Watchpoints (`--watch`)
@@ -243,7 +243,7 @@ Log individual matching bus cycles to `stderr`, even when `--trace` is disabled 
 - Optional Nth count filter: `addr:N` (e.g. `0x1019:3` logs only the 3rd hit).
 - Firmware hook: high-performance function pointer (`wp_hook`) in tight loops; zero overhead when unused.
 ```bash
-./build/tether -n --watch=0x0020 --max=c:50k data/turbos/turbos_dev.img
+./build/tether -n --watch=0x0020 --stop=c:50k data/turbos/turbos_dev.img
 ./build/tether --watch=w:0x0020 --trigger=@kernel+0x1B --trace=x data/turbos/turbos_dev.img
 ```
 
@@ -255,10 +255,10 @@ The firmware monitors the bus for invalid hardware and vector states:
 - **Red Page Violation (`FAULT_RED_PAGE`)**: Access to reserved hardware addresses in range `$FF04..$FFEF`.
 - **Zero Interrupt Vector (`FAULT_ZERO_VECTOR`)**: An interrupt acknowledge occurs (`BS=1`) but the vector address byte reads `$00`.
 - **Infinite Self-Branch (`FAULT_BRA_SELF`)**: Opcode fetch is `BRA *` (`$20 $FE`), indicating software panic / abort.
-- **Execution Limit Exceeded (`FAULT_MAX_CYCLES` / `FAULT_MAX_TIME` / `FAULT_MAX_WATCHPOINT`)**: The requested `--max` threshold or watchpoint was reached.
+- **Execution Limit Exceeded (`FAULT_MAX_CYCLES` / `FAULT_MAX_TIME` / `FAULT_MAX_WATCHPOINT`)**: The requested `--stop` threshold or watchpoint was reached.
 
 #### Core Dump Handling
-When any fault or max limit occurs:
+When any fault or stop limit occurs:
 1. Firmware asserts `HALT` to freeze the 6309.
 2. Firmware sends `C_FAULT` header followed by 64 chunks of 1024 bytes (`C_CORE_DUMP`), streaming the entire 64KB RAM contents.
 3. Tether saves the 64KB binary dump to `/tmp/turbolab-fault-<timestamp>.img` and `/tmp/fault.img`.

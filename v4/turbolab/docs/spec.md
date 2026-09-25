@@ -45,8 +45,8 @@ The TurboLab configuration has its own firmware (`turbolab/firmware/`) and its o
   * Count suffixes: `k=1000`, `m=1000000`, `g=1000000000` (decimal SI) and `K=1024`, `M=1048576`, `G=1073741824` (binary).
   * Trace output prior to trigger is suppressed.
 
-* `--max=c:1m`, `--max=t:30s`, or `--max=[r|w|x:]<addr>[:N]`  
-  Maximum execution limit by cycle count (e.g. `c:1m`, `c:64K`), duration (e.g. `t:30s`), or watchpoint event (`r:`, `w:`, `x:`, or `@modulename[+offset][:N]`). Reaching the limit triggers a clean stop and core dump.
+* `--stop=c:1m`, `--stop=t:30s`, or `--stop=[r|w|x:]<addr>[:N]` (alias: `--max=...`)  
+  Execution limit by cycle count (e.g. `c:1m`, `c:64K`), duration (e.g. `t:30s`), or watchpoint event (`r:`, `w:`, `x:`, or `@modulename[+offset][:N]`). Reaching the limit triggers a clean stop and core dump.
 
 * `--watch=[r|w|x:]addr1,[r|w|x:]addr2,...`  
   Comma-separated list of Logging Watchpoints that print matching bus cycles to stderr, even when general tracing (`--trace`) is disabled or before a trigger condition is met:
@@ -75,10 +75,10 @@ tether [flags] image_file.img | module_files... [listings.list...]
 * **Kernel & Reset Vector Resolution**: When raw module files are loaded, Tether scans the modules for one named `kernel` or `krn` (case-insensitive) and sets the 6309 RESET vector at `$FFFE-$FFFF` to that module's execution entry point (`BaseAddr + 9`). If neither is found, it falls back to the entry point of the first loaded module.
 ---
 
-## Triggers, Limits, and Watchpoints (`--trigger` and `--max`)
+## Triggers, Limits, and Watchpoints (`--trigger` and `--stop`)
 
 The `--trigger` flag delays trace streaming until a specific condition occurs.  
-The `--max` flag sets an automatic termination threshold that freezes the CPU and produces a full 64KB core dump.
+The `--stop` flag (alias: `--max`) sets an automatic termination threshold that freezes the CPU and produces a full 64KB core dump.
 
 ### 1. Cycle Limits (`c:<count>`)
 Limits execution to a specified number of 6309 clock cycles:
@@ -92,13 +92,13 @@ Limits execution to a specified number of 6309 clock cycles:
   * `G` = $1,073,741,824$ ($2^{30}$)
 * Numeric counts can also be specified in hex (e.g. `c:$1000` or `c:0x1000`).
 * Examples:
-  * `--max=c:50k`: Stop after exactly 50,000 cycles.
-  * `--max=c:64K`: Stop after 65,536 cycles.
+  * `--stop=c:50k`: Stop after exactly 50,000 cycles.
+  * `--stop=c:64K`: Stop after 65,536 cycles.
   * `--trigger=c:1M`: Begin tracing after 1,048,576 cycles.
 
 ### 2. Time Limits (`s:<duration>` or `t:<duration>`)
 * `--trigger=s:<duration>`: Delay trace output by wall-clock time (e.g. `s:5`, `s:2.5s`).
-* `--max=t:<duration>`: Terminate after wall-clock duration (e.g. `t:500ms`, `t:10s`, `t:1m`).
+* `--stop=t:<duration>`: Terminate after wall-clock duration (e.g. `t:500ms`, `t:10s`, `t:1m`).
 
 ### 3. Memory & Module Watchpoints
 Hardware watchpoints monitor bus transactions on Core 1 in real time and trigger on matching cycles:
@@ -120,19 +120,19 @@ Hardware watchpoints monitor bus transactions on Core 1 in real time and trigger
   * Negative offsets are supported (e.g. `@kernel-2`).
 
 #### Shorthand & Event Counts:
-* **Execution Shorthand**: Specifying `@modulename[+offset]` without a prefix defaults to execution watchpoint `x:` (e.g. `--max=@kernel+0x1B` is shorthand for `--max=x:@kernel+0x1B:1`).
+* **Execution Shorthand**: Specifying `@modulename[+offset]` without a prefix defaults to execution watchpoint `x:` (e.g. `--stop=@kernel+0x1B` is shorthand for `--stop=x:@kernel+0x1B:1`).
 * **Nth Occurrence (`:N`)**: Appending `:N` triggers on the Nth occurrence of the event (e.g. `w:0x0020:5` stops on the 5th write to `$0020`).
 
 #### Watchpoint Examples:
 ```bash
 # Stop on the 1st instruction of the kernel entry point ($D4F9):
-tether -n --max=@kernel+0x1B turbos_dev.img
+tether -n --stop=@kernel+0x1B turbos_dev.img
 
 # Stop on the 10th execution of the kernel entry point:
-tether -n --max=@kernel+0x1B:10 turbos_dev.img
+tether -n --stop=@kernel+0x1B:10 turbos_dev.img
 
 # Stop on the 5th write to DP location $0020:
-tether -n --max=w:0x0020:5 turbos_dev.img
+tether -n --stop=w:0x0020:5 turbos_dev.img
 
 # Start tracing when the shell module begins executing:
 tether --trigger=@shell turbos_dev.img
@@ -160,7 +160,7 @@ The `--watch` flag sets one or more addresses as "Logging Watchpoints". When a m
 
 ```bash
 # Log every access to zero-page address $0020 without tracing:
-tether -n --watch=0x0020 --max=c:50k turbos_dev.img
+tether -n --watch=0x0020 --stop=c:50k turbos_dev.img
 
 # Watch writes to $0020 and $0021, and trace instructions when @kernel+0x1B is hit:
 tether --watch=w:0x0020,w:0x0021 --trigger=@kernel+0x1B --trace=x turbos_dev.img
@@ -198,7 +198,7 @@ tether --watch=w:0x0020,w:0x0021 --trigger=@kernel+0x1B --trace=x turbos_dev.img
      * Resets state to `STATE_WAIT_CONFIG`, restarts the 2 Hz LED flash, and sends `C_RESTARTED`.
 
 3. **Configuration & Upload**:
-   * Once `C_RESTARTED` is received, Tether issues the `config` RPC with trace flags, triggers, and max execution limits.
+   * Once `C_RESTARTED` is received, Tether issues the `config` RPC with trace flags, triggers, and stop execution limits.
    * Tether uploads the 65536-byte RAM image to the Pico in 1024-byte chunks via `upload` RPCs.
    * Tether issues the `start` RPC to release 6309 `RESET` and begin execution.
 
@@ -245,11 +245,11 @@ Each traced bus cycle is printed on `stderr`, cleanly separated from 6309 consol
 ### Lossless Trace Flow Control
 * Traced cycles are pushed from Core 1 to Core 0 across the 8192-entry lock-free `fg2bg_trace` FIFO.
 * When tracing is active, if the FIFO becomes full due to USB throughput limits, Core 1 pauses before issuing the next bus cycle to Hamster PIO.
-* Because the 6309E CPU is a static CMOS processor and Hamster PIO holds clocks E and Q low (`side 0`) between cycles, the CPU safely holds state until Core 0 drains records over USB. This guarantees 100% lossless cycle capture without dropped records, and ensures the trace log runs precisely to the specified `--max c:N` limit.
+* Because the 6309E CPU is a static CMOS processor and Hamster PIO holds clocks E and Q low (`side 0`) between cycles, the CPU safely holds state until Core 0 drains records over USB. This guarantees 100% lossless cycle capture without dropped records, and ensures the trace log runs precisely to the specified `--stop c:N` limit.
 
 ### Cycle Speed Estimation at Shutdown
 * When any tracing is enabled (`--trace` with any flag), Tether samples a kernel timestamp (`time.Now()`) upon receiving the first cycle report, and records the latest cycle number received.
-* When Tether shuts down (due to user `^C` / `SIGINT`, limits `--max`, or termination), Tether takes a shutdown kernel timestamp, computes total cycles as `lastCycle - firstCycle`, and divides by elapsed time to estimate execution cycles per second:
+* When Tether shuts down (due to user `^C` / `SIGINT`, limits `--stop`, or termination), Tether takes a shutdown kernel timestamp, computes total cycles as `lastCycle - firstCycle`, and divides by elapsed time to estimate execution cycles per second:
   $$\text{CPS} = \frac{\text{lastCycle} - \text{firstCycle}}{\text{elapsed seconds}}$$
 * Printed on both `stderr` (logged in `_log`) and terminal stdout as Tether exits:
   `Estimated cycles per second: 180154 (0.180 MHz) [97406 cycles in 0.54s]`
@@ -320,7 +320,7 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
 * **Infinite Self-Branch Panic Abort**:
   * When an opcode fetch (FIC) is `BRA` (`$20`) with relative offset `$FE` (i.e. `BRA *` / `BRA .`), representing an infinite loop commonly used for software panic or abort conditions, an immediate abort is triggered (`FAULT_BRA_SELF`).
 * **Limit Exceeded Abort**:
-  * Reaching the configured `--max=c:...`, `--max=t:...`, or `--max=r/w/x:...` limit triggers `FAULT_MAX_CYCLES`, `FAULT_MAX_TIME`, or `FAULT_MAX_WATCHPOINT`.
+  * Reaching the configured `--stop=c:...`, `--stop=t:...`, or `--stop=r/w/x:...` limit triggers `FAULT_MAX_CYCLES`, `FAULT_MAX_TIME`, or `FAULT_MAX_WATCHPOINT`.
 * **Automatic 64KB Core Dump**:
   * Upon any abort, the CPU is immediately halted and Core 1 reads the full 64KB RAM image.
   * The Pico streams the memory image to Tether in 64 chunks of 1024 bytes via `C_CORE_DUMP` (cmd 203).

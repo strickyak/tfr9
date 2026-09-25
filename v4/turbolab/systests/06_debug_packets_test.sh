@@ -15,14 +15,14 @@ assert_not_contains "$TETHER_STDERR" "Connecting to" "Did not attempt serial con
 
 # 2. Test USB COBS Packet Debug Logging (--debug=u)
 log_test "USB COBS packet logging (--debug=u)"
-run_tether -n --debug=u --max=c:20 "$DATA_DIR/bootable/pi.decb"
+run_tether -n --debug=u --stop=c:20 "$DATA_DIR/bootable/pi.decb"
 assert_contains "$TETHER_STDERR" "PACKET OUT: cmd=181(T_PICO_RPC)" "Logged outgoing RPC packet"
 assert_contains "$TETHER_STDERR" "PACKET IN: cmd=181" "Logged incoming RPC response"
 assert_exit_code 0 $TETHER_EXIT "Tether exited cleanly"
 
-# 3. Test Invalid Syntax in --max Suffix
-log_test "Invalid suffix in --max flag"
-run_tether -n --max=c:50Z "$DATA_DIR/bootable/pi.decb" || true
+# 3. Test Invalid Syntax in --stop Suffix
+log_test "Invalid suffix in --stop flag"
+run_tether -n --stop=c:50Z "$DATA_DIR/bootable/pi.decb" || true
 assert_contains "$TETHER_STDERR" "invalid" "Reported invalid cycle count format"
 if [ "$TETHER_EXIT" -ne 0 ]; then
     pass "Tether failed with non-zero exit code on bad flag"

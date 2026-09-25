@@ -84,7 +84,8 @@ var (
 	flagBaud     = flag.Uint("baud", 115200, "serial device baud rate")
 	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,+,r,w,i,t,- (or 1 for all except idle; add idle with 1,idle or 1,-)")
 	flagTrigger  = flag.String("trigger", "", "trigger trace on cycle (c:50000), time (s:5), or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
-	flagMax      = flag.String("max", "", "max execution limit: c:<cycles>, t:<duration>, or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
+	flagStop     = flag.String("stop", "", "stop execution limit: c:<cycles>, t:<duration>, or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
+	flagMax      = flag.String("max", "", "deprecated alias for --stop")
 	flagWatch    = flag.String("watch", "", "comma-separated logging watchpoints to trace: [r|w|x:]addr1,[r|w|x:]addr2,... (e.g. 0x0020,@kernel+0x1B)")
 	flagDebug    = flag.String("debug", "", "debug options (e.g. --debug=u to log packets in and out on stderr)")
 	flagListings = flag.String("listings", "", "directory with module listings named <name>.<size><crc>")
@@ -316,42 +317,46 @@ func main() {
 		}
 	}
 
-	// Parse max limits
-	var maxCycles uint64
-	var maxTimeUs uint64
-	var maxWp WatchpointConfig
-	var maxWpSpec *WatchpointSpec
-	if *flagMax != "" {
-		spec, isWp, err := parseWatchpointSpec(*flagMax)
+	// Parse stop limits (--stop, or legacy alias --max)
+	var stopCycles uint64
+	var stopTimeUs uint64
+	var stopWp WatchpointConfig
+	var stopWpSpec *WatchpointSpec
+	stopVal := *flagStop
+	if stopVal == "" && *flagMax != "" {
+		stopVal = *flagMax
+	}
+	if stopVal != "" {
+		spec, isWp, err := parseWatchpointSpec(stopVal)
 		if isWp {
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid max watchpoint: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Invalid stop watchpoint: %v\n", err)
 				os.Exit(1)
 			}
-			maxWpSpec = spec
+			stopWpSpec = spec
 		} else {
-			parts := strings.SplitN(*flagMax, ":", 2)
+			parts := strings.SplitN(stopVal, ":", 2)
 			if len(parts) != 2 {
-				fmt.Fprintf(os.Stderr, "Invalid max format %q (expected c:<cycles>, t:<duration>, or [r|w|x:]<addr>[:N])\n", *flagMax)
+				fmt.Fprintf(os.Stderr, "Invalid stop format %q (expected c:<cycles>, t:<duration>, or [r|w|x:]<addr>[:N])\n", stopVal)
 				os.Exit(1)
 			}
 			switch parts[0] {
 			case "c":
 				c, err := parseCount(parts[1])
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Invalid max cycles %q: %v\n", parts[1], err)
+					fmt.Fprintf(os.Stderr, "Invalid stop cycles %q: %v\n", parts[1], err)
 					os.Exit(1)
 				}
-				maxCycles = c
+				stopCycles = c
 			case "t":
 				us, err := parseDurationUs(parts[1])
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Invalid max time %q: %v\n", parts[1], err)
+					fmt.Fprintf(os.Stderr, "Invalid stop time %q: %v\n", parts[1], err)
 					os.Exit(1)
 				}
-				maxTimeUs = us
+				stopTimeUs = us
 			default:
-				fmt.Fprintf(os.Stderr, "Unknown max type %q (expected 'c', 't', 'r', 'w', 'x', or @module)\n", parts[0])
+				fmt.Fprintf(os.Stderr, "Unknown stop type %q (expected 'c', 't', 'r', 'w', 'x', or @module)\n", parts[0])
 				os.Exit(1)
 			}
 		}
@@ -416,15 +421,15 @@ func main() {
 			}
 		}
 
-		if maxWpSpec != nil {
+		if stopWpSpec != nil {
 			var err error
-			maxWp, err = maxWpSpec.Resolve(scannedMods)
+			stopWp, err = stopWpSpec.Resolve(scannedMods)
 			if err != nil {
-				Fatalf("Invalid max watchpoint: %v", err)
+				Fatalf("Invalid stop watchpoint: %v", err)
 			}
-			if strings.HasPrefix(maxWpSpec.AddrExpr, "@") {
-				fmt.Fprintf(os.Stderr, "Resolved max watchpoint %s to $%04X\n",
-					maxWpSpec.AddrExpr, maxWp.Addr)
+			if strings.HasPrefix(stopWpSpec.AddrExpr, "@") {
+				fmt.Fprintf(os.Stderr, "Resolved stop watchpoint %s to $%04X\n",
+					stopWpSpec.AddrExpr, stopWp.Addr)
 			}
 		}
 
@@ -912,14 +917,14 @@ func main() {
 			descParts = append(descParts, fmt.Sprintf("trigger_t=%.2fs", float64(triggerTimeUs)/1e6))
 		}
 	}
-	if maxWp.Type != 0 {
-		descParts = append(descParts, fmt.Sprintf("max_wp=%c:$%04X:%d", maxWp.Type, maxWp.Addr, maxWp.Count))
+	if stopWp.Type != 0 {
+		descParts = append(descParts, fmt.Sprintf("stop_wp=%c:$%04X:%d", stopWp.Type, stopWp.Addr, stopWp.Count))
 	} else {
-		if maxCycles > 0 {
-			descParts = append(descParts, fmt.Sprintf("max_c=%d", maxCycles))
+		if stopCycles > 0 {
+			descParts = append(descParts, fmt.Sprintf("stop_c=%d", stopCycles))
 		}
-		if maxTimeUs > 0 {
-			descParts = append(descParts, fmt.Sprintf("max_t=%.2fs", float64(maxTimeUs)/1e6))
+		if stopTimeUs > 0 {
+			descParts = append(descParts, fmt.Sprintf("stop_t=%.2fs", float64(stopTimeUs)/1e6))
 		}
 	}
 	if len(resolvedWatches) > 0 {
@@ -935,21 +940,21 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "Sending configuration (%s)...\n", strings.Join(descParts, ", "))
 
-	// Encode trigger, max, and logging watchpoints in config data
-	// (binary struct: 8B trig_c, 8B trig_t, 8B max_c, 8B max_t, 8B trig_wp, 8B max_wp, 8B watch_hdr, N*8B watch_entries)
+	// Encode trigger, stop, and logging watchpoints in config data
+	// (binary struct: 8B trig_c, 8B trig_t, 8B stop_c, 8B stop_t, 8B trig_wp, 8B stop_wp, 8B watch_hdr, N*8B watch_entries)
 	configData := make([]byte, 56+len(resolvedWatches)*8)
 	binary.LittleEndian.PutUint64(configData[0:8], triggerCycle)
 	binary.LittleEndian.PutUint64(configData[8:16], triggerTimeUs)
-	binary.LittleEndian.PutUint64(configData[16:24], maxCycles)
-	binary.LittleEndian.PutUint64(configData[24:32], maxTimeUs)
+	binary.LittleEndian.PutUint64(configData[16:24], stopCycles)
+	binary.LittleEndian.PutUint64(configData[24:32], stopTimeUs)
 	configData[32] = triggerWp.Type
 	configData[33] = 0
 	binary.LittleEndian.PutUint16(configData[34:36], triggerWp.Addr)
 	binary.LittleEndian.PutUint32(configData[36:40], triggerWp.Count)
-	configData[40] = maxWp.Type
+	configData[40] = stopWp.Type
 	configData[41] = 0
-	binary.LittleEndian.PutUint16(configData[42:44], maxWp.Addr)
-	binary.LittleEndian.PutUint32(configData[44:48], maxWp.Count)
+	binary.LittleEndian.PutUint16(configData[42:44], stopWp.Addr)
+	binary.LittleEndian.PutUint32(configData[44:48], stopWp.Count)
 
 	configData[48] = byte(len(resolvedWatches))
 	for i, w := range resolvedWatches {
@@ -960,7 +965,7 @@ func main() {
 		binary.LittleEndian.PutUint32(configData[off+4:off+8], w.Count)
 	}
 
-	resp, err := picoRpcCall("config", traceBitmask, int64(triggerCycle), int(triggerTimeUs), int64(maxCycles), configData)
+	resp, err := picoRpcCall("config", traceBitmask, int64(triggerCycle), int(triggerTimeUs), int64(stopCycles), configData)
 	if err != nil || resp.Status != 0 {
 		Fatalf("Config RPC failed: %v (status=%d %s)", err, resp.Status, resp.Message)
 	}

@@ -90,19 +90,19 @@ x D4FD 31 #23; "kernel.0d4eec829c"+001f   leay -2,y decrement counter
 + D4FF 26 #25;
 ```
 
-## Running with Triggers and Watchpoints (`--trigger` and `--max`)
+## Running with Triggers and Watchpoints (`--trigger` and `--stop`)
 
-You can delay tracing until a specific event using `--trigger`, or stop execution automatically with a core dump using `--max`.
+You can delay tracing until a specific event using `--trigger`, or stop execution automatically with a core dump using `--stop` (or `--max`).
 
 ### Cycle Limits (`c:`)
 Specify cycle counts using decimal SI (`k=1000`, `m=1000000`, `g=1000000000`) or binary multipliers (`K=1024`, `M=1048576`, `G=1073741824`):
 
 ```bash
 # Run for exactly 50,000 cycles and stop:
-turbolab/build/tether.linux-amd64.exe -n --max=c:50k turbolab/build/turbos/turbos_dev.img
+turbolab/build/tether.linux-amd64.exe -n --stop=c:50k turbolab/build/turbos/turbos_dev.img
 
 # Run for 64K (65,536) cycles:
-turbolab/build/tether.linux-amd64.exe -n --max=c:64K turbolab/build/turbos/turbos_dev.img
+turbolab/build/tether.linux-amd64.exe -n --stop=c:64K turbolab/build/turbos/turbos_dev.img
 ```
 
 ### Module Watchpoints (`@module+offset`)
@@ -117,7 +117,7 @@ Target specific OS-9 modules by name without needing hardcoded hex addresses:
 
 ```bash
 # Halt when the CPU executes the first instruction of the OS-9 kernel entry point ($D4F9):
-turbolab/build/tether.linux-amd64.exe -n --max=@kernel+0x1B turbolab/build/turbos/turbos_dev.img
+turbolab/build/tether.linux-amd64.exe -n --stop=@kernel+0x1B turbolab/build/turbos/turbos_dev.img
 
 # Start tracing only when the CPU reaches the shell module:
 turbolab/build/tether.linux-amd64.exe --trigger=@shell turbolab/build/turbos/turbos_dev.img
@@ -135,11 +135,11 @@ Log individual matching bus cycles to stderr, even when general tracing (`--trac
   * `x:0x0020`: Log only instruction fetch (FIC) cycles.
 * Supports optional Nth count trigger (`addr:N`):
   * `0x1019:3`: Log only the 3rd access to `$1019`.
-* Can be combined with `--trace`, `--trigger`, and `--max`.
+* Can be combined with `--trace`, `--trigger`, and `--stop`.
 
 ```bash
 # Log every access to zero-page address $0020 without tracing other instructions:
-turbolab/build/tether.linux-amd64.exe -n --watch=0x0020 --max=c:50k turbolab/build/turbos/turbos_dev.img
+turbolab/build/tether.linux-amd64.exe -n --watch=0x0020 --stop=c:50k turbolab/build/turbos/turbos_dev.img
 
 # Watch writes to $0020, and trace instructions once @kernel+0x1B is reached:
 turbolab/build/tether.linux-amd64.exe --watch=w:0x0020 --trigger=@kernel+0x1B --trace=x turbolab/build/turbos/turbos_dev.img

@@ -11,8 +11,10 @@ test-quick:
 test-loading:
 	./01_loading_test.sh
 
-test-limits:
-	./02_max_limits_test.sh
+test-limits: test-stop
+
+test-stop:
+	./02_stop_limits_test.sh
 
 test-triggers:
 	./03_triggers_test.sh

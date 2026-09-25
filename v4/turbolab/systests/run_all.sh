@@ -18,7 +18,7 @@ echo -e "========================================================${NC}"
 
 SUITES=(
     "01_loading_test.sh"
-    "02_max_limits_test.sh"
+    "02_stop_limits_test.sh"
     "03_triggers_test.sh"
     "04_trace_flags_test.sh"
     "05_watchpoints_test.sh"
