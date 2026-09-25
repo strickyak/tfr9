@@ -51,6 +51,7 @@ const (
 	FAULT_ZERO_VECTOR = 2
 	FAULT_MAX_CYCLES  = 3
 	FAULT_MAX_TIME    = 4
+	FAULT_BRA_SELF    = 5
 )
 
 var FaultReasonNames = map[byte]string{
@@ -58,6 +59,7 @@ var FaultReasonNames = map[byte]string{
 	FAULT_ZERO_VECTOR: "Zero Interrupt Vector Read ($0000)",
 	FAULT_MAX_CYCLES:  "Max Cycles Limit Reached",
 	FAULT_MAX_TIME:    "Max Time Limit Reached",
+	FAULT_BRA_SELF:    "Infinite Loop (BRA $FE)",
 }
 
 func formatCC(cc byte) string {

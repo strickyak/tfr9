@@ -215,6 +215,8 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
   * The rest of the I/O page (`$FF04`..`$FFEF`) is **Red-Paged**. Any read or write access to this region once reset is achieved triggers an immediate CPU abort (`FAULT_RED_PAGE`).
 * **Zero Interrupt Vector Abort**:
   * When an interrupt acknowledge occurs (`BS=1`) and the fetched vector byte is `$00`, an immediate abort is triggered (`FAULT_ZERO_VECTOR`).
+* **Infinite Self-Branch Panic Abort**:
+  * When an opcode fetch (FIC) is `BRA` (`$20`) with relative offset `$FE` (i.e. `BRA *` / `BRA .`), representing an infinite loop commonly used for software panic or abort conditions, an immediate abort is triggered (`FAULT_BRA_SELF`).
 * **Limit Exceeded Abort**:
   * Reaching the configured `--max=c:...` or `--max=t:...` limit triggers `FAULT_MAX_CYCLES` or `FAULT_MAX_TIME`.
 * **Automatic 64KB Core Dump**:

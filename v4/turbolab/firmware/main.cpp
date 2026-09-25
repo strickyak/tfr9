@@ -83,6 +83,7 @@ constexpr byte FAULT_RED_PAGE    = 1;
 constexpr byte FAULT_ZERO_VECTOR = 2;
 constexpr byte FAULT_MAX_CYCLES  = 3;
 constexpr byte FAULT_MAX_TIME    = 4;
+constexpr byte FAULT_BRA_SELF    = 5;
 
 // Trace Event Kinds
 constexpr byte KIND_IDLE        = 0;  // '-'
@@ -311,7 +312,6 @@ FORCE_INLINE bool IN_RAM fg_loop_check_red_page(uint addr, bool is_idle, uint64_
 }
 
 FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool is_bs, uint64_t cycles) {
-#if ENABLE_FAULT_CHECKS
   // Zero Interrupt Vector Check:
   // If BS=1 (Interrupt Acknowledge) and vector data is 0:
   // Note: Only called in Phase 2 and Phase 3 (after CPU reset is achieved).
@@ -323,8 +323,25 @@ FORCE_INLINE bool IN_RAM fg_loop_check_zero_vector(uint addr, byte value, bool i
     fault_triggered = true;
     return true;
   }
+  return false;
+}
+
+FORCE_INLINE bool IN_RAM fg_loop_check_bra_self(uint addr, byte value, bool is_fic, bool reading, bool is_idle, uint64_t cycles) {
+#if ENABLE_FAULT_CHECKS
+  // Infinite Loop / Abort Check:
+  // If FIC opcode is BRA ($20) and the target of the branch is the instruction itself (offset is $FE):
+  if (UNLIKELY(value == 0x20) && is_fic && reading && !is_idle && cpu_started) {
+    if (ram[(addr + 1) & 0xFFFF] == 0xFE) {
+      fault_reason = FAULT_BRA_SELF;
+      fault_cycle = cycles;
+      fault_addr = addr;
+      fault_data = value;
+      fault_triggered = true;
+      return true;
+    }
+  }
 #else
-  (void)addr; (void)value; (void)is_bs; (void)cycles;
+  (void)addr; (void)value; (void)is_fic; (void)reading; (void)is_idle; (void)cycles;
 #endif
   return false;
 }
@@ -586,8 +603,10 @@ phase2:
 #if ENABLE_FAULT_CHECKS
       const bool vma     = 0 != (prev_late_pins & (1 << AVMA));
       const bool is_idle = !vma && !is_bs;
+      const bool is_fic  = !is_idle && (0 != (prev_late_pins & (1 << LIC)));
 #else
       const bool is_idle = false;
+      const bool is_fic  = false;
 #endif
       cycles++;
 
@@ -610,6 +629,12 @@ phase2:
         value = (byte)prev_late_pins;
         fg_loop_handle_write(addr, value);
       }
+
+#if ENABLE_FAULT_CHECKS
+      if (fg_loop_check_bra_self(addr, value, is_fic, reading, is_idle, cycles)) {
+        goto phase4;
+      }
+#endif
 
       if (fg_loop_check_limits(cycles, addr, value)) {
         goto phase4;
@@ -682,6 +707,12 @@ phase3:
       fg_loop_trace_cycle(cycles, addr, value, kind, reading, is_bs, early_pins, prev_late_pins);
       prev_addr = addr;
       prev_kind = kind;
+
+#if ENABLE_FAULT_CHECKS
+      if (fg_loop_check_bra_self(addr, value, kind == KIND_FIC, reading, is_idle, cycles)) {
+        goto phase4;
+      }
+#endif
 
       if (fg_loop_check_limits(cycles, addr, value)) {
         goto phase4;
