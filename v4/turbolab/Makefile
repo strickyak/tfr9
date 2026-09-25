@@ -57,7 +57,13 @@ LISTINGS:
 flash: build/turbolab_v4.uf2
 	cp -fv $< /media/$$USER/RP*
 
+systest:
+	$(MAKE) -C systests test
+
+systest-quick:
+	$(MAKE) -C systests test-quick
+
 clean:
 	rm -rf build/*
 
-.PHONY: all clean flash BUILD-DIR TETHERS TURBOS LISTINGS ANNEALING
+.PHONY: all clean flash BUILD-DIR TETHERS TURBOS LISTINGS ANNEALING systest systest-quick

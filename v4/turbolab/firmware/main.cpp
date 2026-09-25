@@ -723,6 +723,13 @@ phase2:
       goto phase4;
     }
 
+    if (UNLIKELY(max_time_us > 0 && start_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+      fault_reason = FAULT_MAX_TIME;
+      fault_cycle = cycles;
+      fault_triggered = true;
+      goto phase4;
+    }
+
     if (!term_input.Empty()) {
       sim_status_reg |= SIM_RX_BIT;
     }
@@ -821,6 +828,13 @@ phase2:
 phase3:
   while (true) {
     if (UNLIKELY(fault_triggered)) {
+      goto phase4;
+    }
+
+    if (UNLIKELY(max_time_us > 0 && start_time_us > 0 && (time_us_64() - start_time_us) >= max_time_us)) {
+      fault_reason = FAULT_MAX_TIME;
+      fault_cycle = cycles;
+      fault_triggered = true;
       goto phase4;
     }
 

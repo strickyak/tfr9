@@ -1,0 +1,110 @@
+#!/usr/bin/expect -f
+# 07_interactive.exp - Automated expect script driving the live 6309 OS-9 Shell
+
+set timeout 15
+
+# Determine paths
+set script_dir [file dirname [file normalize [info script]]]
+set turbolab_dir [file normalize "$script_dir/.."]
+
+set tether_bin ""
+if {[info exists env(TETHER_BIN)] && [file executable $env(TETHER_BIN)]} {
+    set tether_bin $env(TETHER_BIN)
+} elseif {[file executable "$turbolab_dir/build/tether.linux-amd64.exe"]} {
+    set tether_bin "$turbolab_dir/build/tether.linux-amd64.exe"
+} elseif {[file executable "$turbolab_dir/build/tether"]} {
+    set tether_bin "$turbolab_dir/build/tether"
+} else {
+    set candidates [glob -nocomplain "$turbolab_dir/build/tether.*.exe"]
+    if {[llength $candidates] > 0} {
+        set tether_bin [lindex $candidates 0]
+    }
+}
+
+if {$tether_bin eq ""} {
+    puts stderr "ERROR: tether binary not found in $turbolab_dir/build"
+    exit 1
+}
+
+set rom_file "$turbolab_dir/build/turbos/turbos_dev.img.rom"
+set listings_dir "$turbolab_dir/build/listings"
+
+puts "Running Suite 7: Expect Interactive OS-9 Session"
+puts "Spawning: $tether_bin -listings $listings_dir $rom_file"
+
+spawn $tether_bin -listings $listings_dir $rom_file
+
+# 1. Wait for OS-9 Shell boot
+expect {
+    "TOS:" {
+        puts "  PASS: Reached OS-9 prompt 'TOS:'"
+    }
+    timeout {
+        puts stderr "  FAIL: Timed out waiting for OS-9 prompt"
+        exit 1
+    }
+}
+
+# 2. Test command: mfree
+send "mfree\r"
+expect {
+    "Total pages free" {
+        puts "  PASS: 'mfree' executed and reported free pages"
+    }
+    timeout {
+        puts stderr "  FAIL: Timed out waiting for mfree output"
+        exit 1
+    }
+}
+expect "TOS:"
+
+# 3. Test command: procs
+send "procs\r"
+expect {
+    -re "(?i)primary module" {
+        puts "  PASS: 'procs' executed and displayed process table"
+    }
+    timeout {
+        puts stderr "  FAIL: Timed out waiting for procs output"
+        exit 1
+    }
+}
+expect "TOS:"
+
+# 4. Test command: mdir -e
+send "mdir -e\r"
+expect {
+    -re "(?i)kernel" {
+        puts "  PASS: 'mdir -e' listed memory modules including 'kernel'"
+    }
+    timeout {
+        puts stderr "  FAIL: Timed out waiting for mdir output"
+        exit 1
+    }
+}
+expect "TOS:"
+
+# 5. Clean termination via Control-C (SIGINT)
+# Sending Control-C character (\x03)
+send "\x03"
+expect {
+    "Interrupted by SIGINT" {
+        puts "  PASS: Caught SIGINT and announced clean exit"
+    }
+    "SIGINT" {
+        puts "  PASS: Caught SIGINT"
+    }
+    eof {
+        puts "  PASS: Process closed cleanly on EOF"
+    }
+    timeout {
+        puts stderr "  FAIL: Timed out waiting for Tether SIGINT shutdown"
+        exit 1
+    }
+}
+
+catch wait result
+puts "========================================================"
+puts " Summary for Suite 7 (Expect Interactive): ALL PASSED"
+puts "========================================================"
+exit 0
