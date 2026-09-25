@@ -37,11 +37,11 @@ The TurboLab configuration has its own firmware (`turbolab/firmware/`) and its o
   * `i`: Interrupt and RTI events.
   * `t`: OS-9 Traps (API call and return).
 
-* `--trigger=c:50000` or `--trigger=s:5`  
-  Trigger trace after cycle count (e.g. `c:50000`) or duration in seconds (e.g. `s:5`), suppressing trace output prior to the trigger.
+* `--trigger=c:50000`, `--trigger=s:5`, or `--trigger=r/w/x:0x1234[:N]`  
+  Trigger trace after cycle count (e.g. `c:50000`), duration in seconds (e.g. `s:5`), or watchpoint event (`r:0x1234[:N]` on Nth read, `w:0x1234[:N]` on Nth write, `x:0x1234[:N]` on Nth opcode fetch with FIC). Trace output prior to trigger is suppressed.
 
-* `--max=c:1m` or `--max=t:30s`  
-  Maximum execution limit by cycle count (e.g. `c:1m` = 1,000,000 cycles) or time (e.g. `t:30s` = 30 seconds). Reaching the limit triggers a fault and core dump.
+* `--max=c:1m`, `--max=t:30s`, or `--max=r/w/x:0x1234[:N]`  
+  Maximum execution limit by cycle count (e.g. `c:1m`), duration (e.g. `t:30s`), or watchpoint event (`r:`, `w:`, `x:`). Reaching the limit triggers a clean stop and core dump.
 
 * `--listings=listings_dirname`  
   Directory containing pre-assembled OS-9 module listings named `<name>.<size><crc>` (e.g. `kernel.0d4eec829c`, `ioman.070aaecac4`). Primordial modules identified in the RAM image that lack a command-line listing are automatically resolved from this directory.
@@ -218,7 +218,7 @@ Signal characters appear immediately after the cycle number and semicolon `;` wi
 * **Infinite Self-Branch Panic Abort**:
   * When an opcode fetch (FIC) is `BRA` (`$20`) with relative offset `$FE` (i.e. `BRA *` / `BRA .`), representing an infinite loop commonly used for software panic or abort conditions, an immediate abort is triggered (`FAULT_BRA_SELF`).
 * **Limit Exceeded Abort**:
-  * Reaching the configured `--max=c:...` or `--max=t:...` limit triggers `FAULT_MAX_CYCLES` or `FAULT_MAX_TIME`.
+  * Reaching the configured `--max=c:...`, `--max=t:...`, or `--max=r/w/x:...` limit triggers `FAULT_MAX_CYCLES`, `FAULT_MAX_TIME`, or `FAULT_MAX_WATCHPOINT`.
 * **Automatic 64KB Core Dump**:
   * Upon any abort, the CPU is immediately halted and Core 1 reads the full 64KB RAM image.
   * The Pico streams the memory image to Tether in 64 chunks of 1024 bytes via `C_CORE_DUMP` (cmd 203).

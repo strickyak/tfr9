@@ -233,7 +233,7 @@ The firmware monitors the bus for invalid hardware and vector states:
 - **Red Page Violation (`FAULT_RED_PAGE`)**: Access to reserved hardware addresses in range `$FF04..$FFEF`.
 - **Zero Interrupt Vector (`FAULT_ZERO_VECTOR`)**: An interrupt acknowledge occurs (`BS=1`) but the vector address byte reads `$00`.
 - **Infinite Self-Branch (`FAULT_BRA_SELF`)**: Opcode fetch is `BRA *` (`$20 $FE`), indicating software panic / abort.
-- **Execution Limit Exceeded (`FAULT_MAX_CYCLES` / `FAULT_MAX_TIME`)**: The requested `--max` threshold was reached.
+- **Execution Limit Exceeded (`FAULT_MAX_CYCLES` / `FAULT_MAX_TIME` / `FAULT_MAX_WATCHPOINT`)**: The requested `--max` threshold or watchpoint was reached.
 
 #### Core Dump Handling
 When any fault or max limit occurs:

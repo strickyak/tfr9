@@ -47,19 +47,21 @@ const (
 
 // Fault reasons
 const (
-	FAULT_RED_PAGE    = 1
-	FAULT_ZERO_VECTOR = 2
-	FAULT_MAX_CYCLES  = 3
-	FAULT_MAX_TIME    = 4
-	FAULT_BRA_SELF    = 5
+	FAULT_RED_PAGE       = 1
+	FAULT_ZERO_VECTOR    = 2
+	FAULT_MAX_CYCLES     = 3
+	FAULT_MAX_TIME       = 4
+	FAULT_BRA_SELF       = 5
+	FAULT_MAX_WATCHPOINT = 6
 )
 
 var FaultReasonNames = map[byte]string{
-	FAULT_RED_PAGE:    "Red Page Access ($FF04..$FFEF)",
-	FAULT_ZERO_VECTOR: "Zero Interrupt Vector Read ($0000)",
-	FAULT_MAX_CYCLES:  "Max Cycles Limit Reached",
-	FAULT_MAX_TIME:    "Max Time Limit Reached",
-	FAULT_BRA_SELF:    "Infinite Loop (BRA $FE)",
+	FAULT_RED_PAGE:       "Red Page Access ($FF04..$FFEF)",
+	FAULT_ZERO_VECTOR:    "Zero Interrupt Vector Read ($0000)",
+	FAULT_MAX_CYCLES:     "Max Cycles Limit Reached",
+	FAULT_MAX_TIME:       "Max Time Limit Reached",
+	FAULT_BRA_SELF:       "Infinite Loop (BRA $FE)",
+	FAULT_MAX_WATCHPOINT: "Watchpoint Limit Reached",
 }
 
 func formatCC(cc byte) string {
@@ -81,8 +83,8 @@ var (
 	flagWire     = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 	flagBaud     = flag.Uint("baud", 115200, "serial device baud rate")
 	flagTrace    = flag.String("trace", "", "trace flags: comma-separated x,+,r,w,i,t,- (or 1 for all except idle; add idle with 1,idle or 1,-)")
-	flagTrigger  = flag.String("trigger", "", "trigger trace on cycle (c:50000) or seconds (s:5)")
-	flagMax      = flag.String("max", "", "max cycles (c:1m) or max time (t:30s)")
+	flagTrigger  = flag.String("trigger", "", "trigger trace on cycle (c:50000), time (s:5), or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
+	flagMax      = flag.String("max", "", "max execution limit: c:<cycles>, t:<duration>, or watchpoint (r:0x1234[:N], w:0x1234[:N], x:0x1234[:N])")
 	flagDebug    = flag.String("debug", "", "debug options (e.g. --debug=u to log packets in and out on stderr)")
 	flagListings = flag.String("listings", "", "directory with module listings named <name>.<size><crc>")
 	flagReflash  = flag.Bool("reflash", false, "reboot Pico into BOOTSEL mode for reflashing and exit")
@@ -177,6 +179,61 @@ func parseDurationUs(s string) (uint64, error) {
 	return uint64(v * 1000000.0), err
 }
 
+type WatchpointConfig struct {
+	Type  byte // 'r', 'w', 'x' or 0
+	Addr  uint16
+	Count uint32
+}
+
+func parseAddress(s string) (uint16, error) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "$") {
+		v, err := strconv.ParseUint(s[1:], 16, 16)
+		return uint16(v), err
+	}
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		v, err := strconv.ParseUint(s[2:], 16, 16)
+		return uint16(v), err
+	}
+	v, err := strconv.ParseUint(s, 16, 16)
+	if err == nil {
+		return uint16(v), nil
+	}
+	v, err = strconv.ParseUint(s, 10, 16)
+	return uint16(v), err
+}
+
+func parseWatchpoint(s string) (WatchpointConfig, bool, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return WatchpointConfig{}, false, nil
+	}
+	t := strings.ToLower(parts[0])
+	if t != "r" && t != "w" && t != "x" {
+		return WatchpointConfig{}, false, nil
+	}
+	addr, err := parseAddress(parts[1])
+	if err != nil {
+		return WatchpointConfig{}, true, fmt.Errorf("invalid watchpoint address %q: %w", parts[1], err)
+	}
+	count := uint32(1)
+	if len(parts) == 3 {
+		c, err := parseCount(parts[2])
+		if err != nil {
+			return WatchpointConfig{}, true, fmt.Errorf("invalid watchpoint count %q: %w", parts[2], err)
+		}
+		if c == 0 {
+			return WatchpointConfig{}, true, fmt.Errorf("watchpoint count must be >= 1")
+		}
+		count = uint32(c)
+	}
+	return WatchpointConfig{
+		Type:  t[0],
+		Addr:  addr,
+		Count: count,
+	}, true, nil
+}
+
 func parseTraceFlags(str string) (int, error) {
 	var bitmask int
 	if str == "" {
@@ -240,67 +297,90 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Custom timing configured: %s\n", tuningParams.String())
 	}
 
-	speedEstimator := NewCycleSpeedEstimator(traceBitmask != 0)
-
 	// Parse trigger
 	var triggerCycle uint64
 	var triggerTimeUs uint64
+	var triggerWp WatchpointConfig
 	if *flagTrigger != "" {
-		parts := strings.SplitN(*flagTrigger, ":", 2)
-		if len(parts) != 2 {
-			fmt.Fprintf(os.Stderr, "Invalid trigger format %q (expected c:<cycles> or s:<seconds>)\n", *flagTrigger)
-			os.Exit(1)
-		}
-		switch parts[0] {
-		case "c":
-			c, err := parseCount(parts[1])
+		wp, isWp, err := parseWatchpoint(*flagTrigger)
+		if isWp {
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid trigger cycle %q: %v\n", parts[1], err)
+				fmt.Fprintf(os.Stderr, "Invalid trigger watchpoint: %v\n", err)
 				os.Exit(1)
 			}
-			triggerCycle = c
-		case "s":
-			us, err := parseDurationUs(parts[1])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid trigger time %q: %v\n", parts[1], err)
+			triggerWp = wp
+			if traceBitmask == 0 {
+				traceBitmask = TRACE_X | TRACE_PLUS | TRACE_R | TRACE_W | TRACE_I | TRACE_T
+			}
+		} else {
+			parts := strings.SplitN(*flagTrigger, ":", 2)
+			if len(parts) != 2 {
+				fmt.Fprintf(os.Stderr, "Invalid trigger format %q (expected c:<cycles>, s:<seconds>, or r/w/x:<addr>[:N])\n", *flagTrigger)
 				os.Exit(1)
 			}
-			triggerTimeUs = us
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown trigger type %q (expected 'c' or 's')\n", parts[0])
-			os.Exit(1)
+			switch parts[0] {
+			case "c":
+				c, err := parseCount(parts[1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Invalid trigger cycle %q: %v\n", parts[1], err)
+					os.Exit(1)
+				}
+				triggerCycle = c
+			case "s":
+				us, err := parseDurationUs(parts[1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Invalid trigger time %q: %v\n", parts[1], err)
+					os.Exit(1)
+				}
+				triggerTimeUs = us
+			default:
+				fmt.Fprintf(os.Stderr, "Unknown trigger type %q (expected 'c', 's', 'r', 'w', or 'x')\n", parts[0])
+				os.Exit(1)
+			}
 		}
 	}
 
 	// Parse max limits
 	var maxCycles uint64
 	var maxTimeUs uint64
+	var maxWp WatchpointConfig
 	if *flagMax != "" {
-		parts := strings.SplitN(*flagMax, ":", 2)
-		if len(parts) != 2 {
-			fmt.Fprintf(os.Stderr, "Invalid max format %q (expected c:<cycles> or t:<duration>)\n", *flagMax)
-			os.Exit(1)
-		}
-		switch parts[0] {
-		case "c":
-			c, err := parseCount(parts[1])
+		wp, isWp, err := parseWatchpoint(*flagMax)
+		if isWp {
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid max cycles %q: %v\n", parts[1], err)
+				fmt.Fprintf(os.Stderr, "Invalid max watchpoint: %v\n", err)
 				os.Exit(1)
 			}
-			maxCycles = c
-		case "t":
-			us, err := parseDurationUs(parts[1])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid max time %q: %v\n", parts[1], err)
+			maxWp = wp
+		} else {
+			parts := strings.SplitN(*flagMax, ":", 2)
+			if len(parts) != 2 {
+				fmt.Fprintf(os.Stderr, "Invalid max format %q (expected c:<cycles>, t:<duration>, or r/w/x:<addr>[:N])\n", *flagMax)
 				os.Exit(1)
 			}
-			maxTimeUs = us
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown max type %q (expected 'c' or 't')\n", parts[0])
-			os.Exit(1)
+			switch parts[0] {
+			case "c":
+				c, err := parseCount(parts[1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Invalid max cycles %q: %v\n", parts[1], err)
+					os.Exit(1)
+				}
+				maxCycles = c
+			case "t":
+				us, err := parseDurationUs(parts[1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Invalid max time %q: %v\n", parts[1], err)
+					os.Exit(1)
+				}
+				maxTimeUs = us
+			default:
+				fmt.Fprintf(os.Stderr, "Unknown max type %q (expected 'c', 't', 'r', 'w', or 'x')\n", parts[0])
+				os.Exit(1)
+			}
 		}
 	}
+
+	speedEstimator := NewCycleSpeedEstimator(traceBitmask != 0)
 
 	// Separate positional arguments into image/modules and listings
 	var binArgs []string
@@ -748,7 +828,7 @@ func main() {
 					allDrained:
 						speedEstimator.PrintReport()
 						RestoreSttyState()
-						if faultReason == FAULT_MAX_CYCLES || faultReason == FAULT_MAX_TIME {
+						if faultReason == FAULT_MAX_CYCLES || faultReason == FAULT_MAX_TIME || faultReason == FAULT_MAX_WATCHPOINT {
 							os.Exit(0)
 						} else {
 							os.Exit(1)
@@ -789,20 +869,44 @@ func main() {
 	}
 
 	// ── Phase 2: Send configuration via RPC ──
-	if maxTimeUs > 0 {
-		fmt.Fprintf(os.Stderr, "Sending configuration (trace=0x%02X, trigger_c=%d, max_c=%d, max_t=%.2fs)...\n",
-			traceBitmask, triggerCycle, maxCycles, float64(maxTimeUs)/1e6)
+	var descParts []string
+	descParts = append(descParts, fmt.Sprintf("trace=0x%02X", traceBitmask))
+	if triggerWp.Type != 0 {
+		descParts = append(descParts, fmt.Sprintf("trigger_wp=%c:$%04X:%d", triggerWp.Type, triggerWp.Addr, triggerWp.Count))
 	} else {
-		fmt.Fprintf(os.Stderr, "Sending configuration (trace=0x%02X, trigger_c=%d, max_c=%d)...\n",
-			traceBitmask, triggerCycle, maxCycles)
+		if triggerCycle > 0 {
+			descParts = append(descParts, fmt.Sprintf("trigger_c=%d", triggerCycle))
+		}
+		if triggerTimeUs > 0 {
+			descParts = append(descParts, fmt.Sprintf("trigger_t=%.2fs", float64(triggerTimeUs)/1e6))
+		}
 	}
+	if maxWp.Type != 0 {
+		descParts = append(descParts, fmt.Sprintf("max_wp=%c:$%04X:%d", maxWp.Type, maxWp.Addr, maxWp.Count))
+	} else {
+		if maxCycles > 0 {
+			descParts = append(descParts, fmt.Sprintf("max_c=%d", maxCycles))
+		}
+		if maxTimeUs > 0 {
+			descParts = append(descParts, fmt.Sprintf("max_t=%.2fs", float64(maxTimeUs)/1e6))
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Sending configuration (%s)...\n", strings.Join(descParts, ", "))
 
-	// Encode trigger and max values in config data (binary struct: 8B trig_c, 8B trig_t, 8B max_c, 8B max_t)
-	configData := make([]byte, 32)
+	// Encode trigger and max values in config data (binary struct: 8B trig_c, 8B trig_t, 8B max_c, 8B max_t, 8B trig_wp, 8B max_wp)
+	configData := make([]byte, 48)
 	binary.LittleEndian.PutUint64(configData[0:8], triggerCycle)
 	binary.LittleEndian.PutUint64(configData[8:16], triggerTimeUs)
 	binary.LittleEndian.PutUint64(configData[16:24], maxCycles)
 	binary.LittleEndian.PutUint64(configData[24:32], maxTimeUs)
+	configData[32] = triggerWp.Type
+	configData[33] = 0
+	binary.LittleEndian.PutUint16(configData[34:36], triggerWp.Addr)
+	binary.LittleEndian.PutUint32(configData[36:40], triggerWp.Count)
+	configData[40] = maxWp.Type
+	configData[41] = 0
+	binary.LittleEndian.PutUint16(configData[42:44], maxWp.Addr)
+	binary.LittleEndian.PutUint32(configData[44:48], maxWp.Count)
 
 	resp, err := picoRpcCall("config", traceBitmask, int64(triggerCycle), int(triggerTimeUs), int64(maxCycles), configData)
 	if err != nil || resp.Status != 0 {
