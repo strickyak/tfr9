@@ -254,6 +254,7 @@ byte* fifo_indicator_ram = nullptr;
 
 // Called every bus cycle in the foreground to manage flow control.
 FORCE_INLINE void IN_RAM FlowControlCheck() {
+  if (centipede_config.become_coco3) return;
   uint sz = fg2bg.size();
 
 #if FIFO_INDICATOR_0500
@@ -434,6 +435,8 @@ volatile int nmi_fuse;
 // Declared here (before gspoon.h) so both gspoon.h functions
 // and foreground tasks can access it.
 volatile bool spoon_has_work = false;
+bool SamP1Bit = false;
+bool SamTyBit = false;
 
 #include "gspoon.h"
 #include "tcl_io.h"
@@ -510,9 +513,6 @@ bool MmuEnabled;
 byte MmuTask;
 bool StickyRamFFEx;
 byte MmuMap[2][8];
-
-bool SamP1Bit;
-bool SamTyBit;
 
 #include "coco64k.h"
 #if BECOME_COCO3
@@ -928,12 +928,9 @@ class CoreEngine : public BackgroundSharedState {
                   GERBIL_DRIVE(dbus);
 #if BECOME_COCO3
                 } else if (UNLIKELY(centipede_config.become_coco3 && abus >= 0xFFF0)) {
-                  if (SamTyBit) {
-                    uint atrans = T::TranslateCoco64kRamAddress(abus);
-                    dbus = ram[atrans];
-                  } else {
-                    dbus = coco3_rom[abus - 0x8000];
-                  }
+                  // CoCo 3 hardware reset & interrupt vectors ($FFF0-$FFFF) unconditionally
+                  // read from internal ROM, pointing into the constant $FE page ($FEEE..$FEFD).
+                  dbus = coco3_rom[abus - 0x8000];
                   GERBIL_DRIVE(dbus);
 #endif
                 } else {
@@ -941,19 +938,19 @@ class CoreEngine : public BackgroundSharedState {
                   dbus = (byte)(GERBIL_GET());  // log & debug
                 }
               }
-            } else if (
 #if BECOME_COCO3
-                    UNLIKELY(centipede_config.become_coco3
-                             && !T::UseCoco64kRam(abus)
-                             && 0x8000 <= abus
-                             && abus < 0xFF00)
-#else
-                    false
-#endif
-                    ) {
-#if BECOME_COCO3
-              dbus = coco3_rom[abus - 0x8000];
-              GERBIL_DRIVE(dbus);
+            } else if (centipede_config.become_coco3) {
+              // CoCo 3 Memory Decoding:
+              // Below $FF00, addresses are either CoCo 3 ROM or MMU-mapped RAM.
+              // Never pass to CoCo 2 motherboard ROM or RAM.
+              if (T::IsCoco3Rom(abus)) {
+                dbus = coco3_rom[abus - 0x8000];
+                GERBIL_DRIVE(dbus);
+              } else {
+                uint atrans = T::TranslateCoco64kRamAddress(abus);
+                dbus = ram[atrans];
+                GERBIL_DRIVE(dbus);
+              }
 #endif
             } else if (
                     centipede_config.rom_disk11
@@ -966,7 +963,7 @@ class CoreEngine : public BackgroundSharedState {
               dbus = disk11_rom[abus & 0x1FFF];
               GERBIL_DRIVE(dbus);
             } else if (
-                    (centipede_config.ram_64k || centipede_config.become_coco3)
+                    centipede_config.ram_64k
                     && T::UseCoco64kRam(abus)) {
               uint atrans = T::TranslateCoco64kRamAddress(abus);
               dbus = ram[atrans];
@@ -1009,6 +1006,9 @@ class CoreEngine : public BackgroundSharedState {
                                 ? T::TranslateCoco64kRamAddress(abus)
                                 : (T::UseCoco64kRam(abus) ? T::TranslateCoco64kRamAddress(abus) : abus);
               ram[atrans] = dbus;
+              if (centipede_config.become_coco3 && 0x0400 <= abus && abus < 0x0600) {
+                ram[abus] = dbus;
+              }
 
               // Optionally, always trace all non-special writes.
               if (centipede_config.trace_writes) {
@@ -1145,6 +1145,7 @@ struct Engine3 : public DoFloppy<Engine3>,
     orchestra90::Init();
 #endif
     ResetCompressCycles();  // call once at session start
+    gspoon::ForceBecomeCoco3();
     RunCores(core1_trampoline3, core0_trampoline3);
   }
 };
@@ -1216,6 +1217,8 @@ int IN_RAM main() {
   start_20ms_timer();
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
+
+/*
 #if !FOR_COCO3
   centipede_config.SetStandard();
 #endif
@@ -1227,8 +1230,10 @@ int IN_RAM main() {
   centipede_config.trace_reads = false;
   centipede_config.floppy_pc = false;
   set_floppy_names();
+*/
 
 #if BECOME_COCO3
+  gspoon::ForceBecomeCoco3();
   Engine3::RunEngine();
 #else
   Engine0::RunEngine();

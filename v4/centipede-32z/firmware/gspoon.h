@@ -321,6 +321,7 @@ void IN_RAM GPoke2(uint a, uint x) {
   WriteStep(a, (byte)x);
 }
 
+
 void IN_RAM DriveConsole() {
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
@@ -405,6 +406,30 @@ void IN_RAM DriveConsole() {
           byte low_bits = GPeek1(0xFF22) & 0x07;
           GPoke1(0xFF22, low_bits);
 
+          // Guarantee SAM P1=0 (Bank 0) and TY=0 (ROM mode) at boot
+          GPoke1(0xFFD4, 0);
+          GPoke1(0xFFDE, 0);
+          SamTyBit = false;
+          SamP1Bit = false;
+
+          // Clear cold/warm start flags in both RAM banks and physical DRAM
+          ram[0x10071] = 0;
+          ram[0x10072] = 0;
+          ram[0x10073] = 0;
+          ram[0x1FEED] = 0;
+          ram[0x10088] = 0x04;
+          ram[0x10089] = 0x00;
+          ram[0x0071] = 0;
+          ram[0x0072] = 0;
+          ram[0x0073] = 0;
+          ram[0xFEED] = 0;
+          GPoke1(0x0071, 0);
+          GPoke1(0x0072, 0);
+          GPoke1(0x0073, 0);
+          GPoke1(0xFEED, 0);
+        }
+
+        if (centipede_config.become_coco3) {
           Jump(0x8C1B);
         } else {
           Jump(0xA027);
@@ -520,6 +545,12 @@ void IN_RAM SpoonfeedConsoleOnReset() {
   for (uint a = 0x0000; a < 0x0600; a++) {
     GPoke1(a, (byte)0xE1);
   }
+
+  // Ensure warm-start flags in CoCo RAM are cleared so BASIC always does a full cold start.
+  GPoke1(0x0071, 0x00);  // RSTFLG ($55 = warm, $00 = cold)
+  GPoke1(0x0072, 0x00);  // RSTVEC (MSB)
+  GPoke1(0x0073, 0x00);  // RSTVEC (LSB)
+  GPoke1(0xFEED, 0x00);  // INT.FLAG ($55 = valid in CoCo 3 Super Extended BASIC)
 #endif // USE_PMODE4
   // Then continue with the Console driver.
 
@@ -652,11 +683,23 @@ void SleepMillis(Coro* c, uint64_t ms) {
 
 Coro* g_spoon_coro = nullptr;
 
+
+// HACK become_coco3
+// TODO un-HACK become_coco3
+inline void ForceBecomeCoco3() {
+  memset(&centipede_config, 0, sizeof centipede_config);
+  centipede_config.become_coco3 = true;
+  centipede_config.trace_writes = true;
+  centipede_config.trace_reads = false;
+}
+
 // BackgroundSpoonFeeder runs in the background thread,
 // whereas all the above (which should have IN_RAM) run
 // in the foreground thread.
 
 void BackgroundSpoonFeeder(Coro* coro_self) {
+  ForceBecomeCoco3();
+
   console::inkey_state iks = {};
   g_spoon_coro = coro_self;
   rpc::g_vfs_coro = coro_self;  // Let all VFS RPC calls yield
@@ -953,17 +996,20 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
   } // End REPL
 
 BYE:
+  ForceBecomeCoco3();
+
   if (tcl_io::active_io & tcl_io::IO_COCO2) {
     if (centipede_config.become_coco3) {
       tcl_io::emit_string("Launching Coco3...\n");
     } else {
       tcl_io::emit_string("Launching Coco2...\n");
     }
-        uint cmd = ((uint)BG2FG_EXIT_CONSOLE << 24);
-        while (!bg2fg.push(cmd)) {
+
+    uint cmd = ((uint)BG2FG_EXIT_CONSOLE << 24);
+    while (!bg2fg.push(cmd)) {
           sleep_ms(1);
-        }
-        // DriveConsole will clear IO_COCO2 on exit.
+    }
+    // DriveConsole will clear IO_COCO2 on exit.
   } else {
         tcl_io::emit_string("Goodbye.\n");
   }

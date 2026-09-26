@@ -39,20 +39,19 @@ struct DoCoco128k {
   static constexpr bool HasCoco128k() { return true; }
   static constexpr bool HasCoco64k() { return true; }
 
+  FORCE_INLINE static bool IsCoco3Rom(uint a) {
+    // In CoCo 3:
+    // Internal 32KB ROM is mapped to $8000-$FDFF when SamTyBit == 0.
+    // When SamTyBit == 1 (all-RAM mode), all addresses are RAM.
+    // Addresses < $8000 are always RAM.
+    // The constant $FE page ($FE00-$FEFF) is always RAM (Block 15).
+    return !SamTyBit && (0x8000 <= a) && (a < 0xFE00);
+  }
+
   // FORCE_INLINE ensures these class methods are inlined directly into
   // the standalone IN_RAM function core1_trampoline3(), avoiding Flash access.
   FORCE_INLINE static bool UseCoco64kRam(uint a) {
-    if (centipede_config.become_coco3) {
-      // In CoCo 3 mode:
-      // Once CoCo 3 completes initial boot, SamTyBit=1 (all-RAM mode) for normal operation.
-      // In early boot (SamTyBit=0), addresses < $8000 and the constant $FE page ($FE00-$FEFF)
-      // are RAM, while $8000-$FDFF reads ROM.
-      // (Note: abus >= 0xFF00 is already filtered before this function is called).
-      return SamTyBit || (a < 0x8000) || (a >= 0xFE00);
-    } else {
-      // CoCo 2 compatibility mode
-      return (a < (SamTyBit ? 0xFF00 : 0x8000));
-    }
+    return (a < (SamTyBit ? 0xFF00 : 0x8000));
   }
 
   FORCE_INLINE static uint TranslateCoco64kRamAddress(uint a) {
@@ -101,6 +100,70 @@ struct DoCoco128k {
     IOWriters[0xD5] = WriteFFD5_P1Set;
     IOWriters[0xDE] = WriteFFDE_TyClear;
     IOWriters[0xDF] = WriteFFDF_TySet;
+
+    // Ensure CoCo 3 ROM boot sequence selects SAM Page 0 ($FFD4) rather than Page 1 ($FFD5)
+    // at $C09D (coco3.asm:8854). On a real CoCo 3 with GIME, $FFD5 is ignored.
+    // On Centipede plugged into a CoCo 2 motherboard, writing $FFD5 sets SAM P1=1,
+    // which diverts CPU writes away from motherboard DRAM Bank 0 (where VDG reads video text).
+#if BECOME_COCO3
+    coco3_rom[0xC09D - 0x8000 + 1] = 0x5C; // STA $-04,U (write $FFD4: P1=0) instead of $-03,U ($FFD5: P1=1)
+
+    // Insert CLRA; TFR A, DP into the 5 dummy NOPs at $C041..$C045 (coco3.asm:8807-8811)
+    // to guarantee DP = 0 on cold boot:
+    coco3_rom[0xC041 - 0x8000] = 0x4F;  // CLRA
+    coco3_rom[0xC042 - 0x8000] = 0x1F;  // TFR
+    coco3_rom[0xC043 - 0x8000] = 0x8B;  // A, DP
+
+    // Patch at $A05B in coco3_rom:
+    // In CoCo 2 Color BASIC, $A05E was TFR B, DP ($1F $9B).
+    // Tandy replaced it in CoCo 3 with JSR >$8C2E; JMP >$SC000, and at $A05B jumped over it:
+    //   $A05B: 7E A0 72 (JMP >$A072, where $A072 is JMP ,Y)
+    // CoCo 3 BASIC thus relied on hardware reset clearing DP to 0, which does not happen
+    // when Centipede jumps into BASIC without a CPU hardware reset.
+    // Replace $A05B..$A05F with:
+    //   $A05B: 4F        CLRA
+    //   $A05C: 1F 8B     TFR A, DP
+    //   $A05E: 6E A4     JMP ,Y
+    coco3_rom[0xA05B - 0x8000]     = 0x4F;  // CLRA
+    coco3_rom[0xA05B - 0x8000 + 1] = 0x1F;  // TFR
+    coco3_rom[0xA05B - 0x8000 + 2] = 0x8B;  // A, DP
+    coco3_rom[0xA05B - 0x8000 + 3] = 0x6E;  // JMP
+    coco3_rom[0xA05B - 0x8000 + 4] = 0xA4;  // ,Y
+
+    // Patch at $A087 in coco3_rom (BACDST):
+    // Replace BRA $A093 ($20 $0A) with CLRA; TFR A, DP; BRA $A093 ($20 $07)
+    // using the 10 dummy NOPs at $A089..$A092:
+    coco3_rom[0xA087 - 0x8000]     = 0x4F;  // CLRA
+    coco3_rom[0xA087 - 0x8000 + 1] = 0x1F;  // TFR
+    coco3_rom[0xA087 - 0x8000 + 2] = 0x8B;  // A, DP
+    coco3_rom[0xA087 - 0x8000 + 3] = 0x20;  // BRA
+    coco3_rom[0xA087 - 0x8000 + 4] = 0x07;  // relative offset to $A093
+
+    // Pre-populate RAM blocks 12..15 ($18000..$1FFFF) with the 32KB CoCo 3 ROM.
+    // In Task 0, slots 4..7 map to blocks 12..15 ($8000..$FFFF).
+    for (uint i = 0; i < 0x8000; i++) {
+      ram[0x18000 + i] = coco3_rom[i];
+    }
+
+    // Pre-populate interrupt jump vectors (INTIMAGE) in Block 15 ($FEED..$FEFD).
+    // Validity flag at $1FEED remains 0 so BASIC forces cold start,
+    // but vectors at $1FEEE..$1FEFD are valid in case of early interrupt.
+    for (uint i = 0; i < 19; i++) {
+      ram[0x1FEED + i] = coco3_rom[0x4359 + i];
+    }
+    ram[0x1FEED] = 0;
+    ram[0x10071] = 0;
+    ram[0x10072] = 0;
+    ram[0x10073] = 0;
+    // Copy hardware vectors to MMU Block 15 ($FFF0-$FFFF) in RAM
+    for (uint i = 0; i < 16; i++) {
+      ram[0x1FFF0 + i] = coco3_rom[0x7FF0 + i];
+    }
+#endif
+    ram[0x0071] = 0;
+    ram[0x0072] = 0;
+    ram[0x0073] = 0;
+    ram[0xFEED] = 0;
 
     // Reset GIME registers to defaults
     gime_init0 = 0;

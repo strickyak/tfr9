@@ -5,6 +5,7 @@ template <typename T>
 struct DontCoco64k {
   static constexpr bool HasCoco64k() { return false; }
   static void InitCoco64k() {}
+  FORCE_INLINE static bool IsCoco3Rom(uint a) { return false; }
   static constexpr bool UseCoco64kRam(uint a) { return false; }
   FORCE_INLINE static uint TranslateCoco64kRamAddress(uint a) { return a; }
 };
@@ -12,6 +13,7 @@ struct DontCoco64k {
 template <typename T>
 struct DoCoco64k {
   static constexpr bool HasCoco64k() { return true; }
+  FORCE_INLINE static bool IsCoco3Rom(uint a) { return false; }
   FORCE_INLINE static bool UseCoco64kRam(uint a) {
     return (a < (SamTyBit ? 0xFF00 : 0x8000));
   }
