@@ -389,20 +389,21 @@ void IN_RAM DriveConsole() {
         tcl_io::remove_coco2();
 
         if (centipede_config.become_coco3) {
-          // Reset SAM to 32x16 text mode at $0400
-          for (uint a = 0xFFC0; a < 0xFFE0; a += 2) {
+          // Reset SAM VDG mode bits (V0..V2) and display offset bits (F0..F6)
+          for (uint a = 0xFFC0; a <= 0xFFD2; a += 2) {
             GPoke1(a, 0);
           }
           GPoke1(0xFFC9, 0);  // F1=1: Frame buffer at 0x0400
+#if SAM_BIT_16K
+          GPoke1(0xFFDB, 0);  // M0=1: preserve 16k DRAM mode on SAM
+#endif
+#if SAM_BIT_64K
+          GPoke1(0xFFDD, 0);  // M1=1: preserve 64k DRAM mode on SAM
+#endif
 
-          // Reset VDG on PIA1 to 32x16 text mode (alpha, green)
+          // Reset VDG on PIA1 to 32x16 alphanumeric text mode (green)
           byte low_bits = GPeek1(0xFF22) & 0x07;
           GPoke1(0xFF22, low_bits);
-
-          // Clear 0x0400..0x05FF on motherboard VDG screen to green spaces ($60)
-          for (uint a = 0x0400; a < 0x0600; a++) {
-            GPoke1(a, 0x60);
-          }
 
           Jump(0x8C1B);
         } else {
