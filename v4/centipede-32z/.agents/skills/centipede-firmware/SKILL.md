@@ -193,6 +193,15 @@ WriteBytes: [21.] { b5 0a 07 67 65 74 2d 72 61 6d 11 ... }
 quick-get-ram: OK (saved 65536 bytes to ram.bin)
 ```
 
+### 6. Entering BASIC from Tcl Shell via Cooked Mode (`-cooked`)
+When the Pico restarts into mode 27 (`-quick-restart 27`), it runs an interactive Tcl shell. The `-cooked` mode flag lets you drive `tether` line-by-line without `stty cbreak` manipulation, exiting cleanly on EOF.
+
+To command the Pico to boot into Color BASIC non-interactively:
+```bash
+echo "bye" | go run ./tether/ -cooked
+```
+The command transmits `bye\r`, prompting the Tcl shell to reset the 6809 CPU and jump to the Color BASIC startup vector (`0xA027`). Once stdin reaches EOF, `tether` drains pending output and exits.
+
 ---
 
 ## 7. Inspecting & Decoding CoCo Video RAM

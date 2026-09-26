@@ -4,6 +4,7 @@ import (
 	"github.com/strickyak/tfr9/v4/centipede-32z/tether/lib"
 	"github.com/strickyak/tfr9/v4/centipede-32z/tether/cobs"
 
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"sync/atomic"
 )
 
+var COOKED = flag.Bool("cooked", false, "Cooked line terminal mode: read lines from stdin without stty manipulation, exit on EOF")
 var EXIT = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 var OMIT_STDERR = flag.Bool("omit_stderr", false, "send stderr to nowhere")
 var NO_KEYBOARD = flag.Bool("n", false, "disable keyboard input")
@@ -421,7 +423,7 @@ func main() {
     // attempt to make /tmp/tether or whatever the --fs directory is
 	os.Mkdir(*PC_DIR, 0777)
 
-	if runtime.GOOS != "windows" && *QUICK_INJECT == "" {
+	if runtime.GOOS != "windows" && *QUICK_INJECT == "" && !*COOKED {
 		SaveSttyState()
 		SetSttyCbreak()
 	}
@@ -447,7 +449,11 @@ func main() {
 
 	inkey := make(chan byte, 1024)
 	if !*NO_KEYBOARD {
-		go InkeyRoutine(inkey)
+		if *COOKED {
+			go CookedInkeyRoutine(inkey)
+		} else {
+			go InkeyRoutine(inkey)
+		}
 	}
 
 	killed := make(chan os.Signal, 16)
@@ -529,6 +535,34 @@ func main() {
 		TryRun(inkey, person)
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func CookedInkeyRoutine(inkey chan byte) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			Logf("CookedInkeyRoutine: recovers panic: %v", r)
+		}
+	}()
+
+	// Allow serial link a moment to initialize
+	time.Sleep(300 * time.Millisecond)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := scanner.Text()
+		for _, b := range []byte(line) {
+			inkey <- b
+			time.Sleep(2 * time.Millisecond)
+		}
+		inkey <- 13 // Carriage Return (Enter)
+	}
+	if err := scanner.Err(); err != nil {
+		Logf("CookedInkeyRoutine: stdin scan error: %v", err)
+	}
+	// EOF reached. Wait briefly for output from Pico to arrive and be printed, then exit cleanly.
+	time.Sleep(1 * time.Second)
+	os.Exit(0)
 }
 
 func InkeyRoutine(inkey chan byte) {
