@@ -55,6 +55,13 @@ func TestDecodeVdgByte(t *testing.T) {
 		{0x41, 'A'},
 		{0x5A, 'Z'},
 		{0x60, ' '},
+		// Semigraphics characters (bit 7 set)
+		{0x80, ' '}, // low 4 bits are 0 -> space
+		{0x90, ' '}, // low 4 bits are 0 (color bit set) -> space
+		{0xF0, ' '}, // low 4 bits are 0 -> space
+		{0x81, '#'}, // low 4 bits non-zero -> '#'
+		{0x8F, '#'}, // all low 4 bits set -> '#'
+		{0xA5, '#'}, // semigraphics with pattern -> '#'
 	}
 
 	for _, tt := range tests {

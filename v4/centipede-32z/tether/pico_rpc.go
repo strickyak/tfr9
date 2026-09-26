@@ -487,8 +487,19 @@ func parseQuickGetTextArg(arg string) (int, int, int) {
 	return addr, width, height
 }
 
-// decodeVdgByte converts a 6-bit VDG character code into standard ASCII.
+// decodeVdgByte converts a VDG byte into standard ASCII.
+// If bit 7 ($80) is set (Semigraphics):
+//   - If the low 4 bits are $00, replace with a space ' '.
+//   - Otherwise, replace with '#'.
+// If bit 7 ($80) is clear (Alphanumeric):
+//   - Convert 6-bit VDG code to standard ASCII.
 func decodeVdgByte(b byte) byte {
+	if (b & 0x80) != 0 {
+		if (b & 0x0F) == 0 {
+			return ' '
+		}
+		return '#'
+	}
 	c := b & 0x3F
 	if c < 0x20 {
 		return c + 0x40
