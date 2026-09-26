@@ -732,7 +732,7 @@ func main() {
 		WatchedAddrs: watchedMap,
 	}
 	if (traceBitmask & TRACE_I) != 0 {
-		traceFmt.Os9Tracer = NewOs9Tracer(os.Stderr)
+		traceFmt.Os9Tracer = NewOs9Tracer(os.Stderr, ramImage)
 	}
 
 	coreDumpChunks := make(map[byte][]byte)

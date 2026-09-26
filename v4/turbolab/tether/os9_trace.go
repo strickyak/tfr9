@@ -34,6 +34,7 @@ type Os9Tracer struct {
 	Out     io.Writer
 	Serial  uint
 	Pending map[uint]*PendingSwi2 // key: (uint(stack) << 16) | uint(swi2_pc)
+	Ram     []byte                // 64KB shadow RAM
 
 	// SWI2 detection state
 	sawPrefix10    bool
@@ -57,14 +58,47 @@ type Os9Tracer struct {
 	rtiReadBytes     [12]byte // 0 to 11: CC, A, B, DP, X.hi, X.lo, Y.hi, Y.lo, U.hi, U.lo, PC.hi, PC.lo
 }
 
-func NewOs9Tracer(out io.Writer) *Os9Tracer {
+func NewOs9Tracer(out io.Writer, ram []byte) *Os9Tracer {
+	tRam := make([]byte, 65536)
+	if ram != nil {
+		copy(tRam, ram)
+	}
 	return &Os9Tracer{
 		Out:     out,
 		Pending: make(map[uint]*PendingSwi2),
+		Ram:     tRam,
 	}
 }
 
-func FormatCall(os9num byte, call *os9.Os9ApiCall, regs *Regs) string {
+func (t *Os9Tracer) FormatOs9StringFromRam(addr uint16) string {
+	if t == nil || t.Ram == nil {
+		return ""
+	}
+	var buf strings.Builder
+	for i := 0; i < 20; i++ {
+		a := int(addr) + i
+		if a >= len(t.Ram) {
+			break
+		}
+		b := t.Ram[a]
+
+		ch := b & 0x7F
+		// Paranoid check: must be printable ASCII (32..126) and not space or comma delimiter
+		if ch <= 32 || ch > 126 || ch == ',' {
+			break
+		}
+
+		buf.WriteByte(ch)
+
+		// High-bit set indicates the last character of an OS-9 string
+		if (b & 0x80) != 0 {
+			break
+		}
+	}
+	return buf.String()
+}
+
+func (t *Os9Tracer) FormatCall(os9num byte, call *os9.Os9ApiCall, regs *Regs) string {
 	var buf strings.Builder
 	if call == nil {
 		fmt.Fprintf(&buf, "$%02X = UNKNOWN ( D=$%04X, X=$%04X, Y=$%04X, U=$%04X )", os9num, regs.D, regs.X, regs.Y, regs.U)
@@ -93,15 +127,30 @@ func FormatCall(os9num byte, call *os9.Os9ApiCall, regs *Regs) string {
 			hasArg = true
 		}
 		if call.X != "" {
-			fmt.Fprintf(&buf, "X=%s=$%04X, ", call.X, regs.X)
+			if strings.HasPrefix(call.X, "$") && t != nil {
+				name := t.FormatOs9StringFromRam(regs.X)
+				fmt.Fprintf(&buf, "X=%s=$%04X=%q, ", call.X, regs.X, name)
+			} else {
+				fmt.Fprintf(&buf, "X=%s=$%04X, ", call.X, regs.X)
+			}
 			hasArg = true
 		}
 		if call.Y != "" {
-			fmt.Fprintf(&buf, "Y=%s=$%04X, ", call.Y, regs.Y)
+			if strings.HasPrefix(call.Y, "$") && t != nil {
+				name := t.FormatOs9StringFromRam(regs.Y)
+				fmt.Fprintf(&buf, "Y=%s=$%04X=%q, ", call.Y, regs.Y, name)
+			} else {
+				fmt.Fprintf(&buf, "Y=%s=$%04X, ", call.Y, regs.Y)
+			}
 			hasArg = true
 		}
 		if call.U != "" {
-			fmt.Fprintf(&buf, "U=%s=$%04X, ", call.U, regs.U)
+			if strings.HasPrefix(call.U, "$") && t != nil {
+				name := t.FormatOs9StringFromRam(regs.U)
+				fmt.Fprintf(&buf, "U=%s=$%04X=%q, ", call.U, regs.U, name)
+			} else {
+				fmt.Fprintf(&buf, "U=%s=$%04X, ", call.U, regs.U)
+			}
 			hasArg = true
 		}
 		if !hasArg {
@@ -176,6 +225,10 @@ func FormatReturn(call *os9.Os9ApiCall, regs *Regs) string {
 func (t *Os9Tracer) OnCycle(rawKind byte, addr uint16, data byte, cycle uint64) {
 	kind := rawKind & 0x0F
 	flags := rawKind & 0xF0
+
+	if t.Ram != nil && kind != KIND_IDLE {
+		t.Ram[addr] = data
+	}
 
 	// ── SWI2 State Machine ──
 	if (kind == KIND_FIC || (flags&FLAG_LIC) != 0) && data == 0x10 && addr < 0xFFF0 {
@@ -273,7 +326,7 @@ func (t *Os9Tracer) handleSwi2Call() {
 	label := fmt.Sprintf("_%d_", t.Serial)
 
 	call := os9.Os9ApiCallOf[t.swi2Num]
-	callDesc := FormatCall(t.swi2Num, call, regs)
+	callDesc := t.FormatCall(t.swi2Num, call, regs)
 
 	if t.swi2Num == 0x06 || t.swi2Num == 0x05 {
 		// F$Exit ($06) and F$Chain ($05) never return via RTI

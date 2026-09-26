@@ -8,7 +8,8 @@ import (
 
 func TestOs9TracerSwi2AndRtiSuccess(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := NewOs9Tracer(&buf)
+	tracer := NewOs9Tracer(&buf, nil)
+	copy(tracer.Ram[0x0400:], []byte("/dd/sys/shell\r"))
 
 	// Simulate SWI2 at $0500: 10 3F 84 (I$Open)
 	// Registers to push: CC=0x80, A=0x01, B=0x02, DP=0x00, X=0x0400, Y=0x0010, U=0x0500, PC=0x0503
@@ -51,8 +52,8 @@ func TestOs9TracerSwi2AndRtiSuccess(t *testing.T) {
 	if !strings.Contains(out, "$84 = I$Open") {
 		t.Fatalf("Expected '$84 = I$Open', got:\n%s", out)
 	}
-	if !strings.Contains(out, "A=access_mode=$01") || !strings.Contains(out, "X=$pathname=$0400") {
-		t.Fatalf("Expected arguments in SWI2 line, got:\n%s", out)
+	if !strings.Contains(out, "A=access_mode=$01") || !strings.Contains(out, `X=$pathname=$0400="/dd/sys/shell"`) {
+		t.Fatalf("Expected arguments in SWI2 line with string name, got:\n%s", out)
 	}
 
 	// Verify pending map has entry
@@ -110,7 +111,7 @@ func TestOs9TracerSwi2AndRtiSuccess(t *testing.T) {
 
 func TestOs9TracerSwi2AndRtiError(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := NewOs9Tracer(&buf)
+	tracer := NewOs9Tracer(&buf, nil)
 
 	// Simulate SWI2 at $0600: 10 3F 84 (I$Open)
 	cy := uint64(500)
@@ -174,7 +175,7 @@ func TestOs9TracerSwi2AndRtiError(t *testing.T) {
 
 func TestOs9TracerNonReturningCall(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := NewOs9Tracer(&buf)
+	tracer := NewOs9Tracer(&buf, nil)
 
 	// Simulate F$Exit ($06)
 	cy := uint64(1000)
@@ -201,7 +202,7 @@ func TestOs9TracerNonReturningCall(t *testing.T) {
 
 func TestOs9TracerHardwareInterruptRti(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := NewOs9Tracer(&buf)
+	tracer := NewOs9Tracer(&buf, nil)
 
 	// Simulate RTI from an IRQ handler returning to $1234 without prior SWI2
 	cy := uint64(2000)
@@ -231,5 +232,113 @@ func TestOs9TracerHardwareInterruptRti(t *testing.T) {
 	}
 	if !strings.Contains(out, "returning from interrupt to $1234") {
 		t.Fatalf("Expected 'returning from interrupt to $1234', got:\n%s", out)
+	}
+}
+
+func TestFormatOs9StringFromRam(t *testing.T) {
+	tracer := NewOs9Tracer(nil, nil)
+
+	// 1. High-bit terminated string: "Init"
+	tracer.Ram[0x1000] = 'I'
+	tracer.Ram[0x1001] = 'n'
+	tracer.Ram[0x1002] = 'i'
+	tracer.Ram[0x1003] = 't' | 0x80 // 0xF4
+	tracer.Ram[0x1004] = 0x01       // following binary junk
+	if s := tracer.FormatOs9StringFromRam(0x1000); s != "Init" {
+		t.Fatalf("Expected 'Init', got %q", s)
+	}
+
+	// 2. CR-terminated string: "/dd/sys/shell"
+	copy(tracer.Ram[0x2000:], []byte("/dd/sys/shell\rJUNK"))
+	if s := tracer.FormatOs9StringFromRam(0x2000); s != "/dd/sys/shell" {
+		t.Fatalf("Expected '/dd/sys/shell', got %q", s)
+	}
+
+	// 3. Space-terminated string: "mymodule"
+	copy(tracer.Ram[0x3000:], []byte("mymodule arg1 arg2\r"))
+	if s := tracer.FormatOs9StringFromRam(0x3000); s != "mymodule" {
+		t.Fatalf("Expected 'mymodule', got %q", s)
+	}
+
+	// 4. Comma-terminated string: "mod1"
+	copy(tracer.Ram[0x4000:], []byte("mod1,mod2\r"))
+	if s := tracer.FormatOs9StringFromRam(0x4000); s != "mod1" {
+		t.Fatalf("Expected 'mod1', got %q", s)
+	}
+
+	// 5. Truncation at 20 characters: 30 'A's without delimiter
+	for i := 0; i < 30; i++ {
+		tracer.Ram[0x5000+i] = 'A'
+	}
+	if s := tracer.FormatOs9StringFromRam(0x5000); s != strings.Repeat("A", 20) {
+		t.Fatalf("Expected 20 'A's, got %d chars: %q", len(s), s)
+	}
+
+	// 6. Non-printable / zeroes check
+	tracer.Ram[0x6000] = 0x00
+	if s := tracer.FormatOs9StringFromRam(0x6000); s != "" {
+		t.Fatalf("Expected empty string for 0x00, got %q", s)
+	}
+
+	// 7. Non-printable opcode check
+	tracer.Ram[0x7000] = 0x10
+	if s := tracer.FormatOs9StringFromRam(0x7000); s != "" {
+		t.Fatalf("Expected empty string for 0x10, got %q", s)
+	}
+
+	// 8. High-bit non-printable check
+	tracer.Ram[0x8000] = 0x80
+	if s := tracer.FormatOs9StringFromRam(0x8000); s != "" {
+		t.Fatalf("Expected empty string for 0x80, got %q", s)
+	}
+	tracer.Ram[0x8001] = 0xFF
+	if s := tracer.FormatOs9StringFromRam(0x8001); s != "" {
+		t.Fatalf("Expected empty string for 0xFF, got %q", s)
+	}
+}
+
+func TestOs9TracerFLinkWithInit(t *testing.T) {
+	var buf bytes.Buffer
+	initialRam := make([]byte, 65536)
+	// Place "Init" at $EF1F
+	initialRam[0xEF1F] = 'I'
+	initialRam[0xEF20] = 'n'
+	initialRam[0xEF21] = 'i'
+	initialRam[0xEF22] = 't' | 0x80
+
+	tracer := NewOs9Tracer(&buf, initialRam)
+
+	// Simulate SWI2 at $E464: 10 3F 00 (F$Link)
+	// Registers: A=$C0, X=$EF1F
+	cy := uint64(44013)
+	tracer.OnCycle(KIND_FIC, 0xE464, 0x10, cy)
+	cy++
+	tracer.OnCycle(KIND_OPCODE_CONT, 0xE465, 0x3F, cy)
+	cy++
+	tracer.OnCycle(KIND_READ, 0xE466, 0x00, cy) // F$Link
+	cy++
+
+	writes := []struct {
+		addr uint16
+		data byte
+	}{
+		{0x0FEE, 0x67}, // PC.lo
+		{0x0FED, 0xE4}, // PC.hi ($E467)
+		{0x0FEC, 0x00}, {0x0FEB, 0x00},
+		{0x0FEA, 0x00}, {0x0FE9, 0x00},
+		{0x0FE8, 0x1F}, {0x0FE7, 0xEF}, // X = $EF1F
+		{0x0FE6, 0x00}, {0x0FE5, 0x00},
+		{0x0FE4, 0xC0}, // A = $C0 (lang_and_type)
+		{0x0FE3, 0x80}, // CC
+	}
+	for _, w := range writes {
+		tracer.OnCycle(KIND_WRITE, w.addr, w.data, cy)
+		cy++
+	}
+
+	out := buf.String()
+	expectedSub := `X=$module_name_ptr=$EF1F="Init"`
+	if !strings.Contains(out, expectedSub) {
+		t.Fatalf("Expected %q in SWI2 output, got:\n%s", expectedSub, out)
 	}
 }
