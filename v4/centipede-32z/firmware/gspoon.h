@@ -385,12 +385,30 @@ void IN_RAM DriveConsole() {
       } else if (cmd == BG2FG_POKE) {
         GPoke1(addr, data);
       } else if (cmd == BG2FG_EXIT_CONSOLE) {
+#if !BECOME_COCO3
         // "bye" from BackgroundSpoonFeeder — reset 6809 and return to normal.
         Jump(0xA027);  // Jump via the 6809 RESET vector
         drive_console_ready = false;
         tcl_io::remove_coco2();  // BackgroundSpoonFeeder continues on USB only
         cobs_printf("DriveConsole: bye, returning to normal foreground.\n");
         return;  // Return to SpoonfeedConsoleOnReset, then to foreground()
+#else
+        // Hard-guarded BECOME_COCO3 path for Phase 0:
+        // Clean up console state BEFORE jumping so there are no delays afterward.
+        drive_console_ready = false;
+        tcl_io::remove_coco2();
+
+        // Spoon-feed JMP [$FFFE] (extended indirect) to vector through $FFFE/$FFFF:
+        // 0x6E 0x9F 0xFF 0xFE
+        Synchronize7E();
+        ReadStep(0, 0x6E);  // JMP extended indirect
+        ReadStep(0, 0x9F);  // mode byte for [extended]
+        ReadStep(0, 0xFF);  // address MSB: $FF
+        ReadStep(0, 0xFE);  // address LSB: $FE
+
+        // Return immediately with zero delay (no cobs_printf on Core 1!) into the bus loop.
+        return;
+#endif
       } else {
         cobs_printf("DriveConsole: unknown bg2fg cmd %d\n", cmd);
       }

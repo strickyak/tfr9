@@ -1,11 +1,14 @@
 #define MHz 250
 
-#define FOR_COCO3 0
-#define SAM_BIT_16K 1
+#define BECOME_COCO3 1 // Make a coco2 behave like a coco3
+
+#define FOR_COCO3 0 // For running on an actual coco3
+
+#define SAM_BIT_16K 1 // For a 16K coco2
 #define SAM_BIT_64K 0
 
 #define ALWAYS_TRACE_READS_IF_ADDR_GE 0xFF00
-#define FIFO_INDICATOR_0500 1
+#define FIFO_INDICATOR_0500 0
 #define RPC_VERBOSE 0
 #define FLOPPY_OVER_VFS 1
 
@@ -19,7 +22,7 @@
 #define ON_RESET_DO_SPOONFEED_CONSOLE 1
 #define GSPOON_POC_DEMO 0
 #define ECHO_PUTCHAR_ON_CONSOLE 1
-#define USE_ORCHESTRA90 1
+#define USE_ORCHESTRA90 0
 #define STACK_SIZE   (20 * 1024) // was 10K
 
 // #define TRIGGER_ON_READ     0xCA71
@@ -301,6 +304,9 @@ volatile uint32_t push_fail_counter = 0;
 
 #include "bug.h"
 #include "disk11_rom.h"  // byte disk11_rom[8192]...
+#if BECOME_COCO3
+#include "coco3_rom.h"   // byte coco3_rom[32768]...
+#endif
 #include "egg.h"
 
 // Called from littlefs to indicate disk read/writes on tether console,
@@ -315,7 +321,11 @@ using IOWriter = void (*)(uint addr, byte data);
 IOReader IOReaders[256];
 IOWriter IOWriters[256];
 
+#if BECOME_COCO3
+byte ram[128 * 1024];
+#else
 byte ram[64 * 1024];
+#endif
 
 // Code to tethered PC.
 //
@@ -505,6 +515,9 @@ bool SamP1Bit;
 bool SamTyBit;
 
 #include "coco64k.h"
+#if BECOME_COCO3
+#include "coco128k.h"
+#endif
 #include "littlefs.h"
 #include "orchestra90.h"
 #include "tcl_commands.h"
@@ -578,8 +591,20 @@ void ResetCocoOnStartup() {
 #endif
 ////////////////////////////////////////////////////////
 
+struct BackgroundSharedState {
+  // Coroutine stacks (20KB each, 8-byte aligned for ARM AAPCS)
+  static inline uint8_t drain_stack[STACK_SIZE] __attribute__((aligned(8)));
+  static inline uint8_t floppy_stack[STACK_SIZE] __attribute__((aligned(8)));
+  static inline uint8_t spoon_stack[STACK_SIZE] __attribute__((aligned(8)));
+
+  // Simple flag-based channel: drain_task sets these, other tasks check them.
+  // Only one chore can be pending per task at a time.
+  static inline volatile uint floppy_pending_chore;
+  static inline volatile bool floppy_has_work;
+};
+
 template <class T>
-class CoreEngine {
+class CoreEngine : public BackgroundSharedState {
  public:
   static void IN_RAM Fatal(const char* s, int x) {
     cobs_printf("\nFATAL(%d.): %s\n", x, s);
@@ -636,17 +661,6 @@ class CoreEngine {
   //
   // The scheduler pumps USB between every task switch.
 
-  // Coroutine stacks (4KB each, 8-byte aligned for ARM AAPCS)
-  static inline uint8_t drain_stack[STACK_SIZE] __attribute__((aligned(8)));
-  static inline uint8_t floppy_stack[STACK_SIZE] __attribute__((aligned(8)));
-  static inline uint8_t spoon_stack[STACK_SIZE] __attribute__((aligned(8)));
-
-  // Simple flag-based channel: drain_task sets these, other tasks check them.
-  // Only one chore can be pending per task at a time.
-  // (inline volatile avoids the in-class-init restriction for template statics)
-  static inline volatile uint floppy_pending_chore;
-  static inline volatile bool floppy_has_work;
-
   // --- Drain Task ---
   // The primary fg2bg consumer. Handles fast chores inline and dispatches
   // slow ones to floppy_task/spoon_task.
@@ -659,6 +673,16 @@ class CoreEngine {
 
       // Advance keyboard injector timing (low overhead check)
       keyboard_injector::tick();
+
+#if BECOME_COCO3
+      // Ensure drain_task yields periodically even when fg2bg is continuously
+      // populated (e.g. during cycle tracing), so the scheduler can call
+      // PumpUsbCobs() to service USB RX and PicoRPC requests.
+      static uint32_t drain_yield_counter = 0;
+      if ((++drain_yield_counter & 0x1F) == 0) {
+        coro_yield(&self);
+      }
+#endif
 
       // Note: drain_task handles background chores and USB polling.
       // BackgroundSpoonFeeder cooperatively yields when waiting for input,
@@ -880,7 +904,11 @@ class CoreEngine {
 
         constexpr uint NEG_CTS = (1 << G_CTS);
         constexpr uint NEG_SCS = (1 << G_SCS);
+#if BECOME_COCO3
+        constexpr uint NEG_SELECTS = NEG_SCS;
+#else
         constexpr uint NEG_SELECTS = NEG_CTS | NEG_SCS;
+#endif
 
         if (LIKELY(!floppy_emulation || (signals & NEG_SELECTS) == NEG_SELECTS)) {
           // CASE normal
@@ -906,11 +934,30 @@ class CoreEngine {
                 if (r) {
                   dbus = r(abus);
                   GERBIL_DRIVE(dbus);
+#if BECOME_COCO3
+                } else if (UNLIKELY(centipede_config.become_coco3 && abus >= 0xFFF0)) {
+                  dbus = coco3_rom[abus - 0x8000];
+                  GERBIL_DRIVE(dbus);
+#endif
                 } else {
                   GERBIL_PASS();
                   dbus = (byte)(GERBIL_GET());  // log & debug
                 }
               }
+            } else if (
+#if BECOME_COCO3
+                    UNLIKELY(centipede_config.become_coco3
+                             && !T::UseCoco64kRam(abus)
+                             && 0x8000 <= abus
+                             && abus < 0xFF00)
+#else
+                    false
+#endif
+                    ) {
+#if BECOME_COCO3
+              dbus = coco3_rom[abus - 0x8000];
+              GERBIL_DRIVE(dbus);
+#endif
             } else if (
                     centipede_config.rom_disk11
                     && not T::UseCoco64kRam(abus)
@@ -1084,6 +1131,29 @@ void IN_RAM core1_trampoline() { Engine0::foreground(); }
 
 void IN_RAM core0_trampoline() { Engine0::background(); }
 
+#if BECOME_COCO3
+void IN_RAM core1_trampoline3();
+void IN_RAM core0_trampoline3();
+
+struct Engine3 : public DoFloppy<Engine3>,
+                 public DoCoco128k<Engine3>,
+                 public CoreEngine<Engine3> {
+ public:
+  static void RunEngine() {
+    InitCoco128k();
+#if USE_ORCHESTRA90
+    orchestra90::Init();
+#endif
+    ResetCompressCycles();  // call once at session start
+    RunCores(core1_trampoline3, core0_trampoline3);
+  }
+};
+
+void IN_RAM core1_trampoline3() { Engine3::foreground(); }
+
+void IN_RAM core0_trampoline3() { Engine3::background(); }
+#endif
+
 void IN_RAM restart_core1(void (*func)(void)) {
   // 1. Force Core 1 into reset
   multicore_reset_core1();
@@ -1147,11 +1217,20 @@ int IN_RAM main() {
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
 #if !FOR_COCO3
-  centipede_config.SetAll(true);  // enable everything
+  centipede_config.SetStandard();
+#endif
+#if BECOME_COCO3
+  if (boot_mode_check == boot_mode + BOOT_MODE_CHECKER && boot_mode == 3) {
+    centipede_config.become_coco3 = true;
+  }
 #endif
   centipede_config.trace_reads = false;
   centipede_config.floppy_pc = false;
   set_floppy_names();
 
+#if BECOME_COCO3
+  Engine3::RunEngine();
+#else
   Engine0::RunEngine();
+#endif
 }

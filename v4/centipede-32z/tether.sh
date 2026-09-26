@@ -22,13 +22,13 @@ case $1 in
     -quick* | --quick* )
 
 #-- this configures for coco2 with disk11 basic
-go run "./$HERE/../..//v4/tether/" 2>_log "$@" 
+go run "./$HERE/tether/" 2>_log "$@" 
 
     ;;
     * )
 
 #-- this configures for coco2 with disk11 basic
-go run "./$HERE/../..//v4/tether/" 2>_log -pc /tmp/pc --no_modules \
+go run "./$HERE/tether/" 2>_log -pc /tmp/pc --no_modules \
     --abslists $ABSLISTS  \
       "$@"  build/coco2.0x8000.rom build/disk11.0xC000.rom
 

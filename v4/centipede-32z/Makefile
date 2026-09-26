@@ -1,4 +1,4 @@
-all: FIRMWARE MISC_BUILD misc/basefs.zip
+all: FIRMWARE MISC_BUILD
 
 TOP = $(shell cd ../../.. && pwd)
 
@@ -38,9 +38,9 @@ MISC_BUILD:
 	cp misc/bundled-tether-script.sh build/tether.sh
 	chmod +x build/tether.sh
 
-misc/basefs.zip: $(shell find basefs -type f -name [a-z]\*)
-	rm -f misc/basefs.zip
-	cd basefs && zip -r ../misc/basefs.zip $$(find [a-z]* -type f -name [a-z]\* | LC_ALL=C sort)
+#no# misc/basefs.zip: $(shell find basefs -type f -name [a-z]\*)
+#no# 	rm -f misc/basefs.zip
+#no# 	cd basefs && zip -r ../misc/basefs.zip $$(find [a-z]* -type f -name [a-z]\* | LC_ALL=C sort)
 
 clean:
 	rm -rf firmware/build

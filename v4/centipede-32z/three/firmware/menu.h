@@ -201,7 +201,7 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
             return TCL_ERROR;
         }
         const char* arr = argv[2];
-        centipede_config.SetAll(false);
+        memset((void*)&centipede_config, 0, sizeof centipede_config);
         const char* val;
         
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"ram_64k", 0);
@@ -222,6 +222,9 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"trace_reads", 0);
         if (val && atoi(val) != 0) centipede_config.trace_reads = true;
 
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"become_coco3", 0);
+        if (val && atoi(val) != 0) centipede_config.become_coco3 = true;
+
         set_floppy_names();
         
     } else if (sub == "fetch") {
@@ -236,6 +239,7 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_pc", (char*)(centipede_config.floppy_pc ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(centipede_config.trace_writes ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(centipede_config.trace_reads ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"become_coco3", (char*)(centipede_config.become_coco3 ? "1" : "0"), 0);
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {

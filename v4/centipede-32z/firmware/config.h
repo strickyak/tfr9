@@ -8,14 +8,17 @@ struct CentipedeConfig {
     bool    floppy_pc;
     bool    trace_writes;
     bool    trace_reads;
+    bool    become_coco3;
 
-    void SetAll(bool b) {
-        this->ram_64k = b;
-        this->rom_disk11 = b;
-        this->floppy_fd = b;
-        this->floppy_pc = b;
-        this->trace_writes = b;
-        this->trace_reads = b;
+    void SetStandard() {
+        this->ram_64k = true;
+        this->rom_disk11 = true;
+        this->floppy_fd = true;
+        this->trace_writes = true;
+        this->trace_reads = true;
+
+        this->floppy_pc = false;
+        this->become_coco3 = false;
     }
 };
 

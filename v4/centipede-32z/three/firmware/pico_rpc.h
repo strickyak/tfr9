@@ -19,7 +19,11 @@ extern int putchar_raw(int c);
 }
 
 extern unsigned char ram[];
+#if BECOME_COCO3
+constexpr size_t PICO_RAM_SIZE = 128 * 1024;
+#else
 constexpr size_t PICO_RAM_SIZE = 64 * 1024;
+#endif
 
 namespace pico_rpc {
 
