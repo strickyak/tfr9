@@ -36,19 +36,10 @@ go run ./tether/ -quick-type $'10 FOR I=1 TO 10:PRINT I*I*I;:NEXT\r~RUN\r'
 # 5. Wait 42 seconds for keyboard injector (79 actions @ 500ms + 1s pause)
 # (Use schedule tool or wait 42s)
 
-# 6. Dump RAM and decode screen
-go run ./tether/ -quick-get-ram=ram_coco2_demo.bin
-python3 -c "
-data = open('ram_coco2_demo.bin', 'rb').read()
-def decode_vdg(b):
-    c = b & 0x3F
-    return chr(c + 0x40) if c < 0x20 else chr(c)
-
-print('--- CoCo 2 Screen (0x0400) ---')
-for row in range(16):
-    start = 0x0400 + row * 32
-    print(f'{row:2d}: ' + ''.join(decode_vdg(b) for b in data[start:start+32]))
-"
+# 6. Dump and decode text screen directly
+go run ./tether/ -omit_stderr -quick-get-text=z
+# Or with explicit parameters:
+# go run ./tether/ -omit_stderr -quick-get-text=0x0400,32,16
 ```
 
 ---
@@ -93,25 +84,14 @@ go run ./tether/ -quick-type $'10 FOR I=1 TO 10:PRINT I*I*I;:NEXT\r~RUN\r'
 ### Step 4: Wait for Completion
 Wait ~42 seconds for keystroke entry and program execution to finish. Do not poll or interrupt the bus while injection is in progress.
 
-### Step 5: Dump RAM and Decode Video Display
-Dump the 64KB/128KB memory buffer over USB:
+### Step 5: Dump and Decode Video Display
+Read the 32×16 VDG text screen directly from RAM (`0x0400`–`0x05FF`) and print decoded ASCII to stdout:
 ```bash
-go run ./tether/ -quick-get-ram=ram_coco2_demo.bin
+go run ./tether/ -omit_stderr -quick-get-text=z
 ```
-
-Decode the MC6847 VDG 32×16 text screen located at physical memory address `0x0400`–`0x05FF`:
+Or specify explicit memory address, width, and height:
 ```bash
-python3 -c "
-data = open('ram_coco2_demo.bin', 'rb').read()
-def decode_vdg(b):
-    c = b & 0x3F
-    return chr(c + 0x40) if c < 0x20 else chr(c)
-
-print('--- CoCo 2 Screen (0x0400) ---')
-for row in range(16):
-    start = 0x0400 + row * 32
-    print(f'{row:2d}: ' + ''.join(decode_vdg(b) for b in data[start:start+32]))
-"
+go run ./tether/ -omit_stderr -quick-get-text=0x0400,32,16
 ```
 
 ---

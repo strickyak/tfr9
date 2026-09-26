@@ -15,6 +15,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -433,4 +435,130 @@ func RunQuickGetRam(filename string) {
 	fmt.Printf("%s: OK (saved %d bytes to %s)\n", label, len(ramBuf), filename)
 	os.Exit(0)
 }
+
+func parseNum(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if strings.HasPrefix(s, "$") {
+		v, err := strconv.ParseInt(s[1:], 16, 64)
+		if err == nil {
+			return int(v), true
+		}
+		return 0, false
+	}
+	v, err := strconv.ParseInt(s, 0, 64)
+	if err == nil {
+		return int(v), true
+	}
+	return 0, false
+}
+
+// parseQuickGetTextArg parses "[addr[,width[,height]]]" format.
+// If addr is an illegal numeric value like "z", it defaults to 0x0400, 32, 16.
+// Omitted trailing numbers default to 32 and 16.
+func parseQuickGetTextArg(arg string) (int, int, int) {
+	addr := 0x0400
+	width := 32
+	height := 16
+
+	parts := strings.Split(arg, ",")
+	if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+		if v, ok := parseNum(parts[0]); ok {
+			if v >= 0 {
+				addr = v
+			}
+		} else {
+			// Illegal numeric values like "z" are an abbreviation for 0x0400, 32, 16.
+			return 0x0400, 32, 16
+		}
+	}
+	if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+		if v, ok := parseNum(parts[1]); ok && v > 0 {
+			width = v
+		}
+	}
+	if len(parts) > 2 && strings.TrimSpace(parts[2]) != "" {
+		if v, ok := parseNum(parts[2]); ok && v > 0 {
+			height = v
+		}
+	}
+	return addr, width, height
+}
+
+// decodeVdgByte converts a 6-bit VDG character code into standard ASCII.
+func decodeVdgByte(b byte) byte {
+	c := b & 0x3F
+	if c < 0x20 {
+		return c + 0x40
+	}
+	return c
+}
+
+// fetchRamRange fetches length bytes of RAM starting at offset in chunkSize chunks.
+func fetchRamRange(ch chan []byte, offset, length int) ([]byte, error) {
+	const chunkSize = 256
+	var buf []byte
+	curOffset := offset
+	remaining := length
+
+	for remaining > 0 {
+		reqLen := chunkSize
+		if reqLen > remaining {
+			reqLen = remaining
+		}
+		req := RpcRequest{
+			Method: "get-ram",
+			Offset: curOffset,
+			Length: reqLen,
+		}
+		resp, err := PicoRpcCallReq(ch, req, 5*time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("FAIL at offset 0x%04X: %v", curOffset, err)
+		}
+		if resp.Status != 0 {
+			return nil, fmt.Errorf("FAIL at offset 0x%04X: status=%d %s", curOffset, resp.Status, resp.Message)
+		}
+		if len(resp.Data) == 0 {
+			break
+		}
+		buf = append(buf, resp.Data...)
+		curOffset += len(resp.Data)
+		remaining -= len(resp.Data)
+	}
+	return buf, nil
+}
+
+// RunQuickGetText fetches the text screen from Pico RAM via get-ram,
+// converts the 6-bit VDG values to normal ASCII, and prints lines to stdout.
+func RunQuickGetText(arg string) {
+	label := "quick-get-text"
+	addr, width, height := parseQuickGetTextArg(arg)
+
+	ch, disconnect := quickConnect(label)
+	defer disconnect()
+
+	data, err := fetchRamRange(ch, addr, width*height)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", label, err)
+		os.Exit(1)
+	}
+
+	for row := 0; row < height; row++ {
+		start := row * width
+		end := start + width
+		var line strings.Builder
+		for i := start; i < end; i++ {
+			if i < len(data) {
+				line.WriteByte(decodeVdgByte(data[i]))
+			} else {
+				line.WriteByte(' ')
+			}
+		}
+		fmt.Println(line.String())
+	}
+	os.Exit(0)
+}
+
 

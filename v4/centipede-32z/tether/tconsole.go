@@ -49,6 +49,7 @@ var QUICK_UPLOAD = flag.String("quick-upload", "", "Quick mode: upload the Pico'
 var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
 var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
 var QUICK_GET_RAM = flag.String("quick-get-ram", "", "Quick mode: get raw ram[] from Pico and save to filename")
+var QUICK_GET_TEXT = flag.String("quick-get-text", "", "Quick mode: get text screen from Pico RAM [addr,width,height] and print to stdout")
 var QUICK_TYPE = flag.String("quick-type", "", "Quick mode: type keystrokes into running CoCo via keyboard injector")
 
 var tmpDirToClean string
@@ -419,6 +420,17 @@ func main() {
 	// Quick-get-ram mode: connect, fetch raw ram[] in 256-byte chunks, save to file.
 	if *QUICK_GET_RAM != "" {
 		RunQuickGetRam(*QUICK_GET_RAM)
+		return
+	}
+	// Quick-get-text mode: connect, fetch ram via get-ram, decode 6-bit VDG to ASCII, print lines to stdout.
+	quickGetTextSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "quick-get-text" {
+			quickGetTextSet = true
+		}
+	})
+	if *QUICK_GET_TEXT != "" || quickGetTextSet {
+		RunQuickGetText(*QUICK_GET_TEXT)
 		return
 	}
 
