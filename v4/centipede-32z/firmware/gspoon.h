@@ -385,30 +385,30 @@ void IN_RAM DriveConsole() {
       } else if (cmd == BG2FG_POKE) {
         GPoke1(addr, data);
       } else if (cmd == BG2FG_EXIT_CONSOLE) {
-#if !BECOME_COCO3
-        // "bye" from BackgroundSpoonFeeder — reset 6809 and return to normal.
-        Jump(0xA027);  // Jump via the 6809 RESET vector
-        drive_console_ready = false;
-        tcl_io::remove_coco2();  // BackgroundSpoonFeeder continues on USB only
-        cobs_printf("DriveConsole: bye, returning to normal foreground.\n");
-        return;  // Return to SpoonfeedConsoleOnReset, then to foreground()
-#else
-        // Hard-guarded BECOME_COCO3 path for Phase 0:
-        // Clean up console state BEFORE jumping so there are no delays afterward.
         drive_console_ready = false;
         tcl_io::remove_coco2();
 
-        // Spoon-feed JMP [$FFFE] (extended indirect) to vector through $FFFE/$FFFF:
-        // 0x6E 0x9F 0xFF 0xFE
-        Synchronize7E();
-        ReadStep(0, 0x6E);  // JMP extended indirect
-        ReadStep(0, 0x9F);  // mode byte for [extended]
-        ReadStep(0, 0xFF);  // address MSB: $FF
-        ReadStep(0, 0xFE);  // address LSB: $FE
+        if (centipede_config.become_coco3) {
+          // Reset SAM to 32x16 text mode at $0400
+          for (uint a = 0xFFC0; a < 0xFFE0; a += 2) {
+            GPoke1(a, 0);
+          }
+          GPoke1(0xFFC9, 0);  // F1=1: Frame buffer at 0x0400
 
-        // Return immediately with zero delay (no cobs_printf on Core 1!) into the bus loop.
+          // Reset VDG on PIA1 to 32x16 text mode (alpha, green)
+          byte low_bits = GPeek1(0xFF22) & 0x07;
+          GPoke1(0xFF22, low_bits);
+
+          // Clear 0x0400..0x05FF on motherboard VDG screen to green spaces ($60)
+          for (uint a = 0x0400; a < 0x0600; a++) {
+            GPoke1(a, 0x60);
+          }
+
+          Jump(0x8C1B);
+        } else {
+          Jump(0xA027);
+        }
         return;
-#endif
       } else {
         cobs_printf("DriveConsole: unknown bg2fg cmd %d\n", cmd);
       }
@@ -953,9 +953,11 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
 
 BYE:
   if (tcl_io::active_io & tcl_io::IO_COCO2) {
-        // Coco2 is active — tell foreground to exit DriveConsole
-        // and launch Coco2 into Disk Basic.
-        tcl_io::emit_string("Launching Coco2...\n");
+    if (centipede_config.become_coco3) {
+      tcl_io::emit_string("Launching Coco3...\n");
+    } else {
+      tcl_io::emit_string("Launching Coco2...\n");
+    }
         uint cmd = ((uint)BG2FG_EXIT_CONSOLE << 24);
         while (!bg2fg.push(cmd)) {
           sleep_ms(1);

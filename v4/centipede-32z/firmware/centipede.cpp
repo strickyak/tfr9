@@ -928,7 +928,12 @@ class CoreEngine : public BackgroundSharedState {
                   GERBIL_DRIVE(dbus);
 #if BECOME_COCO3
                 } else if (UNLIKELY(centipede_config.become_coco3 && abus >= 0xFFF0)) {
-                  dbus = coco3_rom[abus - 0x8000];
+                  if (SamTyBit) {
+                    uint atrans = T::TranslateCoco64kRamAddress(abus);
+                    dbus = ram[atrans];
+                  } else {
+                    dbus = coco3_rom[abus - 0x8000];
+                  }
                   GERBIL_DRIVE(dbus);
 #endif
                 } else {
@@ -961,7 +966,7 @@ class CoreEngine : public BackgroundSharedState {
               dbus = disk11_rom[abus & 0x1FFF];
               GERBIL_DRIVE(dbus);
             } else if (
-                    centipede_config.ram_64k
+                    (centipede_config.ram_64k || centipede_config.become_coco3)
                     && T::UseCoco64kRam(abus)) {
               uint atrans = T::TranslateCoco64kRamAddress(abus);
               dbus = ram[atrans];
@@ -991,15 +996,18 @@ class CoreEngine : public BackgroundSharedState {
               if (w) {
                 w(abus, dbus);
               }
+              if (centipede_config.become_coco3 && abus >= 0xFFF0) {
+                ram[T::TranslateCoco64kRamAddress(abus)] = dbus;
+              }
               ram[abus] = dbus;
 
               // Currently, always trace non-special I/O writes.
               T::PushFifoWrite(abus, dbus);
 
             } else {
-              uint atrans = T::UseCoco64kRam(abus)
+              uint atrans = centipede_config.become_coco3
                                 ? T::TranslateCoco64kRamAddress(abus)
-                                : abus;
+                                : (T::UseCoco64kRam(abus) ? T::TranslateCoco64kRamAddress(abus) : abus);
               ram[atrans] = dbus;
 
               // Optionally, always trace all non-special writes.
@@ -1212,7 +1220,7 @@ int IN_RAM main() {
   centipede_config.SetStandard();
 #endif
 #if BECOME_COCO3
-  if (boot_mode_check == boot_mode + BOOT_MODE_CHECKER && boot_mode == 3) {
+  if (boot_mode_check == boot_mode + BOOT_MODE_CHECKER && (boot_mode == 3 || boot_mode == 90)) {
     centipede_config.become_coco3 = true;
   }
 #endif
