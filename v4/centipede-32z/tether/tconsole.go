@@ -23,6 +23,7 @@ import (
 )
 
 var COOKED = flag.Bool("cooked", false, "Cooked line terminal mode: read lines from stdin without stty manipulation, exit on EOF")
+var COOKED_DRAIN = flag.Duration("cooked-drain", 2*time.Second, "In cooked mode, duration to wait after stdin EOF before exiting (0 = wait indefinitely)")
 var EXIT = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 var OMIT_STDERR = flag.Bool("omit_stderr", false, "send stderr to nowhere")
 var NO_KEYBOARD = flag.Bool("n", false, "disable keyboard input")
@@ -553,16 +554,20 @@ func CookedInkeyRoutine(inkey chan byte) {
 		line := scanner.Text()
 		for _, b := range []byte(line) {
 			inkey <- b
-			time.Sleep(2 * time.Millisecond)
+			time.Sleep(5 * time.Millisecond)
 		}
 		inkey <- 13 // Carriage Return (Enter)
+		time.Sleep(200 * time.Millisecond)
 	}
 	if err := scanner.Err(); err != nil {
 		Logf("CookedInkeyRoutine: stdin scan error: %v", err)
 	}
 	// EOF reached. Wait briefly for output from Pico to arrive and be printed, then exit cleanly.
-	time.Sleep(1 * time.Second)
-	os.Exit(0)
+	if *COOKED_DRAIN > 0 {
+		time.Sleep(*COOKED_DRAIN)
+		os.Exit(0)
+	}
+	select {}
 }
 
 func InkeyRoutine(inkey chan byte) {
