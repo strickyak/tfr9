@@ -90,9 +90,44 @@ x D4FD 31 #23; "kernel.0d4eec829c"+001f   leay -2,y decrement counter
 + D4FF 26 #25;
 ```
 
+Another good option is `--trace=i` (that's a little letter `i`).
+This option logs only interrupts (both hardware and software) and RTIs.
+
+When OS-9 SWI2 kernel traps occur, they are nicely decoded for you:
+
+```
+$
+$ grep 'F[$]' _log | head
+i SWI2 _1_ #70346 at $D591: $00 = F$Link ( A=lang_and_type=$C0, X=$module_name_ptr=$E219="Init" )
+i RTI  _1_ #71394 returning to SWI2 $00 (F$Link): ( RA=lang_and_type=$C0, RB=attr_and_rev=$80, RX=$after_module_name=$E21D, RY=absolute_entry_addr=$E32A, RU=absolute_header_addr=$E22C )
+i SWI2 _2_ #71448 at $D5AB: $00 = F$Link ( A=lang_and_type=$C0, X=$module_name_ptr=$E24F="tk" )
+i RTI  _2_ #72429 returning to SWI2 $00 (F$Link): ( RA=lang_and_type=$C1, RB=attr_and_rev=$81, RX=$after_module_name=$E251, RY=absolute_entry_addr=$E28F, RU=absolute_header_addr=$E262 )
+i SWI2 _3_ #72497 at $E2A7: $32 = F$SSvc ( Y=init_table_addr=$E272 )
+i RTI  _3_ #72884 returning to SWI2 $32 (F$SSvc): ( ok )
+i SWI2 _4_ #73324 at $D5C4: $30 = F$All64 ( X=base_addr=$0000 )
+i SWI2 _5_ #73457 at $DFDF: $28 = F$SRqMem ( D=byte_count=$0100 )
+i RTI  _5_ #75408 returning to SWI2 $28 (F$SRqMem): ( RD=actual_size=$0100, RU=starting_addr=$D300 )
+i RTI  _4_ #79720 returning to SWI2 $30 (F$All64): ( RA=block_number=$01, RX=base_addr_out=$D300, RY=address_of_block=$D340 )
+$
+$ grep 'I[$]' _log | head
+i SWI2 _6_ #79805 at $D608: $86 = I$ChgDir ( A=mode=$05, X=$pathname=$E253="/dd" )
+i SWI2 _15_ #104298 at $E778: $80 = I$Attach ( A=access_mode=$85, X=$pathname=$E254="dd" )
+i SWI2 _17_ #109487 at $E537: $81 = I$Detach ( U=device_table_entry_addr=$04C3 )
+i RTI  _17_ #110396 returning to SWI2 $81 (I$Detach): ( ok )
+i RTI  _15_ #110472 returning to SWI2 $80 (I$Attach): ERROR $DD (221.) E$MNF: Module Not Found
+i RTI  _6_ #110857 returning to SWI2 $86 (I$ChgDir): ERROR $DD (221.) E$MNF: Module Not Found
+i SWI2 _23_ #115890 at $D608: $86 = I$ChgDir ( A=mode=$05, X=$pathname=$E253="/dd" )
+i SWI2 _26_ #117586 at $E778: $80 = I$Attach ( A=access_mode=$85, X=$pathname=$E254="dd" )
+i SWI2 _28_ #122775 at $E537: $81 = I$Detach ( U=device_table_entry_addr=$04C3 )
+i RTI  _28_ #123684 returning to SWI2 $81 (I$Detach): ( ok )
+$
+```
+
+The labels like `_6_` are paired calls and returns (or so our heuristics think).
+
 ## Running with Triggers and Watchpoints (`--trigger` and `--stop`)
 
-You can delay tracing until a specific event using `--trigger`, or stop execution automatically with a core dump using `--stop` (or `--max`).
+You can delay tracing until a specific event using `--trigger`, or stop execution automatically with a core dump using `--stop`.
 
 ### Cycle Limits (`c:`)
 Specify cycle counts using decimal SI (`k=1000`, `m=1000000`, `g=1000000000`) or binary multipliers (`K=1024`, `M=1048576`, `G=1073741824`):
