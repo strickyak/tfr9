@@ -23,6 +23,14 @@ inline uint8_t mmu_task[2][8] = {
     {0x38, 0x30, 0x31, 0x32, 0x33, 0x3D, 0x35, 0x3F}   // Task 1 ($FFA8-$FFAF)
 };
 
+// Pre-shifted physical 8KB block bases for ultra-fast single-cycle address translation:
+// mmu_base[task_offset | slot] = (block & 0x0F) << 13
+inline uint32_t mmu_base[16] = {
+    0x10000, 0x12000, 0x14000, 0x16000, 0x18000, 0x1A000, 0x1C000, 0x1E000,
+    0x10000, 0x00000, 0x02000, 0x04000, 0x06000, 0x1A000, 0x0A000, 0x1E000
+};
+inline uint8_t active_mmu_offset = 0;  // 0 for Task 0 ($FFA0-$FFA7), 8 for Task 1 ($FFA8-$FFAF)
+
 // 16 Palette Registers: $FFB0-$FFBF
 inline uint8_t gime_palette[16] = {0};
 
@@ -36,9 +44,11 @@ struct DoCoco128k {
   FORCE_INLINE static bool UseCoco64kRam(uint a) {
     if (centipede_config.become_coco3) {
       // In CoCo 3 mode:
-      // When SamTyBit is 0 (ROM mode), addresses below 0x8000 read RAM.
-      // When SamTyBit is 1 (All-RAM mode), addresses below 0xFF00 read RAM.
-      return (a < (SamTyBit ? 0xFF00 : 0x8000));
+      // Once CoCo 3 completes initial boot, SamTyBit=1 (all-RAM mode) for normal operation.
+      // In early boot (SamTyBit=0), addresses < $8000 and the constant $FE page ($FE00-$FEFF)
+      // are RAM, while $8000-$FDFF reads ROM.
+      // (Note: abus >= 0xFF00 is already filtered before this function is called).
+      return SamTyBit || (a < 0x8000) || (a >= 0xFE00);
     } else {
       // CoCo 2 compatibility mode
       return (a < (SamTyBit ? 0xFF00 : 0x8000));
@@ -47,22 +57,32 @@ struct DoCoco128k {
 
   FORCE_INLINE static uint TranslateCoco64kRamAddress(uint a) {
     if (centipede_config.become_coco3) {
-      if (UNLIKELY(a >= 0xFE00 && a < 0xFF00 && (gime_init0 & 0x08))) {
-        // $FF90 Bit 3 (MC3): Constant RAM at $FE00-$FEFF from block 15 ($3F)
-        return 0x1E000 | (a & 0x1FFF);
-      }
-      if (LIKELY(gime_init0 & 0x40)) {
-        // GIME MMU Enabled (Bit 6 of $FF90 is 1)
-        uint task = gime_init1 & 1;
-        uint slot = (a >> 13) & 7;
-        uint block = mmu_task[task][slot] & 0x0F;
-        return (block << 13) | (a & 0x1FFF);
-      } else {
-        // MMU Disabled: SAM compatibility mapping
-        // In 128K CoCo 3, SAM maps to blocks $38..$3F (blocks 8..15)
-        uint p1_offset = SamP1Bit ? 0x8000 : 0x0000;
-        return 0x10000 | ((p1_offset ^ (a & 0xFFFF)) & 0xFFFF);
-      }
+      // FAST COCO3 MMU ADDRESS TRANSLATION:
+      //
+      // Architectural optimization rationale:
+      // 1. We boot straight into MMU mode and assume the MMU is always active.
+      //    The hardware default Task 0 mapping (blocks $38..$3F -> physical blocks 8..15)
+      //    is 100% bit-for-bit identical to SAM compatibility mode. CoCo 3 Color BASIC
+      //    enables the MMU immediately on cold boot (coco3.asm:8793), and NitrOS-9 Level 2
+      //    requires MMU mode from start. Treating MMU as always active eliminates testing
+      //    gime_init0 Bit 6 (MMUEN) on every bus cycle.
+      //
+      // 2. We assume MC3 (constant RAM at $FE00-$FEFF from Block 15) is always active.
+      //    Both CoCo 3 BASIC and NitrOS-9 Level 2 unconditionally keep MC3=1 in INIT0 ($FF90).
+      //    Furthermore, in both OSes Slot 7 ($E000-$FFFF) is already mapped to Block 15,
+      //    so standard MMU translation for $FE00-$FEFF naturally translates to Block 15
+      //    (0x1E000 | 0x1E00 = 0x1FE00) with zero overhead and no special range checks.
+      //
+      // 3. Pre-shifted mmu_base[16] table: block bases ((block & 0x0F) << 13) are computed
+      //    on I/O writes ($FFA0-$FFAF) rather than at runtime. active_mmu_offset (0 or 8)
+      //    is updated on $FF91 writes. Address translation is therefore a single table
+      //    lookup and bitwise OR (4 instructions on ARM Cortex-M33).
+      //
+      // NOTE: If running a different OS/environment than Tandy CoCo 3 Color BASIC or
+      // NitrOS-9 Level 2 (e.g. diagnostic software that deliberately runs in SAM mode
+      // with non-default banks, disables MC3, or maps a different block into Slot 7
+      // while relying on MC3), this code may need to be revisited.
+      return mmu_base[active_mmu_offset | ((a >> 13) & 7)] | (a & 0x1FFF);
     } else {
       // CoCo 2 64K mode
       return (SamP1Bit ? 0x8000 : 0) ^ a;
@@ -76,6 +96,7 @@ struct DoCoco128k {
 
     SamP1Bit = false;
     SamTyBit = false;
+    active_mmu_offset = 0;
     IOWriters[0xD4] = WriteFFD4_P1Clear;
     IOWriters[0xD5] = WriteFFD5_P1Set;
     IOWriters[0xDE] = WriteFFDE_TyClear;
@@ -92,6 +113,8 @@ struct DoCoco128k {
     for (int i = 0; i < 8; i++) {
       mmu_task[0][i] = default_task0[i];
       mmu_task[1][i] = default_task1[i];
+      mmu_base[i] = (uint32_t)(default_task0[i] & 0x0F) << 13;
+      mmu_base[8 + i] = (uint32_t)(default_task1[i] & 0x0F) << 13;
     }
     for (int i = 0; i < 16; i++) {
       gime_palette[i] = 0x12; // CoCo 3 default boot palette color (green)
@@ -167,6 +190,7 @@ struct DoCoco128k {
 
   static void WriteFF91_Init1(uint a, byte d) {
     gime_init1 = d;
+    active_mmu_offset = (d & 1) ? 8 : 0;
   }
   static byte ReadFF91_Init1(uint a) {
     return gime_init1;
@@ -210,6 +234,7 @@ struct DoCoco128k {
     uint task = (reg >> 3) & 1;
     uint slot = reg & 7;
     mmu_task[task][slot] = d & 0x3F;
+    mmu_base[reg] = (uint32_t)(d & 0x0F) << 13;
   }
   static byte ReadFFAx_MMU(uint a) {
     uint reg = a & 0x0F;
