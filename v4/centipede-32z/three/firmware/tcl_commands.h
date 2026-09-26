@@ -58,6 +58,7 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
       return TCL_ERROR;
     }
     keyboard_injector::queue_string(argv[2]);
+    keyboard_injector::start_if_queued();
     return TCL_OK;
   } else if (strcmp(argv[1], "reformat-flash-filesystem") == 0) {
     if (argc < 3 || strcmp(argv[2], "-force")!=0) {

@@ -49,6 +49,7 @@ var QUICK_UPLOAD = flag.String("quick-upload", "", "Quick mode: upload the Pico'
 var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
 var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
 var QUICK_GET_RAM = flag.String("quick-get-ram", "", "Quick mode: get raw ram[] from Pico and save to filename")
+var QUICK_TYPE = flag.String("quick-type", "", "Quick mode: type keystrokes into running CoCo via keyboard injector")
 
 var tmpDirToClean string
 
@@ -424,7 +425,7 @@ func main() {
     // attempt to make /tmp/tether or whatever the --fs directory is
 	os.Mkdir(*PC_DIR, 0777)
 
-	if runtime.GOOS != "windows" && *QUICK_INJECT == "" && !*COOKED {
+	if runtime.GOOS != "windows" && *QUICK_INJECT == "" && *QUICK_TYPE == "" && !*COOKED {
 		SaveSttyState()
 		SetSttyCbreak()
 	}
@@ -1501,6 +1502,24 @@ func Run(inkey chan byte, person Personality) {
 				fmt.Printf("%s\n", string(resp.Data))
 				os.Exit(0)
 			}
+		}()
+	}
+
+	if *QUICK_TYPE != "" {
+		go func() {
+			log.Printf("STARTING QUICK-TYPE: %q", *QUICK_TYPE)
+			unescaped := strings.ReplaceAll(*QUICK_TYPE, `\r`, "\r")
+			unescaped = strings.ReplaceAll(unescaped, `\n`, "\n")
+			unescaped = strings.ReplaceAll(unescaped, `\t`, "\t")
+			resp, err := PicoRpcCall(channelToPico, "type", []byte(unescaped), 60*time.Second)
+			if err != nil {
+				log.Fatalf("QUICK-TYPE FAILED: %v", err)
+			}
+			if resp.Status != 0 {
+				log.Fatalf("QUICK-TYPE ERROR: status=%d message=%s", resp.Status, resp.Message)
+			}
+			log.Printf("QUICK-TYPE OK")
+			os.Exit(0)
 		}()
 	}
 

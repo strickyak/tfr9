@@ -918,16 +918,8 @@ class CoreEngine : public BackgroundSharedState {
             if (0xFF00 <= abus) {
               // CASE device read
               if (UNLIKELY(abus == 0xFF00 && keyboard_injector::active)) {
-                // KEYBOARD INJECTOR: ultra-fast inline path.
-                // Determine which column is probed from ram[$FF02].
-                byte probe = ram[0xFF02];
-                byte sense = 0x7F; // default: no key
-                for (int col = 0; col < 8; col++) {
-                  if ((probe & (1 << col)) == 0) {
-                    sense &= keyboard_injector::row_response[col];
-                  }
-                }
-                dbus = sense;
+                // KEYBOARD INJECTOR: direct single-cycle lookup from precomputed probe_table!
+                dbus = keyboard_injector::probe_table[keyboard_injector::active_table_idx][ram[0xFF02]];
                 GERBIL_DRIVE(dbus);
               } else {
                 auto r = IOReaders[abus & 0xFF];

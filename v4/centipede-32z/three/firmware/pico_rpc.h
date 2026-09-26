@@ -13,6 +13,7 @@
 
 #include "pcb.h"
 #include "cobs_tx.h"
+#include "keyboard_injector.h"
 
 extern "C" {
 extern int putchar_raw(int c);
@@ -106,6 +107,10 @@ void handle_pico_rpc_request(std::string* pkt) {
     } else {
       resp.data.clear();
     }
+  } else if (req.method == "type") {
+    keyboard_injector::queue_string(req.data);
+    keyboard_injector::start_if_queued();
+    resp.status = 0;
   } else if (req.method == "inject") {
     g_pending_injections.push_back(req);
     return; // Do not send response yet. The REPL will handle it.
