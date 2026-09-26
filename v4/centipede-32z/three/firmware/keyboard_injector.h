@@ -103,8 +103,13 @@ inline void lookup_char(char c, int8_t* col_out, int8_t* row_out, bool* shift_ou
             }
 }
 
-inline void queue_string(const std::string& str) {
+inline uint16_t g_down_ticks = TYPING_DOWN_TICKS;
+inline uint16_t g_up_ticks = TYPING_UP_TICKS;
+
+inline void queue_string(const std::string& str, uint16_t down_ticks = TYPING_DOWN_TICKS, uint16_t up_ticks = TYPING_UP_TICKS) {
     queued_string = str;
+    g_down_ticks = (down_ticks > 0) ? down_ticks : 1;
+    g_up_ticks = (up_ticks > 0) ? up_ticks : 1;
 }
 
 inline void start_if_queued() {
@@ -123,8 +128,8 @@ inline void start_if_queued() {
             int8_t c_col, c_row;
             bool c_shift, c_clear;
             lookup_char(c, &c_col, &c_row, &c_shift, &c_clear);
-            key_script[script_len++] = {TYPING_DOWN_TICKS, c_col, c_row, c_shift, c_clear};
-            key_script[script_len++] = {TYPING_UP_TICKS, -1, -1, false, false};
+            key_script[script_len++] = {g_down_ticks, c_col, c_row, c_shift, c_clear};
+            key_script[script_len++] = {g_up_ticks, -1, -1, false, false};
         }
     }
 

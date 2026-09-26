@@ -72,3 +72,28 @@ func TestDecodeVdgByte(t *testing.T) {
 		}
 	}
 }
+
+func TestCpsToTicks(t *testing.T) {
+	tests := []struct {
+		cps          float64
+		wantDown     int
+		wantUp       int
+	}{
+		{1.0, 25, 25},
+		{2.0, 12, 13},
+		{2.5, 10, 10},
+		{5.0, 5, 5},
+		{10.0, 2, 3},
+		{0.0, 12, 13},  // default fallback to 2.0
+		{-1.0, 12, 13}, // default fallback to 2.0
+	}
+
+	for _, tt := range tests {
+		down, up := CpsToTicks(tt.cps)
+		if down != tt.wantDown || up != tt.wantUp {
+			t.Errorf("CpsToTicks(%v) = (%d, %d); want (%d, %d)",
+				tt.cps, down, up, tt.wantDown, tt.wantUp)
+		}
+	}
+}
+

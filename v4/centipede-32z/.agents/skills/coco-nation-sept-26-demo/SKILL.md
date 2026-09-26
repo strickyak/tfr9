@@ -30,11 +30,11 @@ go run ./tether/ -quick-ping 88
 # 3. Launch native CoCo 2 Color BASIC
 echo "bye" | go run ./tether/ -cooked
 
-# 4. Inject program and run (note the $'...' quoting for \r and the ~ pause)
+# 4. Inject program and run (note the $'...' quoting for \r and the ~ pause; defaults to --cps=2.0)
 go run ./tether/ -quick-type $'10 FOR I=1 TO 10:PRINT I*I*I;:NEXT\r~RUN\r'
 
-# 5. Wait 42 seconds for keyboard injector (79 actions @ 500ms + 1s pause)
-# (Use schedule tool or wait 42s)
+# 5. Wait 21 seconds for keyboard injector (79 actions @ 240/260ms + 1s pause at 2.0 cps)
+# (Use schedule tool or wait 21s)
 
 # 6. Dump and decode text screen directly
 go run ./tether/ -omit_stderr -quick-get-text=z
@@ -79,10 +79,10 @@ go run ./tether/ -quick-type $'10 FOR I=1 TO 10:PRINT I*I*I;:NEXT\r~RUN\r'
 2. **Pause Character (`~`)**:
    The tilde `~` triggers a 1-second pause (`PAUSE_TICKS = 50`) in `keyboard_injector.h`. This ensures Color BASIC has fully parsed and saved line 10 before `RUN\r` is entered as an immediate direct command.
 3. **Execution Timing**:
-   The keyboard injector holds each key down for 500 ms and releases it for 500 ms (1 second per character). A 39-character sequence requires 78 key actions plus 1 pause action (~41 seconds total).
+   With `--cps=2.0` (the default), each keystroke is held down for 240 ms (12 ticks) and released for 260 ms (13 ticks) for a total of 500 ms per character (2 characters per second). A 39-character sequence requires 78 key actions plus 1 pause action (~20.5 seconds total).
 
 ### Step 4: Wait for Completion
-Wait ~42 seconds for keystroke entry and program execution to finish. Do not poll or interrupt the bus while injection is in progress.
+Wait ~21 seconds for keystroke entry and program execution to finish. Do not poll or interrupt the bus while injection is in progress.
 
 ### Step 5: Dump and Decode Video Display
 Read the 32×16 VDG text screen directly from RAM (`0x0400`–`0x05FF`) and print decoded ASCII to stdout:

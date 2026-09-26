@@ -51,6 +51,7 @@ var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", 
 var QUICK_GET_RAM = flag.String("quick-get-ram", "", "Quick mode: get raw ram[] from Pico and save to filename")
 var QUICK_GET_TEXT = flag.String("quick-get-text", "", "Quick mode: get text screen from Pico RAM [addr,width,height] and print to stdout")
 var QUICK_TYPE = flag.String("quick-type", "", "Quick mode: type keystrokes into running CoCo via keyboard injector")
+var CPS = flag.Float64("cps", 2.0, "Speed in characters per second at which quick-type should type")
 
 var tmpDirToClean string
 
@@ -1519,11 +1520,20 @@ func Run(inkey chan byte, person Personality) {
 
 	if *QUICK_TYPE != "" {
 		go func() {
-			log.Printf("STARTING QUICK-TYPE: %q", *QUICK_TYPE)
+			cps := *CPS
+			downTicks, upTicks := CpsToTicks(cps)
+
+			log.Printf("STARTING QUICK-TYPE (%.1f cps, %d down / %d up ticks): %q", cps, downTicks, upTicks, *QUICK_TYPE)
 			unescaped := strings.ReplaceAll(*QUICK_TYPE, `\r`, "\r")
 			unescaped = strings.ReplaceAll(unescaped, `\n`, "\n")
 			unescaped = strings.ReplaceAll(unescaped, `\t`, "\t")
-			resp, err := PicoRpcCall(channelToPico, "type", []byte(unescaped), 60*time.Second)
+			req := RpcRequest{
+				Method: "type",
+				Data:   []byte(unescaped),
+				Length: downTicks,
+				Flags:  upTicks,
+			}
+			resp, err := PicoRpcCallReq(channelToPico, req, 60*time.Second)
 			if err != nil {
 				log.Fatalf("QUICK-TYPE FAILED: %v", err)
 			}

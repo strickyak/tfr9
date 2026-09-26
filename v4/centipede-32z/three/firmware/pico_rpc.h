@@ -108,7 +108,9 @@ void handle_pico_rpc_request(std::string* pkt) {
       resp.data.clear();
     }
   } else if (req.method == "type") {
-    keyboard_injector::queue_string(req.data);
+    uint16_t down_ticks = (req.length > 0) ? (uint16_t)req.length : TYPING_DOWN_TICKS;
+    uint16_t up_ticks = (req.flags > 0) ? (uint16_t)req.flags : TYPING_UP_TICKS;
+    keyboard_injector::queue_string(req.data, down_ticks, up_ticks);
     keyboard_injector::start_if_queued();
     resp.status = 0;
   } else if (req.method == "inject") {
