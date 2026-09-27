@@ -1,0 +1,159 @@
+CoCo 2 PMODE vs. SCREEN
+https://gemini.google.com/app/3aabcb2fbbc7f112
+
+User prompt: On a coco2, what is the difference between `PMODE 4, 1` and `SCREEN 1, 1` and
+what do the numbers mean?
+
+Response: On the Tandy Color Computer 1 and 2 running Extended Color BASIC, PMODE controls
+where and how BASIC draws graphics in memory, while SCREEN controls what the video hardware
+actually outputs to your television or monitor.
+
+Because these functions are decoupled, you can draw to a graphics buffer off-screen using PMODE
+before switching the display with SCREEN, or implement page flipping without visible flicker.
+
+PMODE 4, 1 (Drawing Setup)
+
+Syntax: PMODE <mode>, <start_page>
+
+      4 (Mode): Selects the graphics resolution and color depth. Mode 4 is the highest two-color
+      resolution available on the CoCo 2: 256 × 192 pixels in 2 colors. This mode requires 6,144
+      bytes of RAM (4 memory pages).
+
+      1 (Start Page): Specifies the starting video memory page in RAM where subsequent drawing
+      commands (LINE, CIRCLE, DRAW, PSET, PCLS) will write. CoCo video memory is divided into
+      1.5 KB (1,536-byte) blocks called pages, beginning at RAM address &H0E00 (page 1).
+      Because Mode 4 requires 4 pages, specifying page 1 allocates pages 1 through 4 (&H0E00
+      to &H25FF) as the active drawing canvas.
+
+SCREEN 1, 1 (Display Switch)
+
+Syntax: SCREEN <screen_type>, <colorset>
+
+      First 1 (Screen Type): Determines whether the Motorola 6847 video display generator
+      (VDG) displays text or graphics.
+
+             0 = Text mode (standard 32 × 16 alphanumeric screen).
+
+             1 = Graphics mode (switches the display from text to the high-resolution graphics
+             memory).
+
+      Second 1 (Color Set): Selects the hardware palette for the screen. For two-color modes like
+      PMODE 4:
+
+             0 = Color Set 0: Black background with green foreground.
+
+             1 = Color Set 1: Black background with white/buff foreground.
+
+(Note: In 4-color modes such as PMODE 1 or 3, Color Set 0 provides Green/Yellow/Blue/Red,
+while Color Set 1 provides Buff/Cyan/Magenta/Orange.)
+
+To see a walkthrough of configuring graphics buffers and plotting points in Extended Color BASIC,
+check out Programming BASIC on the Color Computer: PSET Pixels. This video covers navigating
+Extended Color BASIC manuals, initializing graphics modes, and drawing onto the CoCo's screen
+buffer.
+
+http://googleusercontent.com/youtube_content/1
+
+Sources
+
+   1. The 9 colors of the CoCo's high resolution screens
+   2. Programming BASIC on the Color Computer Chapter 14 - PSET Pixels
+
+
+
+User prompt: What are the comparable keywords on a coco3 for hi-res graphics?
+
+Response: The Color Computer 3 replaces the old decoupled PMODE and SCREEN workflow with
+dedicated Super Extended Color BASIC commands prefixed with H (for High Resolution), driven
+by the CoCo 3's custom GIME (Graphics Interrupt Memory Enhancement) chip.
+
+The primary keyword replacing both PMODE and SCREEN is HSCREEN, supported by PALETTE and
+HCOLOR.
+
+1. HSCREEN (Mode Selection & Display Switch)
+
+Unlike the CoCo 1/2 where you set a memory buffer with PMODE and separately enabled the video
+generator with SCREEN, HSCREEN <mode> configures both the GIME resolution/depth and
+immediately makes that screen visible.
+
+
+  Command       Resolution    Colors   Notes
+
+  HSCREEN 0     Text Mode     —        Exits graphics and returns to the standard text screen.
+
+  HSCREEN 1     320 × 192     4        4 colors selectable from the 64-color palette.
+
+  HSCREEN 2     320 × 192     16       CoCo 3’s most popular mode (16 simultaneous colors).
+
+  HSCREEN 3     640 × 192     2        Highest horizontal resolution in monochrome.
+
+  HSCREEN 4     640 × 192     4        High-resolution with 4 simultaneous colors.
+
+(The GIME hardware technically supports 200- and 225-line heights and 16-color 640-pixel modes
+through direct register programming/MMU banking, but Super Extended Color BASIC exposes
+these standard 192-line modes directly).
+
+2. PALETTE (Color Assignment)
+
+Instead of the CoCo 2's rigid hardware color sets (SCREEN 1, 0 vs SCREEN 1, 1), the CoCo 3
+uses fully programmable palette registers.
+
+     PALETTE <slot>, <color>
+          <slot>: The logical color register used in drawing routines (e.g., 0 to 15 in HSCREEN
+          2).
+
+          <color>: Any hardware color code from the 64-color master palette (0–63).
+
+     PALETTE RGB vs PALETTE CMP: Sets the default palette mapping to look correct on either
+     an analog RGB monitor or a composite/TV display.
+
+3. The H Drawing Suite
+
+All legacy drawing commands have direct H-counterparts in Super Extended Color BASIC that
+operate within the active HSCREEN:
+
+
+ CoCo 1 / 2 Command      CoCo 3 Replacement         Function
+
+                                                    Sets the active foreground and background
+ COLOR <fg>, <bg>        HCOLOR <fg>, <bg>
+                                                    palette slots.
+
+                                                    Clears the active graphics screen to a
+ PCLS <color>            HCLS <color>               palette slot.
+
+ PSET(x, y, c) /         HSET(x, y, c) /
+                                                    Plots or unplots a pixel coordinate.
+ PRESET                  HRESET
+
+ LINE (x1,y1)-           HLINE (x1,y1)-
+                                                    Draws lines or filled rectangles (B / BF).
+ (x2,y2)                 (x2,y2)
+
+ CIRCLE (x, y), r        HCIRCLE (x, y), r          Draws ellipses and circles.
+
+ PAINT (x, y), c,        HPAINT (x, y), c,
+                                                    Flood-fills bounded areas.
+ b                       b
+
+ DRAW "string"           HDRAW "string"             String-driven vector drawing.
+
+                                                    Blits graphic sprite buffers (paired with
+ GET / PUT               HGET / HPUT
+                                                    HBUFF).
+
+                         HPRINT (x, y),             Prints rendered text directly onto the pixel
+ (None)
+                         "text"                     canvas.
+
+
+(Note: The CoCo 3 retains complete backward compatibility—running PMODE and SCREEN still
+executes original VDG modes identically to a CoCo 2).
+
+Sources
+
+  1. Tandy Service Manual - Color Computer 3
+  2. CoCo III Secrets Revealed Edition 1 1986
+  3. The 9 colors of the CoCo's high resolution screens
+  4. Coco III Secrets Revealed (Microcom Software)
+
