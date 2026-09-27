@@ -59,116 +59,131 @@ To ensure 100% cycle logging from Cycle 0 without missing any instruction fetche
 
 ```mermaid
 flowchart TD
-    P0["Phase 0: Eliminate Hand-off Gap & Verify Reset Trace"] --> P1["Phase 1: CoCo 3 Boot ROM Integration ($FFFE/$FFFF)"]
-    P1 --> P2["Phase 2: GIME MMU & Register Emulation ($FF90-$FFAF)"]
-    P2 --> P3["Phase 3: Color BASIC & Super Extended BASIC Text Boot"]
-    P3 --> P4["Phase 4: Palette Registers ($FFB0-$FFBF) & GIME Video State"]
-    P4 --> P5["Phase 5: High-Res 320x200 16-Color Graphics & PMODE 4"]
-    P5 --> P6["Phase 6: NitrOS-9 Level 2 & Dynamic Mode Toggle"]
+    P0["Phase 0: Eliminate Hand-off Gap & Reset Trace [DONE]"] --> P1["Phase 1: CoCo 3 Boot ROM Integration ($FFFE/$FFFF) [DONE]"]
+    P1 --> P2["Phase 2: GIME MMU & Register Emulation ($FF90-$FFAF) [DONE]"]
+    P2 --> P3["Phase 3: Color BASIC & Super Extended BASIC Text Boot [DONE]"]
+    P3 --> P4["Phase 4: Palette Registers ($FFB0-$FFBF) & Video State [DONE]"]
+    P4 --> P5["Phase 5: High-Res 320x192 16-Color Graphics & PMODE 4 [DONE]"]
+    P5 --> P6["Phase 6: NitrOS-9 Level 2 & Dynamic Mode Toggle [NEXT]"]
 ```
 
-### Phase 0: Transition Gap Elimination & Clean Reset Logging
+### Phase 0: Transition Gap Elimination & Clean Reset Logging [COMPLETED]
 * **Goal**: Eliminate the 50 µs delay upon exiting spoonfeeding and verify that cycle tracing captures the very first bus cycles without loss.
-* **Tasks**:
-  1. Remove `cobs_printf` and any other blocking calls from `DriveConsole` exit in [`firmware/gspoon.h`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/firmware/gspoon.h).
-  2. Implement zero-delay hand-off into the bus cycle loop.
-  3. Support triggering a clean 6809 hardware reset sequence into `$FFFE/$FFFF` or direct entry into the target reset vector.
-* **Verification**:
-  - Run tether with read/write tracing enabled (`set A(trace_reads) 1 ; set A(trace_writes) 1 ; menu store A ; bye`).
-  - Verify trace log begins cleanly at cycle 0 with vector fetch / initial opcode.
+* **Status**: Completed. Cycle tracer added to capture bus cycles synchronously into internal trace buffer.
 
 ---
 
-### Phase 1: CoCo 3 Boot ROM Integration (`coco3.rom`)
+### Phase 1: CoCo 3 Boot ROM Integration (`coco3.rom`) [COMPLETED]
 * **Goal**: Provide the 32KB CoCo 3 ROM image to Centipede and route initial reset execution to the CoCo 3 boot code.
-* **Tasks**:
-  1. Reference CoCo 3 ROM files in [`~/modoc/coco-shelf/toolshed/cocoroms/coco3.rom`](file:///home/strick/modoc/coco-shelf/toolshed/cocoroms/coco3.rom) and assembly listings in [`coco3.rom.list`](file:///home/strick/modoc/coco-shelf/toolshed/cocoroms/coco3.rom.list).
-  2. Embed or load `coco3.rom` (32,768 bytes) into Centipede flash/RAM.
-  3. When `centipede_config.become_coco3` is active, map `$FFFE/$FFFF` to the CoCo 3 reset entry point.
-  4. Ensure `ROM` read accesses in the range `$8000`–`$FEFF` return CoCo 3 ROM contents when ROM select is active.
-* **Verification**:
-  - In tether trace, inspect execution following reset: verify instructions match the startup sequence in `coco3.rom.list` (clearing registers, testing hardware, initializing PIAs).
+* **Status**: Completed. 32KB `coco3.rom` embedded directly into Centipede firmware and mapped into physical RAM/ROM at `$18000` (`0x18000..0x1FFFF`). `IsCoco3Rom(abus)` returns ROM contents whenever `SamTyBit == 0` for addresses `$8000`–`$FDFF`.
 
 ---
 
-### Phase 2: GIME MMU & Register Emulation (`$FF90`–`$FFAF`)
+### Phase 2: GIME MMU & Register Emulation (`$FF90`–`$FFAF`) [COMPLETED]
 * **Goal**: Implement the CoCo 3 GIME MMU (Memory Management Unit) registers and address translation.
-* **Tasks**:
-  1. **GIME Initialization Registers**:
-     - `$FF90`: Init 0 (Bit 6: MMU Enable `0=disabled, 1=enabled`; Bit 7: CoCo 1/2 Compatibility `0=CoCo 1/2, 1=CoCo 3`).
-     - `$FF91`: Init 1 (Bit 0: Task Select `0=Task 0, 1=Task 1`).
-     - `$FF92`–`$FF95`: IRQ/FIRQ enable and timer registers.
-  2. **MMU Task Tables**:
-     - Task 0 (`$FFA0`–`$FFA7`): 8 registers mapping 8KB logical blocks to physical 8KB blocks.
-     - Task 1 (`$FFA8`–`$FFAF`): 8 registers for Task 1 mapping.
-  3. **Address Translation in `DoCoco128k`**:
-     - When MMU disabled (`$FF90.6 == 0`): SAM compatibility mapping using the lower 64KB of RAM.
-     - When MMU enabled (`$FF90.6 == 1`):
-       $$\text{Physical Address} = (\text{MmuMap}[\text{Task}][\text{abus} \gg 13] \ \& \ 0\text{x}0\text{F}) \times 8192 + (\text{abus} \ \& \ 0\text{x}1\text{FFF})$$
-       (For 128KB physical RAM, 16 blocks of 8KB: `0x00`–`0x0F`).
-* **Verification**:
-  - Write test patterns across different MMU blocks via Tcl / 6809 test code and verify that bank switching accesses the correct physical RAM pages.
+* **Status**: Completed. Full 2-task MMU implemented with pre-shifted block base lookup table (`mmu_base[16]`) allowing single-cycle address translation on Core 1:
+  $$\text{Physical Address} = \text{mmu\_base}[\text{active\_mmu\_offset} \mid ((\text{abus} \gg 13) \ \& \ 7)] \mid (\text{abus} \ \& \ 0\text{x}1\text{FFF})$$
+* **Critical Discovery**: All GIME and MMU I/O handlers must be inlined directly inside `centipede.cpp` in SRAM (`0x2000xxxx`). Calling out-of-line handlers located in QSPI Flash introduces cache miss latency that causes the 6809 bus cycle to overrun, skipping instructions during boot.
 
 ---
 
-### Phase 3: Color BASIC & Super Extended BASIC Text Boot
+### Phase 3: Color BASIC & Super Extended BASIC Text Boot [COMPLETED]
 * **Goal**: Successfully boot into the CoCo 3 Color BASIC 2.0 / Super Extended BASIC environment in compatibility text mode.
-* **Tasks**:
-  1. Map the 32KB CoCo 3 ROM image into logical memory according to standard CoCo 3 MMU boot mapping:
-     - Blocks `0x3C`–`0x3F` mapped to logical `$8000`–`$FFFF` (or corresponding 128K physical blocks).
-  2. Ensure writes to text video RAM (`$0400`–`$05FF`) correctly write to Centipede RAM and display on the physical CoCo 2 VDG output.
-  3. Verify keyboard matrix probing via `$FF02` and response via `$FF00` works with CoCo 3 BASIC `POLCAT` / `INKEY$` loop.
-* **Verification**:
-  - The physical CoCo 2 monitor display shows:
-    ```text
-    COLOR BASIC 2.0
-    (C) 1986 TANDY CORP.
-    OK
-    ```
-  - Virtual text console in `tether` shows the matching screen content.
+* **Status**: Completed. The system cold-boots directly into Super Extended Color BASIC 2.0:
+  ```text
+  EXTENDED COLOR BASIC 2.0
+  COPR. 1982, 1986 BY TANDY
+  UNDER LICENSE FROM MICROSOFT
+  AND MICROWARE SYSTEMS CORP.
+
+  OK
+  ```
+* **Critical Discovery**: Launching CoCo 3 via `Jump(0xC000)` jumps directly to `SC000` (the official Super Extended BASIC entry point at `coco3.asm:08776`), setting stack `LDS #$5EFF`, programming palettes, loading MMU task tables from `MMUIMAGE`, and copying code to RAM at `$4000`. Bypassing the unnecessary `$8C1B` ROM trampoline eliminated cold boot glitches.
 
 ---
 
-### Phase 4: GIME Palette Registers (`$FFB0`–`$FFBF`) & Video State
+### Phase 4: GIME Palette Registers (`$FFB0`–`$FFBF`) & Video State [COMPLETED]
 * **Goal**: Emulate the 16 programmable GIME palette registers and track video mode changes.
-* **Tasks**:
-  1. Implement I/O write handlers for `$FFB0`–`$FFBF`:
-     - Store 16 6-bit RGB palette entries (values `0`–`63`).
-     - Initialize to standard CoCo 3 power-on default palette colors.
-  2. Implement video mode tracking:
-     - `$FF98`: Graphics/Text mode, lines per screen.
-     - `$FF99`: Resolution (160/256/320/640) and color depth (2/4/16 colors).
-     - `$FF9D`–`$FF9E`: Video RAM starting bank/offset registers.
-* **Verification**:
-  - Inspect palette and video register values via `tether` RPC or Tcl inspection.
+* **Status**: Completed. All 16 palette registers `$FFB0`–`$FFBF` are tracked in SRAM (`gime_palette[16]`) and mirrored into `ram[0xFFB0..0xFFBF]`. CoCo 3 composite and RGB palette color values are translated into 24-bit RGBA pixels in Tether.
 
 ---
 
-### Phase 5: High-Resolution 320×200 16-Color Graphics & PMODE 4 Emulation
-* **Goal**: Support CoCo 3 high-resolution graphics, focusing on the target mode **320 × 200 at 16 colors** (32,000 bytes) and compatibility with CoCo 2 PMODE 4.
-* **Tasks**:
-  1. Allocate and manage the 32KB graphics frame buffer in Centipede physical RAM.
-  2. Implement streaming or virtual display extraction over USB:
-     - Translate 4-bit nibbles using the 16 palette registers into RGB pixels.
-     - Stream frame buffer updates to Tether / Centiscope / web viewer.
-  3. Support BASIC commands:
-     - CoCo 3 commands: `HSCREEN`, `HLINE`, `HCIRCLE`, `HPAINT`, `HCOLOR`.
-     - CoCo 2 compatibility: `PMODE 4,1: SCREEN 1,1: PCLS`.
-* **Verification**:
-  - Execute graphics drawing demo program and render the 320×200 16-color image in real time on PC tether.
+### Phase 5: High-Resolution 320×192 16-Color Graphics & PMODE 4 Emulation [COMPLETED]
+* **Goal**: Support CoCo 3 high-resolution graphics (HSCREEN 2: 320×192 at 16 colors) and CoCo 2 PMODE 4 compatibility.
+* **Status**: Completed.
+  - Successfully injected and ran a BASIC program drawing a big 'X' across $320 \times 192$:
+    ```basic
+    10 HSCREEN 2
+    20 HCOLOR 3,0
+    30 HCLS
+    40 HLINE (0,0)-(319,191),PSET
+    50 HLINE (0,191)-(319,0),PSET
+    RUN
+    ```
+  - Framebuffer download tool implemented in Tether: `--quick-get-hscreen=2,filename.png` reads 32,000 bytes directly from physical Block 0 (`0x00000..0x07FFF`), translates 4bpp nibbles via `$FFB0..$FFBF`, and saves a clean PNG (`hscreen2.png`).
+  - PMODE 4 framebuffer download tool implemented: `--quick-get-pmode=M,P,C,filename.png` extracts PMODE 0–4 screens (`pmode4_green.png`, `pmode4_white.png`).
 
 ---
 
-### Phase 6: NitrOS-9 Level 2 Readiness & Dynamic Mode Switching
+### Phase 6: NitrOS-9 Level 2 Readiness & Dynamic Mode Switching [IN PROGRESS]
 * **Goal**: Provide the full hardware environment required for NitrOS-9 Level 2 on a 128KB CoCo 3.
 * **Tasks**:
-  1. GIME Hardware Timer:
-     - 12-bit programmable down-counter at `$FF94`–`$FF95`.
-     - Generates periodic 6809 FIRQ or IRQ interrupts for OS-9 multitasking clock ticks.
-  2. Constant RAM at `$FE00`–`$FEFF`:
-     - Emulate CoCo 3 unpaged RAM page `$FE00`–`$FEFF` across task switches.
-  3. Validate seamless runtime toggle:
-     - Booting without keys -> standard CoCo 2 mode.
-     - Booting with `Z` (mode 90) -> CoCo 3 mode.
-* **Verification**:
-  - Boot NitrOS-9 Level 2 boot track from virtual floppy `/fd/f0` or `/pc/f0`.
+  1. GIME Hardware Timer at `$FF94`–`$FF95` for OS-9 multitasking clock ticks.
+  2. Constant RAM at `$FE00`–`$FEFF` unpaged across task switches.
+  3. Validate booting NitrOS-9 Level 2 boot track from virtual floppy `/fd/f0` or `/pc/f0`.
+
+---
+
+## Technical Discoveries & Work-Arounds Log
+
+### 1. Inlining I/O Handlers in SRAM (Zero Flash Access on Core 1)
+* **Problem**: C++ static member functions in template class `DoCoco128k` were assigned to `IOWriters` and `IOReaders` function pointer tables. GCC placed these functions in QSPI Flash (`.text` at `0x1000xxxx`). When the 6809 executed a write to an MMU register (e.g., `STA ,X+` to `$FFA0`), jumping across section boundaries into Flash caused an instruction cache fetch stall (~20–50 cycles on the RP2350). The 6809 bus cycle ended and the CPU advanced to the next instruction before Core 1 was ready, causing missing instruction fetches and boot crashes.
+* **Solution**: All CoCo 3 device read and write handling for `$FF90`–`$FFDF` is inlined directly inside the main bus loop in [`firmware/centipede.cpp`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/firmware/centipede.cpp). Execution remains 100% in SRAM (`0x2000xxxx`), completing in 1–2 CPU clock cycles (~4–8 ns), well within the 1118 ns bus cycle.
+
+### 2. Direct Boot Vector Handoff to `$C000` (`SC000`)
+* **Problem**: Booting originally jumped to `$8C1B`, which was intended as an indirect reset vector pointing to `$C000`. Executing through `$8C1B` relied on a `CLR $FFDE` and `JMP $C000` sequence that could be corrupted if bus signals jittered during console exit.
+* **Solution**: In `DriveConsole()` ([`firmware/gspoon.h`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/firmware/gspoon.h)), `centipede_config.become_coco3` triggers `Jump(0xC000)`. This spoonfeeds `JMP $C000` directly into the 6809, landing immediately at the true CoCo 3 cold start entry point.
+
+### 3. I/O Write FIFO Push Gating
+* **Problem**: `T::PushFifoWrite` was unconditionally pushing all I/O writes to the inter-core `fg2bg` FIFO. During heavy register configuration (such as the 16-register palette and MMU loops), FIFO pressure created bus loop delays.
+* **Solution**: In `centipede.cpp`, I/O writes are gated on `if (centipede_config.trace_writes)` before calling `PushFifoWrite`.
+
+### 4. Fast Keystroke Injection (5.0 CPS)
+* **Problem**: Default typing rate of 2.0 CPS required ~51 seconds to type multi-line BASIC programs.
+* **Solution**: The default typing rate was increased to **5.0 CPS** (`-cps=5`) in [`tether/tconsole.go`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/tether/tconsole.go) and [`tether/pico_rpc.go`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/tether/pico_rpc.go). Each key event uses 5 ticks (100 ms) key down and 5 ticks (100 ms) key up. This provides reliable debouncing by Color BASIC while reducing typing time by more than half (~24s for 97 chars + pauses).
+
+---
+
+## Instructions for Use
+
+### 1. Launching CoCo 3 Mode
+To cold-boot Centipede into CoCo 3 Extended Color BASIC 2.0:
+```bash
+go run ./tether/ -quick-restart 3
+```
+Verify the sign-on banner on the text screen:
+```bash
+go run ./tether/ --quick-get-text=0x400,32,16
+```
+
+### 2. Typing Programs into CoCo 3 BASIC
+Use `--quick-type` to inject BASIC code via the keyboard injector:
+```bash
+go run ./tether/ -quick-type $'10 HSCREEN 2\r~20 HCOLOR 3,0\r~30 HCLS\r~40 HLINE (0,0)-(319,191),PSET\r~50 HLINE (0,191)-(319,0),PSET\r~RUN\r'
+```
+* Use `\r` for Enter.
+* Use `~` for a 1-second pause between statements/lines.
+* Default typing speed is 5.0 CPS (no `-cps` flag needed; or pass `-cps=N` to adjust).
+
+### 3. Capturing CoCo 3 Graphics (HSCREEN 2)
+To capture the $320 \times 192$ 16-color graphics framebuffer from physical Block 0 and save as PNG:
+```bash
+go run ./tether/ --quick-get-hscreen=2,hscreen2.png
+```
+
+### 4. Capturing CoCo 1/2 PMODE Graphics
+To capture PMODE 0–4 screens from video RAM:
+```bash
+go run ./tether/ --quick-get-pmode=4,1,1,pmode4_green.png
+```
+* Argument syntax: `[M,P,C,filename.png]` where `M` is PMODE mode (0–4), `P` is page number (or RAM address if $>15$), `C` is colorset (0 or 1), and `filename.png` is output file.
