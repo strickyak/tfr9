@@ -16,8 +16,8 @@ EXTRA_FLAGS=""
 case $1 in
     +COCO3 )
             shift
-            ABSLISTS=/home/strick/modoc/coco-shelf/toolshed/cocoroms/coco3.rom.list
-            ROMS="build/coco3.0x8000.rom"
+            ABSLISTS=/home/strick/modoc/coco-shelf/toolshed/cocoroms/coco3.rom.list,/home/strick/modoc/coco-shelf/toolshed/cocoroms/disk11.rom.list
+            ROMS="build/coco3.0x8000.rom build/disk11.0xC000.rom"
             EXTRA_FLAGS="--coco3"
         ;;
 esac
