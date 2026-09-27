@@ -8,6 +8,13 @@
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
 
+#ifndef FORCE_INLINE
+#define FORCE_INLINE inline __attribute__((always_inline))
+#endif
+#ifndef IN_RAM
+#define IN_RAM __not_in_flash("centipede")
+#endif
+
 // ============================================================================
 // Floppy Disk Controller Emulation
 //
@@ -87,13 +94,10 @@ struct DontFloppy {
   static void BackgroundFifoFloppyW256(Coro& self, byte chore_byte) {
     cobs_printf("# Floppy W256 not installed\n");
   }
-  static void ReadScsFloppy(const uint &abus, byte &dbus) {
-    cobs_printf("# Floppy (ReadScs) not installed\n");
+  FORCE_INLINE static void IN_RAM ReadScsFloppy(const uint &abus, byte &dbus) {
     dbus = 0xFF;
   }
-  static void WriteScsFloppy(const uint &abus, byte &dbus) {
-    cobs_printf("# Floppy (WriteScs) not installed\n");
-    dbus = 0xFF;
+  FORCE_INLINE static void IN_RAM WriteScsFloppy(const uint &abus, byte &dbus) {
   }
 };
 
@@ -296,7 +300,7 @@ struct DoFloppy {
 #endif
   }
 
-  static void ReadScsFloppy(const uint &abus, byte &dbus) {
+  FORCE_INLINE static void IN_RAM ReadScsFloppy(const uint &abus, byte &dbus) {
     // SAY('S');
     // CASE special read SCS
     switch (abus & 15) {
@@ -335,7 +339,7 @@ struct DoFloppy {
     }
   }
 
-  static void WriteScsFloppy(const uint &abus, byte &dbus) {
+  FORCE_INLINE static void IN_RAM WriteScsFloppy(const uint &abus, byte &dbus) {
     // WRITE SCS
     switch (abus & 15) {
       case 0x0:  // WriteLatch
