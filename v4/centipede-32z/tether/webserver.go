@@ -133,17 +133,42 @@ func serveRam(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	isPhys := q.Get("phys") != "" || q.Get("raw") != ""
+	_, isCoco3 := the_ram.(*Coco3Ram)
+
 	start := uint(0)
-	if val, ok := parseUintParam(addrStr); ok {
-		if val < uint(len(raw)) {
-			start = val
+	if addrStr != "" {
+		if val, ok := parseUintParam(addrStr); ok {
+			if !isPhys && isCoco3 && val <= 0xFFFF {
+				start = the_ram.Physical(val)
+			} else if val < uint(len(raw)) {
+				start = val
+			}
 		}
+	} else if isCoco3 && !isPhys {
+		// In CoCo 3, default to active 64K RAM base (0x10000) rather than unused physical 0
+		start = the_ram.Physical(0)
 	}
 
 	length := uint(len(raw)) - start
+	if isCoco3 && !isPhys && addrStr == "" && length > 0x10000 {
+		length = 0x10000 // default to 64K for CoCo 3 active space
+	}
 	if val, ok := parseUintParam(lenStr); ok && val > 0 {
 		if start+val <= uint(len(raw)) {
 			length = val
+		}
+	}
+
+	// On-demand live sync from Pico if requested
+	if (q.Get("live") == "1" || q.Get("sync") == "1") && currentChannelToPico != nil {
+		syncLen := length
+		if syncLen > 8192 {
+			syncLen = 8192
+		}
+		data, err := fetchRamRange(currentChannelToPico, int(start), int(syncLen))
+		if err == nil && len(data) > 0 {
+			copy(raw[start:], data)
 		}
 	}
 

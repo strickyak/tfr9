@@ -1009,10 +1009,52 @@ func CheckUpgradeToCoco3Ram(_addr uint, _data byte) {
 	}
 }
 
+func SyncInitialRamFromPico(ch chan []byte) {
+	if the_ram == nil || ch == nil {
+		return
+	}
+	// Give the USB connection 150ms to settle
+	time.Sleep(150 * time.Millisecond)
+	if the_ram == nil {
+		return
+	}
+
+	basePhys := int(the_ram.Physical(0))
+	raw := the_ram.GetTrackRam()
+	if raw == nil || basePhys >= len(raw) {
+		return
+	}
+
+	// Fetch initial 8KB (covers zero-page, text screen at $0400, buffers)
+	firstChunk := 8192
+	if basePhys+firstChunk > len(raw) {
+		firstChunk = len(raw) - basePhys
+	}
+	data, err := fetchRamRange(ch, basePhys, firstChunk)
+	if err == nil && len(data) > 0 {
+		copy(raw[basePhys:], data)
+		log.Printf("SyncInitialRamFromPico: successfully synced %d bytes from live Pico RAM", len(data))
+	}
+
+	// Fetch remaining 56KB in background
+	remaining := 64*1024 - firstChunk
+	if remaining > 0 && basePhys+firstChunk+remaining <= len(raw) {
+		dataRest, err := fetchRamRange(ch, basePhys+firstChunk, remaining)
+		if err == nil && len(dataRest) > 0 {
+			copy(raw[basePhys+firstChunk:], dataRest)
+			log.Printf("SyncInitialRamFromPico: full 64KB live RAM synced")
+		}
+	}
+}
+
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 	currentChannelToPico = channelToPico
 	defer func() { currentChannelToPico = nil }()
+
+	if *CENTIPEDE {
+		go SyncInitialRamFromPico(channelToPico)
+	}
 
 	loadArgs := flag.Args()
 	if *CENTIPEDE {

@@ -373,7 +373,7 @@ func GetPmode4Screen(base uint) []byte {
 
 	p := base
 	for y := uint(0); y < 192; y++ {
-		for x := uint(0); x < 256/2; x++ {
+		for x := uint(0); x < 256/8; x++ {
 			b := the_ram.Peek1(p)
 			p++
 			for j := uint(0); j < 8; j++ {
