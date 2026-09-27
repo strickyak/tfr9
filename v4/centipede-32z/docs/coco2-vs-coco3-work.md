@@ -156,14 +156,24 @@ flowchart TD
 * **Problem**: Earlier in development, `ForceBecomeCoco3()` had been inserted into `RunEngine()`, `main()`, `BackgroundSpoonFeeder()`, and label `BYE:`, unconditionally zeroing `centipede_config` and forcing `become_coco3 = true` on every reset. This prevented running as a standard CoCo 2 and overrode Tcl configuration menus.
 * **Solution**: Completely removed `ForceBecomeCoco3()`. Restored `centipede_config.SetStandard()` on boot (which configures standard CoCo 2 with 64KB RAM, `rom_disk11 = true`, `become_coco3 = false`). Sourcing `/rc/mode90.tcl` (executed automatically when holding `Z` on boot or commanding `-quick-restart 90`) sets `become_coco3 = 1` and disables `rom_disk11`. When exiting console, SAM VDG mode and cold start flags are always cleanly reset before branching: `Jump(0xC000)` if `become_coco3`, or `Jump(0xA027)` for native CoCo 2.
 
+### 6. Hardware Flow Control via `/HALT` Restored for CoCo 3 Mode
+* **Problem**: When running in CoCo 3 mode with `trace_writes = 1` (e.g. Mode 89, holding 'Y' on boot), rapid bursts of bus writes (such as screen clears and cold-boot banner output) overwhelmed the USB link. The inter-core `fg2bg` FIFO filled past capacity (8192 items) and `PushFifoWrite` dropped ~20% of write cycle events, producing missing characters and "holes" in memory buffers served at `http://localhost:8080/ram`.
+* **Root Cause**: `FlowControlCheck()` in [`firmware/centipede.cpp`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/firmware/centipede.cpp) contained an early return `if (centipede_config.become_coco3) return;`, bypassing HALT-based flow control entirely in CoCo 3 mode.
+* **Solution**: Removed the early return in `FlowControlCheck()`. Now, when `fg2bg.size() > FG2BG_HIGH_WATERMARK` (1000 items), `HaltOn()` pulls `/HALT` (GPIO 29) low to pause the 6809 CPU. Once the background core drains the FIFO over USB below `FG2BG_LOW_WATERMARK` (500 items), `HaltOff()` releases `/HALT`, allowing the CPU to resume without dropping any write cycles.
+
 ---
 
 ## Instructions for Use
 
 ### 1. Launching CoCo 3 Mode
-To cold-boot Centipede into CoCo 3 Extended Color BASIC 2.0 via Mode 90 (or hold 'Z' while turning on the CoCo):
+To cold-boot Centipede into CoCo 3 Extended Color BASIC 2.0:
+* **Mode 90** (hold `Z` on boot or `-quick-restart 90`): Standard CoCo 3 mode (`become_coco3=1`, `trace_writes=0`).
+* **Mode 89** (hold `Y` on boot or `-quick-restart 89`): CoCo 3 mode with write tracing (`become_coco3=1`, `trace_writes=1`) for Tether live memory inspection at `http://localhost:8080/ram`.
+
 ```bash
 go run ./tether/ -quick-restart 90
+# or for write-tracing:
+go run ./tether/ -quick-restart 89
 ```
 Verify the sign-on banner on the text screen:
 ```bash
