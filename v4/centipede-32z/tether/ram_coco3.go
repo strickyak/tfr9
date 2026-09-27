@@ -89,8 +89,8 @@ func (o *Coco3Ram) Peek1(addr uint) byte {
 	return o.trackRam[longaddr&COCO3_RAM_MASK]
 }
 func (o *Coco3Ram) Peek2(addr uint) uint {
-	hi := o.PPeek1(addr)
-	lo := o.PPeek1(addr + 1)
+	hi := o.Peek1(addr)
+	lo := o.Peek1(addr + 1)
 	return (uint(hi) << 8) | uint(lo)
 }
 

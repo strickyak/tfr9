@@ -107,6 +107,21 @@ void handle_pico_rpc_request(std::string* pkt) {
     } else {
       resp.data.clear();
     }
+  } else if (req.method == "put-ram") {
+    resp.status = 0;
+    resp.size = PICO_RAM_SIZE;
+    if (req.offset >= 0 && static_cast<size_t>(req.offset) < PICO_RAM_SIZE) {
+      size_t offset = static_cast<size_t>(req.offset);
+      size_t len = req.data.size();
+      if (offset + len > PICO_RAM_SIZE) {
+        len = PICO_RAM_SIZE - offset;
+      }
+      memcpy(ram + offset, req.data.data(), len);
+      resp.size = len;
+    } else {
+      resp.status = -1;
+      resp.message = "offset out of range";
+    }
   } else if (req.method == "type") {
     uint16_t down_ticks = (req.length > 0) ? (uint16_t)req.length : TYPING_DOWN_TICKS;
     uint16_t up_ticks = (req.flags > 0) ? (uint16_t)req.flags : TYPING_UP_TICKS;

@@ -46,7 +46,7 @@ func TestExecuteUCommandUndefined(t *testing.T) {
 				ExecuteUCommand(testCmd)
 			})
 
-			expectedSub := "\r*** UCOMMAND not defined: [" + testCmd + "]\r"
+			expectedSub := "\r*** U_COMMAND not defined: [" + testCmd + "]\r"
 			if !strings.Contains(output, expectedSub) {
 				t.Fatalf("phase %s: expected stdout to contain %q, got %q", phase, expectedSub, output)
 			}
@@ -74,7 +74,7 @@ func TestExecuteUCommandRegistered(t *testing.T) {
 	if invokedArgs != "arg1 arg2" {
 		t.Fatalf("expected args 'arg1 arg2', got %q", invokedArgs)
 	}
-	if strings.Contains(output, "UCOMMAND not defined") {
+	if strings.Contains(output, "U_COMMAND not defined") {
 		t.Fatalf("unexpected undefined error output: %q", output)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"sync"
 	"sync/atomic"
 )
 
@@ -166,7 +167,7 @@ func GetChannelToPico() chan []byte {
 
 // ExecuteUCommand is the stub/dispatcher for U_COMMANDs invoked with ~command...
 // In either T Phase or U Phase, if a command is not defined, it prints:
-// \r*** UCOMMAND not defined: [%s]\r
+// \r*** U_COMMAND not defined: [%s]\r
 func ExecuteUCommand(cmd string) {
 	trimmed := strings.TrimSpace(cmd)
 	if trimmed != "" {
@@ -181,10 +182,11 @@ func ExecuteUCommand(cmd string) {
 			return
 		}
 	}
-	fmt.Printf("\r*** UCOMMAND not defined: [%s]\r\n", cmd)
+	fmt.Printf("\r*** U_COMMAND not defined: [%s]\r\n", cmd)
 }
 
 var uCmdChan = make(chan string, 10)
+var uCmdMu sync.Mutex
 
 var CommandStrings = map[byte]string{
 	C_LOGGING + 0: "C_LOGGING_0",
@@ -1052,7 +1054,11 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	for {
 		select {
 		case cmd := <-uCmdChan:
-			ExecuteUCommand(cmd)
+			go func(c string) {
+				uCmdMu.Lock()
+				defer uCmdMu.Unlock()
+				ExecuteUCommand(c)
+			}(cmd)
 
 		case inchar := <-inkey: // SELECT CASE user typed a character
 			if inchar >= 1 {

@@ -545,6 +545,37 @@ func fetchRamRange(ch chan []byte, offset, length int) ([]byte, error) {
 	return buf, nil
 }
 
+// WriteRamRange writes a slice of bytes into Pico RAM via put-ram RPC in 256-byte chunks.
+func WriteRamRange(ch chan []byte, offset int, data []byte) error {
+	const chunkSize = 256
+	curOffset := offset
+	remaining := len(data)
+	dataPos := 0
+
+	for remaining > 0 {
+		reqLen := chunkSize
+		if reqLen > remaining {
+			reqLen = remaining
+		}
+		req := RpcRequest{
+			Method: "put-ram",
+			Offset: curOffset,
+			Data:   data[dataPos : dataPos+reqLen],
+		}
+		resp, err := PicoRpcCallReq(ch, req, 5*time.Second)
+		if err != nil {
+			return fmt.Errorf("FAIL at offset 0x%04X: %v", curOffset, err)
+		}
+		if resp.Status != 0 {
+			return fmt.Errorf("FAIL at offset 0x%04X: status=%d %s", curOffset, resp.Status, resp.Message)
+		}
+		curOffset += reqLen
+		dataPos += reqLen
+		remaining -= reqLen
+	}
+	return nil
+}
+
 // RunQuickGetText fetches the text screen from Pico RAM via get-ram,
 // converts the 6-bit VDG values to normal ASCII, and prints lines to stdout.
 func RunQuickGetText(arg string) {
