@@ -254,7 +254,6 @@ byte* fifo_indicator_ram = nullptr;
 
 // Called every bus cycle in the foreground to manage flow control.
 FORCE_INLINE void IN_RAM FlowControlCheck() {
-  if (centipede_config.become_coco3) return;
   uint sz = fg2bg.size();
 
 #if FIFO_INDICATOR_0500
@@ -1338,7 +1337,7 @@ int IN_RAM main() {
   centipede_config.SetStandard();
 #endif
 #if BECOME_COCO3
-  if (boot_mode_check == boot_mode + BOOT_MODE_CHECKER && (boot_mode == 3 || boot_mode == 90)) {
+  if (boot_mode_check == boot_mode + BOOT_MODE_CHECKER && (boot_mode == 3 || boot_mode == 89 || boot_mode == 90)) {
     centipede_config.become_coco3 = true;
   }
 #endif
