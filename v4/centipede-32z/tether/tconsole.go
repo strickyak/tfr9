@@ -54,7 +54,7 @@ var QUICK_GET_PMODE = flag.String("quick-get-pmode", "", "Quick mode: get PMODE 
 var QUICK_GET_HSCREEN = flag.String("quick-get-hscreen", "", "Quick mode: get HSCREEN graphics from Pico RAM [mode,filename] and save as PNG")
 var QUICK_GET_CYCLES = flag.Bool("quick-get-cycles", false, "Quick mode: get real-time MCU status and last 256 bus cycles")
 var QUICK_TYPE = flag.String("quick-type", "", "Quick mode: type keystrokes into running CoCo via keyboard injector")
-var CPS = flag.Float64("cps", 2.0, "Speed in characters per second at which quick-type should type")
+var CPS = flag.Float64("cps", 5.0, "Speed in characters per second at which quick-type should type")
 
 var tmpDirToClean string
 

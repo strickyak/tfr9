@@ -577,10 +577,10 @@ func RunQuickGetText(arg string) {
 }
 
 // CpsToTicks converts characters per second to 20ms tick counts for key down and key up.
-// Default rate is 2.0 cps.
+// Default rate is 5.0 cps.
 func CpsToTicks(cps float64) (downTicks, upTicks int) {
 	if cps <= 0 {
-		cps = 2.0
+		cps = 5.0
 	}
 	// 1 second has 50 ticks of 20ms.
 	totalTicks := int(math.Round(50.0 / cps))

@@ -84,8 +84,8 @@ func TestCpsToTicks(t *testing.T) {
 		{2.5, 10, 10},
 		{5.0, 5, 5},
 		{10.0, 2, 3},
-		{0.0, 12, 13},  // default fallback to 2.0
-		{-1.0, 12, 13}, // default fallback to 2.0
+		{0.0, 5, 5},  // default fallback to 5.0
+		{-1.0, 5, 5}, // default fallback to 5.0
 	}
 
 	for _, tt := range tests {
