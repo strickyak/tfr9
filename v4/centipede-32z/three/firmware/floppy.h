@@ -19,13 +19,15 @@
 // Floppy Disk Controller Emulation
 //
 // CONCURRENCY MODEL:
-//   Foreground (core0) runs the bus cycle loop in lockstep with the Gerbil
-//   PIO state machine. It MUST NOT block or busy-wait. It handles:
+//   Foreground (Core 1) runs the bus cycle loop in lockstep with the Gerbil
+//   PIO state machine. It MUST NOT block, busy-wait, or execute from Flash!
+//   All foreground methods must be in SRAM (FORCE_INLINE / IN_RAM). It handles:
 //     - WriteCommand, WriteTrack, WriteSector, WriteLatch (via WriteScsFloppy)
 //     - ReadStatus, ReadData (via ReadScsFloppy)
 //     - WriteData: collects 256 bytes, snapshots, asserts NMI
 //
-//   Background (core1) processes the fg2bg software FIFO. It handles:
+//   Background (Core 0) processes coroutines and the fg2bg software FIFO.
+//   It may execute from Flash. It handles:
 //     - Read sector: sends request to tether, receives data, sets DRQ
 //     - Write sector: transmits snapshot buffer to tether
 //     - NMI release: via high-priority volatile flag (nmi_pending)
