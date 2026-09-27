@@ -124,12 +124,67 @@ const (
 	// T_*: From Tether to Pico:
 	T_DISK_READ = 173
 	T_HELLO     = 178
-	T_COMMAND   = 179
+	// T_COMMAND = 179  // Deleted: T_COMMAND functionality removed; U_COMMANDs are handled locally by Tether
 	T_RPC       = 180
 	T_PICO_RPC  = 181
 )
 
-var cmdChan = make(chan string, 10)
+// SessionPhase tracks the operational phase of the system:
+// - "T Phase": TCL is running before the 6809 CPU is really launched
+// - "U Phase": User is using the 6809 CPU to run user programs (basic, forth, NitrOS-9, Fuzix, etc.)
+type SessionPhase string
+
+const (
+	T_Phase SessionPhase = "T Phase"
+	U_Phase SessionPhase = "U Phase"
+)
+
+var CurrentPhase SessionPhase = T_Phase
+
+func GetSessionPhase() SessionPhase {
+	return CurrentPhase
+}
+
+func SetSessionPhase(phase SessionPhase) {
+	CurrentPhase = phase
+}
+
+// UCommandHandler handles a user command invoked with ~command...
+type UCommandHandler func(args string)
+
+var UCommands = make(map[string]UCommandHandler)
+
+func RegisterUCommand(name string, handler UCommandHandler) {
+	UCommands[name] = handler
+}
+
+var currentChannelToPico chan []byte
+
+func GetChannelToPico() chan []byte {
+	return currentChannelToPico
+}
+
+// ExecuteUCommand is the stub/dispatcher for U_COMMANDs invoked with ~command...
+// In either T Phase or U Phase, if a command is not defined, it prints:
+// \r*** UCOMMAND not defined: [%s]\r
+func ExecuteUCommand(cmd string) {
+	trimmed := strings.TrimSpace(cmd)
+	if trimmed != "" {
+		parts := strings.SplitN(trimmed, " ", 2)
+		verb := parts[0]
+		args := ""
+		if len(parts) > 1 {
+			args = strings.TrimSpace(parts[1])
+		}
+		if handler, ok := UCommands[verb]; ok {
+			handler(args)
+			return
+		}
+	}
+	fmt.Printf("\r*** UCOMMAND not defined: [%s]\r\n", cmd)
+}
+
+var uCmdChan = make(chan string, 10)
 
 var CommandStrings = map[byte]string{
 	C_LOGGING + 0: "C_LOGGING_0",
@@ -598,6 +653,20 @@ func CookedInkeyRoutine(inkey chan byte) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if strings.HasPrefix(line, "~") {
+			if strings.HasPrefix(line, "~~") {
+				for _, b := range []byte(line[1:]) {
+					inkey <- b
+					time.Sleep(5 * time.Millisecond)
+				}
+				inkey <- 13
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			uCmdChan <- line[1:]
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
 		for _, b := range []byte(line) {
 			inkey <- b
 			time.Sleep(5 * time.Millisecond)
@@ -764,7 +833,7 @@ func InkeyRoutine(inkey chan byte) {
 				// Fall through to send the ~ over USB
 			} else {
 				if ch == '\r' || ch == '\n' {
-					cmdChan <- string(lineBuf)
+					uCmdChan <- string(lineBuf)
 					readingCmd = false
 					atStartOfLine = true
 					os.Stdout.Write([]byte{'\r', '\n'})
@@ -940,6 +1009,8 @@ func CheckUpgradeToCoco3Ram(_addr uint, _data byte) {
 
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
+	currentChannelToPico = channelToPico
+	defer func() { currentChannelToPico = nil }()
 
 	loadArgs := flag.Args()
 	if *CENTIPEDE {
@@ -980,10 +1051,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	// gap := 1 // was for C_KEY, C_NOKEY
 	for {
 		select {
-		case cmd := <-cmdChan:
-			packet := append([]byte{T_COMMAND}, []byte(cmd)...)
-			packet = append(packet, 0)
-			WriteBytes(channelToPico, packet...)
+		case cmd := <-uCmdChan:
+			ExecuteUCommand(cmd)
 
 		case inchar := <-inkey: // SELECT CASE user typed a character
 			if inchar >= 1 {
@@ -1020,6 +1089,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			var ch byte // Used by default and C_PUTCHAR
 
 			ReadCycleFunction := func(_addr uint, _data byte, is_fic bool) {
+				CurrentPhase = U_Phase
 				Cycle++
 
 				var aline string
@@ -1138,6 +1208,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			}
 
 			WriteCycleFunction := func(_addr uint, _data byte) {
+				CurrentPhase = U_Phase
 				Cycle++
 
 				CheckUpgradeToCoco3Ram(_addr, _data)
@@ -1217,6 +1288,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				}
 
 			case C_CYCLE:
+				CurrentPhase = U_Phase
 				// TFR911 uncompressed cycle format with FIC marking.
 				pack := pkt[1:]
 				HandleCCycle(pack, person, channelToPico)
@@ -1305,6 +1377,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				EmulateDiskRead(pack, channelToPico)
 
 			case C_EVENT:
+				CurrentPhase = U_Phase
 				pack := pkt[1:]
 				OnEvent(pack, pending, person)
 
@@ -1535,6 +1608,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 } // RunSelect
 
 func Run(inkey chan byte, person Personality) {
+	CurrentPhase = T_Phase
 	const SERIAL_BUFFER_SIZE = 1024
 
 	// Set up options for Serial Port.
