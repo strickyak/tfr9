@@ -306,7 +306,7 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			buf.WriteByte(OpFillRect)
 			binary.Write(buf, binary.LittleEndian, uint16(0))   // X
 			binary.Write(buf, binary.LittleEndian, uint16(200)) // Y (Start below screen)
-			binary.Write(buf, binary.LittleEndian, uint16(300)) // W
+			binary.Write(buf, binary.LittleEndian, uint16(320)) // W
 			binary.Write(buf, binary.LittleEndian, uint16(50))  // H
 
 			// 2. Clear Screen (Top Area)
@@ -316,7 +316,7 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			buf.WriteByte(OpFillRect)
 			binary.Write(buf, binary.LittleEndian, uint16(0))
 			binary.Write(buf, binary.LittleEndian, uint16(0))
-			binary.Write(buf, binary.LittleEndian, uint16(256))
+			binary.Write(buf, binary.LittleEndian, uint16(320))
 			binary.Write(buf, binary.LittleEndian, uint16(200))
 
 			// 3. Draw
@@ -406,7 +406,7 @@ const CONTENT = `
     </style>
 </head>
 <body>
-    <canvas id="screen" width="300" height="250"></canvas>
+    <canvas id="screen" width="320" height="250"></canvas>
     <div id="status">Connecting...</div>
 
     <script>

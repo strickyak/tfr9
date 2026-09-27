@@ -1124,7 +1124,7 @@ class CoreEngine : public BackgroundSharedState {
 
               // Optionally, always trace all non-special writes.
               if (centipede_config.trace_writes) {
-                T::PushFifoWrite(atrans, dbus);
+                T::PushFifoWrite(abus, dbus);
               }
             }
           }

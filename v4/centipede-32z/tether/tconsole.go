@@ -62,6 +62,7 @@ var tetherLogUsbSerial uint64
 
 var CENTIPEDE = flag.Bool("centipede", true, "Centipede should set this flag")
 var LEVEL = flag.Int("level", 0, "NitrOS9 level, or 0")
+var COCO3 = flag.Bool("coco3", false, "Start with CoCo 3 128K RAM enabled")
 var COBS_CHECKSUMS = flag.Bool("cobs_checksums", true, "Enable COBS packet checksums")
 
 var the_ram Rammer
@@ -473,7 +474,11 @@ func main() {
 
 	switch *LEVEL {
 	case 0:
-		the_ram = new(Coco1Ram)
+		if *COCO3 {
+			the_ram = new(Coco3Ram)
+		} else {
+			the_ram = new(Coco1Ram)
+		}
 		person = new(Plain)
 
 	case 1:
@@ -915,6 +920,24 @@ func MintSerialNum() uint {
 
 var Cycle uint
 
+func CheckUpgradeToCoco3Ram(_addr uint, _data byte) {
+	if the_ram == nil {
+		return
+	}
+	if _, isCoco3 := the_ram.(*Coco3Ram); !isCoco3 {
+		if (_addr == 0xFF90 && (_data&0x40) != 0) || (0xFFA0 <= _addr && _addr <= 0xFFAF) {
+			log.Printf("Detected CoCo 3 MMU active (write to $%04X = $%02X): switching RAM to Coco3Ram (128K)", _addr, _data)
+			newRam := new(Coco3Ram)
+			oldRam := the_ram.GetTrackRam()
+			if len(oldRam) >= 0x10000 {
+				copy(newRam.trackRam[0x10000:0x20000], oldRam[:0x10000])
+				copy(newRam.trackRam[0x00000:0x10000], oldRam[:0x10000])
+			}
+			the_ram = newRam
+		}
+	}
+}
+
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
 	defer func() { Shutdown(recover()) }()
 
@@ -1117,6 +1140,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			WriteCycleFunction := func(_addr uint, _data byte) {
 				Cycle++
 
+				CheckUpgradeToCoco3Ram(_addr, _data)
 				the_ram.Poke1(_addr, _data)
 				gloss := "   "
 				switch _data >> 5 {
@@ -1314,6 +1338,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					}
 				}
 
+				CheckUpgradeToCoco3Ram(addr, data)
 				the_ram.Poke1(addr, data)
 
 				if (addr & 0xFF00) == 0xFF00 {
@@ -1340,6 +1365,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					if *RAM_VERBOSE {
 						Logf("  =RAM= %04x %%%06x gets %02x (was %02x)", addr, the_ram.Physical(addr), data, the_ram.Peek1(addr))
 					}
+					CheckUpgradeToCoco3Ram(addr, data)
 					the_ram.Poke1(addr, data)
 
 					if (addr & 0xFF00) == 0xFF00 {

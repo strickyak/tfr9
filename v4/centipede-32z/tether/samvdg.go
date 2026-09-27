@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"image/color"
 	"os"
 	"time"
 )
@@ -47,9 +48,8 @@ func ScanTextContents() []byte {
 	// base := SamScreenAddress()
 	const base = 0x0400
 	z := make([]byte, 512)
-	ram := the_ram.GetTrackRam()
 	for i := uint(0); i < 512; i++ {
-		ch := ram[base+i]
+		ch := the_ram.Peek1(base + i)
 		if 0 == (ch & 0x80) {
 			a := ch & 63
 			if a < 32 {
@@ -126,7 +126,169 @@ type ScreenContents struct {
 }
 */
 
+var defaultCoco3Palette = []color.RGBA{
+	{R: 50, G: 200, B: 50, A: 255},   // 0: Green
+	{R: 220, G: 220, B: 50, A: 255},  // 1: Yellow
+	{R: 50, G: 80, B: 220, A: 255},   // 2: Blue
+	{R: 220, G: 50, B: 50, A: 255},   // 3: Red
+	{R: 240, G: 240, B: 240, A: 255}, // 4: White
+	{R: 50, G: 200, B: 200, A: 255},  // 5: Cyan
+	{R: 200, G: 50, B: 200, A: 255},  // 6: Magenta
+	{R: 240, G: 140, B: 40, A: 255},  // 7: Orange
+	{R: 0, G: 0, B: 0, A: 255},       // 8: Black
+	{R: 50, G: 200, B: 50, A: 255},   // 9: Green
+	{R: 0, G: 0, B: 0, A: 255},       // 10: Black
+	{R: 240, G: 240, B: 240, A: 255}, // 11: White
+	{R: 0, G: 0, B: 0, A: 255},       // 12: Black
+	{R: 50, G: 200, B: 50, A: 255},   // 13: Green
+	{R: 0, G: 0, B: 0, A: 255},       // 14: Black
+	{R: 240, G: 140, B: 40, A: 255},  // 15: Orange
+}
+
+func IsGimeGraphics() bool {
+	if the_ram == nil {
+		return false
+	}
+	// GIME VMODE register is at $FF98. Bit 7 is 1 for Graphics mode, 0 for Text mode.
+	return (the_ram.Peek1(0xFF98) & 0x80) != 0
+}
+
+func GetHscreenScreen() []byte {
+	vres := the_ram.Peek1(0xFF99)
+	depth := vres & 0x07
+	res := (vres >> 3) & 0x03
+
+	var width, height, bpp int
+	height = 192
+	switch depth {
+	case 2: // 16 colors (4 bpp)
+		width = 320
+		bpp = 4
+	case 1: // 4 colors (2 bpp)
+		if res >= 2 {
+			width = 640
+			bpp = 2
+		} else {
+			width = 320
+			bpp = 2
+		}
+	case 0: // 2 colors (1 bpp)
+		if res >= 2 {
+			width = 640
+			bpp = 1
+		} else {
+			width = 320
+			bpp = 1
+		}
+	default:
+		width = 320
+		bpp = 4
+	}
+
+	palette := make([][]byte, 16)
+	hasNonZero := false
+	for i := uint(0); i < 16; i++ {
+		code := the_ram.Peek1(0xFFB0 + i) & 0x3F
+		if code != 0 {
+			hasNonZero = true
+		}
+		c := coco3ColorToRGBA(code)
+		palette[i] = []byte{c.R, c.G, c.B}
+	}
+	if !hasNonZero {
+		for i := 0; i < 16; i++ {
+			c := defaultCoco3Palette[i]
+			palette[i] = []byte{c.R, c.G, c.B}
+		}
+	}
+
+	bytesPerRow := width * bpp / 8
+	const base = uint(0x00000)
+
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(0)) // X
+	binary.Write(&buf, binary.LittleEndian, uint16(0)) // Y
+
+	if width == 640 {
+		// Downsample 2:1 horizontally to 320x192
+		binary.Write(&buf, binary.LittleEndian, uint16(320))
+		binary.Write(&buf, binary.LittleEndian, uint16(uint16(height)))
+
+		for y := 0; y < height; y++ {
+			rowOffset := base + uint(y*bytesPerRow)
+			for byteCol := 0; byteCol < bytesPerRow; byteCol += 2 {
+				if bpp == 1 {
+					b0 := the_ram.PPeek1(rowOffset + uint(byteCol))
+					b1 := byte(0)
+					if byteCol+1 < bytesPerRow {
+						b1 = the_ram.PPeek1(rowOffset + uint(byteCol+1))
+					}
+					for bit := 0; bit < 8; bit += 2 {
+						colIdx := (b0 >> (7 - bit)) & 1
+						buf.Write(palette[colIdx])
+					}
+					for bit := 0; bit < 8; bit += 2 {
+						colIdx := (b1 >> (7 - bit)) & 1
+						buf.Write(palette[colIdx])
+					}
+				} else if bpp == 2 {
+					b0 := the_ram.PPeek1(rowOffset + uint(byteCol))
+					c0 := (b0 >> 6) & 3
+					c2 := (b0 >> 2) & 3
+					buf.Write(palette[c0])
+					buf.Write(palette[c2])
+					if byteCol+1 < bytesPerRow {
+						b1 := the_ram.PPeek1(rowOffset + uint(byteCol+1))
+						c0_1 := (b1 >> 6) & 3
+						c2_1 := (b1 >> 2) & 3
+						buf.Write(palette[c0_1])
+						buf.Write(palette[c2_1])
+					}
+				}
+			}
+		}
+	} else {
+		// width == 320
+		binary.Write(&buf, binary.LittleEndian, uint16(320))
+		binary.Write(&buf, binary.LittleEndian, uint16(uint16(height)))
+
+		for y := 0; y < height; y++ {
+			rowOffset := base + uint(y*bytesPerRow)
+			for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
+				b := the_ram.PPeek1(rowOffset + uint(byteCol))
+				switch bpp {
+				case 4: // 2 pixels per byte (16 colors)
+					p0 := (b >> 4) & 0x0F
+					p1 := b & 0x0F
+					buf.Write(palette[p0])
+					buf.Write(palette[p1])
+				case 2: // 4 pixels per byte (4 colors)
+					for p := 0; p < 4; p++ {
+						colIdx := (b >> (6 - p*2)) & 0x03
+						buf.Write(palette[colIdx])
+					}
+				case 1: // 8 pixels per byte (2 colors)
+					for bit := 0; bit < 8; bit++ {
+						colIdx := (b >> (7 - bit)) & 1
+						buf.Write(palette[colIdx])
+					}
+				}
+			}
+		}
+	}
+
+	return buf.Bytes()
+}
+
 func GetScreenForWebsocket() []byte {
+	if the_ram == nil {
+		return nil
+	}
+	if IsGimeGraphics() {
+		return GetHscreenScreen()
+	}
+
 	fb := SamScreenAddress()
 	Logf("SAM V=%d addr=$%04x P1B=$%02x", SamModeV(), fb, Pia1OutB())
 

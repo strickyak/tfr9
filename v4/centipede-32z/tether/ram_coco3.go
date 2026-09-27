@@ -76,6 +76,8 @@ func (o *Coco3Ram) PPeek2(addr uint) uint {
 func (o *Coco3Ram) Poke1(addr uint, data byte) {
 	longaddr := o.Physical(addr)
 	o.trackRam[longaddr&COCO3_RAM_MASK] = data
+
+	SamPoke1(addr)
 }
 
 func (o *Coco3Ram) GetTrackRam() []byte {
