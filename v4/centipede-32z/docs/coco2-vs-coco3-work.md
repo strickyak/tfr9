@@ -152,14 +152,18 @@ flowchart TD
 * **Problem**: Default typing rate of 2.0 CPS required ~51 seconds to type multi-line BASIC programs.
 * **Solution**: The default typing rate was increased to **5.0 CPS** (`-cps=5`) in [`tether/tconsole.go`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/tether/tconsole.go) and [`tether/pico_rpc.go`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/tether/pico_rpc.go). Each key event uses 5 ticks (100 ms) key down and 5 ticks (100 ms) key up. This provides reliable debouncing by Color BASIC while reducing typing time by more than half (~24s for 97 chars + pauses).
 
+### 5. Dynamic Mode Switching & Elimination of `ForceBecomeCoco3` Hack
+* **Problem**: Earlier in development, `ForceBecomeCoco3()` had been inserted into `RunEngine()`, `main()`, `BackgroundSpoonFeeder()`, and label `BYE:`, unconditionally zeroing `centipede_config` and forcing `become_coco3 = true` on every reset. This prevented running as a standard CoCo 2 and overrode Tcl configuration menus.
+* **Solution**: Completely removed `ForceBecomeCoco3()`. Restored `centipede_config.SetStandard()` on boot (which configures standard CoCo 2 with 64KB RAM, `rom_disk11 = true`, `become_coco3 = false`). Sourcing `/rc/mode90.tcl` (executed automatically when holding `Z` on boot or commanding `-quick-restart 90`) sets `become_coco3 = 1` and disables `rom_disk11`. When exiting console, SAM VDG mode and cold start flags are always cleanly reset before branching: `Jump(0xC000)` if `become_coco3`, or `Jump(0xA027)` for native CoCo 2.
+
 ---
 
 ## Instructions for Use
 
 ### 1. Launching CoCo 3 Mode
-To cold-boot Centipede into CoCo 3 Extended Color BASIC 2.0:
+To cold-boot Centipede into CoCo 3 Extended Color BASIC 2.0 via Mode 90 (or hold 'Z' while turning on the CoCo):
 ```bash
-go run ./tether/ -quick-restart 3
+go run ./tether/ -quick-restart 90
 ```
 Verify the sign-on banner on the text screen:
 ```bash

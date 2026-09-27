@@ -389,45 +389,43 @@ void IN_RAM DriveConsole() {
         drive_console_ready = false;
         tcl_io::remove_coco2();
 
-        if (centipede_config.become_coco3) {
-          // Reset SAM VDG mode bits (V0..V2) and display offset bits (F0..F6)
-          for (uint a = 0xFFC0; a <= 0xFFD2; a += 2) {
-            GPoke1(a, 0);
-          }
-          GPoke1(0xFFC9, 0);  // F1=1: Frame buffer at 0x0400
+        // Reset SAM VDG mode bits (V0..V2) and display offset bits (F0..F6)
+        for (uint a = 0xFFC0; a <= 0xFFD2; a += 2) {
+          GPoke1(a, 0);
+        }
+        GPoke1(0xFFC9, 0);  // F1=1: Frame buffer at 0x0400
 #if SAM_BIT_16K
-          GPoke1(0xFFDB, 0);  // M0=1: preserve 16k DRAM mode on SAM
+        GPoke1(0xFFDB, 0);  // M0=1: preserve 16k DRAM mode on SAM
 #endif
 #if SAM_BIT_64K
-          GPoke1(0xFFDD, 0);  // M1=1: preserve 64k DRAM mode on SAM
+        GPoke1(0xFFDD, 0);  // M1=1: preserve 64k DRAM mode on SAM
 #endif
 
-          // Reset VDG on PIA1 to 32x16 alphanumeric text mode (green)
-          byte low_bits = GPeek1(0xFF22) & 0x07;
-          GPoke1(0xFF22, low_bits);
+        // Reset VDG on PIA1 to 32x16 alphanumeric text mode (green)
+        byte low_bits = GPeek1(0xFF22) & 0x07;
+        GPoke1(0xFF22, low_bits);
 
-          // Guarantee SAM P1=0 (Bank 0) and TY=0 (ROM mode) at boot
-          GPoke1(0xFFD4, 0);
-          GPoke1(0xFFDE, 0);
-          SamTyBit = false;
-          SamP1Bit = false;
+        // Guarantee SAM P1=0 (Bank 0) and TY=0 (ROM mode) at boot
+        GPoke1(0xFFD4, 0);
+        GPoke1(0xFFDE, 0);
+        SamTyBit = false;
+        SamP1Bit = false;
 
-          // Clear cold/warm start flags in both RAM banks and physical DRAM
-          ram[0x10071] = 0;
-          ram[0x10072] = 0;
-          ram[0x10073] = 0;
-          ram[0x1FEED] = 0;
-          ram[0x10088] = 0x04;
-          ram[0x10089] = 0x00;
-          ram[0x0071] = 0;
-          ram[0x0072] = 0;
-          ram[0x0073] = 0;
-          ram[0xFEED] = 0;
-          GPoke1(0x0071, 0);
-          GPoke1(0x0072, 0);
-          GPoke1(0x0073, 0);
-          GPoke1(0xFEED, 0);
-        }
+        // Clear cold/warm start flags in both RAM banks and physical DRAM
+        ram[0x10071] = 0;
+        ram[0x10072] = 0;
+        ram[0x10073] = 0;
+        ram[0x1FEED] = 0;
+        ram[0x10088] = 0x04;
+        ram[0x10089] = 0x00;
+        ram[0x0071] = 0;
+        ram[0x0072] = 0;
+        ram[0x0073] = 0;
+        ram[0xFEED] = 0;
+        GPoke1(0x0071, 0);
+        GPoke1(0x0072, 0);
+        GPoke1(0x0073, 0);
+        GPoke1(0xFEED, 0);
 
         if (centipede_config.become_coco3) {
           Jump(0xC000);
@@ -684,22 +682,11 @@ void SleepMillis(Coro* c, uint64_t ms) {
 Coro* g_spoon_coro = nullptr;
 
 
-// HACK become_coco3
-// TODO un-HACK become_coco3
-inline void ForceBecomeCoco3() {
-  memset(&centipede_config, 0, sizeof centipede_config);
-  centipede_config.become_coco3 = true;
-  centipede_config.trace_writes = false;
-  centipede_config.trace_reads = false;
-}
-
 // BackgroundSpoonFeeder runs in the background thread,
 // whereas all the above (which should have IN_RAM) run
 // in the foreground thread.
 
 void BackgroundSpoonFeeder(Coro* coro_self) {
-  ForceBecomeCoco3();
-
   console::inkey_state iks = {};
   g_spoon_coro = coro_self;
   rpc::g_vfs_coro = coro_self;  // Let all VFS RPC calls yield
@@ -736,7 +723,7 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
                 ::boot_mode = k - 'a' + 'A';
                 found = true;
               } else if (k >= 'A' && k <= 'Z') {
-                ::boot_mode = k - 'a' + 'A';
+                ::boot_mode = k;
                 found = true;
               }
             }
@@ -996,8 +983,6 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
   } // End REPL
 
 BYE:
-  ForceBecomeCoco3();
-
   if (centipede_config.become_coco3) {
     tcl_io::emit_string("Launching Coco3...\n");
   } else {

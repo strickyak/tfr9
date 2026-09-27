@@ -14,8 +14,8 @@ struct CentipedeConfig {
         this->ram_64k = true;
         this->rom_disk11 = true;
         this->floppy_fd = true;
-        this->trace_writes = true;
-        this->trace_reads = true;
+        this->trace_writes = false;
+        this->trace_reads = false;
 
         this->floppy_pc = false;
         this->become_coco3 = false;

@@ -1261,7 +1261,6 @@ struct Engine3 : public DoFloppy<Engine3>,
     orchestra90::Init();
 #endif
     ResetCompressCycles();  // call once at session start
-    gspoon::ForceBecomeCoco3();
     HaltOff();
     RunCores(core1_trampoline3, core0_trampoline3);
   }
@@ -1335,7 +1334,6 @@ int IN_RAM main() {
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
 
-/*
 #if !FOR_COCO3
   centipede_config.SetStandard();
 #endif
@@ -1347,10 +1345,8 @@ int IN_RAM main() {
   centipede_config.trace_reads = false;
   centipede_config.floppy_pc = false;
   set_floppy_names();
-*/
 
 #if BECOME_COCO3
-  gspoon::ForceBecomeCoco3();
   Engine3::RunEngine();
 #else
   Engine0::RunEngine();
