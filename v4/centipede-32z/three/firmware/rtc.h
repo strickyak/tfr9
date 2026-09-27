@@ -16,14 +16,14 @@ typedef struct {
     volatile uint32_t milliseconds; // Sub-second millisecond remainder
 } SystemTime;
 
-static SystemTime g_sys_time = {0};
+inline SystemTime g_sys_time = {0};
 
-struct repeating_timer g_timer;
+inline struct repeating_timer g_timer;
 
 /**
  * @brief Interrupt Service Routine for 20ms tick timekeeping.
  */
-bool alarm_irq_handler(struct repeating_timer *t) {
+inline bool alarm_irq_handler(struct repeating_timer *t) {
     // Update timekeeping variables
     g_sys_time.ticks_20ms++;
     g_sys_time.milliseconds += 20;
@@ -37,14 +37,14 @@ bool alarm_irq_handler(struct repeating_timer *t) {
 /**
  * @brief Initializes Alarm 0 to fire every 20ms and enables the IRQ handler.
  */
-void start_20ms_timer(void) {
+inline void start_20ms_timer(void) {
     add_repeating_timer_ms(-20, alarm_irq_handler, NULL, &g_timer);
 }
 
 /**
  * @brief Thread-safe snapshot read of current uptime.
  */
-void get_system_time(uint32_t *out_sec, uint32_t *out_ms) {
+inline void get_system_time(uint32_t *out_sec, uint32_t *out_ms) {
     // Atomically capture volatile variables
     uint32_t save = save_and_disable_interrupts();
     *out_sec = g_sys_time.seconds;
@@ -55,7 +55,7 @@ void get_system_time(uint32_t *out_sec, uint32_t *out_ms) {
 /**
  * @brief Thread-safe snapshot read of 20ms ticks.
  */
-uint64_t get_system_ticks_20ms(void) {
+inline uint64_t get_system_ticks_20ms(void) {
     uint32_t save = save_and_disable_interrupts();
     uint64_t ticks = g_sys_time.ticks_20ms;
     restore_interrupts(save);

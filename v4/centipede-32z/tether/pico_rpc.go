@@ -11,6 +11,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log"
 	"math"
@@ -587,6 +590,418 @@ func CpsToTicks(cps float64) (downTicks, upTicks int) {
 	downTicks = totalTicks / 2
 	upTicks = totalTicks - downTicks
 	return downTicks, upTicks
+}
+
+// parseQuickGetPmodeArg parses the argument to --quick-get-pmode=[M,P,C,filename].
+// M: PMODE mode number (0 to 4, default 4).
+// P: Start page number (1 for "PMODE 4,1"). If P > 15, P is treated directly as the RAM address.
+//    If P <= 15 (and P >= 1), address is 0x0600 + (P-1)*0x0600. Default P = 1 (0x0600).
+// C: Colorset (0 or 1, e.g. "SCREEN 1,C"). Default C = 1.
+// filename: Output PNG filename. Default "pmode<M>.png".
+func parseQuickGetPmodeArg(arg string) (int, int, int, string) {
+	mode := 4
+	pageOrAddr := 1
+	colorset := 1
+	filename := ""
+
+	parts := strings.Split(arg, ",")
+	if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+		if v, ok := parseNum(parts[0]); ok && v >= 0 && v <= 4 {
+			mode = v
+		}
+	}
+	if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+		if v, ok := parseNum(parts[1]); ok && v >= 0 {
+			pageOrAddr = v
+		}
+	}
+	if len(parts) > 2 && strings.TrimSpace(parts[2]) != "" {
+		if v, ok := parseNum(parts[2]); ok {
+			colorset = v
+		}
+	}
+	if len(parts) > 3 && strings.TrimSpace(parts[3]) != "" {
+		filename = strings.TrimSpace(parts[3])
+	}
+	if filename == "" {
+		filename = fmt.Sprintf("pmode%d.png", mode)
+	}
+
+	var addr int
+	if pageOrAddr > 15 {
+		addr = pageOrAddr
+	} else if pageOrAddr >= 1 {
+		addr = 0x0600 + (pageOrAddr-1)*0x0600
+	} else {
+		addr = 0x0600
+	}
+	return mode, addr, colorset, filename
+}
+
+// RunQuickGetPmode fetches the PMODE framebuffer from Pico RAM via get-ram,
+// renders it as a PNG image with the specified mode and colorset,
+// and saves it to a PNG file.
+func RunQuickGetPmode(arg string) {
+	label := "quick-get-pmode"
+	mode, addr, colorset, filename := parseQuickGetPmodeArg(arg)
+
+	ch, disconnect := quickConnect(label)
+	defer disconnect()
+
+	var width, height, bpp int
+	switch mode {
+	case 0:
+		width, height, bpp = 128, 96, 1
+	case 1:
+		width, height, bpp = 128, 96, 2
+	case 2:
+		width, height, bpp = 128, 192, 1
+	case 3:
+		width, height, bpp = 128, 192, 2
+	case 4:
+		width, height, bpp = 256, 192, 1
+	default:
+		width, height, bpp = 256, 192, 1
+	}
+
+	bytesPerRow := width * bpp / 8
+	totalBytes := bytesPerRow * height
+
+	data, err := fetchRamRange(ch, addr, totalBytes)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", label, err)
+		os.Exit(1)
+	}
+
+	// In CoCo 3 MMU mode, Slot 0 ($0000-$1FFF) maps to Block 8 ($10000-$11FFF).
+	// If the buffer fetched from addr is all zeros, check $10000 + addr (or addr - $10000).
+	isAllZero := true
+	for _, b := range data {
+		if b != 0 {
+			isAllZero = false
+			break
+		}
+	}
+	if isAllZero {
+		altAddr := addr
+		if addr < 0x10000 {
+			altAddr = addr + 0x10000
+		} else {
+			altAddr = addr - 0x10000
+		}
+		altData, err := fetchRamRange(ch, altAddr, totalBytes)
+		if err == nil {
+			for _, b := range altData {
+				if b != 0 {
+					data = altData
+					addr = altAddr
+					break
+				}
+			}
+		}
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	var palette []color.RGBA
+	if bpp == 1 {
+		// 2-color modes: Background is black.
+		// Foreground is Green (colorset 0) or Buff/White (colorset != 0).
+		bg := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+		fg := color.RGBA{R: 200, G: 200, B: 200, A: 255}
+		if colorset == 0 {
+			fg = color.RGBA{R: 50, G: 200, B: 50, A: 255}
+		}
+		palette = []color.RGBA{bg, fg}
+
+		for y := 0; y < height; y++ {
+			rowOffset := y * bytesPerRow
+			for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
+				var b byte
+				if rowOffset+byteCol < len(data) {
+					b = data[rowOffset+byteCol]
+				}
+				for bit := 0; bit < 8; bit++ {
+					x := byteCol*8 + bit
+					if (b & (1 << (7 - bit))) != 0 {
+						img.Set(x, y, palette[1])
+					} else {
+						img.Set(x, y, palette[0])
+					}
+				}
+			}
+		}
+	} else {
+		// 4-color modes:
+		// colorset 0: Green, Yellow, Blue, Red
+		// colorset != 0: Buff/White, Cyan, Magenta, Orange
+		if colorset == 0 {
+			palette = []color.RGBA{
+				{R: 50, G: 200, B: 50, A: 255},  // Green
+				{R: 220, G: 220, B: 50, A: 255}, // Yellow
+				{R: 50, G: 80, B: 220, A: 255},  // Blue
+				{R: 200, G: 50, B: 50, A: 255},  // Red
+			}
+		} else {
+			palette = []color.RGBA{
+				{R: 220, G: 220, B: 220, A: 255}, // Buff/White
+				{R: 50, G: 200, B: 200, A: 255},  // Cyan
+				{R: 200, G: 50, B: 200, A: 255},  // Magenta
+				{R: 220, G: 140, B: 40, A: 255},  // Orange
+			}
+		}
+
+		for y := 0; y < height; y++ {
+			rowOffset := y * bytesPerRow
+			for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
+				var b byte
+				if rowOffset+byteCol < len(data) {
+					b = data[rowOffset+byteCol]
+				}
+				for p := 0; p < 4; p++ {
+					x := byteCol*4 + p
+					colIdx := (b >> (6 - p*2)) & 0x03
+					img.Set(x, y, palette[colIdx])
+				}
+			}
+		}
+	}
+
+	outFile, err := os.Create(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cannot create %s: %v\n", label, filename, err)
+		os.Exit(1)
+	}
+	defer outFile.Close()
+
+	if err := png.Encode(outFile, img); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cannot encode png: %v\n", label, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("quick-get-pmode: OK (saved %dx%d PMODE %d PNG to %s from 0x%04X, colorset=%d)\n",
+		width, height, mode, filename, addr, colorset)
+	os.Exit(0)
+}
+
+func RunQuickGetPmode4(arg string) {
+	RunQuickGetPmode(arg)
+}
+
+// parseQuickGetHscreenArg parses the argument to --quick-get-hscreen=[mode,]filename.png.
+// mode: HSCREEN mode number (1 to 4, default 2).
+// filename: Output PNG filename (default "hscreen<mode>.png").
+func parseQuickGetHscreenArg(arg string) (int, string) {
+	mode := 2
+	filename := "hscreen2.png"
+
+	parts := strings.Split(arg, ",")
+	if len(parts) == 1 {
+		s := strings.TrimSpace(parts[0])
+		if v, ok := parseNum(s); ok && v >= 1 && v <= 4 {
+			mode = v
+			filename = fmt.Sprintf("hscreen%d.png", mode)
+		} else if s != "" {
+			filename = s
+		}
+	} else if len(parts) >= 2 {
+		if v, ok := parseNum(parts[0]); ok && v >= 1 && v <= 4 {
+			mode = v
+		}
+		if strings.TrimSpace(parts[1]) != "" {
+			filename = strings.TrimSpace(parts[1])
+		}
+	}
+	return mode, filename
+}
+
+// coco3ColorToRGBA converts a 6-bit CoCo 3 palette code (0..63) to color.RGBA.
+func coco3ColorToRGBA(code byte) color.RGBA {
+	switch code {
+	case 0:
+		return color.RGBA{R: 0, G: 0, B: 0, A: 255} // Black
+	case 63:
+		return color.RGBA{R: 240, G: 240, B: 240, A: 255} // White
+	case 18:
+		return color.RGBA{R: 50, G: 200, B: 50, A: 255} // Green
+	case 36:
+		return color.RGBA{R: 220, G: 220, B: 50, A: 255} // Yellow
+	case 11:
+		return color.RGBA{R: 50, G: 80, B: 220, A: 255} // Blue
+	case 7:
+		return color.RGBA{R: 220, G: 50, B: 50, A: 255} // Red
+	case 31:
+		return color.RGBA{R: 50, G: 200, B: 200, A: 255} // Cyan
+	case 9:
+		return color.RGBA{R: 200, G: 50, B: 200, A: 255} // Magenta
+	case 38:
+		return color.RGBA{R: 240, G: 140, B: 40, A: 255} // Orange
+	case 54:
+		return color.RGBA{R: 220, G: 220, B: 50, A: 255} // RGB Yellow
+	case 27:
+		return color.RGBA{R: 50, G: 200, B: 200, A: 255} // RGB Cyan
+	case 45:
+		return color.RGBA{R: 200, G: 50, B: 200, A: 255} // RGB Magenta
+	default:
+		// Fallback to RGB 2-bit per channel
+		r := uint8(((code >> 4) & 3) * 85)
+		g := uint8(((code >> 2) & 3) * 85)
+		b := uint8((code & 3) * 85)
+		return color.RGBA{R: r, G: g, B: b, A: 255}
+	}
+}
+
+// RunQuickGetHscreen fetches the CoCo 3 HSCREEN framebuffer from Pico RAM via get-ram,
+// renders it as a PNG image with the specified HSCREEN mode and palette,
+// and saves it to a PNG file.
+func RunQuickGetHscreen(arg string) {
+	label := "quick-get-hscreen"
+	mode, filename := parseQuickGetHscreenArg(arg)
+
+	ch, disconnect := quickConnect(label)
+	defer disconnect()
+
+	var width, height, bpp int
+	switch mode {
+	case 1:
+		width, height, bpp = 320, 192, 2
+	case 2:
+		width, height, bpp = 320, 192, 4
+	case 3:
+		width, height, bpp = 640, 192, 1
+	case 4:
+		width, height, bpp = 640, 192, 2
+	default:
+		width, height, bpp = 320, 192, 4
+	}
+
+	bytesPerRow := width * bpp / 8
+	totalBytes := bytesPerRow * height
+	addr := 0x00000 // In CoCo 3, Task 1 graphics buffer is at physical Block 0..3 (0x00000)
+
+	data, err := fetchRamRange(ch, addr, totalBytes)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", label, err)
+		os.Exit(1)
+	}
+
+	// Default 16-color composite palette
+	defaultPalette := []color.RGBA{
+		{R: 50, G: 200, B: 50, A: 255},   // 0: Green
+		{R: 220, G: 220, B: 50, A: 255},  // 1: Yellow
+		{R: 50, G: 80, B: 220, A: 255},   // 2: Blue
+		{R: 220, G: 50, B: 50, A: 255},   // 3: Red
+		{R: 240, G: 240, B: 240, A: 255}, // 4: White
+		{R: 50, G: 200, B: 200, A: 255},  // 5: Cyan
+		{R: 200, G: 50, B: 200, A: 255},  // 6: Magenta
+		{R: 240, G: 140, B: 40, A: 255},  // 7: Orange
+		{R: 0, G: 0, B: 0, A: 255},       // 8: Black
+		{R: 50, G: 200, B: 50, A: 255},   // 9: Green
+		{R: 0, G: 0, B: 0, A: 255},       // 10: Black
+		{R: 240, G: 240, B: 240, A: 255}, // 11: White
+		{R: 0, G: 0, B: 0, A: 255},       // 12: Black
+		{R: 50, G: 200, B: 50, A: 255},   // 13: Green
+		{R: 0, G: 0, B: 0, A: 255},       // 14: Black
+		{R: 240, G: 140, B: 40, A: 255},  // 15: Orange
+	}
+
+	palette := make([]color.RGBA, 16)
+	copy(palette, defaultPalette)
+
+	// Fetch palette registers $FFB0-$FFBF from Pico RAM
+	palData, err := fetchRamRange(ch, 0xFFB0, 16)
+	if err == nil && len(palData) == 16 {
+		for i := 0; i < 16; i++ {
+			code := palData[i] & 0x3F
+			palette[i] = coco3ColorToRGBA(code)
+		}
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	for y := 0; y < height; y++ {
+		rowOffset := y * bytesPerRow
+		for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
+			var b byte
+			if rowOffset+byteCol < len(data) {
+				b = data[rowOffset+byteCol]
+			}
+			switch bpp {
+			case 4: // 2 pixels per byte (16 colors)
+				p0 := (b >> 4) & 0x0F
+				p1 := b & 0x0F
+				img.Set(byteCol*2, y, palette[p0])
+				img.Set(byteCol*2+1, y, palette[p1])
+			case 2: // 4 pixels per byte (4 colors)
+				for p := 0; p < 4; p++ {
+					colIdx := (b >> (6 - p*2)) & 0x03
+					img.Set(byteCol*4+p, y, palette[colIdx])
+				}
+			case 1: // 8 pixels per byte (2 colors)
+				for bit := 0; bit < 8; bit++ {
+					colIdx := 0
+					if (b & (1 << (7 - bit))) != 0 {
+						colIdx = 1
+					}
+					img.Set(byteCol*8+bit, y, palette[colIdx])
+				}
+			}
+		}
+	}
+
+	outFile, err := os.Create(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cannot create %s: %v\n", label, filename, err)
+		os.Exit(1)
+	}
+	defer outFile.Close()
+
+	if err := png.Encode(outFile, img); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cannot encode png: %v\n", label, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("quick-get-hscreen: OK (saved %dx%d HSCREEN %d PNG to %s)\n",
+		width, height, mode, filename)
+	os.Exit(0)
+}
+
+// RunQuickGetCycles fetches real-time MCU status and the last 256 bus cycles.
+func RunQuickGetCycles() {
+	label := "quick-get-cycles"
+	ch, disconnect := quickConnect(label)
+	defer disconnect()
+
+	// 1. Get Status
+	reqStatus := RpcRequest{Method: "get-status"}
+	respStatus, err := PicoRpcCallReq(ch, reqStatus, 3*time.Second)
+	if err == nil && respStatus.Status == 0 {
+		fmt.Printf("STATUS: %s\n", respStatus.Message)
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "get-status err: %v\n", err)
+	}
+
+	// 2. Get Cycles
+	reqCycles := RpcRequest{Method: "get-cycles"}
+	respCycles, err := PicoRpcCallReq(ch, reqCycles, 3*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: FAIL: %v\n", label, err)
+		os.Exit(1)
+	}
+	data := respCycles.Data
+	count := len(data) / 4
+	fmt.Printf("LAST %d BUS CYCLES:\n", count)
+	for i := 0; i < count; i++ {
+		abus := (uint16(data[i*4]) << 8) | uint16(data[i*4+1])
+		dbus := data[i*4+2]
+		flags := data[i*4+3]
+		rw := "W"
+		if (flags & 1) != 0 {
+			rw = "R"
+		}
+		fmt.Printf("  [%3d] %s $%04X -> $%02X\n", i, rw, abus, dbus)
+	}
+	os.Exit(0)
 }
 
 

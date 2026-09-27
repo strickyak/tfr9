@@ -50,6 +50,9 @@ var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a
 var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
 var QUICK_GET_RAM = flag.String("quick-get-ram", "", "Quick mode: get raw ram[] from Pico and save to filename")
 var QUICK_GET_TEXT = flag.String("quick-get-text", "", "Quick mode: get text screen from Pico RAM [addr,width,height] and print to stdout")
+var QUICK_GET_PMODE = flag.String("quick-get-pmode", "", "Quick mode: get PMODE screen from Pico RAM [M,P,C,filename] and save as PNG")
+var QUICK_GET_HSCREEN = flag.String("quick-get-hscreen", "", "Quick mode: get HSCREEN graphics from Pico RAM [mode,filename] and save as PNG")
+var QUICK_GET_CYCLES = flag.Bool("quick-get-cycles", false, "Quick mode: get real-time MCU status and last 256 bus cycles")
 var QUICK_TYPE = flag.String("quick-type", "", "Quick mode: type keystrokes into running CoCo via keyboard injector")
 var CPS = flag.Float64("cps", 2.0, "Speed in characters per second at which quick-type should type")
 
@@ -432,6 +435,30 @@ func main() {
 	})
 	if *QUICK_GET_TEXT != "" || quickGetTextSet {
 		RunQuickGetText(*QUICK_GET_TEXT)
+		return
+	}
+	quickGetPmodeSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "quick-get-pmode" {
+			quickGetPmodeSet = true
+		}
+	})
+	if *QUICK_GET_PMODE != "" || quickGetPmodeSet {
+		RunQuickGetPmode(*QUICK_GET_PMODE)
+		return
+	}
+	quickGetHscreenSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "quick-get-hscreen" {
+			quickGetHscreenSet = true
+		}
+	})
+	if *QUICK_GET_HSCREEN != "" || quickGetHscreenSet {
+		RunQuickGetHscreen(*QUICK_GET_HSCREEN)
+		return
+	}
+	if *QUICK_GET_CYCLES {
+		RunQuickGetCycles()
 		return
 	}
 

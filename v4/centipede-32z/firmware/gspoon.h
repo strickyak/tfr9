@@ -430,7 +430,7 @@ void IN_RAM DriveConsole() {
         }
 
         if (centipede_config.become_coco3) {
-          Jump(0x8C1B);
+          Jump(0xC000);
         } else {
           Jump(0xA027);
         }
@@ -689,7 +689,7 @@ Coro* g_spoon_coro = nullptr;
 inline void ForceBecomeCoco3() {
   memset(&centipede_config, 0, sizeof centipede_config);
   centipede_config.become_coco3 = true;
-  centipede_config.trace_writes = true;
+  centipede_config.trace_writes = false;
   centipede_config.trace_reads = false;
 }
 
@@ -998,21 +998,17 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
 BYE:
   ForceBecomeCoco3();
 
-  if (tcl_io::active_io & tcl_io::IO_COCO2) {
-    if (centipede_config.become_coco3) {
-      tcl_io::emit_string("Launching Coco3...\n");
-    } else {
-      tcl_io::emit_string("Launching Coco2...\n");
-    }
-
-    uint cmd = ((uint)BG2FG_EXIT_CONSOLE << 24);
-    while (!bg2fg.push(cmd)) {
-          sleep_ms(1);
-    }
-    // DriveConsole will clear IO_COCO2 on exit.
+  if (centipede_config.become_coco3) {
+    tcl_io::emit_string("Launching Coco3...\n");
   } else {
-        tcl_io::emit_string("Goodbye.\n");
+    tcl_io::emit_string("Launching Coco2...\n");
   }
+
+  uint cmd = ((uint)BG2FG_EXIT_CONSOLE << 24);
+  while (!bg2fg.push(cmd)) {
+        sleep_ms(1);
+  }
+  // DriveConsole will clear IO_COCO2 on exit.
   cobs_printf("BackgroundSpoonFeeder: bye, returning to background.\n");
   return;  // Return to spoon_task
 }  // BackgroundSpoonFeeder

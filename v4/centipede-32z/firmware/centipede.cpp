@@ -514,6 +514,15 @@ byte MmuTask;
 bool StickyRamFFEx;
 byte MmuMap[2][8];
 
+struct BusCycleLog {
+  uint16_t abus;
+  uint8_t dbus;
+  uint8_t flags; // bit 0: reading
+};
+inline volatile BusCycleLog g_cycle_history[256];
+inline volatile uint8_t g_cycle_history_idx = 0;
+inline volatile bool g_freeze_cycles = false;
+
 #include "coco64k.h"
 #if BECOME_COCO3
 #include "coco128k.h"
@@ -921,18 +930,57 @@ class CoreEngine : public BackgroundSharedState {
                 // KEYBOARD INJECTOR: direct single-cycle lookup from precomputed probe_table!
                 dbus = keyboard_injector::probe_table[keyboard_injector::active_table_idx][ram[0xFF02]];
                 GERBIL_DRIVE(dbus);
+#if BECOME_COCO3
+              } else if (centipede_config.become_coco3) {
+                byte io_reg = abus & 0xFF;
+                if (io_reg == 0x90) {
+                  dbus = gime_init0;
+                  GERBIL_DRIVE(dbus);
+                } else if (io_reg == 0x91) {
+                  dbus = gime_init1;
+                  GERBIL_DRIVE(dbus);
+                } else if (0xA0 <= io_reg && io_reg <= 0xAF) {
+                  uint reg = io_reg & 0x0F;
+                  dbus = mmu_task[(reg >> 3) & 1][reg & 7];
+                  GERBIL_DRIVE(dbus);
+                } else if (0xB0 <= io_reg && io_reg <= 0xBF) {
+                  dbus = gime_palette[io_reg & 0x0F];
+                  GERBIL_DRIVE(dbus);
+                } else if (io_reg >= 0x92 && io_reg <= 0x9E) {
+                  switch (io_reg) {
+                    case 0x92: dbus = gime_irqenr; break;
+                    case 0x93: dbus = gime_firqenr; break;
+                    case 0x94: dbus = gime_timer_msb; break;
+                    case 0x95: dbus = gime_timer_lsb; break;
+                    case 0x98: dbus = gime_vmode; break;
+                    case 0x99: dbus = gime_vres; break;
+                    case 0x9A: dbus = gime_brdr; break;
+                    case 0x9B: dbus = gime_vscroll; break;
+                    case 0x9C: dbus = gime_hscroll; break;
+                    case 0x9D: dbus = gime_voff_msb; break;
+                    case 0x9E: dbus = gime_voff_lsb; break;
+                    default: dbus = 0; break;
+                  }
+                  GERBIL_DRIVE(dbus);
+                } else if (abus >= 0xFFF0) {
+                  dbus = coco3_rom[abus - 0x8000];
+                  GERBIL_DRIVE(dbus);
+                } else {
+                  auto r = IOReaders[io_reg];
+                  if (r) {
+                    dbus = r(abus);
+                    GERBIL_DRIVE(dbus);
+                  } else {
+                    GERBIL_PASS();
+                    dbus = (byte)(GERBIL_GET());
+                  }
+                }
+#endif
               } else {
                 auto r = IOReaders[abus & 0xFF];
                 if (r) {
                   dbus = r(abus);
                   GERBIL_DRIVE(dbus);
-#if BECOME_COCO3
-                } else if (UNLIKELY(centipede_config.become_coco3 && abus >= 0xFFF0)) {
-                  // CoCo 3 hardware reset & interrupt vectors ($FFF0-$FFFF) unconditionally
-                  // read from internal ROM, pointing into the constant $FE page ($FEEE..$FEFD).
-                  dbus = coco3_rom[abus - 0x8000];
-                  GERBIL_DRIVE(dbus);
-#endif
                 } else {
                   GERBIL_PASS();
                   dbus = (byte)(GERBIL_GET());  // log & debug
@@ -974,7 +1022,7 @@ class CoreEngine : public BackgroundSharedState {
             }
             if (centipede_config.trace_reads
 #if ALWAYS_TRACE_READS_IF_ADDR_GE
-                    || (ALWAYS_TRACE_READS_IF_ADDR_GE <= abus)
+                    || (!centipede_config.become_coco3 && ALWAYS_TRACE_READS_IF_ADDR_GE <= abus)
 #endif
                ) {
                 T::PushFifoRead(abus, dbus);
@@ -989,17 +1037,64 @@ class CoreEngine : public BackgroundSharedState {
             dbus = (byte)(GERBIL_GET());
 
             if (0xFF00 <= abus) {
-              auto w = IOWriters[abus & 0xFF];
-              if (w) {
-                w(abus, dbus);
+#if BECOME_COCO3
+              if (centipede_config.become_coco3) {
+                byte io_reg = abus & 0xFF;
+                if (io_reg == 0x90) {
+                  gime_init0 = dbus;
+                } else if (io_reg == 0x91) {
+                  gime_init1 = dbus;
+                  active_mmu_offset = (dbus & 1) ? 8 : 0;
+                } else if (0xA0 <= io_reg && io_reg <= 0xAF) {
+                  uint reg = io_reg & 0x0F;
+                  uint task = (reg >> 3) & 1;
+                  uint slot = reg & 7;
+                  mmu_task[task][slot] = dbus & 0x3F;
+                  mmu_base[reg] = (uint32_t)(dbus & 0x0F) << 13;
+                } else if (0xB0 <= io_reg && io_reg <= 0xBF) {
+                  gime_palette[io_reg & 0x0F] = dbus & 0x3F;
+                } else if (io_reg == 0xD4) {
+                  SamP1Bit = false;
+                } else if (io_reg == 0xD5) {
+                  SamP1Bit = true;
+                } else if (io_reg == 0xDE) {
+                  SamTyBit = false;
+                } else if (io_reg == 0xDF) {
+                  SamTyBit = true;
+                } else if (io_reg >= 0x92 && io_reg <= 0x9E) {
+                  switch (io_reg) {
+                    case 0x92: gime_irqenr = dbus; break;
+                    case 0x93: gime_firqenr = dbus; break;
+                    case 0x94: gime_timer_msb = dbus & 0x0F; break;
+                    case 0x95: gime_timer_lsb = dbus; break;
+                    case 0x98: gime_vmode = dbus; break;
+                    case 0x99: gime_vres = dbus; break;
+                    case 0x9A: gime_brdr = dbus; break;
+                    case 0x9B: gime_vscroll = dbus; break;
+                    case 0x9C: gime_hscroll = dbus; break;
+                    case 0x9D: gime_voff_msb = dbus; break;
+                    case 0x9E: gime_voff_lsb = dbus; break;
+                  }
+                } else {
+                  auto w = IOWriters[io_reg];
+                  if (w) w(abus, dbus);
+                }
+              } else
+#endif
+              {
+                auto w = IOWriters[abus & 0xFF];
+                if (w) {
+                  w(abus, dbus);
+                }
               }
               if (centipede_config.become_coco3 && abus >= 0xFFF0) {
                 ram[T::TranslateCoco64kRamAddress(abus)] = dbus;
               }
               ram[abus] = dbus;
-
-              // Currently, always trace non-special I/O writes.
-              T::PushFifoWrite(abus, dbus);
+              // Only trace non-special I/O writes if trace_writes enabled.
+              if (centipede_config.trace_writes) {
+                T::PushFifoWrite(abus, dbus);
+              }
 
             } else {
               uint atrans = centipede_config.become_coco3
@@ -1040,6 +1135,27 @@ class CoreEngine : public BackgroundSharedState {
             T::PushFifoWrite(abus, dbus);
           }  // end special read or write
         }  // end if special
+
+#if 0
+        static bool record_active = false;
+        static int record_count = 0;
+        if (abus == 0xC000) {
+          record_active = true;
+          record_count = 0;
+          g_cycle_history_idx = 0;
+          g_freeze_cycles = false;
+        }
+        if (record_active && record_count < 256) {
+          uint8_t h_idx = g_cycle_history_idx++;
+          g_cycle_history[h_idx].abus = (uint16_t)abus;
+          g_cycle_history[h_idx].dbus = dbus;
+          g_cycle_history[h_idx].flags = (reading ? 1 : 0);
+          record_count++;
+          if (record_count == 256) {
+            g_freeze_cycles = true;
+          }
+        }
+#endif
 
         ++cycle;
 #if GSPOON_POC_DEMO
@@ -1146,6 +1262,7 @@ struct Engine3 : public DoFloppy<Engine3>,
 #endif
     ResetCompressCycles();  // call once at session start
     gspoon::ForceBecomeCoco3();
+    HaltOff();
     RunCores(core1_trampoline3, core0_trampoline3);
   }
 };

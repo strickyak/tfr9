@@ -116,6 +116,44 @@ void handle_pico_rpc_request(std::string* pkt) {
   } else if (req.method == "inject") {
     g_pending_injections.push_back(req);
     return; // Do not send response yet. The REPL will handle it.
+  } else if (req.method == "get-status") {
+    resp.status = 0;
+    uint e_hi = 0, e_lo = 0, e_trans = 0;
+    bool last_e = gpio_get(G_E);
+    for (uint i = 0; i < 2000; i++) {
+      bool cur_e = gpio_get(G_E);
+      if (cur_e) e_hi++; else e_lo++;
+      if (cur_e != last_e) { e_trans++; last_e = cur_e; }
+    }
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+             "halt=%d rst=%d e_trans=%u e_hi=%u e_lo=%u f2b_sz=%u active=%d pc=%u/%u cy_idx=%u frozen=%d mmu0=%02x base0=%05x Ty=%d P1=%d",
+             gpio_get(G_HALT), gpio_get(G_RESET), e_trans, e_hi, e_lo,
+             (unsigned)fg2bg.size(),
+             keyboard_injector::active ? 1 : 0,
+             (unsigned)keyboard_injector::script_pc,
+             (unsigned)keyboard_injector::script_len,
+             (unsigned)g_cycle_history_idx,
+             g_freeze_cycles ? 1 : 0,
+             (unsigned)mmu_task[0][0],
+             (unsigned)mmu_base[0],
+             SamTyBit ? 1 : 0,
+             SamP1Bit ? 1 : 0);
+    resp.message = buf;
+  } else if (req.method == "get-cycles") {
+    resp.status = 0;
+    uint8_t cur = g_cycle_history_idx;
+    resp.data.resize(256 * 4);
+    for (uint i = 0; i < 256; i++) {
+      uint8_t slot = (cur + i) & 0xFF;
+      resp.data[i * 4 + 0] = g_cycle_history[slot].abus >> 8;
+      resp.data[i * 4 + 1] = g_cycle_history[slot].abus & 0xFF;
+      resp.data[i * 4 + 2] = g_cycle_history[slot].dbus;
+      resp.data[i * 4 + 3] = g_cycle_history[slot].flags;
+    }
+    if (req.flags & 1) {
+      g_freeze_cycles = false;
+    }
   } else {
     resp.status = -1;
     resp.message = "unknown PicoRPC method: " + req.method;

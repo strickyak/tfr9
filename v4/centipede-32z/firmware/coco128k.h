@@ -2,37 +2,37 @@
 #define CENTIPEDE_FIRMWARE_COCO128K_H_
 
 // GIME MMU & System Registers
-inline uint8_t gime_init0 = 0;       // $FF90: Bit 6=MMUEN, Bit 7=COCO, Bit 3=MC3
-inline uint8_t gime_init1 = 0;       // $FF91: Bit 0=TR (Task Register)
-inline uint8_t gime_irqenr = 0;      // $FF92
-inline uint8_t gime_firqenr = 0;     // $FF93
-inline uint8_t gime_timer_msb = 0;   // $FF94
-inline uint8_t gime_timer_lsb = 0;   // $FF95
-inline uint8_t gime_vmode = 0;       // $FF98
-inline uint8_t gime_vres = 0;        // $FF99
-inline uint8_t gime_brdr = 0;        // $FF9A
-inline uint8_t gime_vscroll = 0;     // $FF9B
-inline uint8_t gime_hscroll = 0;     // $FF9C
-inline uint8_t gime_voff_msb = 0;    // $FF9D
-inline uint8_t gime_voff_lsb = 0;    // $FF9E
+inline volatile uint8_t gime_init0 = 0;       // $FF90: Bit 6=MMUEN, Bit 7=COCO, Bit 3=MC3
+inline volatile uint8_t gime_init1 = 0;       // $FF91: Bit 0=TR (Task Register)
+inline volatile uint8_t gime_irqenr = 0;      // $FF92
+inline volatile uint8_t gime_firqenr = 0;     // $FF93
+inline volatile uint8_t gime_timer_msb = 0;   // $FF94
+inline volatile uint8_t gime_timer_lsb = 0;   // $FF95
+inline volatile uint8_t gime_vmode = 0;       // $FF98
+inline volatile uint8_t gime_vres = 0;        // $FF99
+inline volatile uint8_t gime_brdr = 0;        // $FF9A
+inline volatile uint8_t gime_vscroll = 0;     // $FF9B
+inline volatile uint8_t gime_hscroll = 0;     // $FF9C
+inline volatile uint8_t gime_voff_msb = 0;    // $FF9D
+inline volatile uint8_t gime_voff_lsb = 0;    // $FF9E
 
 // MMU Task Tables: 2 tasks x 8 slots of 8KB
 // Default Task 0 & Task 1 mappings on CoCo 3 reset:
-inline uint8_t mmu_task[2][8] = {
+inline volatile uint8_t mmu_task[2][8] = {
     {0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F},  // Task 0 ($FFA0-$FFA7)
     {0x38, 0x30, 0x31, 0x32, 0x33, 0x3D, 0x35, 0x3F}   // Task 1 ($FFA8-$FFAF)
 };
 
 // Pre-shifted physical 8KB block bases for ultra-fast single-cycle address translation:
 // mmu_base[task_offset | slot] = (block & 0x0F) << 13
-inline uint32_t mmu_base[16] = {
+inline volatile uint32_t mmu_base[16] = {
     0x10000, 0x12000, 0x14000, 0x16000, 0x18000, 0x1A000, 0x1C000, 0x1E000,
     0x10000, 0x00000, 0x02000, 0x04000, 0x06000, 0x1A000, 0x0A000, 0x1E000
 };
-inline uint8_t active_mmu_offset = 0;  // 0 for Task 0 ($FFA0-$FFA7), 8 for Task 1 ($FFA8-$FFAF)
+inline volatile uint8_t active_mmu_offset = 0;  // 0 for Task 0 ($FFA0-$FFA7), 8 for Task 1 ($FFA8-$FFAF)
 
 // 16 Palette Registers: $FFB0-$FFBF
-inline uint8_t gime_palette[16] = {0};
+inline volatile uint8_t gime_palette[16] = {0};
 
 template <typename T>
 struct DoCoco128k {
@@ -145,6 +145,7 @@ struct DoCoco128k {
       ram[0x18000 + i] = coco3_rom[i];
     }
 
+
     // Pre-populate interrupt jump vectors (INTIMAGE) in Block 15 ($FEED..$FEFD).
     // Validity flag at $1FEED remains 0 so BASIC forces cold start,
     // but vectors at $1FEEE..$1FEFD are valid in case of early interrupt.
@@ -181,6 +182,7 @@ struct DoCoco128k {
     }
     for (int i = 0; i < 16; i++) {
       gime_palette[i] = 0x12; // CoCo 3 default boot palette color (green)
+      ram[0xFFB0 + i] = 0x12;
     }
 
     // Register GIME I/O Handlers
@@ -225,91 +227,92 @@ struct DoCoco128k {
     }
   }
 
-  static void WriteOtherSamBit(uint a, byte d) {
+  static void IN_RAM WriteOtherSamBit(uint a, byte d) {
     bool odd = a & 1;
     uint bitnum = (a - 0xFFC0) >> 1;
     PUSH_TO_BG(FG2BG_PUTCHAR, 0, (odd ? 'A' : 'a') + bitnum);
   }
 
-  static void WriteFFD4_P1Clear(uint a, byte d) {
+  static void IN_RAM WriteFFD4_P1Clear(uint a, byte d) {
     SamP1Bit = false;
   }
-  static void WriteFFD5_P1Set(uint a, byte d) {
+  static void IN_RAM WriteFFD5_P1Set(uint a, byte d) {
     SamP1Bit = true;
   }
-  static void WriteFFDE_TyClear(uint a, byte d) {
+  static void IN_RAM WriteFFDE_TyClear(uint a, byte d) {
     SamTyBit = false;
   }
-  static void WriteFFDF_TySet(uint a, byte d) {
+  static void IN_RAM WriteFFDF_TySet(uint a, byte d) {
     SamTyBit = true;
   }
 
-  static void WriteFF90_Init0(uint a, byte d) {
+  static void IN_RAM WriteFF90_Init0(uint a, byte d) {
     gime_init0 = d;
   }
-  static byte ReadFF90_Init0(uint a) {
+  static byte IN_RAM ReadFF90_Init0(uint a) {
     return gime_init0;
   }
 
-  static void WriteFF91_Init1(uint a, byte d) {
+  static void IN_RAM WriteFF91_Init1(uint a, byte d) {
     gime_init1 = d;
     active_mmu_offset = (d & 1) ? 8 : 0;
   }
-  static byte ReadFF91_Init1(uint a) {
+  static byte IN_RAM ReadFF91_Init1(uint a) {
     return gime_init1;
   }
 
-  static void WriteFF92_IrqEnr(uint a, byte d) { gime_irqenr = d; }
-  static byte ReadFF92_IrqEnr(uint a) { return gime_irqenr; }
+  static void IN_RAM WriteFF92_IrqEnr(uint a, byte d) { gime_irqenr = d; }
+  static byte IN_RAM ReadFF92_IrqEnr(uint a) { return gime_irqenr; }
 
-  static void WriteFF93_FirqEnr(uint a, byte d) { gime_firqenr = d; }
-  static byte ReadFF93_FirqEnr(uint a) { return gime_firqenr; }
+  static void IN_RAM WriteFF93_FirqEnr(uint a, byte d) { gime_firqenr = d; }
+  static byte IN_RAM ReadFF93_FirqEnr(uint a) { return gime_firqenr; }
 
-  static void WriteFF94_TimerMsb(uint a, byte d) { gime_timer_msb = d & 0x0F; }
-  static byte ReadFF94_TimerMsb(uint a) { return gime_timer_msb; }
+  static void IN_RAM WriteFF94_TimerMsb(uint a, byte d) { gime_timer_msb = d & 0x0F; }
+  static byte IN_RAM ReadFF94_TimerMsb(uint a) { return gime_timer_msb; }
 
-  static void WriteFF95_TimerLsb(uint a, byte d) { gime_timer_lsb = d; }
-  static byte ReadFF95_TimerLsb(uint a) { return gime_timer_lsb; }
+  static void IN_RAM WriteFF95_TimerLsb(uint a, byte d) { gime_timer_lsb = d; }
+  static byte IN_RAM ReadFF95_TimerLsb(uint a) { return gime_timer_lsb; }
 
-  static void WriteFF98_Vmode(uint a, byte d) { gime_vmode = d; }
-  static byte ReadFF98_Vmode(uint a) { return gime_vmode; }
+  static void IN_RAM WriteFF98_Vmode(uint a, byte d) { gime_vmode = d; }
+  static byte IN_RAM ReadFF98_Vmode(uint a) { return gime_vmode; }
 
-  static void WriteFF99_Vres(uint a, byte d) { gime_vres = d; }
-  static byte ReadFF99_Vres(uint a) { return gime_vres; }
+  static void IN_RAM WriteFF99_Vres(uint a, byte d) { gime_vres = d; }
+  static byte IN_RAM ReadFF99_Vres(uint a) { return gime_vres; }
 
-  static void WriteFF9A_Brdr(uint a, byte d) { gime_brdr = d; }
-  static byte ReadFF9A_Brdr(uint a) { return gime_brdr; }
+  static void IN_RAM WriteFF9A_Brdr(uint a, byte d) { gime_brdr = d; }
+  static byte IN_RAM ReadFF9A_Brdr(uint a) { return gime_brdr; }
 
-  static void WriteFF9B_Vscroll(uint a, byte d) { gime_vscroll = d; }
-  static byte ReadFF9B_Vscroll(uint a) { return gime_vscroll; }
+  static void IN_RAM WriteFF9B_Vscroll(uint a, byte d) { gime_vscroll = d; }
+  static byte IN_RAM ReadFF9B_Vscroll(uint a) { return gime_vscroll; }
 
-  static void WriteFF9C_Hscroll(uint a, byte d) { gime_hscroll = d; }
-  static byte ReadFF9C_Hscroll(uint a) { return gime_hscroll; }
+  static void IN_RAM WriteFF9C_Hscroll(uint a, byte d) { gime_hscroll = d; }
+  static byte IN_RAM ReadFF9C_Hscroll(uint a) { return gime_hscroll; }
 
-  static void WriteFF9D_VoffMsb(uint a, byte d) { gime_voff_msb = d; }
-  static byte ReadFF9D_VoffMsb(uint a) { return gime_voff_msb; }
+  static void IN_RAM WriteFF9D_VoffMsb(uint a, byte d) { gime_voff_msb = d; }
+  static byte IN_RAM ReadFF9D_VoffMsb(uint a) { return gime_voff_msb; }
 
-  static void WriteFF9E_VoffLsb(uint a, byte d) { gime_voff_lsb = d; }
-  static byte ReadFF9E_VoffLsb(uint a) { return gime_voff_lsb; }
+  static void IN_RAM WriteFF9E_VoffLsb(uint a, byte d) { gime_voff_lsb = d; }
+  static byte IN_RAM ReadFF9E_VoffLsb(uint a) { return gime_voff_lsb; }
 
-  static void WriteFFAx_MMU(uint a, byte d) {
+  static void IN_RAM WriteFFAx_MMU(uint a, byte d) {
     uint reg = a & 0x0F;
     uint task = (reg >> 3) & 1;
     uint slot = reg & 7;
     mmu_task[task][slot] = d & 0x3F;
     mmu_base[reg] = (uint32_t)(d & 0x0F) << 13;
   }
-  static byte ReadFFAx_MMU(uint a) {
+  static byte IN_RAM ReadFFAx_MMU(uint a) {
     uint reg = a & 0x0F;
     uint task = (reg >> 3) & 1;
     uint slot = reg & 7;
     return mmu_task[task][slot];
   }
 
-  static void WriteFFBx_Palette(uint a, byte d) {
+  static void IN_RAM WriteFFBx_Palette(uint a, byte d) {
     gime_palette[a & 0x0F] = d & 0x3F;
+    ram[a] = d & 0x3F;
   }
-  static byte ReadFFBx_Palette(uint a) {
+  static byte IN_RAM ReadFFBx_Palette(uint a) {
     return gime_palette[a & 0x0F];
   }
 };
