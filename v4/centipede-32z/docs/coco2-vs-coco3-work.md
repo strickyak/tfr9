@@ -161,6 +161,10 @@ flowchart TD
 * **Root Cause**: `FlowControlCheck()` in [`firmware/centipede.cpp`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/firmware/centipede.cpp) contained an early return `if (centipede_config.become_coco3) return;`, bypassing HALT-based flow control entirely in CoCo 3 mode.
 * **Solution**: Removed the early return in `FlowControlCheck()`. Now, when `fg2bg.size() > FG2BG_HIGH_WATERMARK` (1000 items), `HaltOn()` pulls `/HALT` (GPIO 29) low to pause the 6809 CPU. Once the background core drains the FIFO over USB below `FG2BG_LOW_WATERMARK` (500 items), `HaltOff()` releases `/HALT`, allowing the CPU to resume without dropping any write cycles.
 
+### 7. Interactive Terminal Keystroke Injection Beyond Tcl Mode
+* **Problem**: In Tether interactive console (`sh tether.sh +COCO3`), user keystrokes sent over USB were received into `usb_packet_buf`. In Tcl mode, `tcl_io::poll_key()` consumed these for the Tcl REPL. Once Tcl mode exited and the CoCo began running, no firmware task checked `usb_packet_buf` for raw keystrokes, leaving them unread and preventing interactive typing into CoCo BASIC.
+* **Solution**: The firmware now distinguishes Tcl mode from normal CoCo execution via a `coco_running` flag. When `coco_running` is true, `drain_task` pulls keystroke packets (1..133) from `usb_packet_buf` and feeds them into `keyboard_injector::queue_char()`. In [`three/firmware/keyboard_injector.h`](file:///home/strick/modoc/coco-shelf/tfr9/v4/centipede-32z/three/firmware/keyboard_injector.h), default typing speed is configured to 5 CPS (100 ms down, 100 ms up) with sequential FIFO character buffering. Keystrokes typed into the Tether terminal window are now seamlessly injected into the 6809 keyboard matrix via `$FF00`.
+
 ---
 
 ## Instructions for Use
