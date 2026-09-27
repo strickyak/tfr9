@@ -437,6 +437,7 @@ volatile bool spoon_has_work = false;
 bool SamP1Bit = false;
 bool SamTyBit = false;
 volatile bool coco_running = false;
+inline volatile uint8_t gime_init0 = 0x0A;
 
 #include "gspoon.h"
 #include "tcl_io.h"
@@ -1009,7 +1010,11 @@ class CoreEngine : public BackgroundSharedState {
               // Below $FF00, addresses are either CoCo 3 ROM or MMU-mapped RAM.
               // Never pass to CoCo 2 motherboard ROM or RAM.
               if (T::IsCoco3Rom(abus)) {
-                dbus = coco3_rom[abus - 0x8000];
+                if (centipede_config.rom_disk11 && ((gime_init0 & 0x02) == 0) && (0xC000 <= abus && abus < 0xE000)) {
+                  dbus = disk11_rom[abus & 0x1FFF];
+                } else {
+                  dbus = coco3_rom[abus - 0x8000];
+                }
                 GERBIL_DRIVE(dbus);
               } else {
                 uint atrans = T::TranslateCoco64kRamAddress(abus);

@@ -1,8 +1,7 @@
 #ifndef CENTIPEDE_FIRMWARE_COCO128K_H_
 #define CENTIPEDE_FIRMWARE_COCO128K_H_
 
-// GIME MMU & System Registers
-inline volatile uint8_t gime_init0 = 0;       // $FF90: Bit 6=MMUEN, Bit 7=COCO, Bit 3=MC3
+extern volatile uint8_t gime_init0;           // $FF90: Bit 6=MMUEN, Bit 7=COCO, Bit 3=MC3 (defined in centipede.cpp)
 inline volatile uint8_t gime_init1 = 0;       // $FF91: Bit 0=TR (Task Register)
 inline volatile uint8_t gime_irqenr = 0;      // $FF92
 inline volatile uint8_t gime_firqenr = 0;     // $FF93
@@ -144,6 +143,11 @@ struct DoCoco128k {
     for (uint i = 0; i < 0x8000; i++) {
       ram[0x18000 + i] = coco3_rom[i];
     }
+    if (centipede_config.rom_disk11) {
+      for (uint i = 0; i < 0x2000; i++) {
+        ram[0x1C000 + i] = disk11_rom[i];
+      }
+    }
 
 
     // Pre-populate interrupt jump vectors (INTIMAGE) in Block 15 ($FEED..$FEFD).
@@ -167,7 +171,7 @@ struct DoCoco128k {
     ram[0xFEED] = 0;
 
     // Reset GIME registers to defaults
-    gime_init0 = 0;
+    gime_init0 = 0x0A;
     gime_init1 = 0;
     gime_irqenr = 0;
     gime_firqenr = 0;

@@ -428,6 +428,16 @@ void IN_RAM DriveConsole() {
         GPoke1(0xFEED, 0);
 
         if (centipede_config.become_coco3) {
+          ram[0x10071] = 0;
+          ram[0x10072] = 0;
+          ram[0x10073] = 0;
+          ram[0x1FEED] = 0;
+          gime_init0 = 0x0A;
+          if (centipede_config.rom_disk11) {
+            for (uint i = 0; i < 0x2000; i++) {
+              ram[0x1C000 + i] = disk11_rom[i];
+            }
+          }
           Jump(0xC000);
         } else {
           Jump(0xA027);
