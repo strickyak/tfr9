@@ -436,6 +436,7 @@ volatile int nmi_fuse;
 volatile bool spoon_has_work = false;
 bool SamP1Bit = false;
 bool SamTyBit = false;
+volatile bool coco_running = false;
 
 #include "gspoon.h"
 #include "tcl_io.h"
@@ -679,6 +680,21 @@ class CoreEngine : public BackgroundSharedState {
       // Calling HaltOff() here was defeating the watermark-based throttling,
       // causing fg2bg FIFO overflow and lost write cycle records.
 
+      // Beyond Tcl mode: inject keystrokes received from Tether into CoCo keyboard
+      if (coco_running && usb_tether_ok()) {
+        std::string* pkt = nullptr;
+        while ((pkt = usb_packet_buf.Yoink([](std::string* s) {
+                 return s && s->length() > 0 &&
+                        (unsigned char)(*s)[0] >= 1 &&
+                        (unsigned char)(*s)[0] <= 133;
+               })) != nullptr) {
+          for (char ch : *pkt) {
+            keyboard_injector::queue_char(ch);
+          }
+          delete pkt;
+        }
+      }
+
       // Advance keyboard injector timing (low overhead check)
       keyboard_injector::tick();
 
@@ -895,6 +911,8 @@ class CoreEngine : public BackgroundSharedState {
 
       // IF KEYBOARD INJECTION QUEUED, START IT (in background task).
       PUSH_TO_BG(FG2BG_START_KEYBOARD_INJECTOR, 0, 0);
+
+      coco_running = true;
 
       // AFTER SPOONFEEDING, START NORMAL CYCLES.
 #if FIFO_INDICATOR_0500
@@ -1165,6 +1183,7 @@ class CoreEngine : public BackgroundSharedState {
 
 #if ON_RESET_DO_SPOONFEED_CONSOLE
         if ((signals & (1 << G_RESET)) == 0) {
+          coco_running = false;
           break;
         }
 #endif

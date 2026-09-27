@@ -444,6 +444,7 @@ void OldSpoonfeedingExperiments();
 void draw_large_v(void);
 
 void IN_RAM SpoonfeedConsoleOnReset() {
+  coco_running = false;
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
 

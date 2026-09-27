@@ -18,10 +18,10 @@ struct KeystrokeAction {
 };
 
 #define MAX_SCRIPT_ACTIONS 256
-#define TYPING_DOWN_MS 500  // 0.5s key down
-#define TYPING_UP_MS   500  // 0.5s key up between keystrokes
-#define TYPING_DOWN_TICKS (TYPING_DOWN_MS / 20)  // 25 ticks
-#define TYPING_UP_TICKS   (TYPING_UP_MS / 20)    // 25 ticks
+#define TYPING_DOWN_MS 100  // 0.1s key down (5 ticks @ 20ms = 5 CPS)
+#define TYPING_UP_MS   100  // 0.1s key up between keystrokes (5 ticks @ 20ms)
+#define TYPING_DOWN_TICKS (TYPING_DOWN_MS / 20)  // 5 ticks
+#define TYPING_UP_TICKS   (TYPING_UP_MS / 20)    // 5 ticks
 #define PAUSE_TICKS (1000 / 20)  // ~ always 1 second = 50 ticks
 
 // Pre-compiled key_script array (filled by background)
@@ -56,10 +56,6 @@ inline void update_probe_table_for_action(const KeystrokeAction& act) {
         if (act.needs_clear) {
             col_resp[1] &= ~(1 << 6);
         }
-        cobs_printf("[keyboard_injector] Key DOWN (col %d, row %d, shift %d) for %d ms\n",
-                    act.target_col, act.target_row, act.needs_shift, act.wait_ticks * 20);
-    } else {
-        cobs_printf("[keyboard_injector] Key UP for %d ms\n", act.wait_ticks * 20);
     }
 
     // For any probe written to $FF02:
@@ -84,6 +80,7 @@ inline void lookup_char(char c, int8_t* col_out, int8_t* row_out, bool* shift_ou
     *shift_out = false;
     *clear_out = false;
 
+    if (c == 0) return;
     if (c == '\n') c = '\r';
 
     for (int col = 0; col < 8; ++col)
@@ -106,21 +103,37 @@ inline void lookup_char(char c, int8_t* col_out, int8_t* row_out, bool* shift_ou
 inline uint16_t g_down_ticks = TYPING_DOWN_TICKS;
 inline uint16_t g_up_ticks = TYPING_UP_TICKS;
 
+inline void start_if_queued();
+
 inline void queue_string(const std::string& str, uint16_t down_ticks = TYPING_DOWN_TICKS, uint16_t up_ticks = TYPING_UP_TICKS) {
-    queued_string = str;
+    queued_string += str;
     g_down_ticks = (down_ticks > 0) ? down_ticks : 1;
     g_up_ticks = (up_ticks > 0) ? up_ticks : 1;
+    start_if_queued();
+}
+
+inline void queue_char(char c, uint16_t down_ticks = TYPING_DOWN_TICKS, uint16_t up_ticks = TYPING_UP_TICKS) {
+    static char last_c = 0;
+    if (c == '\n' && last_c == '\r') {
+        last_c = c;
+        return;
+    }
+    last_c = c;
+    queued_string += c;
+    g_down_ticks = (down_ticks > 0) ? down_ticks : 1;
+    g_up_ticks = (up_ticks > 0) ? up_ticks : 1;
+    start_if_queued();
 }
 
 inline void start_if_queued() {
     if (active) return;
     if (queued_string.empty()) return;
 
-    cobs_printf("[keyboard_injector] Compiling sequence: \"%s\"\n", queued_string.c_str());
-
     script_len = 0;
+    size_t consumed = 0;
     for (char c : queued_string) {
         if (script_len + 2 > MAX_SCRIPT_ACTIONS) break;
+        consumed++;
 
         if (c == '~') {
             key_script[script_len++] = {PAUSE_TICKS, -1, -1, false, false};
@@ -133,17 +146,15 @@ inline void start_if_queued() {
         }
     }
 
-    queued_string = "";
+    queued_string.erase(0, consumed);
     script_pc = 0;
 
     uint32_t current_ticks = (uint32_t)g_sys_time.ticks_20ms;
     if (script_len > 0) {
         next_transition_tick = current_ticks + key_script[0].wait_ticks;
         update_probe_table_for_action(key_script[0]);
+        active = true;
     }
-
-    active = true;
-    cobs_printf("[keyboard_injector] Active, %d actions\n", (int)script_len);
 }
 
 // Called periodically from background to advance the key_script based on ticks.
@@ -155,7 +166,6 @@ inline void tick() {
         script_pc++;
         if (script_pc >= script_len) {
             active = false;
-            cobs_printf("[keyboard_injector] Sequence complete.\n");
             start_if_queued();
             return;
         }
