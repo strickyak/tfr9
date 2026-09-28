@@ -1037,13 +1037,14 @@ func SyncInitialRamFromPico(ch chan []byte) {
 		log.Printf("SyncInitialRamFromPico: successfully synced %d bytes from live Pico RAM", len(data))
 	}
 
-	// Fetch remaining 56KB in background
-	remaining := 64*1024 - firstChunk
-	if remaining > 0 && basePhys+firstChunk+remaining <= len(raw) {
+	// Fetch remaining up to 32KB RAM (do not overwrite ROM >= 0x8000)
+	maxRam := 32 * 1024
+	if basePhys+firstChunk < maxRam && basePhys+maxRam <= len(raw) {
+		remaining := maxRam - (basePhys + firstChunk)
 		dataRest, err := fetchRamRange(ch, basePhys+firstChunk, remaining)
 		if err == nil && len(dataRest) > 0 {
 			copy(raw[basePhys+firstChunk:], dataRest)
-			log.Printf("SyncInitialRamFromPico: full 64KB live RAM synced")
+			log.Printf("SyncInitialRamFromPico: 32KB live RAM synced")
 		}
 	}
 }
@@ -1141,8 +1142,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				CurrentPhase = U_Phase
 				Cycle++
 
-				if _addr < 0xFF00 && the_ram != nil {
-					the_ram.Poke1(_addr, _data)
+				if _data == 0 && the_ram != nil {
+					_data = the_ram.Peek1(_addr)
 				}
 
 				var aline string
@@ -1166,9 +1167,11 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 					if the_ram != nil {
 						var insMem [8]byte
-						insMem[0] = _data
-						for i := 1; i < 8; i++ {
+						for i := 0; i < 8; i++ {
 							insMem[i] = the_ram.Peek1((_addr + uint(i)) & 0xFFFF)
+						}
+						if _data != 0 && insMem[0] == 0 {
+							insMem[0] = _data
 						}
 						if d, _, _, _, ok := lib.Decode(insMem[:]); ok {
 							disasm = d

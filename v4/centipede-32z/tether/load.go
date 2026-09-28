@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -63,6 +63,7 @@ func PreUploadRom(filename string, channelToPico chan []byte, addr uint) {
 		for i, b := range bb {
 			the_ram.Poke1(addr+uint(i), b)
 		}
+		log.Printf("PreUploadRom: loaded %q (%d bytes) at $%04X into the_ram", filename, len(bb), addr)
 	} else { // over the wire
 		for len(bb) > 0 {
 			n := uint(len(bb))
