@@ -304,12 +304,122 @@ func GetHscreenScreen() []byte {
 	return buf.Bytes()
 }
 
+func IsGimeText() bool {
+	if the_ram == nil {
+		return false
+	}
+	// GIME Non-CoCo mode (bit 7 of $FF90 is 0) and Text mode (bit 7 of $FF98 is 0)
+	return (the_ram.Peek1(0xFF90)&0x80) == 0 && (the_ram.Peek1(0xFF98)&0x80) == 0
+}
+
+func GetGimeTextScreen() []byte {
+	vres := the_ram.Peek1(0xFF99)
+	hres := (vres >> 2) & 0x07
+	hasAttrs := (vres & 1) != 0
+
+	cols := 40
+	if hres == 5 || hres == 7 {
+		cols = 80
+	} else if hres == 0 || hres == 2 {
+		cols = 32
+	} else if hres == 4 || hres == 6 {
+		cols = 64
+	}
+
+	const rows = 24
+	const height = 192
+
+	palette := make([][]byte, 16)
+	hasNonZero := false
+	for i := uint(0); i < 16; i++ {
+		code := the_ram.Peek1(0xFFB0 + i) & 0x3F
+		if code != 0 {
+			hasNonZero = true
+		}
+		c := coco3ColorToRGBA(code)
+		palette[i] = []byte{c.R, c.G, c.B}
+	}
+	if !hasNonZero {
+		for i := 0; i < 16; i++ {
+			c := defaultCoco3Palette[i]
+			palette[i] = []byte{c.R, c.G, c.B}
+		}
+	}
+
+	offset1 := uint(the_ram.Peek1(0xFF9D))
+	offset0 := uint(the_ram.Peek1(0xFF9E))
+	base := ((offset1<<8 | offset0) * 8) & COCO3_RAM_MASK
+
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(0))   // X
+	binary.Write(&buf, binary.LittleEndian, uint16(0))   // Y
+	binary.Write(&buf, binary.LittleEndian, uint16(320)) // W (canvas width)
+	binary.Write(&buf, binary.LittleEndian, uint16(uint16(height))) // H
+
+	stride := uint(1)
+	if hasAttrs {
+		stride = 2
+	}
+
+	sampleCols := [4]int{1, 3, 5, 0}
+
+	for row := 0; row < rows; row++ {
+		for py := 0; py < 8; py++ {
+			for col := 0; col < cols; col++ {
+				charOffset := base + uint(row*cols+col)*stride
+				ch := the_ram.PPeek1(charOffset)
+				var fg, bg []byte
+				underline := false
+				if hasAttrs {
+					attr := the_ram.PPeek1(charOffset + 1)
+					fg = palette[8+((attr>>3)&7)]
+					bg = palette[attr&7]
+					underline = (attr&0x40) != 0 && py == 7
+				} else {
+					fg = palette[8] // default black
+					bg = palette[0] // default green
+				}
+
+				if cols == 80 {
+					// 80 columns: 4 pixels per character cell, downsampling 2:1 horizontally
+					for px := 0; px < 4; px++ {
+						if underline || getGlyphPixel(ch, sampleCols[px], py) {
+							buf.Write(fg)
+						} else {
+							buf.Write(bg)
+						}
+					}
+				} else {
+					// 40 columns (or <= 40): 8 pixels per character cell
+					for px := 0; px < 8; px++ {
+						if underline || getGlyphPixel(ch, px, py) {
+							buf.Write(fg)
+						} else {
+							buf.Write(bg)
+						}
+					}
+				}
+			}
+			// Pad remaining scanline pixels if cols < 40
+			for p := cols * 8; p < 320; p++ {
+				buf.Write(palette[0])
+			}
+		}
+	}
+
+	return buf.Bytes()
+}
+
 func GetScreenForWebsocket() []byte {
 	if the_ram == nil {
 		return nil
 	}
 	if IsGimeGraphics() {
 		return GetHscreenScreen()
+	}
+	if IsGimeText() {
+		return GetGimeTextScreen()
 	}
 
 	fb := SamScreenAddress()

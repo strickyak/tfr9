@@ -121,3 +121,61 @@ func TestGetHscreenModes(t *testing.T) {
 		}
 	}
 }
+
+func TestGetGimeTextModes(t *testing.T) {
+	ram := new(Coco3Ram)
+	the_ram = ram
+
+	// 1. In standard CoCo 2/3 WIDTH 32 mode:
+	// $FF90 has bit 7 = 1 (COCO compatible)
+	ram.Poke1(0xFF90, 0xCC)
+	ram.Poke1(0xFF98, 0x00)
+	if IsGimeText() {
+		t.Errorf("expected IsGimeText to be false for WIDTH 32")
+	}
+
+	// 2. Test WIDTH 40 mode:
+	// $FF90 has bit 7 = 0 (MMUEN+MC3+MC2 = 0x4C)
+	// $FF98 = 0x03 (Text mode, 8 scanlines/row)
+	// $FF99 = 0x05 (40 cols, attributes enabled)
+	// $FF9D = 0xD8, $FF9E = 0x00 (Video start = 0xD800 * 8 & 0x1FFFF = 0x0C000)
+	ram.Poke1(0xFF90, 0x4C)
+	ram.Poke1(0xFF98, 0x03)
+	ram.Poke1(0xFF99, 0x05)
+	ram.Poke1(0xFF9D, 0xD8)
+	ram.Poke1(0xFF9E, 0x00)
+
+	if !IsGimeText() {
+		t.Fatalf("expected IsGimeText to be true for WIDTH 40")
+	}
+
+	// Put test string at 0x0C000 with green background (attr 0), black foreground
+	testStr := "HELLO COCO3 WIDTH 40"
+	base := uint(0x0C000)
+	for i := 0; i < len(testStr); i++ {
+		ram.trackRam[base+uint(i*2)] = testStr[i]
+		ram.trackRam[base+uint(i*2+1)] = 0x00 // attr: fg=8 (black), bg=0 (green)
+	}
+
+	screen40 := GetScreenForWebsocket()
+	if screen40 == nil {
+		t.Fatalf("GetScreenForWebsocket returned nil for WIDTH 40")
+	}
+	expectedLen := 9 + (320 * 192 * 3)
+	if len(screen40) != expectedLen {
+		t.Errorf("WIDTH 40: expected len %d, got %d", expectedLen, len(screen40))
+	}
+
+	// 3. Test WIDTH 80 mode:
+	// $FF99 = 0x15 (80 cols, attributes enabled)
+	ram.Poke1(0xFF99, 0x15)
+
+	screen80 := GetScreenForWebsocket()
+	if screen80 == nil {
+		t.Fatalf("GetScreenForWebsocket returned nil for WIDTH 80")
+	}
+	if len(screen80) != expectedLen {
+		t.Errorf("WIDTH 80: expected len %d, got %d", expectedLen, len(screen80))
+	}
+}
+
