@@ -990,6 +990,7 @@ func MintSerialNum() uint {
 }
 
 var Cycle uint
+var LastWriteCycleTime time.Time
 
 func CheckUpgradeToCoco3Ram(_addr uint, _data byte) {
 	if the_ram == nil {
@@ -1266,6 +1267,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			WriteCycleFunction := func(_addr uint, _data byte) {
 				CurrentPhase = U_Phase
 				Cycle++
+				LastWriteCycleTime = time.Now()
 
 				CheckUpgradeToCoco3Ram(_addr, _data)
 				the_ram.Poke1(_addr, _data)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -148,6 +149,13 @@ var defaultCoco3Palette = []color.RGBA{
 func IsGimeGraphics() bool {
 	if the_ram == nil {
 		return false
+	}
+	if _, isCoco3 := the_ram.(*Coco3Ram); !isCoco3 {
+		return false
+	}
+	init0 := the_ram.Peek1(0xFF90)
+	if (init0 & 0x80) != 0 {
+		return false // CoCo compatible mode (SAM/VDG)
 	}
 	// GIME VMODE register is at $FF98. Bit 7 is 1 for Graphics mode, 0 for Text mode.
 	return (the_ram.Peek1(0xFF98) & 0x80) != 0
@@ -315,8 +323,18 @@ func IsGimeText() bool {
 	if the_ram == nil {
 		return false
 	}
+	if _, isCoco3 := the_ram.(*Coco3Ram); !isCoco3 {
+		return false
+	}
+	init0 := the_ram.Peek1(0xFF90)
+	if (init0 & 0x80) != 0 {
+		return false // CoCo compatible mode (SAM/VDG)
+	}
+	if (init0 & 0x40) == 0 {
+		return false // GIME native modes require MMU enabled (and init0 configured)
+	}
 	// GIME Non-CoCo mode (bit 7 of $FF90 is 0) and Text mode (bit 7 of $FF98 is 0)
-	return (the_ram.Peek1(0xFF90)&0x80) == 0 && (the_ram.Peek1(0xFF98)&0x80) == 0
+	return (the_ram.Peek1(0xFF98) & 0x80) == 0
 }
 
 func GetGimeTextScreen() []byte {
@@ -418,6 +436,49 @@ func GetGimeTextScreen() []byte {
 	return buf.Bytes()
 }
 
+var lastLiveScreenSync time.Time
+var liveScreenSyncBusy bool
+var liveScreenSyncMu sync.Mutex
+
+func SyncLiveScreenRam(addr uint, size int) {
+	liveScreenSyncMu.Lock()
+	if liveScreenSyncBusy {
+		liveScreenSyncMu.Unlock()
+		return
+	}
+	if time.Since(lastLiveScreenSync) < 100*time.Millisecond {
+		liveScreenSyncMu.Unlock()
+		return
+	}
+	if !LastWriteCycleTime.IsZero() && time.Since(LastWriteCycleTime) < 300*time.Millisecond {
+		liveScreenSyncMu.Unlock()
+		return
+	}
+	ch := GetChannelToPico()
+	if ch == nil {
+		liveScreenSyncMu.Unlock()
+		return
+	}
+	liveScreenSyncBusy = true
+	lastLiveScreenSync = time.Now()
+	liveScreenSyncMu.Unlock()
+
+	go func() {
+		defer func() {
+			liveScreenSyncMu.Lock()
+			liveScreenSyncBusy = false
+			liveScreenSyncMu.Unlock()
+		}()
+		data, err := fetchRamRange(ch, int(addr), size)
+		if err == nil && len(data) == size && the_ram != nil {
+			raw := the_ram.GetTrackRam()
+			if raw != nil && int(addr)+size <= len(raw) {
+				copy(raw[addr:], data)
+			}
+		}
+	}()
+}
+
 func GetScreenForWebsocket() []byte {
 	if the_ram == nil {
 		return nil
@@ -430,15 +491,21 @@ func GetScreenForWebsocket() []byte {
 	}
 
 	fb := SamScreenAddress()
+	if fb == 0 {
+		fb = 0x0400
+	}
 	Logf("SAM V=%d addr=$%04x P1B=$%02x", SamModeV(), fb, Pia1OutB())
 
 	switch SamModeV() {
 	case 0: // Text
+		SyncLiveScreenRam(fb, 512)
 		return GetTextScreen(fb)
 	case 4: // PMODE 1
+		SyncLiveScreenRam(fb, 128*96/4)
 		return GetPmode1Screen(fb)
 		// case 6: // PMODE 3 : SAM V=6 addr=$0600 P1B=$37 // TODO -- look this up
 	case 6: // PMODE 4
+		SyncLiveScreenRam(fb, 256*192/8)
 		return GetPmode4Screen(fb)
 	}
 	return nil

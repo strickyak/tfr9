@@ -177,5 +177,21 @@ func TestGetGimeTextModes(t *testing.T) {
 	if len(screen80) != expectedLen {
 		t.Errorf("WIDTH 80: expected len %d, got %d", expectedLen, len(screen80))
 	}
+
+	// 4. Test CoCo 1/2 mode (Coco1Ram):
+	the_ram = new(Coco1Ram)
+	if IsGimeText() {
+		t.Errorf("expected IsGimeText to be false for Coco1Ram")
+	}
+	if IsGimeGraphics() {
+		t.Errorf("expected IsGimeGraphics to be false for Coco1Ram")
+	}
+
+	// 5. Test GetScreenForWebsocket for CoCo 1/2 Text mode:
+	the_ram.Poke1(0x0400, 'D')
+	screenCoco2 := GetScreenForWebsocket()
+	if screenCoco2 == nil {
+		t.Fatalf("GetScreenForWebsocket returned nil for CoCo 2 text")
+	}
 }
 
