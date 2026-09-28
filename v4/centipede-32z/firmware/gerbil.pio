@@ -44,8 +44,7 @@ top:
     ; The [n] delay field on instructions can add 0-31 extra cycles.
     ; Using side-set-free instructions, we can get up to 31 cycles delay
     ; per instruction via the delay field.  Adjust as needed.
-    nop [15] side 0         ; Delay ~104ns (26 cycles at 250MHz) into phase 2
-    nop [9] side 0          ;   for R/W and address bus settling
+    nop [15] side 0         ; (tune as needed)  -- sometime in phase 2
 
     ; Step 3: Sample all 32 pins and push to RX FIFO.
     in pins, 32 side 0

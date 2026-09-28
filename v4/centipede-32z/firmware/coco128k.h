@@ -40,19 +40,20 @@ struct DoCoco128k {
 
   FORCE_INLINE static bool IsCoco3Rom(uint a) {
     // In CoCo 3:
-    // When SamTyBit == 0 (ROM mode at boot), $8000-$FDFF is ROM.
-    // When SamTyBit == 1 (all-RAM mode), slots mapped to ROM blocks ($3C..$3F)
-    // continue to run the 32KB Super Extended BASIC and Disk BASIC code.
-    // Serving these reads from immutable coco3_rom[] / disk11_rom[] protects
-    // against spurious bus write glitches corrupting the BASIC interpreter in RAM.
-    // The constant $FE page ($FE00-$FEFF) is always RAM (Block 15).
-    if (0x8000 <= a && a < 0xFE00) {
-      if (!SamTyBit) return true;
-      uint task = active_mmu_offset >> 3;
-      uint slot = (a >> 13) & 7;
-      return mmu_task[task][slot] >= 0x3C;
+    // $E000-$FDFF is the Super Extended Color BASIC ROM (Block 15 / Slot 7).
+    // It contains NO RAM patches and must always be served from immutable coco3_rom[]
+    // when Task 0 has Slot 7 mapped to ROM (Block >= $3C). This prevents spurious bus
+    // write glitches from corrupting routines like HPRINT ($EF7F) in RAM.
+    if (0xE000 <= a && a < 0xFE00) {
+      return (active_mmu_offset == 0) && (mmu_task[0][7] >= 0x3C);
     }
-    return false;
+    // For $8000-$DFFF:
+    // When SamTyBit == 0 (during boot before RAM copy), reads come from ROM.
+    // When SamTyBit == 1 (all-RAM mode), reads MUST come from RAM (ram[atrans])
+    // because CoCo 3 cold boot applies 27 essential patches into RAM at $8000-$BFFF
+    // (such as Patch 4 at $8150 hooking HSCREEN/WIDTH/PALETTE into Super Extended BASIC).
+    // The constant $FE page ($FE00-$FEFF) is always RAM (Block 15).
+    return !SamTyBit && (0x8000 <= a) && (a < 0xE000);
   }
 
   // FORCE_INLINE ensures these class methods are inlined directly into
