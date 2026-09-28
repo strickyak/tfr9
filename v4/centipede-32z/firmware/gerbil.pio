@@ -65,6 +65,7 @@ write_path:
     ; Step 4a (write): Wait for QBAR to rise (0 -> 1), then sample again.
     ;wait 1 gpio 22 side 0   ; stall until QBAR rises
     wait 1 gpio 22 side 0   ; stall until QBAR rises -- begin of phase 4.
+    nop [15] side 0         ; Delay 64ns into phase 4 for write data bus to settle
     in pins, 32 side 0      ; sample write data (disabled: autopush sends to RX FIFO)
     push side 0
     jmp top side 0          ; loop back to beginning

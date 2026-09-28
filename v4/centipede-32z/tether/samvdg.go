@@ -278,6 +278,7 @@ func GetHscreenScreen() []byte {
 
 		for y := 0; y < height; y++ {
 			rowOffset := base + uint(y*bytesPerRow)
+			pixelsWritten := 0
 			for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
 				b := the_ram.PPeek1(rowOffset + uint(byteCol))
 				switch bpp {
@@ -286,17 +287,23 @@ func GetHscreenScreen() []byte {
 					p1 := b & 0x0F
 					buf.Write(palette[p0])
 					buf.Write(palette[p1])
+					pixelsWritten += 2
 				case 2: // 4 pixels per byte (4 colors)
 					for p := 0; p < 4; p++ {
 						colIdx := (b >> (6 - p*2)) & 0x03
 						buf.Write(palette[colIdx])
 					}
+					pixelsWritten += 4
 				case 1: // 8 pixels per byte (2 colors)
 					for bit := 0; bit < 8; bit++ {
 						colIdx := (b >> (7 - bit)) & 1
 						buf.Write(palette[colIdx])
 					}
+					pixelsWritten += 8
 				}
+			}
+			for p := pixelsWritten; p < 320; p++ {
+				buf.Write(palette[0])
 			}
 		}
 	}

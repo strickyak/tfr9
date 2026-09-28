@@ -511,6 +511,12 @@ const CONTENT = `
                         const bw = view.getUint16(offset, true); offset += 2;
                         const bh = view.getUint16(offset, true); offset += 2;
 
+                        if (offset + bw * bh * 3 > buffer.byteLength) {
+                            console.warn("Truncated bitmap patch received, ignoring");
+                            offset = buffer.byteLength;
+                            break;
+                        }
+
                         const imgData = ctx.createImageData(bw, bh);
                         const d = imgData.data;
                         for (let i = 0; i < bw * bh; i++) {
