@@ -49,6 +49,7 @@ target_sources(${PROJECT} PRIVATE
 target_include_directories(${PROJECT} PRIVATE
     ${THREE}
     ${THREE}/firmware
+    ../../cpu-tracker
 )
 target_link_libraries(${PROJECT} PRIVATE
     cmsis_core

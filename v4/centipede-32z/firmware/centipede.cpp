@@ -340,6 +340,7 @@ byte ram[64 * 1024];
 #define C_RAM2_WRITE 195  // 0xC3
 #define C_RAM2_READ 211   // 0xD3
 #define C_CYCLE_RD3 211   // 0xD3
+#define C_FIC_CYCLE 227   // 0xE3
 
 // Commands into the FIFO to the slow core
 
@@ -349,13 +350,16 @@ enum FifoNumbers {
   FG2BG_SPOON_ON_RESET,  // 2
   FG2BG_WRITE,           // 3
   FG2BG_SYNC_NEEDED,     // a boundary, not an event.
-  UNUSED__FG2BG_NMI,     // now handled entirely in foreground.
+  FG0BG_FIC = 5,         // First Instruction Cycle (discovered in background by CpuTracker)
+  UNUSED__FG2BG_NMI = 6, // now handled entirely in foreground.
   FG2BG_FLOPPY_COMMAND,
   FG2BG_FLOPPY_LATCH,
   FG2BG_W_256,
   FG2BG_PEEK_REPLY,
   FG2BG_START_KEYBOARD_INJECTOR,
 };
+
+#include "cpu_tracker.h"
 
 enum Bg2FgNumbers {
   BG2FG_PEEK = 1,
@@ -607,6 +611,8 @@ struct BackgroundSharedState {
   static inline uint8_t floppy_stack[STACK_SIZE] __attribute__((aligned(8)));
   static inline uint8_t spoon_stack[STACK_SIZE] __attribute__((aligned(8)));
 
+  static inline cputracker::CpuTracker cpu_tracker;
+
   // Simple flag-based channel: drain_task sets these, other tasks check them.
   // Only one chore can be pending per task at a time.
   static inline volatile uint floppy_pending_chore;
@@ -741,10 +747,24 @@ class CoreEngine : public BackgroundSharedState {
 
         case FG2BG_READ:  // read cycle
           {
+            uint16_t addr = (chore >> 8) & 0xFFFF;
+            uint8_t data = chore & 0xFF;
+            bool is_fic = cpu_tracker.ProcessCycle(cputracker::CycleType::READ, addr, data);
+            uint32_t tracked_chore = chore;
+            if (is_fic) {
+              tracked_chore = ((uint32_t)FG0BG_FIC << 24) | (chore & 0x00FFFFFF);
+            }
 #if COMPRESS_CYCLES
-            InsertCycleWithCompression(chore);
+            InsertCycleWithCompression(tracked_chore);
 #else
-            if (chore_byte) {
+            if (is_fic) {
+              if (usb_tether_ok()) {
+                unsigned char pkt[4] = {C_FIC_CYCLE, (unsigned char)(tracked_chore >> 16),
+                                        (unsigned char)(tracked_chore >> 8),
+                                        (unsigned char)tracked_chore};
+                CobsEncodeAndTransmit(pkt, 4, putchar_raw);
+              }
+            } else if (chore_byte) {
               if (usb_tether_ok()) {
                 unsigned char pkt[4] = {C_RAM2_READ, (unsigned char)(chore >> 16),
                                         (unsigned char)(chore >> 8),
@@ -759,6 +779,9 @@ class CoreEngine : public BackgroundSharedState {
         case FG2BG_WRITE:  // write cycle
           write_counter++;
           {
+            uint16_t addr = (chore >> 8) & 0xFFFF;
+            uint8_t data = chore & 0xFF;
+            cpu_tracker.ProcessCycle(cputracker::CycleType::WRITE, addr, data);
 #if COMPRESS_CYCLES
             InsertCycleWithCompression(chore);
 #else
@@ -788,6 +811,9 @@ class CoreEngine : public BackgroundSharedState {
           break;
 
         case FG2BG_SPOON_ON_RESET:
+          cpu_tracker.Reset();
+          cpu_tracker.SetMode(cputracker::TrackerMode::PREDICTING);
+          cpu_tracker.EnableRegisterSnarfing(true);
           // Dispatch to spoon task.
           spoon_has_work = true;
           break;
@@ -1263,6 +1289,9 @@ class Engine0 : public DoFloppy<Engine0>,
 #if USE_ORCHESTRA90
     orchestra90::Init();
 #endif
+    cpu_tracker.Reset();
+    cpu_tracker.SetMode(cputracker::TrackerMode::PREDICTING);
+    cpu_tracker.EnableRegisterSnarfing(true);
     ResetCompressCycles();  // call once at session start
     RunCores(core1_trampoline, core0_trampoline);
   }
@@ -1285,6 +1314,9 @@ struct Engine3 : public DoFloppy<Engine3>,
 #if USE_ORCHESTRA90
     orchestra90::Init();
 #endif
+    cpu_tracker.Reset();
+    cpu_tracker.SetMode(cputracker::TrackerMode::PREDICTING);
+    cpu_tracker.EnableRegisterSnarfing(true);
     ResetCompressCycles();  // call once at session start
     HaltOff();
     RunCores(core1_trampoline3, core0_trampoline3);
