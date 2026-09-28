@@ -155,35 +155,57 @@ func IsGimeGraphics() bool {
 
 func GetHscreenScreen() []byte {
 	vres := the_ram.Peek1(0xFF99)
-	depth := vres & 0x07
-	res := (vres >> 3) & 0x03
+	cres := vres & 0x03        // Bits 0-1: Color resolution (0=2 colors, 1=4 colors, 2=16 colors)
+	hres := (vres >> 2) & 0x07 // Bits 2-4: Horizontal resolution (bytes per row)
+	lpf := (vres >> 5) & 0x03  // Bits 5-6: Lines per field (0=192, 1=200, 2=210, 3=225)
 
-	var width, height, bpp int
-	height = 192
-	switch depth {
+	var height int
+	switch lpf {
+	case 1:
+		height = 200
+	case 2:
+		height = 210
+	case 3:
+		height = 225
+	default:
+		height = 192
+	}
+
+	var bpp int
+	switch cres {
 	case 2: // 16 colors (4 bpp)
-		width = 320
 		bpp = 4
 	case 1: // 4 colors (2 bpp)
-		if res >= 2 {
-			width = 640
-			bpp = 2
-		} else {
-			width = 320
-			bpp = 2
-		}
+		bpp = 2
 	case 0: // 2 colors (1 bpp)
-		if res >= 2 {
-			width = 640
-			bpp = 1
-		} else {
-			width = 320
-			bpp = 1
-		}
+		bpp = 1
 	default:
-		width = 320
 		bpp = 4
 	}
+
+	var bytesPerRow int
+	switch hres {
+	case 0:
+		bytesPerRow = 16
+	case 1:
+		bytesPerRow = 20
+	case 2:
+		bytesPerRow = 32
+	case 3:
+		bytesPerRow = 40
+	case 4:
+		bytesPerRow = 64
+	case 5:
+		bytesPerRow = 80
+	case 6:
+		bytesPerRow = 128
+	case 7:
+		bytesPerRow = 160
+	default:
+		bytesPerRow = 160
+	}
+
+	width := bytesPerRow * (8 / bpp)
 
 	palette := make([][]byte, 16)
 	hasNonZero := false
@@ -202,8 +224,9 @@ func GetHscreenScreen() []byte {
 		}
 	}
 
-	bytesPerRow := width * bpp / 8
-	const base = uint(0x00000)
+	offset1 := uint(the_ram.Peek1(0xFF9D))
+	offset0 := uint(the_ram.Peek1(0xFF9E))
+	base := ((offset1<<8 | offset0) * 8) & COCO3_RAM_MASK
 
 	var buf bytes.Buffer
 	buf.WriteByte(OpBitmap)

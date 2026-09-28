@@ -75,3 +75,49 @@ func TestServeRam(t *testing.T) {
 		t.Errorf("unexpected /ram.hex output: %q", wPathHex.Body.String())
 	}
 }
+
+func TestGetHscreenModes(t *testing.T) {
+	ram := new(Coco3Ram)
+	the_ram = ram
+
+	// Enable GIME Graphics ($FF98 bit 7 = 1)
+	ram.Poke1(0xFF98, 0x80)
+	if !IsGimeGraphics() {
+		t.Fatalf("expected IsGimeGraphics to be true")
+	}
+
+	// Test all 4 standard CoCo 3 HSCREEN modes
+	// Mode 1: 0x15 (320x192, 4 colors, bpp=2)
+	// Mode 2: 0x1E (320x192, 16 colors, bpp=4)
+	// Mode 3: 0x14 (640x192, 2 colors, bpp=1, downsampled to 320)
+	// Mode 4: 0x1D (640x192, 4 colors, bpp=2, downsampled to 320)
+	testModes := []struct {
+		mode    int
+		ff99Val byte
+	}{
+		{1, 0x15},
+		{2, 0x1E},
+		{3, 0x14},
+		{4, 0x1D},
+	}
+
+	for _, tm := range testModes {
+		ram.Poke1(0xFF99, tm.ff99Val)
+		ram.Poke1(0xFF9D, 0x00) // VSC MSB
+		ram.Poke1(0xFF9E, 0x00) // VSC LSB
+
+		screenData := GetHscreenScreen()
+		if screenData == nil {
+			t.Fatalf("HSCREEN %d: GetHscreenScreen returned nil", tm.mode)
+		}
+
+		// Expected length: 1 (OpBitmap) + 2 (X) + 2 (Y) + 2 (W) + 2 (H) + (320 * 192 * 3 RGB)
+		expectedLen := 9 + (320 * 192 * 3)
+		if len(screenData) != expectedLen {
+			t.Errorf("HSCREEN %d: expected length %d, got %d", tm.mode, expectedLen, len(screenData))
+		}
+		if screenData[0] != OpBitmap {
+			t.Errorf("HSCREEN %d: expected OpBitmap %d, got %d", tm.mode, OpBitmap, screenData[0])
+		}
+	}
+}
