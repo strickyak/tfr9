@@ -1184,7 +1184,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				var cline string
 				if is_fic {
 					if disasm != "" && aline != "" {
-						cline = Format("cy-F %04x   -> %02x  #%d  %s  %s", _addr, _data, Cycle, disasm, aline)
+						cline = Format("cy-F %04x   -> %02x  #%d  %s ; %s", _addr, _data, Cycle, disasm, aline)
 					} else if disasm != "" {
 						cline = Format("cy-F %04x   -> %02x  #%d  %s", _addr, _data, Cycle, disasm)
 					} else if aline != "" {
