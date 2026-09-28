@@ -1140,6 +1140,10 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				CurrentPhase = U_Phase
 				Cycle++
 
+				if _addr < 0xFF00 && the_ram != nil {
+					the_ram.Poke1(_addr, _data)
+				}
+
 				var aline string
 				var disasm string
 
@@ -1159,9 +1163,13 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						}
 					}
 
-					trackRam := the_ram.GetTrackRam()
-					if trackRam != nil && _addr < uint(len(trackRam)) {
-						if d, _, _, _, ok := lib.Decode(trackRam[_addr:]); ok {
+					if the_ram != nil {
+						var insMem [8]byte
+						insMem[0] = _data
+						for i := 1; i < 8; i++ {
+							insMem[i] = the_ram.Peek1((_addr + uint(i)) & 0xFFFF)
+						}
+						if d, _, _, _, ok := lib.Decode(insMem[:]); ok {
 							disasm = d
 						}
 					}
