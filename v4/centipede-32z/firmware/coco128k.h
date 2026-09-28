@@ -40,11 +40,19 @@ struct DoCoco128k {
 
   FORCE_INLINE static bool IsCoco3Rom(uint a) {
     // In CoCo 3:
-    // Internal 32KB ROM is mapped to $8000-$FDFF when SamTyBit == 0.
-    // When SamTyBit == 1 (all-RAM mode), all addresses are RAM.
-    // Addresses < $8000 are always RAM.
+    // When SamTyBit == 0 (ROM mode at boot), $8000-$FDFF is ROM.
+    // When SamTyBit == 1 (all-RAM mode), slots mapped to ROM blocks ($3C..$3F)
+    // continue to run the 32KB Super Extended BASIC and Disk BASIC code.
+    // Serving these reads from immutable coco3_rom[] / disk11_rom[] protects
+    // against spurious bus write glitches corrupting the BASIC interpreter in RAM.
     // The constant $FE page ($FE00-$FEFF) is always RAM (Block 15).
-    return !SamTyBit && (0x8000 <= a) && (a < 0xFE00);
+    if (0x8000 <= a && a < 0xFE00) {
+      if (!SamTyBit) return true;
+      uint task = active_mmu_offset >> 3;
+      uint slot = (a >> 13) & 7;
+      return mmu_task[task][slot] >= 0x3C;
+    }
+    return false;
   }
 
   // FORCE_INLINE ensures these class methods are inlined directly into

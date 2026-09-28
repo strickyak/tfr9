@@ -205,6 +205,21 @@ func TestExecuteLoadCommandWithMock(t *testing.T) {
 		detok := DetokenizeLine(l.Tokens)
 		t.Logf("  %d %s", l.LineNum, detok)
 	}
+
+	// Case 4: Test loading misc/demo_all_modes.bas
+	mockRam[0x2601] = 0x00
+	mockRam[0x2602] = 0x00
+	err = ExecuteLoadCommand("../misc/demo_all_modes.bas")
+	if err != nil {
+		t.Fatalf("ExecuteLoadCommand for demo_all_modes.bas failed: %v", err)
+	}
+	vartab3 := (uint(mockRam[0x001B]) << 8) | uint(mockRam[0x001C])
+	tokenizedDemo := mockRam[0x2601:vartab3]
+	linesDemo, err := ParseTokenizedBasic(tokenizedDemo)
+	if err != nil {
+		t.Fatalf("failed to parse tokenized demo_all_modes: %v", err)
+	}
+	t.Logf("Parsed demo_all_modes.bas lines (%d lines, %d bytes):", len(linesDemo), len(tokenizedDemo))
 }
 
 func init() {

@@ -1122,7 +1122,9 @@ class CoreEngine : public BackgroundSharedState {
               uint atrans = centipede_config.become_coco3
                                 ? T::TranslateCoco64kRamAddress(abus)
                                 : (T::UseCoco64kRam(abus) ? T::TranslateCoco64kRamAddress(abus) : abus);
-              ram[atrans] = dbus;
+              if (!centipede_config.become_coco3 || !T::IsCoco3Rom(abus)) {
+                ram[atrans] = dbus;
+              }
               if (centipede_config.become_coco3 && 0x0400 <= abus && abus < 0x0600) {
                 ram[abus] = dbus;
               }
