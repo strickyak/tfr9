@@ -128,6 +128,33 @@ ls -l
 EOF
 ```
 
+### Method C: Live Web Server RPC API (`/pico_rpc`)
+
+When running a long-lived tether session with cycle logging active (`go run ./tether/ -n 2> _log &`), the embedded web server exposes `/pico_rpc` on `http://localhost:8080`. This allows you to dispatch RPC requests over the **already-open, active serial connection** without port conflicts or dropping the cycle logger:
+
+```bash
+# Ping
+curl -s http://localhost:8080/pico_rpc?method=ping
+
+# Remote restart into mode 27
+curl -s "http://localhost:8080/pico_rpc?method=restart&mode=27"
+
+# Execute a Tcl command
+curl -s -X POST --data-urlencode "cmd=ls -l /" "http://localhost:8080/pico_rpc?method=inject"
+
+# Send raw keystrokes (e.g. "bye\r" to launch CoCo)
+curl -s "http://localhost:8080/pico_rpc?method=keys&text=bye\r"
+
+# Inject characters into BASIC with custom CPS (supports floating point: 1.0, 0.5, 0.25)
+curl -s --data-urlencode "text=PRINT 1+2+3\r" "http://localhost:8080/pico_rpc?method=type&cps=0.5"
+
+# Read live text screen
+curl -s http://localhost:8080/pico_rpc?method=get-text
+
+# Cleanly exit tether session
+curl -s http://localhost:8080/pico_rpc?method=exit
+```
+
 ---
 
 ## 5. Pico Filesystem & VFS Architecture
@@ -317,14 +344,14 @@ Once the 6809 CPU is booted into Color BASIC or OS-9, you can drive it remotely 
 
 ### 1. Keystroke Injection (`-quick-type`)
 
-Inject keystrokes directly into the CoCo keyboard matrix scanner via RPC:
+Inject keystrokes directly into the CoCo keyboard matrix scanner via RPC. The `-cps` flag accepts floating-point speeds (e.g. `1.0`, `0.5`, `0.25` characters per second), which is essential when `trace_reads` or heavy bus logging throttles CPU execution:
 
 ```bash
-# Type a BASIC command and press Enter (\r)
+# Type a BASIC command at default speed (5.0 CPS)
 go run ./tether/ -quick-type="PRINT 6*7\r"
 
-# Load and run a program at 10 chars/sec
-go run ./tether/ -cps=10.0 -quick-type="LOAD\"GAME\"\rRUN\r"
+# Type at 0.5 CPS (1.0s down, 1.0s up) to prevent dropped keys during trace_reads mode
+go run ./tether/ -cps=0.5 -quick-type="10 S=0:FOR I=1 TO 10:S=S+I:NEXT:PRINT S\rRUN\r"
 ```
 
 ### 2. Dumping Live Video RAM (`-quick-get-text`)
@@ -429,4 +456,37 @@ set Config(trace_reads) 0
 menu store Config
 bye
 EOF
+```
+
+### Recipe 6: Full Cycle Logging Session with Web Server RPC
+
+To capture a complete unbroken cycle trace into `_log` across reboot, configuration, execution, and output verification:
+
+```bash
+# 1. Start persistent tether daemon capturing all cycles to _log
+go run ./tether/ -n 2> _log &
+sleep 2
+
+# 2. Reboot into Mode 27 (Tcl REPL)
+curl -s "http://localhost:8080/pico_rpc?method=restart&mode=27"
+sleep 2
+
+# 3. Configure hardware via Tcl injection
+curl -s -X POST --data-urlencode \
+  "cmd=menu fetch Config ; set Config(become_coco3) 1 ; set Config(ram_64k) 1 ; set Config(rom_disk11) 0 ; set Config(trace_writes) 1 ; set Config(trace_reads) 1 ; menu store Config" \
+  "http://localhost:8080/pico_rpc?method=inject"
+
+# 4. Launch CoCo 3 BASIC
+curl -s "http://localhost:8080/pico_rpc?method=keys&text=bye\r"
+sleep 3
+
+# 5. Type computation into BASIC at 0.5 CPS (prevents dropped keys during trace_reads)
+curl -s --data-urlencode "text=PRINT 1+2+3+4+5+6+7+8+9+10\r" "http://localhost:8080/pico_rpc?method=type&cps=0.5"
+sleep 60
+
+# 6. Read and verify text screen
+curl -s http://localhost:8080/pico_rpc?method=get-text
+
+# 7. Cleanly shut down tether logging session
+curl -s http://localhost:8080/pico_rpc?method=exit
 ```
