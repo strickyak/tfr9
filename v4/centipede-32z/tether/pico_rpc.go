@@ -618,6 +618,9 @@ func CpsToTicks(cps float64) (downTicks, upTicks int) {
 	if totalTicks < 2 {
 		totalTicks = 2
 	}
+	if totalTicks > 60000 {
+		totalTicks = 60000
+	}
 	downTicks = totalTicks / 2
 	upTicks = totalTicks - downTicks
 	return downTicks, upTicks

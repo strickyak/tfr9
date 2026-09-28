@@ -5,9 +5,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	// "math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +58,8 @@ func WebServer(wcc *WebConsoleConfig) {
 	http.HandleFunc("/ram", serveRam)
 	http.HandleFunc("/ram.bin", serveRam)
 	http.HandleFunc("/ram.hex", serveRam)
+	http.HandleFunc("/pico_rpc", servePicoRpc)
+	http.HandleFunc("/pico_rpc/", servePicoRpc)
 
 	fmt.Printf("Internal web server started at %q\n", wcc.Bind)
 	log.Fatal(http.ListenAndServe(wcc.Bind, nil))
@@ -595,3 +599,266 @@ const CONTENT = `
 </body>
 </html>
 `
+
+func servePicoRpc(w http.ResponseWriter, r *http.Request) {
+	channelToPico := GetChannelToPico()
+	if channelToPico == nil {
+		http.Error(w, "Pico serial connection not active", http.StatusServiceUnavailable)
+		return
+	}
+
+	r.ParseForm()
+	method := r.FormValue("method")
+	if method == "" {
+		method = r.FormValue("cmd")
+	}
+	if method == "" {
+		trimmed := strings.TrimPrefix(r.URL.Path, "/pico_rpc")
+		trimmed = strings.TrimPrefix(trimmed, "/")
+		if trimmed != "" {
+			method = trimmed
+		}
+	}
+	if method == "" {
+		http.Error(w, "Missing 'method' or 'cmd' parameter (allowed: ping, restart, inject, type, get-text, get-ram, exit)", http.StatusBadRequest)
+		return
+	}
+
+	switch method {
+	case "ping":
+		valStr := r.FormValue("value")
+		val := uint32(42)
+		if valStr != "" {
+			if v, err := strconv.ParseUint(valStr, 10, 32); err == nil {
+				val = uint32(v)
+			}
+		}
+		payload := make([]byte, 4)
+		binary.LittleEndian.PutUint32(payload, val)
+		resp, err := PicoRpcCall(channelToPico, "ping", payload, 5*time.Second)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Ping failed: %v", err), http.StatusGatewayTimeout)
+			return
+		}
+		if resp.Status != 0 {
+			http.Error(w, fmt.Sprintf("Ping error: status=%d message=%s", resp.Status, resp.Message), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "OK (value=%d)\n", val)
+
+	case "restart":
+		modeStr := r.FormValue("mode")
+		if modeStr == "" {
+			modeStr = r.FormValue("bootmode")
+		}
+		bootMode := uint32(0)
+		if modeStr != "" {
+			if v, err := strconv.ParseUint(modeStr, 10, 32); err == nil {
+				bootMode = uint32(v)
+			}
+		}
+		payload := make([]byte, 4)
+		binary.BigEndian.PutUint32(payload, bootMode)
+		resp, err := PicoRpcCall(channelToPico, "restart", payload, 5*time.Second)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Restart failed: %v", err), http.StatusGatewayTimeout)
+			return
+		}
+		if resp.Status != 0 {
+			http.Error(w, fmt.Sprintf("Restart error: status=%d message=%s", resp.Status, resp.Message), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "OK (restarted into mode %d)\n", bootMode)
+
+	case "inject":
+		cmdStr := r.FormValue("cmd")
+		if cmdStr == "" {
+			cmdStr = r.FormValue("tcl")
+		}
+		if cmdStr == "" && r.Body != nil {
+			bodyBytes, _ := io.ReadAll(r.Body)
+			cmdStr = string(bodyBytes)
+		}
+		cmdStr = strings.TrimSpace(cmdStr)
+		if cmdStr == "" {
+			http.Error(w, "Missing Tcl command to inject", http.StatusBadRequest)
+			return
+		}
+		resp, err := PicoRpcCall(channelToPico, "inject", []byte(cmdStr), 60*time.Second)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Inject failed: %v", err), http.StatusGatewayTimeout)
+			return
+		}
+		if resp.Status != 0 {
+			http.Error(w, fmt.Sprintf("Inject error (status %d): %s", resp.Status, string(resp.Data)), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write(resp.Data)
+		if len(resp.Data) == 0 || resp.Data[len(resp.Data)-1] != '\n' {
+			w.Write([]byte("\n"))
+		}
+
+	case "type":
+		text := r.FormValue("text")
+		if text == "" {
+			text = r.FormValue("data")
+		}
+		if text == "" && r.Body != nil {
+			bodyBytes, _ := io.ReadAll(r.Body)
+			text = string(bodyBytes)
+		}
+		if text == "" {
+			http.Error(w, "Missing text to type", http.StatusBadRequest)
+			return
+		}
+		cps := 5.0
+		if cpsStr := r.FormValue("cps"); cpsStr != "" {
+			if v, err := strconv.ParseFloat(cpsStr, 64); err == nil && v > 0 {
+				cps = v
+			}
+		}
+		downTicks, upTicks := CpsToTicks(cps)
+		unescaped := strings.ReplaceAll(text, `\r`, "\r")
+		unescaped = strings.ReplaceAll(unescaped, `\n`, "\n")
+		unescaped = strings.ReplaceAll(unescaped, `\t`, "\t")
+		req := RpcRequest{
+			Method: "type",
+			Data:   []byte(unescaped),
+			Length: downTicks,
+			Flags:  upTicks,
+		}
+		resp, err := PicoRpcCallReq(channelToPico, req, 60*time.Second)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Type failed: %v", err), http.StatusGatewayTimeout)
+			return
+		}
+		if resp.Status != 0 {
+			http.Error(w, fmt.Sprintf("Type error: status=%d message=%s", resp.Status, resp.Message), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "OK (queued %d chars at %.2f cps, %d down / %d up ticks)\n", len(unescaped), cps, downTicks, upTicks)
+
+	case "key", "keys":
+		text := r.FormValue("text")
+		if text == "" {
+			text = r.FormValue("data")
+		}
+		if text == "" && r.Body != nil {
+			bodyBytes, _ := io.ReadAll(r.Body)
+			text = string(bodyBytes)
+		}
+		unescaped := strings.ReplaceAll(text, `\r`, "\r")
+		unescaped = strings.ReplaceAll(unescaped, `\n`, "\n")
+		unescaped = strings.ReplaceAll(unescaped, `\t`, "\t")
+		cps := 0.0
+		if cpsStr := r.FormValue("cps"); cpsStr != "" {
+			if v, err := strconv.ParseFloat(cpsStr, 64); err == nil && v > 0 {
+				cps = v
+			}
+		}
+		delay := 20 * time.Millisecond
+		if cps > 0 {
+			delay = time.Duration(float64(time.Second) / cps)
+		}
+		for _, b := range []byte(unescaped) {
+			WriteBytes(channelToPico, b)
+			time.Sleep(delay)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "OK (sent %d keys)\n", len(unescaped))
+
+	case "get-text":
+		addr := 0x0400
+		width := 32
+		height := 16
+		if aStr := r.FormValue("addr"); aStr != "" {
+			if a, ok := parseUintParam(aStr); ok {
+				addr = int(a)
+			}
+		}
+		if wStr := r.FormValue("width"); wStr != "" {
+			if v, err := strconv.Atoi(wStr); err == nil && v > 0 {
+				width = v
+			}
+		}
+		if hStr := r.FormValue("height"); hStr != "" {
+			if v, err := strconv.Atoi(hStr); err == nil && v > 0 {
+				height = v
+			}
+		}
+		data, err := fetchRamRange(channelToPico, addr, width*height)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Get-text failed: %v", err), http.StatusGatewayTimeout)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		for row := 0; row < height; row++ {
+			start := row * width
+			end := start + width
+			var line strings.Builder
+			for i := start; i < end; i++ {
+				if i < len(data) {
+					line.WriteByte(decodeVdgByte(data[i]))
+				} else {
+					line.WriteByte(' ')
+				}
+			}
+			fmt.Fprintln(w, line.String())
+		}
+
+	case "get-ram":
+		addr := 0
+		size := 65536
+		if aStr := r.FormValue("addr"); aStr != "" {
+			if a, ok := parseUintParam(aStr); ok {
+				addr = int(a)
+			}
+		}
+		if sStr := r.FormValue("size"); sStr != "" {
+			if s, ok := parseUintParam(sStr); ok {
+				size = int(s)
+			}
+		}
+		data, err := fetchRamRange(channelToPico, addr, size)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Get-ram failed: %v", err), http.StatusGatewayTimeout)
+			return
+		}
+		if r.FormValue("format") == "hex" {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(hex.Dump(data)))
+		} else {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write(data)
+		}
+
+	case "exit", "shutdown", "kill":
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintln(w, "OK (tether shutting down)")
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			os.Exit(0)
+		}()
+
+	default:
+		dataStr := r.FormValue("data")
+		var payload []byte
+		if dataStr != "" {
+			payload = []byte(dataStr)
+		} else if r.Body != nil {
+			payload, _ = io.ReadAll(r.Body)
+		}
+		resp, err := PicoRpcCall(channelToPico, method, payload, 30*time.Second)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("RPC %q failed: %v", method, err), http.StatusGatewayTimeout)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(resp.Data)
+	}
+}
+
