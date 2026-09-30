@@ -13,7 +13,6 @@
 #define TRACE 0
 #define SPEED_STATS 0
 // TransmitWrite now routes through fg2bg FIFO — safe from core 1.
-#define HALT_TEST 0
 #define HALT_IS_OPEN_DRAIN 1
 #define CLOCK_IRQ 1             // 0 to disable 60Hz timer IRQ during debugging
 #define DUMP_FIRST_CYCLES 0    // Log the first N bus cycles after boot for debugging
@@ -150,6 +149,7 @@ enum FG2BG_Tags {
   FG2BG_MEGA_CYCLE = 11,
 #endif
   FG2BG_FIC   = 12,   // First Instruction Cycle (read with LIC from previous cycle)
+  FG2BG_EMUDSK = 13,  // EmuDsk sector transfer request to background
 };
 
 // Say: push a console character to the high-priority chars FIFO.
@@ -449,6 +449,250 @@ void IN_RAM acia_write_control(uint addr, byte data) {
 #include "turbo9os.h"
 
 // ═══════════════════════════════════════════════════════════════════
+// Flat65280 Engine Support
+// ═══════════════════════════════════════════════════════════════════
+
+const byte flat65280_img_data[65536] = {
+#include "flat65280.img.h"
+};
+
+enum EngineType {
+  ENGINE_TURBO9OS = 0,
+  ENGINE_FLAT65280 = 1,
+};
+static EngineType current_engine = ENGINE_TURBO9OS;
+
+// EMUDSK state ($FF80..$FF86)
+struct EmuDskRequest {
+  uint8_t drive;
+  uint32_t lsn;
+  uint16_t buffer_addr;
+  uint8_t command;
+  std::atomic<int8_t> status;
+};
+static EmuDskRequest g_emudsk_req;
+static byte emudsk_lsn[3] = {0, 0, 0};
+static byte emudsk_buffer[2] = {0, 0};
+static byte emudsk_drive = 0;
+static byte emudsk_status = 0;
+
+static std::shared_ptr<VfsNode> g_drive_nodes[2] = {nullptr, nullptr};
+
+// CLOCK_AND_STOP state ($FF87)
+static volatile byte clock_and_stop_reg = 0;
+static uint32_t flat65280_timer_ticks = 0;
+
+// ACIA 6850 state ($FF88..$FF89)
+static volatile byte flat65280_acia_ctrl = 0;
+static volatile byte flat65280_rx_char = 0;
+static volatile bool flat65280_rx_has_char = false;
+
+// IN_RAM EMUDSK callbacks
+byte IN_RAM emudsk_read_lsn0(uint) { return emudsk_lsn[0]; }
+byte IN_RAM emudsk_read_lsn1(uint) { return emudsk_lsn[1]; }
+byte IN_RAM emudsk_read_lsn2(uint) { return emudsk_lsn[2]; }
+byte IN_RAM emudsk_read_cmd(uint)  { return emudsk_status; }
+byte IN_RAM emudsk_read_buf0(uint) { return emudsk_buffer[0]; }
+byte IN_RAM emudsk_read_buf1(uint) { return emudsk_buffer[1]; }
+byte IN_RAM emudsk_read_drv(uint)  { return emudsk_drive; }
+
+void IN_RAM emudsk_write_lsn0(uint, byte d) { emudsk_lsn[0] = d; }
+void IN_RAM emudsk_write_lsn1(uint, byte d) { emudsk_lsn[1] = d; }
+void IN_RAM emudsk_write_lsn2(uint, byte d) { emudsk_lsn[2] = d; }
+void IN_RAM emudsk_write_buf0(uint, byte d) { emudsk_buffer[0] = d; }
+void IN_RAM emudsk_write_buf1(uint, byte d) { emudsk_buffer[1] = d; }
+void IN_RAM emudsk_write_drv(uint, byte d)  { emudsk_drive = d; }
+
+void IN_RAM emudsk_write_command(uint, byte data) {
+  g_emudsk_req.drive = emudsk_drive;
+  g_emudsk_req.lsn = ((uint32_t)emudsk_lsn[0] << 16) |
+                     ((uint32_t)emudsk_lsn[1] << 8) |
+                     (uint32_t)emudsk_lsn[2];
+  g_emudsk_req.buffer_addr = ((uint16_t)emudsk_buffer[0] << 8) |
+                             (uint16_t)emudsk_buffer[1];
+  g_emudsk_req.command = data;
+  g_emudsk_req.status.store(-1, std::memory_order_release);
+
+  uint pb_w = ((uint)FG2BG_EMUDSK << 24);
+  while (!fg2bg.push(pb_w)) { tight_loop_contents(); }
+
+  while (g_emudsk_req.status.load(std::memory_order_acquire) < 0) {
+    tight_loop_contents();
+  }
+  emudsk_status = (byte)g_emudsk_req.status.load(std::memory_order_acquire);
+}
+
+// IN_RAM CLOCK_AND_STOP callbacks
+byte IN_RAM clock_and_stop_reader(uint) {
+  return clock_and_stop_reg;
+}
+
+void IN_RAM clock_and_stop_writer(uint, byte data) {
+  if (data == 0xFC) {
+    cobs_printf("\n *** Exiting with status 0 due to CLOCK_AND_STOP command $FC.\n");
+    reset_usb_boot(0, 0);
+  } else if (data == 0xFD) {
+    cobs_printf("\n *** Exiting with status 1 due to CLOCK_AND_STOP command $FD.\n");
+    reset_usb_boot(0, 0);
+  } else if (data == 0xFE) {
+    cobs_printf("\n *** Crashing due to CLOCK_AND_STOP command $FE.\n");
+    panic("CLOCK_AND_STOP crash");
+  } else {
+    if (data & 0x01) {
+      clock_and_stop_reg &= ~0x01; // W1C
+    }
+    clock_and_stop_reg = (clock_and_stop_reg & 0x01) | (data & 0xFE);
+  }
+}
+
+// IN_RAM ACIA 6850 callbacks
+byte IN_RAM flat65280_acia_read_status(uint) {
+  byte s = 0x02; // TDRE is always 1 (transmit empty)
+  if (flat65280_rx_has_char) {
+    s |= 0x01; // RDRF = 1 (receive full)
+    if (flat65280_acia_ctrl & 0x80) {
+      s |= 0x80; // IRQ
+    }
+  }
+  return s;
+}
+
+byte IN_RAM flat65280_acia_read_rx(uint) {
+  flat65280_rx_has_char = false;
+  return flat65280_rx_char;
+}
+
+void IN_RAM flat65280_acia_write_ctrl(uint, byte d) {
+  flat65280_acia_ctrl = d;
+}
+
+void IN_RAM flat65280_acia_write_tx(uint, byte d) {
+  Say(d);
+}
+
+// IN_RAM RAM vector reader for FFF0..FFFF
+byte IN_RAM ram_vector_reader(uint addr) {
+  return ram[0xFF00 | (addr & 0xFF)];
+}
+
+// IRQ check for flat65280
+bool IN_RAM flat65280_irq_needed() {
+  bool clock_irq = (clock_and_stop_reg & 0x01) && (clock_and_stop_reg & 0x02);
+  bool acia_irq = ((flat65280_acia_ctrl & 0x80) != 0) && flat65280_rx_has_char;
+  return clock_irq || acia_irq;
+}
+
+void Install_Flat65280_IO() {
+  for (int i = 0; i < 256; i++) {
+    IOReaders[i] = nullptr;
+    IOWriters[i] = nullptr;
+  }
+  // EMUDSK
+  IOReaders[0x80] = emudsk_read_lsn0;
+  IOReaders[0x81] = emudsk_read_lsn1;
+  IOReaders[0x82] = emudsk_read_lsn2;
+  IOReaders[0x83] = emudsk_read_cmd;
+  IOReaders[0x84] = emudsk_read_buf0;
+  IOReaders[0x85] = emudsk_read_buf1;
+  IOReaders[0x86] = emudsk_read_drv;
+
+  IOWriters[0x80] = emudsk_write_lsn0;
+  IOWriters[0x81] = emudsk_write_lsn1;
+  IOWriters[0x82] = emudsk_write_lsn2;
+  IOWriters[0x83] = emudsk_write_command;
+  IOWriters[0x84] = emudsk_write_buf0;
+  IOWriters[0x85] = emudsk_write_buf1;
+  IOWriters[0x86] = emudsk_write_drv;
+
+  // CLOCK_AND_STOP
+  IOReaders[0x87] = clock_and_stop_reader;
+  IOWriters[0x87] = clock_and_stop_writer;
+
+  // ACIA 6850
+  IOReaders[0x88] = flat65280_acia_read_status;
+  IOReaders[0x89] = flat65280_acia_read_rx;
+  IOWriters[0x88] = flat65280_acia_write_ctrl;
+  IOWriters[0x89] = flat65280_acia_write_tx;
+
+  // System Vectors (0xFFF0..0xFFFF)
+  for (int i = 0xF0; i <= 0xFF; i++) {
+    IOReaders[i] = ram_vector_reader;
+  }
+}
+
+void setup_flat65280() {
+  current_engine = ENGINE_FLAT65280;
+
+  // 1. Open drive nodes if configured
+  for (int d = 0; d < 2; d++) {
+    const char* path = (d == 0) ? centipede_config.drive0 : centipede_config.drive1;
+    if (path && path[0]) {
+      g_drive_nodes[d] = vfs_resolve(path);
+      if (g_drive_nodes[d]) {
+        int err = g_drive_nodes[d]->open_file(LFS_O_RDWR);
+        if (err < 0) {
+          cobs_printf("[flat65280: drive %d open RDWR failed (err %d), trying RDONLY: %s]\n", d, err, path);
+          err = g_drive_nodes[d]->open_file(LFS_O_RDONLY);
+          if (err >= 0) {
+            cobs_printf("[flat65280: opened drive %d read-only: %s]\n", d, path);
+          } else {
+            cobs_printf("[flat65280: drive %d open failed: %s]\n", d, path);
+            g_drive_nodes[d] = nullptr;
+          }
+        } else {
+          cobs_printf("[flat65280: opened drive %d: %s]\n", d, path);
+        }
+      } else {
+        cobs_printf("[flat65280: could not resolve drive %d path: %s]\n", d, path);
+      }
+    } else {
+      g_drive_nodes[d] = nullptr;
+    }
+  }
+
+  // 2. Load flat65280 image into ram[]
+  bool loaded_from_file = false;
+  if (centipede_config.flat_img[0]) {
+    auto img_node = vfs_resolve(centipede_config.flat_img);
+    if (img_node) {
+      int err = img_node->open_file(LFS_O_RDONLY);
+      if (err >= 0) {
+        cobs_printf("[flat65280: loading %s into RAM...]\n", centipede_config.flat_img);
+        memset(ram, 0, sizeof(ram));
+        lfs_ssize_t total = 0;
+        while (total < 65536) {
+          lfs_ssize_t n = img_node->read(&ram[total], 65536 - total);
+          if (n <= 0) break;
+          total += n;
+        }
+        img_node->close_file(nullptr);
+        cobs_printf("[flat65280: loaded %d bytes into RAM]\n", (int)total);
+        loaded_from_file = true;
+      } else {
+        cobs_printf("[flat65280: failed to open %s (err %d), using embedded fallback]\n",
+                    centipede_config.flat_img, err);
+      }
+    } else {
+      cobs_printf("[flat65280: could not resolve %s, using embedded fallback]\n",
+                  centipede_config.flat_img);
+    }
+  }
+
+  if (!loaded_from_file) {
+    cobs_printf("[flat65280: loading embedded flat65280.img into RAM...]\n");
+    memset(ram, 0, sizeof(ram));
+    memcpy(ram, flat65280_img_data, sizeof(flat65280_img_data));
+    cobs_printf("[flat65280: embedded image loaded (%d bytes)]\n", (int)sizeof(flat65280_img_data));
+  }
+
+  // Copy vectors to vector_ram
+  memcpy(vector_ram, &ram[0xFFF0], 16);
+
+  // 3. Install IO handlers
+  Install_Flat65280_IO();
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // GPIO Initialization — Open-drain for slow control pins
 // ═══════════════════════════════════════════════════════════════════
 void InitializePinsReturnDirections() {
@@ -561,7 +805,11 @@ struct Guts {
   }
 
   static void FORCE_INLINE Foreground() {
-    T::Install_OS();
+    if (current_engine == ENGINE_FLAT65280) {
+      is_an_os9 = true;
+    } else {
+      T::Install_OS();
+    }
 
     volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
 
@@ -589,7 +837,11 @@ struct Guts {
     // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
     // USB I/O and terminal RX are handled by background on core 0.
     while (true) {
-      irq_needed = T::Turbo9sim_IrqNeeded();
+      if (current_engine == ENGINE_FLAT65280) {
+        irq_needed = flat65280_irq_needed();
+      } else {
+        irq_needed = T::Turbo9sim_IrqNeeded();
+      }
       if (irq_needed != prev_irq_needed) {
         ChangeInterruptPin(irq_needed);
         prev_irq_needed = irq_needed;
@@ -834,7 +1086,22 @@ struct repeating_timer Timer60HzData;
 volatile bool halt_suppress_timer = false;
 bool IN_RAM Timer60HzCallback(repeating_timer_t* rt) {
   if (!halt_suppress_timer) {
-    Engine::Turbo9sim_SetTimerFired();
+    if (current_engine == ENGINE_FLAT65280) {
+      flat65280_timer_ticks++;
+      uint8_t rate = (clock_and_stop_reg >> 4) & 3;
+      bool fire = false;
+      switch (rate) {
+        case 0: fire = true; break;                          // 60 Hz
+        case 1: fire = true; break;                          // 50 Hz (approx)
+        case 2: fire = (flat65280_timer_ticks % 10) == 0; break;  // 6 Hz
+        case 3: fire = (flat65280_timer_ticks % 600) == 0; break; // 0.1 Hz
+      }
+      if (fire) {
+        clock_and_stop_reg |= 0x01; // Set TICK flag
+      }
+    } else {
+      Engine::Turbo9sim_SetTimerFired();
+    }
   }
   return true;
 }
@@ -1117,6 +1384,42 @@ static void drain_task(Coro& self) {
           break;
         }
 #endif
+        case FG2BG_EMUDSK: {
+          rpc::g_vfs_coro = &self;
+          uint8_t drv = g_emudsk_req.drive;
+          if (drv > 1 || !g_drive_nodes[drv]) {
+            g_emudsk_req.status.store(2, std::memory_order_release); // Drive not ready / enabled
+            break;
+          }
+          auto node = g_drive_nodes[drv];
+          lfs_soff_t offset = (lfs_soff_t)g_emudsk_req.lsn * 256;
+          lfs_soff_t actual = node->seek(offset, LFS_SEEK_SET, &self);
+          if (actual != offset) {
+            g_emudsk_req.status.store(6, std::memory_order_release); // Seek error
+            break;
+          }
+          uint16_t buf_addr = g_emudsk_req.buffer_addr;
+          if (g_emudsk_req.command == 0) {
+            // Read sector
+            lfs_ssize_t n = node->read(&ram[buf_addr], 256);
+            if (n == 256) {
+              g_emudsk_req.status.store(0, std::memory_order_release);
+            } else {
+              g_emudsk_req.status.store(6, std::memory_order_release);
+            }
+          } else if (g_emudsk_req.command == 1) {
+            // Write sector
+            lfs_ssize_t n = node->write(&ram[buf_addr], 256);
+            if (n == 256) {
+              g_emudsk_req.status.store(0, std::memory_order_release);
+            } else {
+              g_emudsk_req.status.store(6, std::memory_order_release);
+            }
+          } else {
+            g_emudsk_req.status.store(6, std::memory_order_release);
+          }
+          break;
+        }
         default:
           break;
       }
@@ -1126,39 +1429,6 @@ static void drain_task(Coro& self) {
     coro_yield(&self);
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// halt_test_task — toggle HALT every 3 seconds to test flow control
-// ═══════════════════════════════════════════════════════════════════
-#if HALT_TEST
-static uint8_t halt_test_stack[2048] __attribute__((aligned(8)));
-
-static void halt_test_task(Coro& self) {
-  while (true) {
-    // Run for 3 seconds
-    uint64_t start = time_us_64();
-    while (time_us_64() - start < 500'000) {
-      coro_yield(&self);
-    }
-
-    // Suppress timer IRQs during HALT so the 6309 doesn't see
-    // 180 accumulated IRQs on resume (causes OS9/BASIC09 crash).
-    cobs_printf("\nHALT\n");
-    halt_suppress_timer = true;
-    bg_wants_halt.store(true, std::memory_order_relaxed);
-
-    // Hold HALT for 3 seconds
-    start = time_us_64();
-    while (time_us_64() - start < 500'000) {
-      coro_yield(&self);
-    }
-
-    cobs_printf("\nGO\n");
-    bg_wants_halt.store(false, std::memory_order_relaxed);
-    halt_suppress_timer = false;
-  }
-}
-#endif
 
 // ═══════════════════════════════════════════════════════════════════
 // periodic_status — print diagnostics every 5 seconds (inline)
@@ -1227,11 +1497,6 @@ void IN_RAM tfr911_background() {
   Coro drain_coro;
   coro_create(&drain_coro, drain_task, drain_stack, sizeof(drain_stack));
 
-#if HALT_TEST
-  Coro halt_test_coro;
-  coro_create(&halt_test_coro, halt_test_task, halt_test_stack, sizeof(halt_test_stack));
-#endif
-
   bool phase2 = false;
 
   // ── Unified Scheduler Loop ─────────────────────────────────────
@@ -1271,6 +1536,11 @@ void IN_RAM tfr911_background() {
         pio_clear_instruction_memory(pio0);
         uint offset = pio_add_program(pio0, &hamster_program);
         hamster_program_init(pio0, 0, offset);
+
+        if (strcmp(centipede_config.engine, "flat65280") == 0 ||
+            strcmp(centipede_config.engine, "flat") == 0) {
+          setup_flat65280();
+        }
 
         foreground_running = false;
         cobs_printf("[bye: launching core1...]\n");
@@ -1332,16 +1602,18 @@ void IN_RAM tfr911_background() {
       coro_resume(&drain_coro);
       PumpUsbCobs();
 
-#if HALT_TEST
-      coro_resume(&halt_test_coro);
-      PumpUsbCobs();
-#endif
-
       // Deliver terminal input to 6309 ACIA emulator
       PollTermInput();
-      if (Engine::Turbo9sim_CanRx()) {
-        if (term_input.NumBuffered() > 0) {
-          Engine::Turbo9sim_SetRx(term_input.Take());
+      if (current_engine == ENGINE_FLAT65280) {
+        if (!flat65280_rx_has_char && term_input.NumBuffered() > 0) {
+          flat65280_rx_char = term_input.Take();
+          flat65280_rx_has_char = true;
+        }
+      } else {
+        if (Engine::Turbo9sim_CanRx()) {
+          if (term_input.NumBuffered() > 0) {
+            Engine::Turbo9sim_SetRx(term_input.Take());
+          }
         }
       }
 

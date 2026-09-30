@@ -907,6 +907,9 @@ public:
     if (path.empty() && token == "pc") {
       return std::make_shared<TetherFsNode>("");
     }
+    if (path.empty() && token == "lfs") {
+      return shared_from_this();
+    }
     
     if (token.empty()) {
       return shared_from_this();

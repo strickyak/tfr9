@@ -222,6 +222,27 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"trace_reads", 0);
         if (val && atoi(val) != 0) centipede_config.trace_reads = true;
 
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"engine", 0);
+        if (val) {
+            strncpy((char*)centipede_config.engine, val, sizeof(centipede_config.engine)-1);
+            centipede_config.engine[sizeof(centipede_config.engine)-1] = 0;
+        }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"flat_img", 0);
+        if (val) {
+            strncpy((char*)centipede_config.flat_img, val, sizeof(centipede_config.flat_img)-1);
+            centipede_config.flat_img[sizeof(centipede_config.flat_img)-1] = 0;
+        }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive0", 0);
+        if (val) {
+            strncpy((char*)centipede_config.drive0, val, sizeof(centipede_config.drive0)-1);
+            centipede_config.drive0[sizeof(centipede_config.drive0)-1] = 0;
+        }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive1", 0);
+        if (val) {
+            strncpy((char*)centipede_config.drive1, val, sizeof(centipede_config.drive1)-1);
+            centipede_config.drive1[sizeof(centipede_config.drive1)-1] = 0;
+        }
+
         set_floppy_names();
         
     } else if (sub == "fetch") {
@@ -236,6 +257,10 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_pc", (char*)(centipede_config.floppy_pc ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(centipede_config.trace_writes ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(centipede_config.trace_reads ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"engine", (char*)(centipede_config.engine[0] ? centipede_config.engine : "turbo9os"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"flat_img", (char*)centipede_config.flat_img, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive0", (char*)centipede_config.drive0, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive1", (char*)centipede_config.drive1, 0);
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {
