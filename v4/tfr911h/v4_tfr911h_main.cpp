@@ -78,6 +78,10 @@ int getentropy(void* buffer, size_t length) {
 #define likely(x) LIKELY(x)
 #define unlikely(x) UNLIKELY(x)
 
+#ifndef DEEP_256K
+#define DEEP_256K 1
+#endif
+
 // COBS encoder/decoder (shared with Centipede)
 #include "cobs.h"
 #include "../firmware/one/firmware/cross-core.h"
@@ -207,7 +211,11 @@ enum cycle_kind : byte {
 // ═══════════════════════════════════════════════════════════════════
 // Globals
 // ═══════════════════════════════════════════════════════════════════
+#if DEEP_256K
+byte ram[256 * 1024]; // 256 KB physical RAM (32 blocks of 8 KB each)
+#else
 byte ram[128 * 1024]; // 128 KB physical RAM (16 blocks of 8 KB each)
+#endif
 
 byte vector_ram[16];
 
@@ -524,7 +532,7 @@ void IN_RAM emudsk_write_command(uint, byte data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Deep65280 MMU State & Translation (128 KB Physical RAM)
+// Deep65280 MMU State & Translation
 // ═══════════════════════════════════════════════════════════════════
 static uint8_t deep65280_mmu[2][8];
 static uint8_t deep65280_active_task = 0;
@@ -532,14 +540,25 @@ static uint32_t task_mmu_base[8];
 
 static inline void IN_RAM update_task_mmu() {
   for (int s = 0; s < 8; s++) {
+#if DEEP_256K
+    // 256 KB physical RAM: 32 blocks ($00..$1F). MMU pages $00..$1F shadow $20..$3F.
+    task_mmu_base[s] = (uint32_t)(deep65280_mmu[deep65280_active_task][s] & 0x1F) << 13;
+#else
+    // 128 KB physical RAM: 16 blocks ($00..$0F).
     task_mmu_base[s] = (uint32_t)(deep65280_mmu[deep65280_active_task][s] & 0x0F) << 13;
+#endif
   }
 }
 
 static inline uint32_t IN_RAM translate_deep_addr(uint16_t logical) {
   if (logical >= 0xFE00 && logical < 0xFF00) {
-    // Locked trampoline page ($FE00..$FEFF) hardwired to physical block 15 ($3F)
+    // Locked trampoline page ($FE00..$FEFF) hardwired to physical block $3F:
+    // Block 15 (0x1E000) for 128KB, Block 31 (0x3E000) for 256KB
+#if DEEP_256K
+    return 0x3E000 | (logical & 0x1FFF);
+#else
     return 0x1E000 | (logical & 0x1FFF);
+#endif
   }
   return task_mmu_base[logical >> 13] | (logical & 0x1FFF);
 }
@@ -770,7 +789,11 @@ void IN_RAM deep65280_write_mmu(uint addr, byte d) {
   uint slot = reg & 7;
   deep65280_mmu[task][slot] = d;
   if (task == deep65280_active_task) {
+#if DEEP_256K
+    task_mmu_base[slot] = (uint32_t)(d & 0x1F) << 13;
+#else
     task_mmu_base[slot] = (uint32_t)(d & 0x0F) << 13;
+#endif
   }
 }
 
@@ -876,7 +899,50 @@ void setup_deep65280() {
   deep65280_active_task = 0;
   update_task_mmu();
 
-  // 3. Load deep65280 image into 128KB RAM
+  // 3. Load deep65280 image into physical RAM
+#if DEEP_256K
+  memset(ram, 0, sizeof(ram)); // 262144 bytes (256KB) zeroed
+
+  const char* img_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/deep65280.img";
+  auto img_node = vfs_resolve(img_path);
+  if (img_node) {
+    int err = img_node->open_file(LFS_O_RDONLY);
+    if (err >= 0) {
+      cobs_printf("[deep65280: loading %s into 256KB RAM...]\n", img_path);
+
+      // Slot 0 (8KB) into physical block 0 (0x00000..0x01FFF)
+      size_t total0 = 0;
+      while (total0 < 8192) {
+        size_t chunk = 8192 - total0;
+        if (chunk > 256) chunk = 256;
+        lfs_ssize_t n = img_node->read(&ram[total0], chunk);
+        if (n <= 0) break;
+        total0 += n;
+      }
+
+      // Slots 1..7 (56KB) into physical blocks 25..31 (0x32000..0x3FFFF)
+      // Corresponding to MMU pages $39..$3F (& 0x1F = 25..31)
+      size_t total1 = 0;
+      while (total1 < 57344) {
+        size_t chunk = 57344 - total1;
+        if (chunk > 256) chunk = 256;
+        lfs_ssize_t n = img_node->read(&ram[0x32000 + total1], chunk);
+        if (n <= 0) break;
+        total1 += n;
+      }
+      img_node->close_file(nullptr);
+      cobs_printf("[deep65280: loaded %d + %d = %d bytes into RAM (256KB)]\n",
+                  (int)total0, (int)total1, (int)(total0 + total1));
+    } else {
+      cobs_printf("[deep65280: failed to open %s (err %d)]\n", img_path, err);
+    }
+  } else {
+    cobs_printf("[deep65280: could not resolve %s]\n", img_path);
+  }
+
+  // Copy vectors from physical block 31 ($3FFF0) to vector_ram
+  memcpy(vector_ram, &ram[0x3FFF0], 16);
+#else
   memset(ram, 0, sizeof(ram)); // 131072 bytes (128KB) zeroed
 
   const char* img_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/deep65280.img";
@@ -917,6 +983,7 @@ void setup_deep65280() {
 
   // Copy vectors from physical block 15 ($1FFF0) to vector_ram
   memcpy(vector_ram, &ram[0x1FFF0], 16);
+#endif
 
   // 4. Install IO handlers
   Install_Deep65280_IO();
@@ -1202,7 +1269,11 @@ struct Guts {
             }
           } else if (addr < 0xFF00) {
             if (current_engine == ENGINE_DEEP65280) {
+#if DEEP_256K
+              value = ram[0x3E000 | (addr & 0x1FFF)];
+#else
               value = ram[0x1E000 | (addr & 0x1FFF)];
+#endif
             } else {
               value = ram[addr];
             }
@@ -1228,7 +1299,11 @@ struct Guts {
             }
           } else if (addr < 0xFF00) {
             if (current_engine == ENGINE_DEEP65280) {
+#if DEEP_256K
+              ram[0x3E000 | (addr & 0x1FFF)] = value;
+#else
               ram[0x1E000 | (addr & 0x1FFF)] = value;
+#endif
             } else {
               ram[addr] = value;
             }
