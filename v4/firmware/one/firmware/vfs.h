@@ -778,28 +778,44 @@ public:
   }
   
   lfs_ssize_t read(void* buffer, lfs_size_t size) override {
-    pcb::RpcRequest req;
-    req.method = "read";
-    req.handle = fd;
-    req.length = size;
-    req.serial = rpc::next_serial++;
-    pcb::RpcResponse resp = rpc::vfs_rpc_call(req);
-    if (resp.status != 0) return -1;
-    lfs_size_t read_size = resp.data.size();
-    if (read_size > size) read_size = size;
-    if (read_size > 0) memcpy(buffer, resp.data.data(), read_size);
-    return read_size;
+    lfs_size_t total_read = 0;
+    uint8_t* ptr = (uint8_t*)buffer;
+    while (total_read < size) {
+      lfs_size_t chunk = size - total_read;
+      if (chunk > 256) chunk = 256;
+      pcb::RpcRequest req;
+      req.method = "read";
+      req.handle = fd;
+      req.length = chunk;
+      req.serial = rpc::next_serial++;
+      pcb::RpcResponse resp = rpc::vfs_rpc_call(req);
+      if (resp.status != 0) return (total_read > 0) ? (lfs_ssize_t)total_read : -1;
+      lfs_size_t read_size = resp.data.size();
+      if (read_size > chunk) read_size = chunk;
+      if (read_size == 0) break;
+      memcpy(ptr + total_read, resp.data.data(), read_size);
+      total_read += read_size;
+      if (read_size < chunk) break;
+    }
+    return total_read;
   }
   
   lfs_ssize_t write(const void* buffer, lfs_size_t size) override {
-    pcb::RpcRequest req;
-    req.method = "write";
-    req.handle = fd;
-    req.data.assign(static_cast<const char*>(buffer), size);
-    req.serial = rpc::next_serial++;
-    pcb::RpcResponse resp = rpc::vfs_rpc_call(req);
-    if (resp.status != 0) return -1;
-    return size;
+    lfs_size_t total_written = 0;
+    const uint8_t* ptr = (const uint8_t*)buffer;
+    while (total_written < size) {
+      lfs_size_t chunk = size - total_written;
+      if (chunk > 256) chunk = 256;
+      pcb::RpcRequest req;
+      req.method = "write";
+      req.handle = fd;
+      req.data.assign(reinterpret_cast<const char*>(ptr + total_written), chunk);
+      req.serial = rpc::next_serial++;
+      pcb::RpcResponse resp = rpc::vfs_rpc_call(req);
+      if (resp.status != 0) return (total_written > 0) ? (lfs_ssize_t)total_written : -1;
+      total_written += chunk;
+    }
+    return total_written;
   }
   
   lfs_soff_t seek(lfs_soff_t offset, int whence, Coro* self) override {

@@ -661,7 +661,9 @@ void setup_flat65280() {
         memset(ram, 0, sizeof(ram));
         lfs_ssize_t total = 0;
         while (total < 65536) {
-          lfs_ssize_t n = img_node->read(&ram[total], 65536 - total);
+          lfs_size_t chunk = 65536 - total;
+          if (chunk > 256) chunk = 256;
+          lfs_ssize_t n = img_node->read(&ram[total], chunk);
           if (n <= 0) break;
           total += n;
         }
