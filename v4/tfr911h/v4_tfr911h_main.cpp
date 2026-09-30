@@ -530,12 +530,15 @@ byte IN_RAM clock_and_stop_reader(uint) {
 void IN_RAM clock_and_stop_writer(uint, byte data) {
   if (data == 0xFC) {
     cobs_printf("\n *** Exiting with status 0 due to CLOCK_AND_STOP command $FC.\n");
+    sleep_ms(100);
     reset_usb_boot(0, 0);
   } else if (data == 0xFD) {
     cobs_printf("\n *** Exiting with status 1 due to CLOCK_AND_STOP command $FD.\n");
+    sleep_ms(100);
     reset_usb_boot(0, 0);
   } else if (data == 0xFE) {
     cobs_printf("\n *** Crashing due to CLOCK_AND_STOP command $FE.\n");
+    sleep_ms(100);
     panic("CLOCK_AND_STOP crash");
   } else {
     if (data & 0x01) {

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -14,53 +15,70 @@ var Format = fmt.Sprintf
 
 var Logf = log.Printf
 
-var panicCount int32
-var originalSttyState string
-var sttyPath string
+var (
+	panicCount        int32
+	originalSttyState string
+	sttyPath          string
+	sttyMu            sync.Mutex
+	sttyIsCbreak      bool
+)
 
 func SaveSttyState() {
-	sttyPath, _ = exec.LookPath("stty")
-	if sttyPath != "" {
-		cmd := exec.Command(sttyPath, "-g")
-		cmd.Stdin = os.Stdin
-		out, err := cmd.Output()
-		if err == nil {
-			originalSttyState = strings.TrimSpace(string(out))
-		}
+	sttyMu.Lock()
+	defer sttyMu.Unlock()
+
+	var err error
+	sttyPath, err = exec.LookPath("stty")
+	if err != nil || sttyPath == "" {
+		return
+	}
+	cmd := exec.Command(sttyPath, "-g")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	if err == nil {
+		originalSttyState = strings.TrimSpace(string(out))
 	}
 }
 
 func SetSttyCbreak() {
-	if sttyPath != "" {
+	sttyMu.Lock()
+	defer sttyMu.Unlock()
+
+	if sttyPath != "" && originalSttyState != "" {
 		cmd := exec.Command(sttyPath, "cbreak", "-echo", "-ixon")
 		cmd.Stdin = os.Stdin
-		cmd.Run()
+		_ = cmd.Run()
+		sttyIsCbreak = true
 	}
 }
 
 func RestoreSttyState() {
-	if sttyPath != "" && originalSttyState != "" {
+	sttyMu.Lock()
+	defer sttyMu.Unlock()
+
+	if sttyPath != "" && originalSttyState != "" && sttyIsCbreak {
 		cmd := exec.Command(sttyPath, originalSttyState)
 		cmd.Stdin = os.Stdin
-		cmd.Run()
+		_ = cmd.Run()
+		sttyIsCbreak = false
 	}
+}
+
+func Fatalf(format string, args ...any) {
+	RestoreSttyState()
+	log.Fatalf(format, args...)
 }
 
 func Panicf(format string, args ...any) {
 	count := atomic.AddInt32(&panicCount, 1)
-	fmt.Fprintf(os.Stderr, "TETHER_PANIC_TRIGGERED\n")
-	// Lifetime TODO: log instead of stderr
-
-	// Ensure the terminal is restored to a sane state so it isn't broken for the user
 	RestoreSttyState()
 
-	if count > 100 {
+	if count > 10 {
 		fmt.Fprintf(os.Stderr, "TETHER_PANIC_LIMIT_EXCEEDED\n")
 		os.Exit(2)
 	}
 
 	msg := fmt.Sprintf("PANIC: "+format, args...)
-	// Lifetime TODO: log msg
 	panic(msg)
 }
 

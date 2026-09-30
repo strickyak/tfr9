@@ -18,9 +18,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"sync"
 	"sync/atomic"
 )
 
+var RECONNECT = flag.Bool("reconnect", false, "reconnect if USB drops instead of exiting")
 var EXIT = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 var OMIT_STDERR = flag.Bool("omit_stderr", false, "send stderr to nowhere")
 var NO_KEYBOARD = flag.Bool("n", false, "disable keyboard input")
@@ -444,12 +446,23 @@ func main() {
 		go InkeyRoutine(inkey)
 	}
 
-	killed := make(chan os.Signal, 16)
-	signal.Notify(killed, syscall.SIGINT)
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		defer func() { Shutdown(recover()) }()
-		sig := <-killed
-		Panicf("STOPPING ON SIGNAL %q", sig)
+		sig := <-sigChan
+		RestoreSttyState()
+		if sig == syscall.SIGINT {
+			fmt.Printf("\n[SIGINT]\n")
+			fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
+			os.Exit(130)
+		} else if sig == syscall.SIGTERM {
+			fmt.Printf("\n[SIGTERM]\n")
+			fmt.Fprintf(os.Stderr, "Terminated by SIGTERM; tether exiting.\n")
+			os.Exit(143)
+		} else {
+			fmt.Fprintf(os.Stderr, "Terminated by signal %v; tether exiting.\n", sig)
+			os.Exit(1)
+		}
 	}()
 
 	if *ABSLISTS != "" {
@@ -566,7 +579,8 @@ func InkeyRoutine(inkey chan byte) {
 			bb := make([]byte, 1)
 			_, err := os.Stdin.Read(bb)
 			if err != nil {
-				Panicf("cannot os.Stdin.Read: %v", err)
+				// Stdin closed or EOF; terminate reader goroutine cleanly
+				return
 			}
 			rawCh <- bb[0]
 		}
@@ -719,24 +733,39 @@ func TryInkey(inkey chan byte) (byte, bool) {
 	}
 }
 
+var shutdownOnce sync.Once
+
 func Shutdown(r any) {
-	if r != nil {
-		fmt.Printf("***\n*** CAUGHT ERROR: %v\n***\n", r)
-		fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
-	}
+	shutdownOnce.Do(func() {
+		defer func() {
+			if r2 := recover(); r2 != nil {
+				fmt.Fprintf(os.Stderr, "*** RECOVERED SECONDARY PANIC DURING SHUTDOWN: %v\n", r2)
+			}
+			RestoreSttyState()
+			os.Exit(13)
+		}()
 
-	if runtime.GOOS != "windows" {
+		if r != nil {
+			fmt.Printf("***\n*** CAUGHT ERROR: %v\n***\n", r)
+			fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
+		}
+
 		RestoreSttyState()
-	}
 
-	if the_ram != nil {
-		the_ram.Dump()
-	}
-
-	fmt.Printf("*** SHUTDOWN\n")
-	fmt.Fprintf(os.Stderr, "*** SHUTDOWN\n")
-	debug.PrintStack()
-	os.Exit(13)
+		if r != nil {
+			if the_ram != nil {
+				func() {
+					defer func() { _ = recover() }()
+					the_ram.Dump()
+				}()
+			}
+			fmt.Printf("*** SHUTDOWN\n")
+			fmt.Fprintf(os.Stderr, "*** SHUTDOWN\n")
+			debug.PrintStack()
+			os.Exit(13)
+		}
+		os.Exit(0)
+	})
 }
 
 type ActiveSerial struct {
@@ -763,6 +792,12 @@ func (uc *ActiveSerial) loop() {
 			if wasOpen {
 				log.Printf("UsbClosed")
 				wasOpen = false
+				if !*RECONNECT {
+					fmt.Printf("\n[USB Disconnected: '%s']\n", uc.Options.PortName)
+					fmt.Fprintf(os.Stderr, "USB Disconnected: %s: %v\n", uc.Options.PortName, err)
+					RestoreSttyState()
+					os.Exit(0)
+				}
 			}
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -817,6 +852,12 @@ func (uc *ActiveSerial) loop() {
 		}
 
 		serialPort.Close()
+		if wasOpen && !*RECONNECT {
+			fmt.Printf("\n[USB Disconnected: '%s']\n", uc.Options.PortName)
+			fmt.Fprintf(os.Stderr, "USB Disconnected: %s\n", uc.Options.PortName)
+			RestoreSttyState()
+			os.Exit(0)
+		}
 	}
 }
 
@@ -1410,12 +1451,10 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				}
 
 			case C_SHUTDOWN:
-				fmt.Printf("\n[255: shutdown]\n")
-				Logf("go func: Received C_SHUTDOWN; exiting")
-				close(channelFromPico)
-				Panicf("go func: C_SHUTDOWN")
-				panic(0)
-				return
+				fmt.Printf("\n[tether: target shutdown]\n")
+				Logf("Received C_SHUTDOWN; exiting cleanly")
+				RestoreSttyState()
+				os.Exit(0)
 
 			} // end switch cmd
 		} // end select
