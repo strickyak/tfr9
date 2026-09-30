@@ -47,4 +47,14 @@ inline void cobs_printf(const char* fmt, ...) {
   }
 }
 
+#ifndef C_SHUTDOWN
+#define C_SHUTDOWN 255
+#endif
+
+inline void cobs_shutdown() {
+  if (!usb_tether_ok()) return;
+  unsigned char pkt[1] = {C_SHUTDOWN};
+  CobsEncodeAndTransmit(pkt, 1, [](int ch) { putchar_raw(ch); });
+}
+
 #endif  // FIRMWARE_PIO_COBS_TX_H_
