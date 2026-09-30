@@ -1302,6 +1302,8 @@ static void tcl_repl_task(Coro& self) {
   }
 
 BYE:
+  rpc::g_vfs_coro = nullptr;
+  gspoon::g_spoon_coro = nullptr;
   cobs_printf("[BYE — starting 6309]\n");
   tcl_repl_done = true;
 }

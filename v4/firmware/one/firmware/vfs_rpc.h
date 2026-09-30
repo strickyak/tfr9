@@ -78,13 +78,16 @@ inline pcb::RpcResponse vfs_rpc_call(const pcb::RpcRequest& req, Coro* self = nu
   }
 
   // Use the explicit self if provided, otherwise fall back to the global
-  // coroutine handle.  Must have one or the other — we can't busy-poll
-  // PumpUsbCobs on a 4K coroutine stack.
+  // coroutine handle. If both are null (called from main scheduler stack),
+  // pump USB directly while waiting for response.
   Coro* coro = self ? self : g_vfs_coro;
-  CENTIPEDE_ASSERT(coro, "vfs_rpc: no Coro");
 
   while (vfs_rpc_busy) {
-    coro_yield(coro);
+    if (coro) {
+      coro_yield(coro);
+    } else {
+      PumpUsbCobs();
+    }
   }
   vfs_rpc_busy = true;
 
@@ -92,10 +95,14 @@ inline pcb::RpcResponse vfs_rpc_call(const pcb::RpcRequest& req, Coro* self = nu
   send_rpc(req);
 
   // Block until we get a response.
-  // Yielding lets the scheduler pump USB on its main (large) stack,
-  // avoiding deep stack usage on 4K coroutine stacks.
+  // When inside a coroutine, yielding lets the scheduler pump USB on its
+  // main (large) stack. When already on the main stack, pump directly.
   while (!rpc_response_ready) {
-    coro_yield(coro);
+    if (coro) {
+      coro_yield(coro);
+    } else {
+      PumpUsbCobs();
+    }
   }
 
 #if RPC_VERBOSE
