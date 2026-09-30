@@ -97,6 +97,8 @@ const (
 	EVENT_RTI  = 176
 	EVENT_SWI2 = 177
 
+	C_CORE_DUMP = 189 // 64KB RAM streaming: 1-byte chunk (0..255) + 256 bytes
+
 	// Short form codes, 192 to 255.
 	// The packet length does not follow,
 	// but is in the low nybble.
@@ -1450,11 +1452,46 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					previousPutChar = ch
 				}
 
+			case C_CORE_DUMP:
+				if len(pkt) >= 258 {
+					chunk := uint(pkt[1])
+					if the_ram == nil {
+						the_ram = new(Coco1Ram)
+					}
+					for i := uint(0); i < 256; i++ {
+						the_ram.Poke1(chunk*256+i, pkt[2+i])
+					}
+					Logf("Received C_CORE_DUMP chunk %d/256", chunk)
+				}
+
 			case C_SHUTDOWN:
-				fmt.Printf("\n[tether: target shutdown]\n")
-				Logf("Received C_SHUTDOWN; exiting cleanly")
-				RestoreSttyState()
-				os.Exit(0)
+				exitStatus := byte(0)
+				if len(pkt) > 1 {
+					exitStatus = pkt[1]
+				}
+				switch exitStatus {
+				case 0:
+					fmt.Printf("\n[tether: target shutdown OK (0)]\n")
+					Logf("Received C_SHUTDOWN status 0; exiting cleanly")
+					RestoreSttyState()
+					os.Exit(0)
+				case 1:
+					fmt.Printf("\n[tether: target shutdown ERROR (1)]\n")
+					Logf("Received C_SHUTDOWN status 1; exiting with code 1")
+					RestoreSttyState()
+					os.Exit(1)
+				case 255:
+					fmt.Printf("\n*** TARGET 6309 PANIC (status 255) ***\n")
+					Logf("Received C_SHUTDOWN status 255 (PANIC)")
+					Dump6309PanicState(the_ram)
+					RestoreSttyState()
+					os.Exit(255)
+				default:
+					fmt.Printf("\n[tether: target shutdown code %d]\n", exitStatus)
+					Logf("Received C_SHUTDOWN status %d; exiting", exitStatus)
+					RestoreSttyState()
+					os.Exit(int(exitStatus))
+				}
 
 			} // end switch cmd
 		} // end select

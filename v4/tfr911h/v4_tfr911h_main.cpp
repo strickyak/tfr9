@@ -530,18 +530,32 @@ byte IN_RAM clock_and_stop_reader(uint) {
 void IN_RAM clock_and_stop_writer(uint, byte data) {
   if (data == 0xFC) {
     cobs_printf("\n *** Exiting with status 0 due to CLOCK_AND_STOP command $FC.\n");
-    cobs_shutdown();
+    cobs_shutdown(0);
+    stdio_flush();
     sleep_ms(100);
     rp2350_reset_standard();
   } else if (data == 0xFD) {
     cobs_printf("\n *** Exiting with status 1 due to CLOCK_AND_STOP command $FD.\n");
-    cobs_shutdown();
+    cobs_shutdown(1);
+    stdio_flush();
     sleep_ms(100);
     rp2350_reset_standard();
   } else if (data == 0xFE) {
-    cobs_printf("\n *** Crashing due to CLOCK_AND_STOP command $FE.\n");
+    cobs_printf("\n *** PANIC due to CLOCK_AND_STOP command $FE.\n");
+    // Stream 64KB memory dump in 256 chunks of 256 bytes
+    uint8_t dump_pkt[258];
+    dump_pkt[0] = 189; // C_CORE_DUMP
+    for (int chunk = 0; chunk < 256; chunk++) {
+      dump_pkt[1] = (uint8_t)chunk;
+      memcpy(&dump_pkt[2], &ram[chunk * 256], 256);
+      CobsEncodeAndTransmit(dump_pkt, sizeof(dump_pkt), [](int ch) { putchar_raw(ch); });
+      stdio_flush();
+      sleep_us(500);
+    }
+    cobs_shutdown(255);
+    stdio_flush();
     sleep_ms(100);
-    panic("CLOCK_AND_STOP crash");
+    rp2350_reset_standard();
   } else {
     if (data & 0x01) {
       clock_and_stop_reg &= ~0x01; // W1C
