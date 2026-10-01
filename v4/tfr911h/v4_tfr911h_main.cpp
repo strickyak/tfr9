@@ -1485,10 +1485,13 @@ static void tcl_repl_task(Coro& self) {
       }
     }
 
-    // Then SOURCE /rc/mode%u.tcl
+    // Then SOURCE /rc/mode%u.tcl (fallback to /pc/mode%u.tcl if not in /rc)
     if (booted_via_rpc || boot_mode > 0) {
       char path_buf[40];
       snprintf(path_buf, sizeof(path_buf), "/rc/mode%u.tcl", (unsigned)boot_mode);
+      if (vfs_stat(path_buf, &st) != 0) {
+        snprintf(path_buf, sizeof(path_buf), "/pc/mode%u.tcl", (unsigned)boot_mode);
+      }
       if (vfs_stat(path_buf, &st) == 0) {
         cobs_printf("[Sourcing %s]\n", path_buf);
         char cmd_buf[50];
@@ -1502,7 +1505,7 @@ static void tcl_repl_task(Coro& self) {
           goto BYE;
         }
       } else {
-        cobs_printf("[Warning: %s not found]\n", path_buf);
+        cobs_printf("[Warning: mode%u.tcl not found in /rc or /pc]\n", (unsigned)boot_mode);
       }
     }
   }
