@@ -44,6 +44,7 @@ var BOOTMODE = flag.Uint("bootmode", 0, "Restart firmware in this mode and then 
 var QUICK_REFLASH = flag.String("quick-reflash", "", "Quick mode: reboot Pico into BOOTSEL and copy this UF2 file to it")
 var QUICK_REFORMAT = flag.Bool("quick-reformat", false, "Quick mode: connect and reformat the Pico's LittleFS flash filesystem")
 var QUICK_INJECT = flag.String("quick-inject", "", "Quick mode: connect and inject a Tcl command to the Pico's REPL")
+var TCL_INPUT = flag.String("tcl_input", "", "Inject Tcl commands before entering interactive console")
 var QUICK_UPLOAD = flag.String("quick-upload", "", "Quick mode: upload the Pico's flash from this zip file")
 var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
 var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
@@ -1522,15 +1523,52 @@ func Run(inkey chan byte, person Personality) {
 				if tmpDirToClean != "" { os.RemoveAll(tmpDirToClean) }
 				log.Fatalf("QUICK-INJECT FAILED: %v", err)
 			}
-			if resp.Status != 0 {
+			resStr := string(resp.Data)
+			if resStr == "" {
+				resStr = resp.Message
+			}
+			if resp.Status != 0 && resp.Status != 9 {
 				if tmpDirToClean != "" { os.RemoveAll(tmpDirToClean) }
-				log.Printf("QUICK-INJECT ERROR: STATUS=%d RESULT=%q", resp.Status, string(resp.Data))
+				log.Printf("QUICK-INJECT ERROR: STATUS=%d RESULT=%q", resp.Status, resStr)
 				os.Exit(1)
 			} else {
 				if tmpDirToClean != "" { os.RemoveAll(tmpDirToClean) }
-				log.Printf("QUICK-INJECT SUCCESS")
-				fmt.Printf("%s\n", string(resp.Data))
+				if resp.Status == 9 {
+					log.Printf("QUICK-INJECT SUCCESS (TCL_BYE)")
+				} else {
+					log.Printf("QUICK-INJECT SUCCESS")
+				}
+				if len(resStr) > 0 {
+					fmt.Printf("%s\n", resStr)
+				}
 				os.Exit(0)
+			}
+		}()
+	}
+
+	if *TCL_INPUT != "" {
+		go func() {
+			log.Printf("STARTING TCL_INPUT: %q", *TCL_INPUT)
+			resp, err := PicoRpcCall(channelToPico, "inject", []byte(*TCL_INPUT), 60*time.Second)
+			if err != nil {
+				log.Printf("TCL_INPUT FAILED: %v", err)
+				return
+			}
+			resStr := string(resp.Data)
+			if resStr == "" {
+				resStr = resp.Message
+			}
+			if resp.Status != 0 && resp.Status != 9 {
+				log.Printf("TCL_INPUT ERROR: STATUS=%d RESULT=%q", resp.Status, resStr)
+			} else {
+				if resp.Status == 9 {
+					log.Printf("TCL_INPUT: received TCL_BYE (9) — launching interactive console")
+				} else {
+					log.Printf("TCL_INPUT SUCCESS")
+				}
+				if len(resStr) > 0 {
+					fmt.Printf("%s\n", resStr)
+				}
 			}
 		}()
 	}

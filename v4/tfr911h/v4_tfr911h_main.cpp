@@ -353,16 +353,9 @@ namespace gspoon {
   Coro* g_spoon_coro = nullptr;
 
   void SleepMillis(Coro* c, uint64_t ms) {
-    uint32_t start_sec, start_ms;
-    get_system_time(&start_sec, &start_ms);
-    double start_time = (double)start_sec + ((double)start_ms / 1000.0);
-    double seconds = (double)ms / 1000.0;
+    uint32_t start = to_ms_since_boot(get_absolute_time());
     coro_yield(c);
-    while (true) {
-      uint32_t current_sec, current_ms;
-      get_system_time(&current_sec, &current_ms);
-      double current_time = (double)current_sec + ((double)current_ms / 1000.0);
-      if (current_time - start_time >= seconds) break;
+    while ((uint32_t)(to_ms_since_boot(get_absolute_time()) - start) < ms) {
       coro_yield(c);
     }
   }
@@ -372,8 +365,8 @@ namespace gspoon {
 #include "../firmware/one/firmware/littlefs.h"
 
 // Globals needed by pico_rpc.h and tcl_commands.h
-uint32_t boot_mode = 0;
-uint32_t boot_mode_check = 0;
+uint32_t __uninitialized_ram(boot_mode);
+uint32_t __uninitialized_ram(boot_mode_check);
 #define BOOT_MODE_CHECKER 0x56781234u
 bool startup_e_clock_detected = false;
 
@@ -1463,6 +1456,57 @@ static void tcl_repl_task(Coro& self) {
   gspoon::g_spoon_coro = &self;  // ls_cmd etc. call coro_yield(g_spoon_coro)
   cobs_printf("\nTFR911 TCL SHELL.  To exit TCL and launch 6809, type  bye \n");
 
+  bool booted_via_rpc = false;
+  if (::boot_mode_check == ::boot_mode + BOOT_MODE_CHECKER) {
+    ::boot_mode_check = 0;
+    booted_via_rpc = true;
+  } else {
+    ::boot_mode = 0;
+  }
+  cobs_printf("boot_mode=%u (booted_via_rpc=%d)\n", (unsigned)::boot_mode, booted_via_rpc ? 1 : 0);
+
+  if (booted_via_rpc) {
+    cobs_printf("booted_via_rpc is true: waiting 3 seconds for tether USB...\n");
+    gspoon::SleepMillis(&self, 3000);
+  }
+
+  if (boot_mode != 27) {  // Source RC files, unless BREAK (27 / ESC)
+    // First SOURCE /rc/init.tcl if it exists
+    struct vfs_info st;
+    if (vfs_stat("/rc/init.tcl", &st) == 0) {
+      cobs_printf("[Sourcing /rc/init.tcl]\n");
+      int init_result = Tcl_Eval(global_tcl_interp, const_cast<char*>("source /rc/init.tcl"), 0, (char**)0);
+      if (init_result == TCL_ERROR) {
+        const char* output = global_tcl_interp->result;
+        if (output && output[0]) cobs_printf("?%s\n", output);
+      } else if (init_result == TCL_BYE) {
+        cobs_printf("[BYE]\n");
+        goto BYE;
+      }
+    }
+
+    // Then SOURCE /rc/mode%u.tcl
+    if (booted_via_rpc || boot_mode > 0) {
+      char path_buf[40];
+      snprintf(path_buf, sizeof(path_buf), "/rc/mode%u.tcl", (unsigned)boot_mode);
+      if (vfs_stat(path_buf, &st) == 0) {
+        cobs_printf("[Sourcing %s]\n", path_buf);
+        char cmd_buf[50];
+        snprintf(cmd_buf, sizeof(cmd_buf), "source %s", path_buf);
+        int mode_result = Tcl_Eval(global_tcl_interp, cmd_buf, 0, (char**)0);
+        if (mode_result == TCL_ERROR) {
+          const char* output = global_tcl_interp->result;
+          if (output && output[0]) cobs_printf("?%s\n", output);
+        } else if (mode_result == TCL_BYE) {
+          cobs_printf("[BYE]\n");
+          goto BYE;
+        }
+      } else {
+        cobs_printf("[Warning: %s not found]\n", path_buf);
+      }
+    }
+  }
+
   char line[256];
   while (true) {
     cobs_printf("TCL> ");
@@ -1499,7 +1543,10 @@ static void tcl_repl_task(Coro& self) {
         resp.serial = req.serial;
         resp.status = rc;
         const char* out = global_tcl_interp->result;
-        if (out && out[0]) resp.message = out;
+        if (out && out[0]) {
+          resp.message = out;
+          resp.data = out;
+        }
         pico_rpc::send_response(resp);
         if (rc == TCL_BYE) goto BYE;
         cobs_printf("TCL> ");
