@@ -267,3 +267,59 @@ When any fault or stop limit occurs:
    ```bash
    hexdump -C /tmp/fault.img | head -n 40
    ```
+
+---
+
+## 6. TFR911H Firmware with Tcl Shell & PicoRPC
+
+In addition to TurboLab, the TFR/911h board can run the unified Tcl/LittleFS/VFS firmware build located in [`v4/tfr911h/`](file:///home/strick/modoc/coco-shelf/tfr9/v4/tfr911h/).
+
+### Build and Artifacts
+- **Firmware Source**: [`tfr911h/v4_tfr911h_main.cpp`](file:///home/strick/modoc/coco-shelf/tfr9/v4/tfr911h/v4_tfr911h_main.cpp)
+- **Top-level Makefile**: [`v4/Makefile`](file:///home/strick/modoc/coco-shelf/tfr9/v4/Makefile) builds:
+  - `build/tfr911h_v4.uf2` (~1.2MB UF2 image including Tcl, LittleFS, OS-9 ROMs, and NitrOS-9 engines)
+  - `build/tether.linux-amd64.exe` (host Tether binary compiled from [`v4/tether/`](file:///home/strick/modoc/coco-shelf/tfr9/v4/tether/))
+
+### Quick Commands via Tether
+The host tool [`build/tether.linux-amd64.exe`](file:///home/strick/modoc/coco-shelf/tfr9/v4/build/tether.linux-amd64.exe) provides instant diagnostic and control operations over USB serial (`/dev/ttyACM0`):
+
+1. **Ping the Board**:
+   Verifies that the USB CDC connection is active and the Pico background scheduler is responding to PicoRPC:
+   ```bash
+   ./build/tether.linux-amd64.exe -quick-ping=1234
+   ```
+   Output: `quick-ping: OK (value=1234)`
+
+2. **Restart the Board**:
+   Sends a PicoRPC `restart` request to reboot the RP2350 microcontroller:
+   ```bash
+   ./build/tether.linux-amd64.exe -quick-restart=0
+   ```
+   Output: `quick-restart: OK` (board re-enumerates on USB within ~1–2 seconds).
+
+3. **Restart into a Specific Boot Mode**:
+   Pass a non-zero boot mode number to execute `/rc/modeN.tcl` or `/pc/modeN.tcl` on startup:
+   ```bash
+   ./build/tether.linux-amd64.exe -quick-restart=88
+   ```
+
+4. **Inject a Tcl Command**:
+   Sends a command to the running Tcl REPL:
+   ```bash
+   ./build/tether.linux-amd64.exe -quick-inject="puts {hello from host}"
+   ```
+
+5. **Reflash via Tether**:
+   Reboots the RP2350 into BOOTSEL mode and copies the specified UF2 file to the USB mass storage volume:
+   ```bash
+   ./build/tether.linux-amd64.exe -quick-reflash=build/tfr911h_v4.uf2
+   ```
+
+### Interactive Session
+Launch the full interactive terminal (Tcl REPL & OS-9 console) via [`tether.sh`](file:///home/strick/modoc/coco-shelf/tfr9/v4/tether.sh):
+```bash
+sh tether.sh
+```
+- Starts in the **Phase 1** Tcl REPL.
+- Enter `bye` in the Tcl prompt to assert reset, launch Core 1, and enter **Phase 2** (6309 CPU execution).
+
