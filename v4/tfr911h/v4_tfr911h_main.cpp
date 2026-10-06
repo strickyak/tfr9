@@ -154,6 +154,7 @@ enum FG2BG_Tags {
 #endif
   FG2BG_FIC   = 12,   // First Instruction Cycle (read with LIC from previous cycle)
   FG2BG_EMUDSK = 13,  // EmuDsk sector transfer request to background
+  FG2BG_GEP9_DISK = 14, // gep9 Hatvan disk sector transfer request
 };
 
 // Say: push a console character to the high-priority chars FIFO.
@@ -448,6 +449,8 @@ void IN_RAM acia_write_control(uint addr, byte data) {
   sim_control_reg = data;
 }
 #include "turbo9os.h"
+#include "v4_gep9_mmu.h"
+#include "v4_gep9_io.h"
 
 // ═══════════════════════════════════════════════════════════════════
 // Flat65280 Engine Support
@@ -461,6 +464,7 @@ enum EngineType {
   ENGINE_TURBO9OS = 0,
   ENGINE_FLAT65280 = 1,
   ENGINE_DEEP65280 = 2,
+  ENGINE_GEP9 = 3,
 };
 static EngineType current_engine = ENGINE_TURBO9OS;
 
@@ -478,7 +482,7 @@ static byte emudsk_buffer[2] = {0, 0};
 static byte emudsk_drive = 0;
 static byte emudsk_status = 0;
 
-static std::shared_ptr<VfsNode> g_drive_nodes[2] = {nullptr, nullptr};
+static std::shared_ptr<VfsNode> g_drive_nodes[4] = {nullptr, nullptr, nullptr, nullptr};
 
 // CLOCK_AND_STOP state ($FF87)
 static volatile byte clock_and_stop_reg = 0;
@@ -983,6 +987,162 @@ void setup_deep65280() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// gep9 (Hatvan 6309) Engine Support
+// ═══════════════════════════════════════════════════════════════════
+
+void IN_RAM gep9_write_disk_cmdst(uint, byte d) {
+  g_gep9_disk_req.drive = gep9_disk.drive;
+  g_gep9_disk_req.sector = gep9_disk.sector;
+  g_gep9_disk_req.mem_task = gep9_disk.mem_task;
+  g_gep9_disk_req.mem_addr = gep9_disk.mem_addr;
+  g_gep9_disk_req.command = d;
+  g_gep9_disk_req.status.store(-1, std::memory_order_release);
+
+  uint pb_w = ((uint)FG2BG_GEP9_DISK << 24);
+  while (!fg2bg.push(pb_w)) { tight_loop_contents(); }
+
+  while (g_gep9_disk_req.status.load(std::memory_order_acquire) < 0) {
+    tight_loop_contents();
+  }
+  gep9_disk.status = (byte)g_gep9_disk_req.status.load(std::memory_order_acquire);
+}
+
+static bool gep9_load_decb_into_task(uint8_t task, const char* path) {
+  auto img_node = vfs_resolve(path);
+  if (!img_node) {
+    cobs_printf("[gep9: could not resolve %s]\n", path);
+    return false;
+  }
+  int err = img_node->open_file(LFS_O_RDONLY);
+  if (err < 0) {
+    cobs_printf("[gep9: failed to open %s (err %d)]\n", path, err);
+    return false;
+  }
+  cobs_printf("[gep9: loading %s into Task %d...]\n", path, (int)task);
+  byte hdr[5];
+  lfs_ssize_t hn = img_node->read(hdr, 5);
+  if (hn == 5 && (hdr[0] == 0x00 || hdr[0] == 0xFD || hdr[0] == 0xFF)) {
+    // Extended DECB stream
+    img_node->seek(0, LFS_SEEK_SET, nullptr);
+    while (true) {
+      lfs_ssize_t n = img_node->read(hdr, 5);
+      if (n < 5) break;
+      byte chunk_type = hdr[0];
+      uint16_t length = ((uint16_t)hdr[1] << 8) | hdr[2];
+      uint16_t addr = ((uint16_t)hdr[3] << 8) | hdr[4];
+
+      if (chunk_type == 0x00) { // Data chunk
+        byte chunk_buf[256];
+        uint16_t remaining = length;
+        uint16_t cur_addr = addr;
+        while (remaining > 0) {
+          uint16_t to_read = remaining > 256 ? 256 : remaining;
+          lfs_ssize_t rn = img_node->read(chunk_buf, to_read);
+          if (rn <= 0) break;
+          for (int i = 0; i < rn; i++) {
+            *gep9_mmu.TranslateWrite(task, cur_addr + i) = chunk_buf[i];
+          }
+          cur_addr += rn;
+          remaining -= rn;
+        }
+      } else if (chunk_type == 0xFF) { // Exec trailer
+        if (task == 0) {
+          *gep9_mmu.TranslateWrite(0, 0xFFFE) = (addr >> 8) & 0xFF;
+          *gep9_mmu.TranslateWrite(0, 0xFFFF) = addr & 0xFF;
+          cobs_printf("[gep9: DECB execution address $%04X set in reset vector]\n", addr);
+        }
+        break;
+      } else {
+        // Non-data chunk (magic, symbols, debug info)
+        if (length > 0) {
+          img_node->seek(length, LFS_SEEK_CUR, nullptr);
+        }
+      }
+    }
+  } else {
+    // Raw image fallback
+    cobs_printf("[gep9: loading raw image into Task %d...]\n", (int)task);
+    img_node->seek(0, LFS_SEEK_SET, nullptr);
+    byte buf[256];
+    uint32_t total = 0;
+    while (total < 65536) {
+      lfs_ssize_t rn = img_node->read(buf, 256);
+      if (rn <= 0) break;
+      for (int i = 0; i < rn; i++) {
+        *gep9_mmu.TranslateWrite(task, total + i) = buf[i];
+      }
+      total += rn;
+    }
+  }
+  img_node->close_file(nullptr);
+  cobs_printf("[gep9: Task %d image load complete]\n", (int)task);
+  return true;
+}
+
+void setup_gep9() {
+  current_engine = ENGINE_GEP9;
+
+  // 1. Initialize gep9 MMU & memory pool
+  gep9_mmu.Init();
+
+  // 2. Open up to 4 drive nodes if configured (default drive 0: /pc/disk0.dsk)
+  for (int d = 0; d < 4; d++) {
+    const char* path = "";
+    if (d == 0) {
+      if (centipede_config.drive0[0]) {
+        path = centipede_config.drive0;
+      } else {
+        auto hnode = vfs_resolve("/pc/hatvan0.dsk");
+        path = hnode ? "/pc/hatvan0.dsk" : "/pc/disk0.dsk";
+      }
+    }
+    else if (d == 1) path = centipede_config.drive1;
+    else if (d == 2) path = centipede_config.drive2;
+    else if (d == 3) path = centipede_config.drive3;
+
+    if (path && path[0]) {
+      g_drive_nodes[d] = vfs_resolve(path);
+      if (g_drive_nodes[d]) {
+        int err = g_drive_nodes[d]->open_file(LFS_O_RDWR);
+        if (err < 0) {
+          cobs_printf("[gep9: drive %d open RDWR failed (err %d), trying RDONLY: %s]\n", d, err, path);
+          err = g_drive_nodes[d]->open_file(LFS_O_RDONLY);
+          if (err >= 0) {
+            cobs_printf("[gep9: opened drive %d read-only: %s]\n", d, path);
+          } else {
+            cobs_printf("[gep9: drive %d open failed: %s]\n", d, path);
+            g_drive_nodes[d] = nullptr;
+          }
+        } else {
+          cobs_printf("[gep9: opened drive %d: %s]\n", d, path);
+        }
+      } else {
+        cobs_printf("[gep9: could not resolve drive %d path: %s]\n", d, path);
+      }
+    } else {
+      g_drive_nodes[d] = nullptr;
+    }
+  }
+
+  // 3. Load tasks into memory:
+  // Task 0: Kernel (flat_img or /pc/kernel_6809.decb)
+  const char* t0_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/kernel_6809.decb";
+  gep9_load_decb_into_task(0, t0_path);
+
+  // Task 1: RBF disk driver (task1 or /pc/rbf_6809.decb)
+  const char* t1_path = centipede_config.task1[0] ? centipede_config.task1 : "/pc/rbf_6809.decb";
+  gep9_load_decb_into_task(1, t1_path);
+
+  // Task 2: ProcFS driver (task2 or /pc/procfs_6809.decb)
+  const char* t2_path = centipede_config.task2[0] ? centipede_config.task2 : "/pc/procfs_6809.decb";
+  gep9_load_decb_into_task(2, t2_path);
+
+  // 4. Install IO handlers
+  Install_Gep9_IO(IOReaders, IOWriters);
+  cobs_printf("[gep9: IO and MMU initialized]\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // GPIO Initialization — Open-drain for slow control pins
 // ═══════════════════════════════════════════════════════════════════
 void InitializePinsReturnDirections() {
@@ -1095,7 +1255,7 @@ struct Guts {
   }
 
   static void FORCE_INLINE Foreground() {
-    if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
+    if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280 || current_engine == ENGINE_GEP9) {
       is_an_os9 = true;
     } else {
       T::Install_OS();
@@ -1127,7 +1287,9 @@ struct Guts {
     // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
     // USB I/O and terminal RX are handled by background on core 0.
     while (true) {
-      if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
+      if (current_engine == ENGINE_GEP9) {
+        irq_needed = gep9_irq_needed();
+      } else if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
         irq_needed = flat65280_irq_needed();
       } else {
         irq_needed = T::Turbo9sim_IrqNeeded();
@@ -1254,28 +1416,64 @@ struct Guts {
 
         if (likely(reading)) {
           // READ CYCLES
-          if (likely(addr < 0xFE00)) {
-            if (current_engine == ENGINE_DEEP65280) {
-              value = ram[task_mmu_base[addr >> 13] | (addr & 0x1FFF)];
-            } else {
-              value = ram[addr];
+          if (current_engine == ENGINE_GEP9) {
+            // TaskFuse transition: armed fuse fires on the cycle after RTI opcode fetch
+            if (unlikely(gep9_mmu.task_fuse_step == 1)) {
+              gep9_mmu.current_task = gep9_mmu.task_fuse_target;
+              gep9_mmu.task_fuse_armed = false;
+              gep9_mmu.task_fuse_step = 0;
             }
-          } else if (addr < 0xFF00) {
-            if (current_engine == ENGINE_DEEP65280) {
-#if DEEP_256K
-              value = ram[0x3E000 | (addr & 0x1FFF)];
-#else
-              value = ram[0x1E000 | (addr & 0x1FFF)];
-#endif
+
+            if (unlikely(addr >= 0xFF00)) {
+              if (addr >= 0xFFF0) {
+                // Vector fetch: instant transition to Task 0 (Kernel)
+                // Real vector fetches begin on even addresses $FFF0..$FFFE.
+                // 0xFFFF is an internal idle/dead cycle and must not switch tasks!
+                if (addr != 0xFFFF && (addr & 1) == 0) {
+                  gep9_mmu.current_task = 0;
+                }
+                value = *gep9_mmu.TranslateRead(0, addr);
+              } else {
+                if (gep9_mmu.current_task == 0 || (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0) {
+                  IOReader fn = IOReaders[addr & 0xFF];
+                  value = fn ? fn(addr) : 0;
+                } else {
+                  value = 0; // Unblessed user IO access
+                }
+              }
             } else {
-              value = ram[addr];
+              value = *gep9_mmu.TranslateRead(gep9_mmu.current_task, addr);
+            }
+
+            if (unlikely(gep9_mmu.task_fuse_armed && gep9_mmu.task_fuse_step == 0)) {
+              if (value == 0x3B) { // RTI opcode fetched
+                gep9_mmu.task_fuse_step = 1;
+              }
             }
           } else {
-            IOReader fn = IOReaders[addr & 0xFF];
-            if (fn) {
-              value = fn(addr);
+            if (likely(addr < 0xFE00)) {
+              if (current_engine == ENGINE_DEEP65280) {
+                value = ram[task_mmu_base[addr >> 13] | (addr & 0x1FFF)];
+              } else {
+                value = ram[addr];
+              }
+            } else if (addr < 0xFF00) {
+              if (current_engine == ENGINE_DEEP65280) {
+#if DEEP_256K
+                value = ram[0x3E000 | (addr & 0x1FFF)];
+#else
+                value = ram[0x1E000 | (addr & 0x1FFF)];
+#endif
+              } else {
+                value = ram[addr];
+              }
             } else {
-              value = 0;
+              IOReader fn = IOReaders[addr & 0xFF];
+              if (fn) {
+                value = fn(addr);
+              } else {
+                value = 0;
+              }
             }
           }
           kind = CY_READ;
@@ -1284,26 +1482,41 @@ struct Guts {
           late_pins = pio_sm_get_blocking(pio0, 0);
           value = (byte)late_pins;
 
-          if (likely(addr < 0xFE00)) {
-            if (current_engine == ENGINE_DEEP65280) {
-              ram[task_mmu_base[addr >> 13] | (addr & 0x1FFF)] = value;
+          if (current_engine == ENGINE_GEP9) {
+            if (unlikely(addr >= 0xFF00)) {
+              if (addr >= 0xFFF0) {
+                *gep9_mmu.TranslateWrite(0, addr) = value;
+              } else {
+                if (gep9_mmu.current_task == 0 || (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0) {
+                  IOWriter fn = IOWriters[addr & 0xFF];
+                  if (fn) fn(addr, value);
+                }
+              }
             } else {
-              ram[addr] = value;
-            }
-          } else if (addr < 0xFF00) {
-            if (current_engine == ENGINE_DEEP65280) {
-#if DEEP_256K
-              ram[0x3E000 | (addr & 0x1FFF)] = value;
-#else
-              ram[0x1E000 | (addr & 0x1FFF)] = value;
-#endif
-            } else {
-              ram[addr] = value;
+              *gep9_mmu.TranslateWrite(gep9_mmu.current_task, addr) = value;
             }
           } else {
-            IOWriter fn = IOWriters[addr & 0xFF];
-            if (fn) {
-              fn(addr, value);
+            if (likely(addr < 0xFE00)) {
+              if (current_engine == ENGINE_DEEP65280) {
+                ram[task_mmu_base[addr >> 13] | (addr & 0x1FFF)] = value;
+              } else {
+                ram[addr] = value;
+              }
+            } else if (addr < 0xFF00) {
+              if (current_engine == ENGINE_DEEP65280) {
+#if DEEP_256K
+                ram[0x3E000 | (addr & 0x1FFF)] = value;
+#else
+                ram[0x1E000 | (addr & 0x1FFF)] = value;
+#endif
+              } else {
+                ram[addr] = value;
+              }
+            } else {
+              IOWriter fn = IOWriters[addr & 0xFF];
+              if (fn) {
+                fn(addr, value);
+              }
             }
           }
           kind = CY_WRITE;
@@ -1404,7 +1617,14 @@ struct repeating_timer Timer60HzData;
 volatile bool halt_suppress_timer = false;
 bool IN_RAM Timer60HzCallback(repeating_timer_t* rt) {
   if (!halt_suppress_timer) {
-    if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
+    if (current_engine == ENGINE_GEP9) {
+      static uint8_t gep9_div = 0;
+      if (++gep9_div >= 12) { // 60 Hz / 12 = 5 Hz (matches emulator default tick-hz)
+        gep9_div = 0;
+        gep9_io.reg_stat |= 0x01; // Set Timer.Ready flag
+        gep9_update_irq_pin();
+      }
+    } else if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
       flat65280_timer_ticks++;
       uint8_t rate = (clock_and_stop_reg >> 4) & 3;
       bool fire = false;
@@ -1798,6 +2018,50 @@ static void drain_task(Coro& self) {
           }
           break;
         }
+        case FG2BG_GEP9_DISK: {
+          rpc::g_vfs_coro = &self;
+          uint8_t drv = g_gep9_disk_req.drive;
+          if (drv > 3 || !g_drive_nodes[drv]) {
+            g_gep9_disk_req.status.store(2, std::memory_order_release); // Drive not ready / enabled
+            break;
+          }
+          auto node = g_drive_nodes[drv];
+          lfs_soff_t offset = (lfs_soff_t)g_gep9_disk_req.sector * 256;
+          lfs_soff_t actual = node->seek(offset, LFS_SEEK_SET, &self);
+          if (actual != offset) {
+            g_gep9_disk_req.status.store(3, std::memory_order_release); // Seek error / out of range
+            break;
+          }
+          uint8_t task = g_gep9_disk_req.mem_task;
+          uint16_t addr = g_gep9_disk_req.mem_addr;
+          byte sec_buf[256];
+          if (g_gep9_disk_req.command == 1) {
+            // Read sector
+            lfs_ssize_t n = node->read(sec_buf, 256);
+            if (n == 256) {
+              for (int i = 0; i < 256; i++) {
+                *gep9_mmu.TranslateWrite(task, addr + i) = sec_buf[i];
+              }
+              g_gep9_disk_req.status.store(1, std::memory_order_release); // 1 = OKAY
+            } else {
+              g_gep9_disk_req.status.store(4, std::memory_order_release);
+            }
+          } else if (g_gep9_disk_req.command == 2) {
+            // Write sector
+            for (int i = 0; i < 256; i++) {
+              sec_buf[i] = *gep9_mmu.TranslateRead(task, addr + i);
+            }
+            lfs_ssize_t n = node->write(sec_buf, 256);
+            if (n == 256) {
+              g_gep9_disk_req.status.store(1, std::memory_order_release); // 1 = OKAY
+            } else {
+              g_gep9_disk_req.status.store(4, std::memory_order_release);
+            }
+          } else {
+            g_gep9_disk_req.status.store(4, std::memory_order_release);
+          }
+          break;
+        }
         default:
           break;
       }
@@ -1915,8 +2179,11 @@ void IN_RAM tfr911_background() {
         uint offset = pio_add_program(pio0, &hamster_program);
         hamster_program_init(pio0, 0, offset);
 
-        if (strcmp(centipede_config.engine, "flat65280") == 0 ||
-            strcmp(centipede_config.engine, "flat") == 0) {
+        if (strcmp(centipede_config.engine, "gep9") == 0 ||
+            strcmp(centipede_config.engine, "hatvan") == 0) {
+          setup_gep9();
+        } else if (strcmp(centipede_config.engine, "flat65280") == 0 ||
+                   strcmp(centipede_config.engine, "flat") == 0) {
           setup_flat65280();
         } else if (strcmp(centipede_config.engine, "deep65280") == 0 ||
                    strcmp(centipede_config.engine, "deep64280") == 0 ||
@@ -1984,9 +2251,16 @@ void IN_RAM tfr911_background() {
       coro_resume(&drain_coro);
       PumpUsbCobs();
 
-      // Deliver terminal input to 6309 ACIA emulator
+      // Deliver terminal input to 6309 ACIA / GEP9 emulator
       PollTermInput();
-      if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
+      if (current_engine == ENGINE_GEP9) {
+        if (!gep9_rx_has_char && term_input.NumBuffered() > 0) {
+          gep9_rx_char = term_input.Take();
+          gep9_rx_has_char = true;
+          gep9_io.reg_stat |= 0x02; // Set Term.RxReady
+          gep9_update_irq_pin();
+        }
+      } else if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
         if (!flat65280_rx_has_char && term_input.NumBuffered() > 0) {
           flat65280_rx_char = term_input.Take();
           flat65280_rx_has_char = true;

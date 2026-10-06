@@ -356,3 +356,53 @@ To run an interactive session without the automated `stop 0`, replace or modify 
   ```
 Once `startup` terminates without calling `stop 0`, `SysGo` launches an interactive shell on `/term`, allowing interactive commands (such as `mdir -e`).
 
+---
+
+## 7. GEP9 Engine (Hatvan 6309 OS) & Multi-Tasking
+
+The `gep9` engine (`ENGINE_GEP9`) runs the **Hatvan OS** on the physical Hitachi 6309E microprocessor, implementing demand-paged multi-tasking, hardware task switching, and direct sector DMA.
+
+### Architecture & Memory Model
+- **Sparse Demand Paging**:
+  - 256 tasks, each with an independent 64 KB address space (256 pages of 256 bytes).
+  - Allocated dynamically from a 256 KB physical SRAM pool (1,024 256-byte page frames).
+  - Page frame 0 is permanently zeroed and used for unallocated read pages. Write accesses to unallocated pages trigger dynamic allocation on demand.
+  - Page frame freeing via `PurgeTaskMem` (`$FF2F`) releases all pages belonging to a terminated task back to the free pool.
+  - Shared memory curtain (`$FF28..$FF29`, default `$E000`): In low tasks (Tasks 0..2), memory above the curtain is mapped to Task 0 to share kernel vectors and shared I/O dispatch buffers.
+
+### Hardware TaskFuse ($FF20) Context Switching
+- Writing a task number $T$ to `$FF20` sets `fuse_target = T` and arms `fuse_armed = 1`.
+- When the 6309E CPU executes `RTI` ($3B), the firmware automatically latches `current_task = fuse_target` and disarms the fuse.
+- Traps and interrupts (e.g. `SWI2`, `IRQ`) save the user task state on the user stack and vector back into Task 0.
+
+### Multi-Task Preloading
+Hatvan OS distributes drivers into dedicated user tasks rather than linking them into a monolithic kernel:
+- **Task 0**: Monolithic Kernel (`kernel_6809.decb`), entry point `cstart` at `$1000`.
+- **Task 1**: RBF Disk Driver (`rbf_6809.decb`), initialized via `TaskFuse=1` and `RTI`.
+- **Task 2**: PROCFS Driver (`procfs_6809.decb`), initialized via `TaskFuse=2` and `RTI`.
+- **Task 3+**: User processes (e.g. user shell `gsh` and child utilities).
+- **Drive 0**: OS-9 RBF Filesystem (`hatvan0.dsk` / `disk0.dsk`).
+
+### Critical 6309/6809 Timing & Vector Trap Rule
+- **Dead Cycles on `$FFFF`**: On Motorola 6809 and Hitachi 6309 microprocessors, internal/dead cycles drive `$FFFF` on the address bus with read status (`R/W=1`).
+- **Trap Guard**: Firmware vector-handling logic checking for vector fetches (`addr >= 0xFFF0`) MUST explicitly ignore dead cycles:
+  ```cpp
+  if (addr >= 0xFFF0 && addr != 0xFFFF && (addr & 1) == 0) {
+      // Valid interrupt vector fetch start (even byte)
+      gep9_mmu.current_task = 0;
+  }
+  ```
+  If `$FFFF` is treated as a vector fetch, internal CPU dead cycles will slam `current_task` back to 0 in the middle of executing user/driver code in Task 1 or 2, corrupting return stacks and crashing the system into an infinite boot loop.
+
+### How to Run Hatvan OS
+- **Using Launcher Script**:
+  ```bash
+  ./run_gep9.sh
+  ```
+- **Using Tether with Boot Mode 80**:
+  ```bash
+  sh tether.sh -bootmode=80
+  ```
+  This mounts `/pc` and executes [`misc/pc/mode80.tcl`](file:///home/strick/modoc/coco-shelf/tfr9/v4/misc/pc/mode80.tcl), configuring `gep9`, preloading Tasks 0, 1, and 2, mounting `/d0`, and releasing the 6309 CPU into the interactive Hatvan shell (`$ `).
+
+

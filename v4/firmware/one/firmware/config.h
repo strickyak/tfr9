@@ -13,6 +13,10 @@ struct CentipedeConfig {
     char             flat_img[64];
     char             drive0[64];
     char             drive1[64];
+    char             drive2[64];
+    char             drive3[64];
+    char             task1[64];
+    char             task2[64];
 
     void SetAll(bool b) {
         this->ram_64k = b;
@@ -25,6 +29,10 @@ struct CentipedeConfig {
         this->flat_img[0] = 0;
         this->drive0[0] = 0;
         this->drive1[0] = 0;
+        this->drive2[0] = 0;
+        this->drive3[0] = 0;
+        this->task1[0] = 0;
+        this->task2[0] = 0;
     }
 };
 

@@ -242,6 +242,26 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
             strncpy((char*)centipede_config.drive1, val, sizeof(centipede_config.drive1)-1);
             centipede_config.drive1[sizeof(centipede_config.drive1)-1] = 0;
         }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive2", 0);
+        if (val) {
+            strncpy((char*)centipede_config.drive2, val, sizeof(centipede_config.drive2)-1);
+            centipede_config.drive2[sizeof(centipede_config.drive2)-1] = 0;
+        }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive3", 0);
+        if (val) {
+            strncpy((char*)centipede_config.drive3, val, sizeof(centipede_config.drive3)-1);
+            centipede_config.drive3[sizeof(centipede_config.drive3)-1] = 0;
+        }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"task1", 0);
+        if (val) {
+            strncpy((char*)centipede_config.task1, val, sizeof(centipede_config.task1)-1);
+            centipede_config.task1[sizeof(centipede_config.task1)-1] = 0;
+        }
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"task2", 0);
+        if (val) {
+            strncpy((char*)centipede_config.task2, val, sizeof(centipede_config.task2)-1);
+            centipede_config.task2[sizeof(centipede_config.task2)-1] = 0;
+        }
 
         set_floppy_names();
         
@@ -261,6 +281,10 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"flat_img", (char*)centipede_config.flat_img, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"drive0", (char*)centipede_config.drive0, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"drive1", (char*)centipede_config.drive1, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive2", (char*)centipede_config.drive2, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive3", (char*)centipede_config.drive3, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"task1", (char*)centipede_config.task1, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"task2", (char*)centipede_config.task2, 0);
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {
