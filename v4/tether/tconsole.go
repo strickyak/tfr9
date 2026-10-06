@@ -1429,18 +1429,19 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 							}
 						}
 
-					case ch == 7 || ch == 8: // BEL, BS
+					case ch == 7 || ch == 8 || ch == 9: // BEL, BS, TAB
 						fmt.Printf("%c", ch)
+						cr = false
 
-					case ch == 10 || ch == 13:
-						fmt.Printf("%c", ch)
-						/*
-							if previousPutChar == 10 || previousPutChar == 13 {
-								// skip extra newline
-							} else {
-								fmt.Println() // lf skips Println after cr does Println
-							}
-						*/
+					case ch == 13: // CR: convert to LF and record that CR occurred
+						fmt.Printf("\n")
+						cr = true
+
+					case ch == 10: // LF: ignore if immediately after CR
+						if !cr {
+							fmt.Printf("\n")
+						}
+						cr = false
 
 					default:
 						if *CURLY_DEC {
