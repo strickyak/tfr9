@@ -323,3 +323,36 @@ sh tether.sh
 - Starts in the **Phase 1** Tcl REPL.
 - Enter `bye` in the Tcl prompt to assert reset, launch Core 1, and enter **Phase 2** (6309 CPU execution).
 
+### NitrOS-9 Boot Modes and Startup Scripts
+
+#### Boot Modes (`modeN.tcl`)
+When restarting the board via `-quick-restart=N` or `-bootmode=N`, the firmware looks for `/rc/modeN.tcl` on LittleFS (falling back to `/pc/modeN.tcl` on the host PC VFS).
+- `mode9.tcl`: Configures `deep65280` engine with `/pc/deep65280.new.img` and `/pc/disk0.dsk`.
+- `mode8.tcl`: Configures `deep65280` engine with `/pc/deep65280.img` and `/pc/disk0.dsk`.
+
+#### Startup Script Contents (`/startup`)
+Upon booting NitrOS-9, `SysGo` executes `Shell <startup`.
+A typical startup script contains:
+- `tmode </term pau=0`: The most critical command for running tests and automated sessions. Disables console output pagination (`pau=0`) on `/term` so commands do not pause waiting for keyboard input after each screen page.
+- `setime YYYY/MM/DD`: Initializes the system clock if a battery-backed RTC is not present.
+- `chx /dd/CMDS`: Sets the execution directory.
+- `chd /dd/SRC`: Sets the default data directory.
+- Test/verification commands (e.g. `echo ...`, `pwd`, `mfree`, `dir /dd/MODS`).
+- `stop 0`: Used on automated self-verification disks (e.g. `disk0.dsk`). Writing `$FC` to `$FF87` causes immediate shutdown and exit of the Tether session.
+
+#### Customizing or Disabling `stop 0` with `os9` (Toolshed)
+To run an interactive session without the automated `stop 0`, replace or modify the startup script on the disk image using the `os9` utility:
+- **Inspect current startup**:
+  ```bash
+  os9 list /tmp/pc/deep0.dsk,startup
+  ```
+- **Replace with empty file (boots straight to interactive `/term` shell)**:
+  ```bash
+  os9 copy -l -r /dev/null /tmp/pc/deep0.dsk,/startup
+  ```
+- **Replace with non-halting test startup (disabling pause)**:
+  ```bash
+  echo "tmode </term pau=0" | os9 copy -l -r /dev/stdin /tmp/pc/deep0.dsk,/startup
+  ```
+Once `startup` terminates without calling `stop 0`, `SysGo` launches an interactive shell on `/term`, allowing interactive commands (such as `mdir -e`).
+
