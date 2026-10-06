@@ -157,21 +157,15 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
             for (size_t col = 1; col < line.length(); col++) {
                 if (line[col] == '[') {
                     size_t end = line.find(']', col);
-                    if (end != std::string::npos) {
-                        bool found = false;
-                        for (size_t i = col + 1; i < end; i++) {
-                            if (line[i] == hotkey) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (found) {
-                            r = row;
-                            c = col;
-                            w = end - col - 1;
-                            initial_value = line.substr(col + 1, w);
-                            break;
-                        }
+                    // A field is "[" immediately followed by its hotkey, so
+                    // other bracketed text (e.g. "f[0123]") is not mistaken
+                    // for one.
+                    if (end != std::string::npos && col + 1 < end && line[col + 1] == hotkey) {
+                        r = row;
+                        c = col;
+                        w = end - col - 1;
+                        initial_value = line.substr(col + 1, w);
+                        break;
                     }
                 }
             }
@@ -225,6 +219,12 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"become_coco3", 0);
         if (val && atoi(val) != 0) centipede_config.become_coco3 = true;
 
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"fujinet", 0);
+        if (val && atoi(val) != 0) centipede_config.fujinet = true;
+
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"trace_becker", 0);
+        if (val && atoi(val) != 0) centipede_config.trace_becker = true;
+
         set_floppy_names();
         
     } else if (sub == "fetch") {
@@ -240,6 +240,8 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(centipede_config.trace_writes ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(centipede_config.trace_reads ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"become_coco3", (char*)(centipede_config.become_coco3 ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"fujinet", (char*)(centipede_config.fujinet ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"trace_becker", (char*)(centipede_config.trace_becker ? "1" : "0"), 0);
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {
