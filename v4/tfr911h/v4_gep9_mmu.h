@@ -172,6 +172,17 @@ struct Gep9MMU {
     task_flags[task] = 0;
   }
 
+  int CountTaskFrames(uint8_t t) const {
+    if (!task_tables[t]) return 0;
+    int count = 0;
+    for (int p = 0; p < GEP9_PAGES_PER_TASK; p++) {
+      if (task_tables[t][p] != GEP9_INVALID_FRAME) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   FORCE_INLINE byte* IN_RAM TranslateRead(uint8_t task, uint16_t addr) {
     // 1. Shared Memory Curtain (Tasks 0, 1, 2)
     if (task <= 2 && addr >= shared_curtain && addr < 0xFF00) {

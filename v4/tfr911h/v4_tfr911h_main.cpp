@@ -1139,7 +1139,11 @@ void setup_gep9() {
 
   // 4. Install IO handlers
   Install_Gep9_IO(IOReaders, IOWriters);
-  cobs_printf("[gep9: IO and MMU initialized]\n");
+  cobs_printf("[gep9: IO and MMU initialized | preloaded %d / 1024 pages (Task 0: %d, Task 1: %d, Task 2: %d)]\n",
+              (int)gep9_mmu.allocated_count,
+              gep9_mmu.CountTaskFrames(0),
+              gep9_mmu.CountTaskFrames(1),
+              gep9_mmu.CountTaskFrames(2));
 }
 
 // ═══════════════════════════════════════════════════════════════════

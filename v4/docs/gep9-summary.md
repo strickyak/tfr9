@@ -86,7 +86,7 @@ Below is a complete capture of Hatvan OS booting on the physical Hitachi 6309E C
 [gep9: Task 0 image load complete]
 [gep9: loading /pc/rbf_6809.decb into Task 1...]
 [gep9: loading /pc/procfs_6809.decb into Task 2...]
-[gep9: IO and MMU initialized]
+[gep9: IO and MMU initialized | preloaded 164 / 1024 pages (Task 0: 105, Task 1: 47, Task 2: 12)]
 [bye: launching core1...]
 [bye: HALT released, 6309 booting]
     --  Hatvan OS
@@ -99,6 +99,13 @@ Below is a complete capture of Hatvan OS booting on the physical Hitachi 6309E C
     --  Returned from f_hal__MountRootRBF
     --  InitRoot: 0
     --  main end: 0
+    --  SHELL:FORK:OK
+
+[gep9 shell running: 216 / 1024 physical pages allocated (54.0 KB / 256 KB)]
+  Task  0: 141 pages (36096 bytes / 35.2 KB)
+  Task  1:  56 pages (14336 bytes / 14.0 KB)
+  Task  2:  15 pages ( 3840 bytes /  3.8 KB)
+  Task  3:   4 pages ( 1024 bytes /  1.0 KB)
 $ help
 Commands: help gecho gcat gdir exit
 $ gecho Hello from Hatvan OS on Hitachi 6309
@@ -110,6 +117,10 @@ test_while.sh
 triangle.sh
 $ exit
  *** GEP9 Exiting with status 0
+[gep9 on exit: 212 / 1024 physical pages allocated (53.0 KB / 256 KB)]
+  Task  0: 141 pages (36096 bytes / 35.2 KB)
+  Task  1:  56 pages (14336 bytes / 14.0 KB)
+  Task  2:  15 pages ( 3840 bytes /  3.8 KB)
 
 [tether: target shutdown OK (0)]
 Received C_SHUTDOWN status 0; exiting cleanly
@@ -117,7 +128,19 @@ Received C_SHUTDOWN status 0; exiting cleanly
 
 ---
 
-## 2. Implementation Summary
+## 2. Physical Page Utilization (256 KB / 1,024 Pages)
+
+During the boot lifecycle to an interactive shell prompt:
+
+| Lifecycle Phase | Total Pages Allocated | Memory Used | Memory Free (Pool) | Per-Task Allocation Breakdown |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Firmware Preload** | **164 / 1,024** | **41.0 KB** (16.0%) | **860 pages** (215.0 KB / 84.0%) | • **Task 0 (Kernel)**: 105 pages (26.9 KB)<br>• **Task 1 (RBF Driver)**: 47 pages (12.0 KB)<br>• **Task 2 (ProcFS Driver)**: 12 pages (3.1 KB) |
+| **2. Interactive Shell (`$ `)** | **216 / 1,024** | **54.0 KB** (21.1%) | **808 pages** (202.0 KB / **78.9%**) | • **Task 0 (Kernel)**: 141 pages (+36 pages for dynamic heap, mount tables, stack)<br>• **Task 1 (RBF Driver)**: 56 pages (+9 pages for sector buffers and state)<br>• **Task 2 (ProcFS Driver)**: 15 pages (+3 pages for proc tables)<br>• **Task 3 (Shell `gsh`)**: 4 pages (1.0 KB entry point and stack) |
+| **3. After Shell Exit (`exit`)** | **212 / 1,024** | **53.0 KB** (20.7%) | **812 pages** (203.0 KB / 79.3%) | • Task 3 terminates; `PurgeTaskMem` (`$FF2F`) immediately zeroes and returns all 4 pages to the free pool. |
+
+---
+
+## 3. Implementation Summary
 
 ### 1. Sparse Demand-Paged MMU ([`tfr911h/v4_gep9_mmu.h`](file:///home/strick/modoc/coco-shelf/tfr9/v4/tfr911h/v4_gep9_mmu.h))
 - **Task & Address Space Architecture**:

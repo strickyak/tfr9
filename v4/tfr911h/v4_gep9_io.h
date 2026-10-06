@@ -86,6 +86,21 @@ byte IN_RAM gep9_read_term_out(uint) { return 0; }
 void IN_RAM gep9_write_term_out(uint, byte d) { Say(d); }
 
 byte IN_RAM gep9_read_term_in(uint) {
+  static bool reported_shell_stats = false;
+  if (!reported_shell_stats && gep9_mmu.task_tables[3] != nullptr && gep9_mmu.CountTaskFrames(3) > 0) {
+    reported_shell_stats = true;
+    cobs_printf("\n[gep9 shell running: %d / 1024 physical pages allocated (%.1f KB / 256 KB)]\n",
+                (int)gep9_mmu.allocated_count,
+                (float)(gep9_mmu.allocated_count * 256) / 1024.0f);
+    for (int t = 0; t < 16; t++) {
+      int cnt = gep9_mmu.CountTaskFrames(t);
+      if (cnt > 0) {
+        cobs_printf("  Task %2d: %3d pages (%5d bytes / %4.1f KB)\n",
+                    t, cnt, cnt * 256, (float)(cnt * 256) / 1024.0f);
+      }
+    }
+  }
+
   if (gep9_rx_has_char) {
     byte c = gep9_rx_char;
     gep9_rx_has_char = false;
@@ -118,6 +133,16 @@ void IN_RAM gep9_write_logchar(uint, byte d) { Say(d); }
 byte IN_RAM gep9_read_exit(uint) { return 0; }
 void IN_RAM gep9_write_exit(uint, byte d) {
   cobs_printf("\n *** GEP9 Exiting with status %d\n", (int)d);
+  cobs_printf("[gep9 on exit: %d / 1024 physical pages allocated (%.1f KB / 256 KB)]\n",
+              (int)gep9_mmu.allocated_count,
+              (float)(gep9_mmu.allocated_count * 256) / 1024.0f);
+  for (int t = 0; t < 16; t++) {
+    int cnt = gep9_mmu.CountTaskFrames(t);
+    if (cnt > 0) {
+      cobs_printf("  Task %2d: %3d pages (%5d bytes / %4.1f KB)\n",
+                  t, cnt, cnt * 256, (float)(cnt * 256) / 1024.0f);
+    }
+  }
   cobs_shutdown(d);
   stdio_flush();
   sleep_ms(100);
