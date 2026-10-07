@@ -304,6 +304,7 @@ volatile uint32_t push_fail_counter = 0;
 
 #include "bug.h"
 #include "disk11_rom.h"  // byte disk11_rom[8192]...
+#include "hdbdos3_rom.h"  // byte hdbdos3_rom[8192]... (HDB-DOS, needs becker port)
 #if BECOME_COCO3
 #include "coco3_rom.h"   // byte coco3_rom[32768]...
 #endif
@@ -357,6 +358,9 @@ enum FifoNumbers {
   FG2BG_W_256,
   FG2BG_PEEK_REPLY,
   FG2BG_START_KEYBOARD_INJECTOR,
+  FG2BG_BECKER_READ,   // FujiNet becker-port logging, see fujinet.h
+  FG2BG_BECKER_WRITE,
+  FG2BG_BECKER_POLLS,
 };
 
 #include "cpu_tracker.h"
@@ -532,6 +536,7 @@ inline volatile bool g_freeze_cycles = false;
 #if BECOME_COCO3
 #include "coco128k.h"
 #endif
+#include "fujinet.h"
 #include "littlefs.h"
 #include "orchestra90.h"
 #include "tcl_commands.h"
@@ -625,6 +630,37 @@ class CoreEngine : public BackgroundSharedState {
   static void IN_RAM Fatal(const char* s, int x) {
     cobs_printf("\nFATAL(%d.): %s\n", x, s);
     while (1) continue;
+  }
+
+  // Switches among the peripherals sharing the SCS register block
+  // ($FF40-$FF4F): FujiNet's becker port at offsets 1 (status) and 2 (data),
+  // floppy everywhere else.  Returns false if nothing claimed the read.
+  FORCE_INLINE static bool ReadScsPort(uint abus, byte& dbus, bool fujinet,
+                                       bool floppy) {
+    if (fujinet) {
+      switch (abus & 15) {
+        case 0x1:
+          dbus = T::GetFujinetStatus();
+          return true;
+        case 0x2:
+          dbus = T::ReadFujinet(abus);
+          return true;
+      }
+    }
+    if (floppy) {
+      T::ReadScsFloppy(abus, dbus);
+      return true;
+    }
+    return false;
+  }
+
+  FORCE_INLINE static void WriteScsPort(uint abus, byte& dbus, bool fujinet,
+                                        bool floppy) {
+    if (fujinet && (abus & 15) == 0x2) {
+      T::WriteFujinet(abus, dbus);
+    } else if (floppy) {
+      T::WriteScsFloppy(abus, dbus);
+    }
   }
 
   static void IN_FLASH InitializePins() {
@@ -725,6 +761,7 @@ class CoreEngine : public BackgroundSharedState {
 #if COMPRESS_CYCLES
         FlushPartialCycleBuffer();
 #endif
+        BeckerLogIdle();
         // Yield to let other tasks run. The scheduler calls PumpUsbCobs
         // on its main stack between every coro_resume.
         coro_yield(&self);
@@ -818,6 +855,12 @@ class CoreEngine : public BackgroundSharedState {
           spoon_has_work = true;
           break;
 
+        case FG2BG_BECKER_READ:
+        case FG2BG_BECKER_WRITE:
+        case FG2BG_BECKER_POLLS:
+          BeckerLogChore(chore_num, chore);
+          break;
+
         case FG2BG_PEEK_REPLY:
           // During console mode, peek replies go directly to console::peek()
           // via fg2bg. This shouldn't arrive here, but handle gracefully.
@@ -831,6 +874,7 @@ class CoreEngine : public BackgroundSharedState {
       // resume floppy/spoon tasks. Without this, at SLOW_SPEED the
       // FIFO is never empty and drain_task would run forever,
       // starving ReceiveSectorData's USB polling.
+      BeckerLogIdle();  // fg2bg may never empty while bus tracing.
       coro_yield(&self);
     }
   }
@@ -898,10 +942,13 @@ class CoreEngine : public BackgroundSharedState {
     while (true) {
       coro_resume(&drain);
       if (PumpUsbCobsHasWork()) PumpUsbCobs();
+      PumpFujinet();
       coro_resume(&floppy);
       if (PumpUsbCobsHasWork()) PumpUsbCobs();
+      PumpFujinet();
       coro_resume(&spoon);
       if (PumpUsbCobsHasWork()) PumpUsbCobs();
+      PumpFujinet();
     }
   }  // end background
 
@@ -947,6 +994,14 @@ class CoreEngine : public BackgroundSharedState {
 #endif
       uint cycle = 0;
       bool floppy_emulation = centipede_config.floppy_fd || centipede_config.floppy_pc;
+      const bool fujinet = centipede_config.fujinet;
+      if (fujinet) T::InitFujinet();
+      becker_trace = fujinet && centipede_config.trace_becker;
+      const bool scs_emulation = floppy_emulation || fujinet;
+      // HDB-DOS talks to FujiNet over the becker port; disk11 does not.
+      // FujiNet always gets its HDB-DOS, whether or not rom_disk11 is set.
+      byte* const c000_rom = fujinet ? hdbdos3_rom : disk11_rom;
+      const bool c000_inject = centipede_config.rom_disk11 || fujinet;
       while (true) {
         const uint signals = GERBIL_GET();
         FlowControlCheck();  // Check watermark every cycle
@@ -963,7 +1018,7 @@ class CoreEngine : public BackgroundSharedState {
         constexpr uint NEG_SELECTS = NEG_CTS | NEG_SCS;
 #endif
 
-        if (LIKELY(!floppy_emulation || (signals & NEG_SELECTS) == NEG_SELECTS)) {
+        if (LIKELY(!scs_emulation || (signals & NEG_SELECTS) == NEG_SELECTS)) {
           // CASE normal
 
           if (LIKELY(reading)) {
@@ -1036,8 +1091,8 @@ class CoreEngine : public BackgroundSharedState {
               // Below $FF00, addresses are either CoCo 3 ROM or MMU-mapped RAM.
               // Never pass to CoCo 2 motherboard ROM or RAM.
               if (T::IsCoco3Rom(abus)) {
-                if (centipede_config.rom_disk11 && ((gime_init0 & 0x02) == 0) && (0xC000 <= abus && abus < 0xE000)) {
-                  dbus = disk11_rom[abus & 0x1FFF];
+                if (c000_inject && ((gime_init0 & 0x02) == 0) && (0xC000 <= abus && abus < 0xE000)) {
+                  dbus = c000_rom[abus & 0x1FFF];
                 } else {
                   dbus = coco3_rom[abus - 0x8000];
                 }
@@ -1049,14 +1104,14 @@ class CoreEngine : public BackgroundSharedState {
               }
 #endif
             } else if (
-                    centipede_config.rom_disk11
+                    c000_inject
                     && not T::UseCoco64kRam(abus)
                     && 0xC000 <= abus
                     && abus < 0xE000) {
               // I DONT KNOW WHY, but we're not seeing CTS drop for Disk Basic
               // ROM.
               //--SAY('c');
-              dbus = disk11_rom[abus & 0x1FFF];
+              dbus = c000_rom[abus & 0x1FFF];
               GERBIL_DRIVE(dbus);
             } else if (
                     centipede_config.ram_64k
@@ -1165,11 +1220,14 @@ class CoreEngine : public BackgroundSharedState {
           // CASE special
           if (LIKELY(reading)) {  // Special CPU READING -- we TX
             // CASE special read
-            if ((signals & NEG_SCS) == 0) {  // READ CTS
-              T::ReadScsFloppy(abus, dbus);
+            if ((signals & NEG_SCS) == 0  // READ SCS
+                && !T::ReadScsPort(abus, dbus, fujinet, floppy_emulation)) {
+              GERBIL_PASS();
+              dbus = (byte)(GERBIL_GET());  // log & debug
+            } else {
+              // JOIN special read
+              GERBIL_DRIVE(dbus);
             }
-            // JOIN special read
-            GERBIL_DRIVE(dbus);
             if (true) {
               T::PushFifoRead(abus, dbus);
             }
@@ -1180,7 +1238,7 @@ class CoreEngine : public BackgroundSharedState {
             ram[abus] = dbus;
 
             if (LIKELY((signals & NEG_SCS) == 0)) {
-              T::WriteScsFloppy(abus, dbus);
+              T::WriteScsPort(abus, dbus, fujinet, floppy_emulation);
             }  // end special write SCS
             T::PushFifoWrite(abus, dbus);
           }  // end special read or write
@@ -1281,6 +1339,7 @@ class Engine0 : public DoFloppy<Engine0>,
                 // public ReadWriteSpyEngine<Engine0>
                 // public WriteSpyEngine<Engine0>
                 public DoCoco64k<Engine0>,
+                public DoFujinet<Engine0>,
                 public CoreEngine<Engine0> {
  public:
   static void RunEngine() {
@@ -1307,6 +1366,7 @@ void IN_RAM core0_trampoline3();
 
 struct Engine3 : public DoFloppy<Engine3>,
                  public DoCoco128k<Engine3>,
+                 public DoFujinet<Engine3>,
                  public CoreEngine<Engine3> {
  public:
   static void RunEngine() {

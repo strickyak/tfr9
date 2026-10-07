@@ -9,6 +9,8 @@ struct CentipedeConfig {
     bool    trace_writes;
     bool    trace_reads;
     bool    become_coco3;
+    bool    fujinet;  // becker port at $FF41/$FF42 -> UART, and HDB-DOS at $C000
+    bool    trace_becker;  // log becker-port bytes to the tether window
 
     void SetStandard() {
         this->ram_64k = true;
@@ -19,6 +21,8 @@ struct CentipedeConfig {
 
         this->floppy_pc = false;
         this->become_coco3 = false;
+        this->fujinet = false;
+        this->trace_becker = false;
     }
 };
 

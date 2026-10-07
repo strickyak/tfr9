@@ -33,6 +33,103 @@ inline volatile uint8_t active_mmu_offset = 0;  // 0 for Task 0 ($FFA0-$FFA7), 8
 // 16 Palette Registers: $FFB0-$FFBF
 inline volatile uint8_t gime_palette[16] = {0};
 
+// I/O register handlers, called from the foreground bus loop through
+// IOReaders[]/IOWriters[].  They are plain functions, not members of the
+// template below, because GCC ignores IN_RAM's section attribute on
+// template members and leaves them in flash, where an XIP cache miss
+// stalls past the end of the 6809 bus cycle.
+namespace coco128k_io {
+
+static void IN_RAM WriteOtherSamBit(uint a, byte d) {
+  bool odd = a & 1;
+  uint bitnum = (a - 0xFFC0) >> 1;
+}
+
+static void IN_RAM WriteFFD4_P1Clear(uint a, byte d) {
+  SamP1Bit = false;
+}
+static void IN_RAM WriteFFD5_P1Set(uint a, byte d) {
+  SamP1Bit = true;
+}
+static void IN_RAM WriteFFDE_TyClear(uint a, byte d) {
+  SamTyBit = false;
+}
+static void IN_RAM WriteFFDF_TySet(uint a, byte d) {
+  SamTyBit = true;
+}
+
+static void IN_RAM WriteFF90_Init0(uint a, byte d) {
+  gime_init0 = d;
+}
+static byte IN_RAM ReadFF90_Init0(uint a) {
+  return gime_init0;
+}
+
+static void IN_RAM WriteFF91_Init1(uint a, byte d) {
+  gime_init1 = d;
+  active_mmu_offset = (d & 1) ? 8 : 0;
+}
+static byte IN_RAM ReadFF91_Init1(uint a) {
+  return gime_init1;
+}
+
+static void IN_RAM WriteFF92_IrqEnr(uint a, byte d) { gime_irqenr = d; }
+static byte IN_RAM ReadFF92_IrqEnr(uint a) { return gime_irqenr; }
+
+static void IN_RAM WriteFF93_FirqEnr(uint a, byte d) { gime_firqenr = d; }
+static byte IN_RAM ReadFF93_FirqEnr(uint a) { return gime_firqenr; }
+
+static void IN_RAM WriteFF94_TimerMsb(uint a, byte d) { gime_timer_msb = d & 0x0F; }
+static byte IN_RAM ReadFF94_TimerMsb(uint a) { return gime_timer_msb; }
+
+static void IN_RAM WriteFF95_TimerLsb(uint a, byte d) { gime_timer_lsb = d; }
+static byte IN_RAM ReadFF95_TimerLsb(uint a) { return gime_timer_lsb; }
+
+static void IN_RAM WriteFF98_Vmode(uint a, byte d) { gime_vmode = d; }
+static byte IN_RAM ReadFF98_Vmode(uint a) { return gime_vmode; }
+
+static void IN_RAM WriteFF99_Vres(uint a, byte d) { gime_vres = d; }
+static byte IN_RAM ReadFF99_Vres(uint a) { return gime_vres; }
+
+static void IN_RAM WriteFF9A_Brdr(uint a, byte d) { gime_brdr = d; }
+static byte IN_RAM ReadFF9A_Brdr(uint a) { return gime_brdr; }
+
+static void IN_RAM WriteFF9B_Vscroll(uint a, byte d) { gime_vscroll = d; }
+static byte IN_RAM ReadFF9B_Vscroll(uint a) { return gime_vscroll; }
+
+static void IN_RAM WriteFF9C_Hscroll(uint a, byte d) { gime_hscroll = d; }
+static byte IN_RAM ReadFF9C_Hscroll(uint a) { return gime_hscroll; }
+
+static void IN_RAM WriteFF9D_VoffMsb(uint a, byte d) { gime_voff_msb = d; }
+static byte IN_RAM ReadFF9D_VoffMsb(uint a) { return gime_voff_msb; }
+
+static void IN_RAM WriteFF9E_VoffLsb(uint a, byte d) { gime_voff_lsb = d; }
+static byte IN_RAM ReadFF9E_VoffLsb(uint a) { return gime_voff_lsb; }
+
+static void IN_RAM WriteFFAx_MMU(uint a, byte d) {
+  uint reg = a & 0x0F;
+  uint task = (reg >> 3) & 1;
+  uint slot = reg & 7;
+  mmu_task[task][slot] = d & 0x3F;
+  mmu_base[reg] = (uint32_t)(d & 0x0F) << 13;
+}
+static byte IN_RAM ReadFFAx_MMU(uint a) {
+  uint reg = a & 0x0F;
+  uint task = (reg >> 3) & 1;
+  uint slot = reg & 7;
+  return mmu_task[task][slot];
+}
+
+static void IN_RAM WriteFFBx_Palette(uint a, byte d) {
+  gime_palette[a & 0x0F] = d & 0x3F;
+  ram[a] = d & 0x3F;
+}
+static byte IN_RAM ReadFFBx_Palette(uint a) {
+  return gime_palette[a & 0x0F];
+}
+
+}  // namespace coco128k_io
+
 template <typename T>
 struct DoCoco128k {
   static constexpr bool HasCoco128k() { return true; }
@@ -98,16 +195,16 @@ struct DoCoco128k {
 
   static void InitCoco128k() {
     for (uint a = 0xFFD4; a < 0xFFE0; a++) {
-      IOWriters[255 & a] = WriteOtherSamBit;
+      IOWriters[255 & a] = coco128k_io::WriteOtherSamBit;
     }
 
     SamP1Bit = false;
     SamTyBit = false;
     active_mmu_offset = 0;
-    IOWriters[0xD4] = WriteFFD4_P1Clear;
-    IOWriters[0xD5] = WriteFFD5_P1Set;
-    IOWriters[0xDE] = WriteFFDE_TyClear;
-    IOWriters[0xDF] = WriteFFDF_TySet;
+    IOWriters[0xD4] = coco128k_io::WriteFFD4_P1Clear;
+    IOWriters[0xD5] = coco128k_io::WriteFFD5_P1Set;
+    IOWriters[0xDE] = coco128k_io::WriteFFDE_TyClear;
+    IOWriters[0xDF] = coco128k_io::WriteFFDF_TySet;
 
     // Ensure CoCo 3 ROM boot sequence selects SAM Page 0 ($FFD4) rather than Page 1 ($FFD5)
     // at $C09D (coco3.asm:8854). On a real CoCo 3 with GIME, $FFD5 is ignored.
@@ -199,133 +296,45 @@ struct DoCoco128k {
     }
 
     // Register GIME I/O Handlers
-    IOWriters[0x90] = WriteFF90_Init0;
-    IOReaders[0x90] = ReadFF90_Init0;
-    IOWriters[0x91] = WriteFF91_Init1;
-    IOReaders[0x91] = ReadFF91_Init1;
-    IOWriters[0x92] = WriteFF92_IrqEnr;
-    IOReaders[0x92] = ReadFF92_IrqEnr;
-    IOWriters[0x93] = WriteFF93_FirqEnr;
-    IOReaders[0x93] = ReadFF93_FirqEnr;
-    IOWriters[0x94] = WriteFF94_TimerMsb;
-    IOReaders[0x94] = ReadFF94_TimerMsb;
-    IOWriters[0x95] = WriteFF95_TimerLsb;
-    IOReaders[0x95] = ReadFF95_TimerLsb;
+    IOWriters[0x90] = coco128k_io::WriteFF90_Init0;
+    IOReaders[0x90] = coco128k_io::ReadFF90_Init0;
+    IOWriters[0x91] = coco128k_io::WriteFF91_Init1;
+    IOReaders[0x91] = coco128k_io::ReadFF91_Init1;
+    IOWriters[0x92] = coco128k_io::WriteFF92_IrqEnr;
+    IOReaders[0x92] = coco128k_io::ReadFF92_IrqEnr;
+    IOWriters[0x93] = coco128k_io::WriteFF93_FirqEnr;
+    IOReaders[0x93] = coco128k_io::ReadFF93_FirqEnr;
+    IOWriters[0x94] = coco128k_io::WriteFF94_TimerMsb;
+    IOReaders[0x94] = coco128k_io::ReadFF94_TimerMsb;
+    IOWriters[0x95] = coco128k_io::WriteFF95_TimerLsb;
+    IOReaders[0x95] = coco128k_io::ReadFF95_TimerLsb;
 
-    IOWriters[0x98] = WriteFF98_Vmode;
-    IOReaders[0x98] = ReadFF98_Vmode;
-    IOWriters[0x99] = WriteFF99_Vres;
-    IOReaders[0x99] = ReadFF99_Vres;
-    IOWriters[0x9A] = WriteFF9A_Brdr;
-    IOReaders[0x9A] = ReadFF9A_Brdr;
-    IOWriters[0x9B] = WriteFF9B_Vscroll;
-    IOReaders[0x9B] = ReadFF9B_Vscroll;
-    IOWriters[0x9C] = WriteFF9C_Hscroll;
-    IOReaders[0x9C] = ReadFF9C_Hscroll;
-    IOWriters[0x9D] = WriteFF9D_VoffMsb;
-    IOReaders[0x9D] = ReadFF9D_VoffMsb;
-    IOWriters[0x9E] = WriteFF9E_VoffLsb;
-    IOReaders[0x9E] = ReadFF9E_VoffLsb;
+    IOWriters[0x98] = coco128k_io::WriteFF98_Vmode;
+    IOReaders[0x98] = coco128k_io::ReadFF98_Vmode;
+    IOWriters[0x99] = coco128k_io::WriteFF99_Vres;
+    IOReaders[0x99] = coco128k_io::ReadFF99_Vres;
+    IOWriters[0x9A] = coco128k_io::WriteFF9A_Brdr;
+    IOReaders[0x9A] = coco128k_io::ReadFF9A_Brdr;
+    IOWriters[0x9B] = coco128k_io::WriteFF9B_Vscroll;
+    IOReaders[0x9B] = coco128k_io::ReadFF9B_Vscroll;
+    IOWriters[0x9C] = coco128k_io::WriteFF9C_Hscroll;
+    IOReaders[0x9C] = coco128k_io::ReadFF9C_Hscroll;
+    IOWriters[0x9D] = coco128k_io::WriteFF9D_VoffMsb;
+    IOReaders[0x9D] = coco128k_io::ReadFF9D_VoffMsb;
+    IOWriters[0x9E] = coco128k_io::WriteFF9E_VoffLsb;
+    IOReaders[0x9E] = coco128k_io::ReadFF9E_VoffLsb;
 
     // MMU Registers $FFA0-$FFAF
     for (uint a = 0xA0; a <= 0xAF; a++) {
-      IOWriters[a] = WriteFFAx_MMU;
-      IOReaders[a] = ReadFFAx_MMU;
+      IOWriters[a] = coco128k_io::WriteFFAx_MMU;
+      IOReaders[a] = coco128k_io::ReadFFAx_MMU;
     }
 
     // Palette Registers $FFB0-$FFBF
     for (uint a = 0xB0; a <= 0xBF; a++) {
-      IOWriters[a] = WriteFFBx_Palette;
-      IOReaders[a] = ReadFFBx_Palette;
+      IOWriters[a] = coco128k_io::WriteFFBx_Palette;
+      IOReaders[a] = coco128k_io::ReadFFBx_Palette;
     }
-  }
-
-  static void IN_RAM WriteOtherSamBit(uint a, byte d) {
-    bool odd = a & 1;
-    uint bitnum = (a - 0xFFC0) >> 1;
-  }
-
-  static void IN_RAM WriteFFD4_P1Clear(uint a, byte d) {
-    SamP1Bit = false;
-  }
-  static void IN_RAM WriteFFD5_P1Set(uint a, byte d) {
-    SamP1Bit = true;
-  }
-  static void IN_RAM WriteFFDE_TyClear(uint a, byte d) {
-    SamTyBit = false;
-  }
-  static void IN_RAM WriteFFDF_TySet(uint a, byte d) {
-    SamTyBit = true;
-  }
-
-  static void IN_RAM WriteFF90_Init0(uint a, byte d) {
-    gime_init0 = d;
-  }
-  static byte IN_RAM ReadFF90_Init0(uint a) {
-    return gime_init0;
-  }
-
-  static void IN_RAM WriteFF91_Init1(uint a, byte d) {
-    gime_init1 = d;
-    active_mmu_offset = (d & 1) ? 8 : 0;
-  }
-  static byte IN_RAM ReadFF91_Init1(uint a) {
-    return gime_init1;
-  }
-
-  static void IN_RAM WriteFF92_IrqEnr(uint a, byte d) { gime_irqenr = d; }
-  static byte IN_RAM ReadFF92_IrqEnr(uint a) { return gime_irqenr; }
-
-  static void IN_RAM WriteFF93_FirqEnr(uint a, byte d) { gime_firqenr = d; }
-  static byte IN_RAM ReadFF93_FirqEnr(uint a) { return gime_firqenr; }
-
-  static void IN_RAM WriteFF94_TimerMsb(uint a, byte d) { gime_timer_msb = d & 0x0F; }
-  static byte IN_RAM ReadFF94_TimerMsb(uint a) { return gime_timer_msb; }
-
-  static void IN_RAM WriteFF95_TimerLsb(uint a, byte d) { gime_timer_lsb = d; }
-  static byte IN_RAM ReadFF95_TimerLsb(uint a) { return gime_timer_lsb; }
-
-  static void IN_RAM WriteFF98_Vmode(uint a, byte d) { gime_vmode = d; }
-  static byte IN_RAM ReadFF98_Vmode(uint a) { return gime_vmode; }
-
-  static void IN_RAM WriteFF99_Vres(uint a, byte d) { gime_vres = d; }
-  static byte IN_RAM ReadFF99_Vres(uint a) { return gime_vres; }
-
-  static void IN_RAM WriteFF9A_Brdr(uint a, byte d) { gime_brdr = d; }
-  static byte IN_RAM ReadFF9A_Brdr(uint a) { return gime_brdr; }
-
-  static void IN_RAM WriteFF9B_Vscroll(uint a, byte d) { gime_vscroll = d; }
-  static byte IN_RAM ReadFF9B_Vscroll(uint a) { return gime_vscroll; }
-
-  static void IN_RAM WriteFF9C_Hscroll(uint a, byte d) { gime_hscroll = d; }
-  static byte IN_RAM ReadFF9C_Hscroll(uint a) { return gime_hscroll; }
-
-  static void IN_RAM WriteFF9D_VoffMsb(uint a, byte d) { gime_voff_msb = d; }
-  static byte IN_RAM ReadFF9D_VoffMsb(uint a) { return gime_voff_msb; }
-
-  static void IN_RAM WriteFF9E_VoffLsb(uint a, byte d) { gime_voff_lsb = d; }
-  static byte IN_RAM ReadFF9E_VoffLsb(uint a) { return gime_voff_lsb; }
-
-  static void IN_RAM WriteFFAx_MMU(uint a, byte d) {
-    uint reg = a & 0x0F;
-    uint task = (reg >> 3) & 1;
-    uint slot = reg & 7;
-    mmu_task[task][slot] = d & 0x3F;
-    mmu_base[reg] = (uint32_t)(d & 0x0F) << 13;
-  }
-  static byte IN_RAM ReadFFAx_MMU(uint a) {
-    uint reg = a & 0x0F;
-    uint task = (reg >> 3) & 1;
-    uint slot = reg & 7;
-    return mmu_task[task][slot];
-  }
-
-  static void IN_RAM WriteFFBx_Palette(uint a, byte d) {
-    gime_palette[a & 0x0F] = d & 0x3F;
-    ram[a] = d & 0x3F;
-  }
-  static byte IN_RAM ReadFFBx_Palette(uint a) {
-    return gime_palette[a & 0x0F];
   }
 };
 
