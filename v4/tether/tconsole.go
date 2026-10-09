@@ -792,6 +792,17 @@ func (uc *ActiveSerial) loop() {
 	for {
 		serialPort, err := OpenSerial(uc.Options)
 		if err != nil {
+			if strings.HasPrefix(uc.Options.PortName, "/dev/ttyACM") {
+				if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
+					for _, m := range matches {
+						if m != uc.Options.PortName {
+							log.Printf("ActiveSerial: switching port %s -> %s", uc.Options.PortName, m)
+							uc.Options.PortName = m
+							break
+						}
+					}
+				}
+			}
 			if wasOpen {
 				log.Printf("UsbClosed")
 				wasOpen = false

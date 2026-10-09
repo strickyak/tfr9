@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -269,7 +270,6 @@ func RunQuickPing(value uint32) {
 		fmt.Fprintf(os.Stderr, "quick-ping: FAIL: %v\n", err)
 		os.Exit(1)
 	}
-	time.Sleep(1 * time.Second)
 	fmt.Printf("quick-ping: OK (value=%d)\n", value)
 	os.Exit(0)
 }
@@ -324,6 +324,9 @@ func RunQuickRestart(bootMode uint32, shouldExit bool) {
 	// /dev/ttyACM0 if the Pico reboots.
 	disconnect()
 	time.Sleep(3 * time.Second)
+	if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
+		*WIRE = matches[len(matches)-1]
+	}
 	fmt.Printf("%s: OK\n", label)
 	if shouldExit {
 		os.Exit(0)

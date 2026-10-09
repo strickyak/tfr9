@@ -10,6 +10,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -142,11 +144,26 @@ func makeTermios2(options OpenSerialOptions) (*termios2, error) {
 
 func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 
+	portName := options.PortName
 	file, openErr :=
 		os.OpenFile(
-			options.PortName,
+			portName,
 			syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK,
 			0600)
+	if openErr != nil && strings.HasPrefix(portName, "/dev/ttyACM") {
+		if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
+			for _, m := range matches {
+				if m != portName {
+					if f, err := os.OpenFile(m, syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0600); err == nil {
+						file = f
+						openErr = nil
+						portName = m
+						break
+					}
+				}
+			}
+		}
+	}
 	if openErr != nil {
 		return nil, openErr
 	}

@@ -132,6 +132,16 @@ void IN_RAM gep9_write_logchar(uint, byte d) { Say(d); }
 
 byte IN_RAM gep9_read_exit(uint) { return 0; }
 void IN_RAM gep9_write_exit(uint, byte d) {
+  // Immediately assert RESET and HALT to stop 6309 bus activity
+  gpio_put(20, 0); gpio_set_dir(20, GPIO_OUT);
+  gpio_put(24, 0); gpio_set_dir(24, GPIO_OUT);
+
+  // Wait for Core 0 to drain pending console characters
+  while (fg2bg_chars.size() > 0) {
+    sleep_ms(2);
+  }
+  sleep_ms(30);
+
   cobs_printf("\n *** GEP9 Exiting with status %d\n", (int)d);
   cobs_printf("[gep9 on exit: %d / 1024 physical pages allocated (%.1f KB / 256 KB)]\n",
               (int)gep9_mmu.allocated_count,
@@ -263,6 +273,16 @@ void IN_RAM gep9_write_purge(uint, byte d) {
   }
 }
 
+// ── EMBIGGEN MMAP Vector ($FF40..$FF47) ──
+byte IN_RAM gep9_read_mmap(uint addr) {
+  uint8_t slot = addr & 0x07;
+  return gep9_mmu.task_mmap[gep9_mmu.current_task][slot];
+}
+void IN_RAM gep9_write_mmap(uint addr, byte d) {
+  uint8_t slot = addr & 0x07;
+  gep9_mmu.task_mmap[gep9_mmu.current_task][slot] = d;
+}
+
 // ── System Vectors ($FFF0..$FFFF) ──
 byte IN_RAM gep9_read_vector(uint addr) {
   return *gep9_mmu.TranslateRead(0, addr);
@@ -345,6 +365,12 @@ void Install_Gep9_IO(IOReader* readers, IOWriter* writers) {
   // PurgeTaskMem ($FF2F)
   readers[0x2F] = gep9_read_purge;
   writers[0x2F] = gep9_write_purge;
+
+  // EMBIGGEN MMAP Vector ($FF40..$FF47)
+  for (int i = 0x40; i <= 0x47; i++) {
+    readers[i] = gep9_read_mmap;
+    writers[i] = gep9_write_mmap;
+  }
 
   // System Vectors ($FFF0..$FFFF)
   for (int i = 0xF0; i <= 0xFF; i++) {
