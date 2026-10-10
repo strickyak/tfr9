@@ -400,6 +400,52 @@ struct Gep9MMU {
     }
     return &ram[(f << 8) | b];
   }
+
+  FORCE_INLINE byte* IN_RAM TranslateBlockRead(uint8_t task, uint8_t blk, uint16_t offset) {
+    uint8_t s = task_to_slot[task];
+    if (unlikely(task != 0 && !(table_used_mask & (1U << s)))) {
+      return &ram[offset & 0xFF]; // ZERO_FRAME
+    }
+    FrameId* blk_tbl = task_blocks[s][blk];
+    if (unlikely(!blk_tbl)) {
+      return &ram[offset & 0xFF]; // ZERO_FRAME
+    }
+    uint8_t p = (offset & 0x1FFF) >> 8;
+    uint8_t b = offset & 0xFF;
+    FrameId f = blk_tbl[p];
+    if (unlikely(f == GEP9_INVALID_FRAME)) {
+      return &ram[b]; // ZERO_FRAME
+    }
+    return &ram[(f << 8) | b];
+  }
+
+  FORCE_INLINE byte* IN_RAM TranslateReadPhys(uint8_t task, uint8_t page, uint16_t addr) {
+    if (page == 0) {
+      return TranslateRead(task, addr);
+    }
+    if (embiggen) {
+      uint8_t slot = addr >> 13;
+      uint8_t blk = (page - 1) * 8 + slot;
+      if (blk >= 8 && blk <= 55) {
+        return TranslateBlockRead(task, blk, addr & 0x1FFF);
+      }
+    }
+    return &ram[addr & 0xFF];
+  }
+
+  FORCE_INLINE byte* IN_RAM TranslateWritePhys(uint8_t task, uint8_t page, uint16_t addr) {
+    if (page == 0) {
+      return TranslateWrite(task, addr);
+    }
+    if (embiggen) {
+      uint8_t slot = addr >> 13;
+      uint8_t blk = (page - 1) * 8 + slot;
+      if (blk >= 8 && blk <= 55) {
+        return TranslateBlockWrite(task, blk, addr & 0x1FFF);
+      }
+    }
+    return TranslateWrite(task, addr);
+  }
 };
 
 inline Gep9MMU gep9_mmu;

@@ -17,8 +17,8 @@
 //
 //   $FF10..$FF17: Hatvan Disk Controller (/d0../d3)
 //   $FF20: TaskFuse
-//   $FF21..$FF27: Fast DMA Block Copy Engine
-//   $FF28..$FF29: Shared Memory Curtain (default $E000)
+//   $FF21..$FF2A: Fast DMA Block Copy Engine
+//   $FF2B..$FF2C: Shared Memory Curtain (default $E000)
 //   $FF2D: TaskFlagsTarget
 //   $FF2E: TaskFlagsRegister (Bit 0 = TASK_FLAG_IO)
 //   $FF2F: PurgeTaskMem (Reclamation Port)
@@ -32,10 +32,13 @@ struct Gep9IOState {
 
 struct Gep9DMAState {
   uint8_t  src_task;  // $FF21
-  uint16_t src_addr;  // $FF22..$FF23
-  uint8_t  dst_task;  // $FF24
-  uint16_t dst_addr;  // $FF25..$FF26
-  uint8_t  status;    // $FF27: 0=busy, 1=OK, >1=error
+  uint8_t  src_page;  // $FF22
+  uint16_t src_addr;  // $FF23..$FF24
+  uint8_t  dst_task;  // $FF25
+  uint8_t  dst_page;  // $FF26
+  uint16_t dst_addr;  // $FF27..$FF28
+  uint8_t  count;     // $FF29
+  uint8_t  status;    // $FF2A: 0=busy, 1=OK, >1=error
 };
 
 struct Gep9DiskState {
@@ -206,9 +209,12 @@ void IN_RAM gep9_write_task_fuse(uint, byte d) {
   gep9_mmu.task_fuse_step = 0;
 }
 
-// ── Fast DMA Block Copy Engine ($FF21..$FF27) ──
+// ── Fast DMA Block Copy Engine ($FF21..$FF2A) ──
 byte IN_RAM gep9_read_dma_src_task(uint) { return gep9_dma.src_task; }
 void IN_RAM gep9_write_dma_src_task(uint, byte d) { gep9_dma.src_task = d; }
+
+byte IN_RAM gep9_read_dma_src_page(uint) { return gep9_dma.src_page; }
+void IN_RAM gep9_write_dma_src_page(uint, byte d) { gep9_dma.src_page = d; }
 
 byte IN_RAM gep9_read_dma_src_hi(uint) { return (gep9_dma.src_addr >> 8) & 0xFF; }
 void IN_RAM gep9_write_dma_src_hi(uint, byte d) {
@@ -221,6 +227,9 @@ void IN_RAM gep9_write_dma_src_lo(uint, byte d) {
 
 byte IN_RAM gep9_read_dma_dst_task(uint) { return gep9_dma.dst_task; }
 void IN_RAM gep9_write_dma_dst_task(uint, byte d) { gep9_dma.dst_task = d; }
+
+byte IN_RAM gep9_read_dma_dst_page(uint) { return gep9_dma.dst_page; }
+void IN_RAM gep9_write_dma_dst_page(uint, byte d) { gep9_dma.dst_page = d; }
 
 byte IN_RAM gep9_read_dma_dst_hi(uint) { return (gep9_dma.dst_addr >> 8) & 0xFF; }
 void IN_RAM gep9_write_dma_dst_hi(uint, byte d) {
@@ -236,17 +245,26 @@ byte IN_RAM gep9_read_dma_count(uint) {
   gep9_dma.status = 0; // Reset on read
   return st;
 }
-
 void IN_RAM gep9_write_dma_count(uint, byte d) {
+  gep9_dma.count = d;
   uint16_t count = (d == 0) ? 256 : d;
   for (uint16_t i = 0; i < count; i++) {
-    byte val = *gep9_mmu.TranslateRead(gep9_dma.src_task, gep9_dma.src_addr + i);
-    *gep9_mmu.TranslateWrite(gep9_dma.dst_task, gep9_dma.dst_addr + i) = val;
+    byte val = *gep9_mmu.TranslateReadPhys(gep9_dma.src_task, gep9_dma.src_page, gep9_dma.src_addr + i);
+    *gep9_mmu.TranslateWritePhys(gep9_dma.dst_task, gep9_dma.dst_page, gep9_dma.dst_addr + i) = val;
   }
   gep9_dma.status = 1; // 1 = OKAY
 }
 
-// ── Shared Memory Curtain ($FF28..$FF29) ──
+byte IN_RAM gep9_read_dma_status(uint) {
+  byte st = gep9_dma.status;
+  gep9_dma.status = 0; // Reset on read
+  return st;
+}
+void IN_RAM gep9_write_dma_status(uint, byte d) {
+  gep9_dma.status = d;
+}
+
+// ── Shared Memory Curtain ($FF2B..$FF2C) ──
 byte IN_RAM gep9_read_curtain_hi(uint) { return (gep9_mmu.shared_curtain >> 8) & 0xFF; }
 void IN_RAM gep9_write_curtain_hi(uint, byte d) {
   gep9_mmu.shared_curtain = (gep9_mmu.shared_curtain & 0x00FF) | ((uint16_t)d << 8);
@@ -334,27 +352,33 @@ void Install_Gep9_IO(IOReader* readers, IOWriter* writers) {
   readers[0x20] = gep9_read_task_fuse;
   writers[0x20] = gep9_write_task_fuse;
 
-  // Fast DMA ($FF21..$FF27)
+  // Fast DMA ($FF21..$FF2A)
   readers[0x21] = gep9_read_dma_src_task;
   writers[0x21] = gep9_write_dma_src_task;
-  readers[0x22] = gep9_read_dma_src_hi;
-  writers[0x22] = gep9_write_dma_src_hi;
-  readers[0x23] = gep9_read_dma_src_lo;
-  writers[0x23] = gep9_write_dma_src_lo;
-  readers[0x24] = gep9_read_dma_dst_task;
-  writers[0x24] = gep9_write_dma_dst_task;
-  readers[0x25] = gep9_read_dma_dst_hi;
-  writers[0x25] = gep9_write_dma_dst_hi;
-  readers[0x26] = gep9_read_dma_dst_lo;
-  writers[0x26] = gep9_write_dma_dst_lo;
-  readers[0x27] = gep9_read_dma_count;
-  writers[0x27] = gep9_write_dma_count;
+  readers[0x22] = gep9_read_dma_src_page;
+  writers[0x22] = gep9_write_dma_src_page;
+  readers[0x23] = gep9_read_dma_src_hi;
+  writers[0x23] = gep9_write_dma_src_hi;
+  readers[0x24] = gep9_read_dma_src_lo;
+  writers[0x24] = gep9_write_dma_src_lo;
+  readers[0x25] = gep9_read_dma_dst_task;
+  writers[0x25] = gep9_write_dma_dst_task;
+  readers[0x26] = gep9_read_dma_dst_page;
+  writers[0x26] = gep9_write_dma_dst_page;
+  readers[0x27] = gep9_read_dma_dst_hi;
+  writers[0x27] = gep9_write_dma_dst_hi;
+  readers[0x28] = gep9_read_dma_dst_lo;
+  writers[0x28] = gep9_write_dma_dst_lo;
+  readers[0x29] = gep9_read_dma_count;
+  writers[0x29] = gep9_write_dma_count;
+  readers[0x2A] = gep9_read_dma_status;
+  writers[0x2A] = gep9_write_dma_status;
 
-  // Shared Memory Curtain ($FF28..$FF29)
-  readers[0x28] = gep9_read_curtain_hi;
-  writers[0x28] = gep9_write_curtain_hi;
-  readers[0x29] = gep9_read_curtain_lo;
-  writers[0x29] = gep9_write_curtain_lo;
+  // Shared Memory Curtain ($FF2B..$FF2C)
+  readers[0x2B] = gep9_read_curtain_hi;
+  writers[0x2B] = gep9_write_curtain_hi;
+  readers[0x2C] = gep9_read_curtain_lo;
+  writers[0x2C] = gep9_write_curtain_lo;
 
   // TaskFlags ($FF2D..$FF2E)
   readers[0x2D] = gep9_read_flags_target;
