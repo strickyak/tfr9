@@ -155,6 +155,7 @@ enum FG2BG_Tags {
   FG2BG_FIC   = 12,   // First Instruction Cycle (read with LIC from previous cycle)
   FG2BG_EMUDSK = 13,  // EmuDsk sector transfer request to background
   FG2BG_GEP9_DISK = 14, // gep9 Hatvan disk sector transfer request
+  FG2BG_MC_SD = 15,   // multicomp09 SPI SD sector transfer request
 };
 
 // Say: push a console character to the high-priority chars FIFO.
@@ -451,6 +452,7 @@ void IN_RAM acia_write_control(uint addr, byte data) {
 #include "turbo9os.h"
 #include "v4_gep9_mmu.h"
 #include "v4_gep9_io.h"
+#include "v4_multicomp09.h"
 
 // ═══════════════════════════════════════════════════════════════════
 // Flat65280 Engine Support
@@ -466,6 +468,7 @@ enum EngineType {
   ENGINE_DEEP65280 = 2,
   ENGINE_GEP9 = 3,
   ENGINE_GEP9BIG = 4,
+  ENGINE_MULTICOMP09 = 5,
 };
 static EngineType current_engine = ENGINE_TURBO9OS;
 
@@ -1228,6 +1231,159 @@ void setup_gep9big() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Multicomp09 (Fuzix 6809) Engine Support
+// ═══════════════════════════════════════════════════════════════════
+
+void IN_RAM mc_dispatch_sd_cmd(uint8_t cmd) {
+  switch (cmd) {
+    case 0x00: { // Read 512-byte sector
+      mc_sd_idx = 0;
+      g_mc_sd_req.lba = (uint32_t)mc_sd_lba0 |
+                        ((uint32_t)mc_sd_lba1 << 8) |
+                        ((uint32_t)mc_sd_lba2 << 16);
+      g_mc_sd_req.command = 0;
+      g_mc_sd_req.status.store(-1, std::memory_order_release);
+
+      uint pb_w = ((uint)FG2BG_MC_SD << 24);
+      while (!fg2bg.push(pb_w)) { tight_loop_contents(); }
+
+      while (g_mc_sd_req.status.load(std::memory_order_acquire) < 0) {
+        tight_loop_contents();
+      }
+
+      mc_sd_ctl = 0xE0; // Data byte ready
+      break;
+    }
+    case 0x01: { // Write 512-byte sector
+      if (mc_sd_ctl == 0xA0) {
+        g_mc_sd_req.lba = (uint32_t)mc_sd_lba0 |
+                          ((uint32_t)mc_sd_lba1 << 8) |
+                          ((uint32_t)mc_sd_lba2 << 16);
+        g_mc_sd_req.command = 1;
+        g_mc_sd_req.status.store(-1, std::memory_order_release);
+
+        uint pb_w = ((uint)FG2BG_MC_SD << 24);
+        while (!fg2bg.push(pb_w)) { tight_loop_contents(); }
+
+        while (g_mc_sd_req.status.load(std::memory_order_acquire) < 0) {
+          tight_loop_contents();
+        }
+        mc_sd_ctl = 0x80; // Idle
+      } else {
+        mc_sd_idx = 0;
+        mc_sd_ctl = 0xA0; // Ready for write data
+      }
+      break;
+    }
+    default:
+      mc_sd_ctl = 0x80; // Idle
+      break;
+  }
+}
+
+void setup_multicomp09() {
+  current_engine = ENGINE_MULTICOMP09;
+
+  // 1. Initialize RAM and MMU
+  memset(ram, 0, sizeof(ram)); // Zero physical RAM (256 KB)
+  for (int s = 0; s < 8; s++) {
+    mc_map0[s] = s;
+    mc_map1[s] = s;
+  }
+  mc_tr = 0;
+  mc_slot = 0;
+  mc_update_mmu();
+
+  mc_acia_ctrl = 0;
+  mc_rx_has_char = false;
+  mc_timer_en = false;
+  mc_timer_pending = false;
+  mc_sd_ctl = 0x80;
+  mc_sd_idx = 0;
+
+  // 2. Open drive 0 (SD card image)
+  const char* disk_path = centipede_config.drive0[0] ? centipede_config.drive0 : "/pc/disk.img";
+  g_drive_nodes[0] = vfs_resolve(disk_path);
+  if (g_drive_nodes[0]) {
+    int err = g_drive_nodes[0]->open_file(LFS_O_RDWR);
+    if (err < 0) {
+      cobs_printf("[multicomp09: disk open RDWR failed (err %d), trying RDONLY: %s]\n", err, disk_path);
+      err = g_drive_nodes[0]->open_file(LFS_O_RDONLY);
+      if (err >= 0) {
+        cobs_printf("[multicomp09: opened disk read-only: %s]\n", disk_path);
+      } else {
+        cobs_printf("[multicomp09: disk open failed: %s]\n", disk_path);
+        g_drive_nodes[0] = nullptr;
+      }
+    } else {
+      cobs_printf("[multicomp09: opened disk: %s]\n", disk_path);
+    }
+  } else {
+    cobs_printf("[multicomp09: could not resolve disk path: %s]\n", disk_path);
+  }
+
+  // 3. Load fuzix kernel (Extended DECB) into physical RAM
+  const char* kernel_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/fuzix.bin";
+  auto img_node = vfs_resolve(kernel_path);
+  if (!img_node) {
+    cobs_printf("[multicomp09: could not resolve kernel %s]\n", kernel_path);
+    return;
+  }
+  int err = img_node->open_file(LFS_O_RDONLY);
+  if (err < 0) {
+    cobs_printf("[multicomp09: failed to open kernel %s (err %d)]\n", kernel_path, err);
+    return;
+  }
+  cobs_printf("[multicomp09: loading kernel %s into RAM...]\n", kernel_path);
+
+  byte hdr[5];
+  uint16_t high16 = 0;
+  uint16_t exec_addr = 0x0200; // default Fuzix entry
+  while (true) {
+    lfs_ssize_t n = img_node->read(hdr, 5);
+    if (n < 5) break;
+    byte chunk_type = hdr[0];
+    uint16_t length = ((uint16_t)hdr[1] << 8) | hdr[2];
+    uint16_t addr = ((uint16_t)hdr[3] << 8) | hdr[4];
+
+    if (chunk_type == 0xFE) { // Upper 16-bit address
+      high16 = addr;
+      if (length > 0) img_node->seek(length, LFS_SEEK_CUR, nullptr);
+    } else if (chunk_type == 0x00) { // Data chunk
+      uint32_t full_addr = ((uint32_t)high16 << 16) | addr;
+      byte chunk_buf[256];
+      uint16_t remaining = length;
+      uint32_t cur_addr = full_addr;
+      while (remaining > 0) {
+        uint16_t to_read = remaining > 256 ? 256 : remaining;
+        lfs_ssize_t rn = img_node->read(chunk_buf, to_read);
+        if (rn <= 0) break;
+        for (int i = 0; i < rn; i++) {
+          uint32_t p = (cur_addr + i) & (sizeof(ram) - 1);
+          ram[p] = chunk_buf[i];
+        }
+        cur_addr += rn;
+        remaining -= rn;
+      }
+    } else if (chunk_type == 0xFF) { // Exec trailer
+      exec_addr = addr;
+      cobs_printf("[multicomp09: DECB execution address $%04X]\n", exec_addr);
+      break;
+    } else {
+      if (length > 0) img_node->seek(length, LFS_SEEK_CUR, nullptr);
+    }
+  }
+  img_node->close_file(nullptr);
+
+  // Set reset vector at $FFFE..$FFFF in RAM
+  ram[0xFFFE] = (exec_addr >> 8) & 0xFF;
+  ram[0xFFFF] = exec_addr & 0xFF;
+  memcpy(vector_ram, &ram[0xFFF0], 16);
+
+  cobs_printf("[multicomp09: loaded kernel, reset vector $%02X%02X]\n", ram[0xFFFE], ram[0xFFFF]);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // GPIO Initialization — Open-drain for slow control pins
 // ═══════════════════════════════════════════════════════════════════
 void InitializePinsReturnDirections() {
@@ -1340,7 +1496,7 @@ struct Guts {
   }
 
   static void FORCE_INLINE Foreground() {
-    if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280 || current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+    if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280 || current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG || current_engine == ENGINE_MULTICOMP09) {
       is_an_os9 = true;
     } else {
       T::Install_OS();
@@ -1372,7 +1528,9 @@ struct Guts {
     // OUTER LOOP — foreground only handles IRQ pin + PIO bus cycles.
     // USB I/O and terminal RX are handled by background on core 0.
     while (true) {
-      if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+      if (current_engine == ENGINE_MULTICOMP09) {
+        irq_needed = mc_irq_needed();
+      } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
         irq_needed = gep9_irq_needed();
       } else if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
         irq_needed = flat65280_irq_needed();
@@ -1501,7 +1659,13 @@ struct Guts {
 
         if (likely(reading)) {
           // READ CYCLES
-          if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+          if (current_engine == ENGINE_MULTICOMP09) {
+            if (unlikely(addr >= 0xFFD0 && addr <= 0xFFDF)) {
+              value = mc_read_io(addr);
+            } else {
+              value = ram[mc_slot_base[addr >> 13] | (addr & 0x1FFF)];
+            }
+          } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
             // TaskFuse transition: armed fuse fires on the cycle after RTI opcode fetch
             if (unlikely(gep9_mmu.task_fuse_step == 1)) {
               gep9_mmu.current_task = gep9_mmu.task_fuse_target;
@@ -1567,7 +1731,13 @@ struct Guts {
           late_pins = pio_sm_get_blocking(pio0, 0);
           value = (byte)late_pins;
 
-          if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+          if (current_engine == ENGINE_MULTICOMP09) {
+            if (unlikely(addr >= 0xFFD0 && addr <= 0xFFDF)) {
+              mc_write_io(addr, value);
+            } else {
+              ram[mc_slot_base[addr >> 13] | (addr & 0x1FFF)] = value;
+            }
+          } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
             if (unlikely(addr >= 0xFF00)) {
               if (addr >= 0xFFF0) {
                 *gep9_mmu.TranslateWrite(0, addr) = value;
@@ -1702,7 +1872,11 @@ struct repeating_timer Timer60HzData;
 volatile bool halt_suppress_timer = false;
 bool IN_RAM Timer60HzCallback(repeating_timer_t* rt) {
   if (!halt_suppress_timer) {
-    if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+    if (current_engine == ENGINE_MULTICOMP09) {
+      if (mc_timer_en) {
+        mc_timer_pending = true;
+      }
+    } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
       static uint8_t gep9_div = 0;
       if (++gep9_div >= 12) { // 60 Hz / 12 = 5 Hz (matches emulator default tick-hz)
         gep9_div = 0;
@@ -2147,6 +2321,40 @@ static void drain_task(Coro& self) {
           }
           break;
         }
+        case FG2BG_MC_SD: {
+          rpc::g_vfs_coro = &self;
+          if (!g_drive_nodes[0]) {
+            g_mc_sd_req.status.store(1, std::memory_order_release);
+            break;
+          }
+          auto node = g_drive_nodes[0];
+          lfs_soff_t offset = (lfs_soff_t)g_mc_sd_req.lba * 512;
+          lfs_soff_t actual = node->seek(offset, LFS_SEEK_SET, &self);
+          if (actual != offset) {
+            g_mc_sd_req.status.store(2, std::memory_order_release);
+            break;
+          }
+          if (g_mc_sd_req.command == 0) {
+            // Read 512-byte sector
+            lfs_ssize_t n = node->read(mc_sd_buf, 512);
+            if (n == 512) {
+              g_mc_sd_req.status.store(0, std::memory_order_release);
+            } else {
+              g_mc_sd_req.status.store(3, std::memory_order_release);
+            }
+          } else if (g_mc_sd_req.command == 1) {
+            // Write 512-byte sector
+            lfs_ssize_t n = node->write(mc_sd_buf, 512);
+            if (n == 512) {
+              g_mc_sd_req.status.store(0, std::memory_order_release);
+            } else {
+              g_mc_sd_req.status.store(3, std::memory_order_release);
+            }
+          } else {
+            g_mc_sd_req.status.store(4, std::memory_order_release);
+          }
+          break;
+        }
         default:
           break;
       }
@@ -2264,7 +2472,12 @@ void IN_RAM tfr911_background() {
         uint offset = pio_add_program(pio0, &hamster_program);
         hamster_program_init(pio0, 0, offset);
 
-        if (strcmp(centipede_config.engine, "gep9big") == 0 ||
+        if (strcmp(centipede_config.engine, "multicomp09fuzix") == 0 ||
+            strcmp(centipede_config.engine, "multicomp09fuxiz") == 0 ||
+            strcmp(centipede_config.engine, "multicomp09") == 0 ||
+            strcmp(centipede_config.engine, "fuzix") == 0) {
+          setup_multicomp09();
+        } else if (strcmp(centipede_config.engine, "gep9big") == 0 ||
             strcmp(centipede_config.engine, "gep9+") == 0 ||
             strcmp(centipede_config.engine, "big6809") == 0 ||
             strcmp(centipede_config.engine, "hatvanbig") == 0) {
@@ -2343,7 +2556,12 @@ void IN_RAM tfr911_background() {
 
       // Deliver terminal input to 6309 ACIA / GEP9 emulator
       PollTermInput();
-      if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+      if (current_engine == ENGINE_MULTICOMP09) {
+        if (!mc_rx_has_char && term_input.NumBuffered() > 0) {
+          mc_rx_char = term_input.Take();
+          mc_rx_has_char = true;
+        }
+      } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
         if (!gep9_rx_has_char && term_input.NumBuffered() > 0) {
           gep9_rx_char = term_input.Take();
           gep9_rx_has_char = true;

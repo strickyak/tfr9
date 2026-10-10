@@ -1,0 +1,146 @@
+#!/usr/bin/expect -f
+# test_fuzix.exp - Automated test of Fuzix 6809 on TFR911H hardware
+set timeout 180
+
+set dir [file dirname [file normalize [info script]]]
+set tether_bin "$dir/build/tether.linux-amd64.exe"
+
+puts "Spawning tether to boot Fuzix on TFR/911H..."
+spawn $tether_bin -pc "$dir/misc/pc" -bootmode=70
+
+expect {
+    "FUZIX" {
+        puts "\n>>> [clock format [clock seconds] -format {%T}] Found FUZIX banner"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for FUZIX banner"
+        exit 1
+    }
+}
+
+expect {
+    "Starting /init" {
+        puts "\n>>> [clock format [clock seconds] -format {%T}] Kernel started /init"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for Starting /init"
+        exit 1
+    }
+}
+
+expect {
+    "init version" {
+        puts "\n>>> [clock format [clock seconds] -format {%T}] Init announced version"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for init version"
+        exit 1
+    }
+}
+
+expect {
+    "Checking root file system." {
+        puts "\n>>> [clock format [clock seconds] -format {%T}] fsck is checking root filesystem"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for fsck"
+        exit 1
+    }
+}
+
+expect {
+    "Enter new date:" {
+        puts "\n>>> [clock format [clock seconds] -format {%T}] Got 'Enter new date:', sending Enter"
+        send "\r"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for Enter new date:"
+        puts stderr "\nBUFFER RECEIVED SO FAR: >>>$expect_out(buffer)<<<"
+        exit 1
+    }
+}
+
+expect {
+    "Enter new time:" {
+        puts "\n>>> Got 'Enter new time:', sending Enter"
+        send "\r"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for Enter new time:"
+        exit 1
+    }
+}
+
+expect {
+    -re "login:" {
+        puts "\n>>> Got login prompt, sending 'root'"
+        send "root\r"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for login prompt"
+        exit 1
+    }
+}
+
+expect {
+    -re "# " {
+        puts "\n>>> Got root prompt '# '"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT waiting for shell prompt"
+        exit 1
+    }
+}
+
+sleep 1
+send "uname -a\r"
+expect {
+    -re "# " {
+        puts "\n>>> uname -a completed"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT on uname -a"
+        exit 1
+    }
+}
+
+sleep 1
+send "df\r"
+expect {
+    -re "# " {
+        puts "\n>>> df completed"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT on df"
+        exit 1
+    }
+}
+
+sleep 1
+send "ls -la /\r"
+expect {
+    -re "# " {
+        puts "\n>>> ls completed"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT on ls"
+        exit 1
+    }
+}
+
+sleep 1
+send "sync\r"
+expect {
+    -re "# " {
+        puts "\n>>> sync completed"
+    }
+    timeout {
+        puts stderr "\n>>> TIMEOUT on sync"
+        exit 1
+    }
+}
+
+puts "\n>>> FUZIX HARDWARE TEST SUCCESSFUL!"
+send "\x03"
+expect eof
+exit 0
