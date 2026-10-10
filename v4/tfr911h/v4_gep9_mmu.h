@@ -100,7 +100,7 @@ struct Gep9MMU {
     for (int t = 0; t < GEP9_NUM_TASKS; t++) {
       task_tables[t] = nullptr;
       task_flags[t] = 0;
-      task_to_slot[t] = 0;
+      task_to_slot[t] = 0xFF;
       for (int s = 0; s < 8; s++) {
         task_mmap[t][s] = (uint8_t)s;
       }
@@ -219,15 +219,19 @@ struct Gep9MMU {
     }
 
     uint8_t s = task_to_slot[task];
-    table_used_mask &= ~(1U << s);
+    if (s < GEP9_TABLE_SLOTS) {
+      table_used_mask &= ~(1U << s);
+    }
     task_tables[task] = nullptr;
+    task_to_slot[task] = 0xFF;
   }
 
   void PurgeTask(uint8_t task) {
     if (task == 0) return; // Protected kernel task
+    if (!task_tables[task]) return; // Nothing allocated for this task
     if (embiggen) {
       uint8_t s = task_to_slot[task];
-      if (table_used_mask & (1U << s)) {
+      if (s < GEP9_TABLE_SLOTS && (table_used_mask & (1U << s))) {
         for (int b = 0; b < GEP9_NUM_BLOCKS; b++) {
           if (task_blocks[s][b] != nullptr) {
             FreeBlockTable(s, b);
@@ -245,6 +249,7 @@ struct Gep9MMU {
   int CountTaskFrames(uint8_t t) const {
     if (!task_tables[t]) return 0;
     uint8_t s = task_to_slot[t];
+    if (s >= GEP9_TABLE_SLOTS) return 0;
     int count = 0;
     if (embiggen) {
       for (int b = 0; b < GEP9_NUM_BLOCKS; b++) {
@@ -280,8 +285,12 @@ struct Gep9MMU {
       uint8_t p = offset >> 8;
       uint8_t b = offset & 0xFF;
 
+      if (unlikely(task != 0 && task_tables[task] == nullptr)) {
+        return &ram[b]; // ZERO_FRAME
+      }
+
       uint8_t s = task_to_slot[task];
-      if (unlikely(task != 0 && !(table_used_mask & (1U << s)))) {
+      if (unlikely(s >= GEP9_TABLE_SLOTS)) {
         return &ram[b]; // ZERO_FRAME
       }
 
@@ -332,6 +341,10 @@ struct Gep9MMU {
       }
 
       uint8_t s = task_to_slot[task];
+      if (unlikely(s >= GEP9_TABLE_SLOTS)) {
+        return &ram[0];
+      }
+
       FrameId* blk_tbl = task_blocks[s][blk];
       if (unlikely(!blk_tbl)) {
         blk_tbl = AllocBlockTable(s, blk);
@@ -381,6 +394,9 @@ struct Gep9MMU {
       }
     }
     uint8_t s = task_to_slot[task];
+    if (unlikely(s >= GEP9_TABLE_SLOTS)) {
+      return &ram[0];
+    }
     FrameId* blk_tbl = task_blocks[s][blk];
     if (unlikely(!blk_tbl)) {
       blk_tbl = AllocBlockTable(s, blk);
@@ -402,8 +418,11 @@ struct Gep9MMU {
   }
 
   FORCE_INLINE byte* IN_RAM TranslateBlockRead(uint8_t task, uint8_t blk, uint16_t offset) {
+    if (unlikely(task != 0 && task_tables[task] == nullptr)) {
+      return &ram[offset & 0xFF]; // ZERO_FRAME
+    }
     uint8_t s = task_to_slot[task];
-    if (unlikely(task != 0 && !(table_used_mask & (1U << s)))) {
+    if (unlikely(s >= GEP9_TABLE_SLOTS)) {
       return &ram[offset & 0xFF]; // ZERO_FRAME
     }
     FrameId* blk_tbl = task_blocks[s][blk];
@@ -424,10 +443,11 @@ struct Gep9MMU {
       return TranslateRead(task, addr);
     }
     if (embiggen) {
-      uint8_t slot = addr >> 13;
-      uint8_t blk = (page - 1) * 8 + slot;
-      if (blk >= 8 && blk <= 55) {
-        return TranslateBlockRead(task, blk, addr & 0x1FFF);
+      uint32_t phys = ((uint32_t)page << 16) | addr;
+      uint8_t blk = phys / 8192;
+      uint16_t off = phys % 8192;
+      if (blk < GEP9_NUM_BLOCKS) {
+        return TranslateBlockRead(task, blk, off);
       }
     }
     return &ram[addr & 0xFF];
@@ -438,10 +458,11 @@ struct Gep9MMU {
       return TranslateWrite(task, addr);
     }
     if (embiggen) {
-      uint8_t slot = addr >> 13;
-      uint8_t blk = (page - 1) * 8 + slot;
-      if (blk >= 8 && blk <= 55) {
-        return TranslateBlockWrite(task, blk, addr & 0x1FFF);
+      uint32_t phys = ((uint32_t)page << 16) | addr;
+      uint8_t blk = phys / 8192;
+      uint16_t off = phys % 8192;
+      if (blk < GEP9_NUM_BLOCKS) {
+        return TranslateBlockWrite(task, blk, off);
       }
     }
     return TranslateWrite(task, addr);
