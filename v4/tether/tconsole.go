@@ -4,6 +4,7 @@ import (
 	"github.com/strickyak/tfr9/v4/tether/lib"
 	"github.com/strickyak/tfr9/v4/tether/cobs"
 
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 	"sync/atomic"
 )
 
+var COOKED = flag.Bool("cooked", false, "Cooked line terminal mode: read lines from stdin without stty manipulation, exit on EOF")
+var COOKED_DRAIN = flag.Duration("cooked-drain", 2*time.Second, "In cooked mode, duration to wait after stdin EOF before exiting (0 = wait indefinitely)")
 var RECONNECT = flag.Bool("reconnect", false, "reconnect if USB drops instead of exiting")
 var EXIT = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 var OMIT_STDERR = flag.Bool("omit_stderr", false, "send stderr to nowhere")
@@ -420,7 +423,7 @@ func main() {
     // attempt to make /tmp/tether or whatever the --fs directory is
 	os.Mkdir(*PC_DIR, 0777)
 
-	if runtime.GOOS != "windows" && *QUICK_INJECT == "" {
+	if runtime.GOOS != "windows" && *QUICK_INJECT == "" && !*COOKED {
 		SaveSttyState()
 		SetSttyCbreak()
 	}
@@ -446,7 +449,11 @@ func main() {
 
 	inkey := make(chan byte, 1024)
 	if !*NO_KEYBOARD {
-		go InkeyRoutine(inkey)
+		if *COOKED {
+			go CookedInkeyRoutine(inkey)
+		} else {
+			go InkeyRoutine(inkey)
+		}
 	}
 
 	sigChan := make(chan os.Signal, 2)
@@ -539,6 +546,38 @@ func main() {
 		TryRun(inkey, person)
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func CookedInkeyRoutine(inkey chan byte) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			Logf("CookedInkeyRoutine: recovers panic: %v", r)
+		}
+	}()
+
+	// Allow serial link a moment to initialize
+	time.Sleep(300 * time.Millisecond)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := scanner.Text()
+		for _, b := range []byte(line) {
+			inkey <- b
+			time.Sleep(5 * time.Millisecond)
+		}
+		inkey <- 13 // Carriage Return (Enter)
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err := scanner.Err(); err != nil {
+		Logf("CookedInkeyRoutine: stdin scan error: %v", err)
+	}
+	// EOF reached. Wait briefly for output from Pico to arrive and be printed, then exit cleanly.
+	if *COOKED_DRAIN > 0 {
+		time.Sleep(*COOKED_DRAIN)
+		os.Exit(0)
+	}
+	select {}
 }
 
 func InkeyRoutine(inkey chan byte) {
