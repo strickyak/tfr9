@@ -455,12 +455,7 @@ void IN_RAM acia_write_control(uint addr, byte data) {
 #include "v4_multicomp09.h"
 
 // ═══════════════════════════════════════════════════════════════════
-// Flat65280 Engine Support
-// ═══════════════════════════════════════════════════════════════════
 
-const byte flat65280_img_data[65536] = {
-#include "flat65280.img.h"
-};
 
 enum EngineType {
   ENGINE_TURBO9OS = 0,
@@ -717,40 +712,28 @@ void setup_flat65280() {
   }
 
   // 2. Load flat65280 image into ram[]
-  bool loaded_from_file = false;
-  if (centipede_config.flat_img[0]) {
-    auto img_node = vfs_resolve(centipede_config.flat_img);
-    if (img_node) {
-      int err = img_node->open_file(LFS_O_RDONLY);
-      if (err >= 0) {
-        cobs_printf("[flat65280: loading %s into RAM...]\n", centipede_config.flat_img);
-        memset(ram, 0, sizeof(ram));
-        lfs_ssize_t total = 0;
-        while (total < 65536) {
-          lfs_size_t chunk = 65536 - total;
-          if (chunk > 256) chunk = 256;
-          lfs_ssize_t n = img_node->read(&ram[total], chunk);
-          if (n <= 0) break;
-          total += n;
-        }
-        img_node->close_file(nullptr);
-        cobs_printf("[flat65280: loaded %d bytes into RAM]\n", (int)total);
-        loaded_from_file = true;
-      } else {
-        cobs_printf("[flat65280: failed to open %s (err %d), using embedded fallback]\n",
-                    centipede_config.flat_img, err);
+  memset(ram, 0, sizeof(ram));
+  const char* img_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/flat65280.img";
+  auto img_node = vfs_resolve(img_path);
+  if (img_node) {
+    int err = img_node->open_file(LFS_O_RDONLY);
+    if (err >= 0) {
+      cobs_printf("[flat65280: loading %s into RAM...]\n", img_path);
+      lfs_ssize_t total = 0;
+      while (total < 65536) {
+        lfs_size_t chunk = 65536 - total;
+        if (chunk > 256) chunk = 256;
+        lfs_ssize_t n = img_node->read(&ram[total], chunk);
+        if (n <= 0) break;
+        total += n;
       }
+      img_node->close_file(nullptr);
+      cobs_printf("[flat65280: loaded %d bytes into RAM]\n", (int)total);
     } else {
-      cobs_printf("[flat65280: could not resolve %s, using embedded fallback]\n",
-                  centipede_config.flat_img);
+      cobs_printf("[flat65280: failed to open %s (err %d)]\n", img_path, err);
     }
-  }
-
-  if (!loaded_from_file) {
-    cobs_printf("[flat65280: loading embedded flat65280.img into RAM...]\n");
-    memset(ram, 0, sizeof(ram));
-    memcpy(ram, flat65280_img_data, sizeof(flat65280_img_data));
-    cobs_printf("[flat65280: embedded image loaded (%d bytes)]\n", (int)sizeof(flat65280_img_data));
+  } else {
+    cobs_printf("[flat65280: could not resolve %s]\n", img_path);
   }
 
   // Copy vectors to vector_ram

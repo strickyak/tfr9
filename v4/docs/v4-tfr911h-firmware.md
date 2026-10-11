@@ -76,7 +76,7 @@ The firmware operates in two distinct phases:
 1. Core 0 inspects the `Config` settings stored in `centipede_config`.
 2. If `Config(engine)` is set to `"flat65280"`:
    - Drive nodes (`drive0`, `drive1`) are resolved via VFS and opened (`LFS_O_RDWR` or `LFS_O_RDONLY`).
-   - The OS boot image (`flat_img`) is loaded into `ram[]`. If unconfigured or missing, it falls back to the embedded 64 KB `flat65280.img.h` in flash.
+   - The OS boot image (`flat_img`, defaulting to `/pc/flat65280.img`) is loaded into `ram[]`.
    - Hardware I/O handlers (`Install_Flat65280_IO()`) are registered into the `IOReaders` and `IOWriters` jump tables.
 3. If `Config(engine)` is `"turbo9os"` (default):
    - Legacy Turbo9OS ROMs and vectors are installed.
@@ -110,7 +110,7 @@ A clean, flat 64 KB memory model designed for NitrOS-9 Level 1 direct boot:
 - **Memory Split**:
   - `$0000..$FEFF` (65,280 bytes): **Flat RAM**. Houses NitrOS-9 system variables, bitmap, module directory, stack, free memory, and preloaded OS modules abutting `$FEFF`.
   - `$FF00..$FFFF` (256 bytes): **I/O Red Page & Vectors**.
-- **Embedded Fallback**: Includes pre-compiled 64 KB `flat65280.img.h` built into firmware flash. If no disk or image path is configured, it boots directly to NitrOS-9 out of the box.
+- **Image Loading**: Boots by loading `/pc/flat65280.img` (or configured `flat_img` path) from host/flash via VFS into RAM.
 
 ---
 
