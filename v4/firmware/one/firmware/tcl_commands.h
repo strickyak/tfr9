@@ -178,6 +178,34 @@ int file_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
   return TCL_OK;
 }
 
+int which_file_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
+                   char* argv[]) {
+  if (argc < 2) {
+    Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0],
+                     " f1 ?f2 ...?\"", (char*)NULL);
+    return TCL_ERROR;
+  }
+
+  for (int i = 1; i < argc; i++) {
+    coro_yield(gspoon::g_spoon_coro);
+    const char* filename = argv[i];
+    vfs_file_t file;
+    int err = vfs_file_open(&file, filename, LFS_O_RDONLY);
+    if (err >= 0) {
+      vfs_file_close(&file);
+      Tcl_SetResult(interp, (char*)filename, TCL_VOLATILE);
+      return TCL_OK;
+    }
+  }
+
+  Tcl_ResetResult(interp);
+  Tcl_AppendResult(interp, "none of these files exist:", (char*)NULL);
+  for (int i = 1; i < argc; i++) {
+    Tcl_AppendResult(interp, " ", argv[i], (char*)NULL);
+  }
+  return TCL_ERROR;
+}
+
 int nice_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
                char* argv[]) {
   if (argc != 2) {
@@ -1110,6 +1138,7 @@ void register_tcl_commands(Tcl_Interp* interp) {
 
   // Register commands from tcl_commands.h
   Tcl_CreateCommand(interp, (char*)"file", file_cmd, NULL, NULL);
+  Tcl_CreateCommand(interp, (char*)"which-file", which_file_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"nice", nice_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"grep", grep_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"puts", puts_cmd, NULL, NULL);
