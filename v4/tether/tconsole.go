@@ -610,9 +610,13 @@ func InkeyRoutine(inkey chan byte) {
 		if ch == 127 {
 			// Change DEL to BS
 			ch = 8
-			Logf("Inkey: Changing DEL to BS")
+			if *USB_VERBOSE {
+				Logf("Inkey: Changing DEL to BS")
+			}
 		}
-		Logf("Inkey: $%02x = %d.", ch, ch)
+		if *USB_VERBOSE {
+			Logf("Inkey: $%02x = %d.", ch, ch)
+		}
 		inkey <- ch
 	}
 
