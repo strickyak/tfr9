@@ -325,10 +325,17 @@ sh tether.sh
 
 ### NitrOS-9 Boot Modes and Startup Scripts
 
+#### NitrOS-9 Launcher Scripts
+Convenience scripts in the repository root launch NitrOS-9 directly on hardware:
+- **`./run_nitros9.sh`** (symlink to `run_nitros9_l2.sh`): Boots **NitrOS-9 Level 2** on `deep65280` engine via `-bootmode=8`.
+- **`./run_nitros9_l2.sh`**: Boots **NitrOS-9 Level 2** on `deep65280` engine via `-bootmode=8`.
+- **`./run_nitros9_l1.sh`**: Boots **NitrOS-9 Level 1** on `flat65280` engine via `-bootmode=84`.
+
 #### Boot Modes (`modeN.tcl`)
 When restarting the board via `-quick-restart=N` or `-bootmode=N`, the firmware looks for `/rc/modeN.tcl` on LittleFS (falling back to `/pc/modeN.tcl` on the host PC VFS).
 - `mode9.tcl`: Configures `deep65280` engine with `/pc/deep65280.new.img` and `/pc/disk0.dsk`.
 - `mode8.tcl`: Configures `deep65280` engine with `/pc/deep65280.img` and `/pc/disk0.dsk`.
+- `mode84.tcl`: Configures `flat65280` engine with `/pc/flat65280.img` and `/pc/flat0.dsk`.
 
 #### Startup Script Contents (`/startup`)
 Upon booting NitrOS-9, `SysGo` executes `Shell <startup`.

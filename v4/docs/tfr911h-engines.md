@@ -145,8 +145,19 @@ Turbo9OS requires no external disk or boot image files since its ROM modules are
 
 Flat65280 boots NitrOS-9 Level 1 using `flat65280.img` and mounts `flat0.dsk`.
 
-#### Option A: Using a Boot Mode Script (`mode84.tcl`)
-Create a boot mode script in `/tmp/pc/mode84.tcl` (or on the board's `/rc/`):
+#### Option A: Dedicated Launcher Script (Recommended)
+Launch directly with a single shell script from the repository root:
+```bash
+./run_nitros9_l1.sh
+```
+This automatically invokes Tether mounting `misc/pc` as `/pc` with `-bootmode=84`.
+
+#### Option B: Using a Boot Mode Script (`mode84.tcl`)
+A boot mode script is provided at [`misc/pc/mode84.tcl`](file:///home/strick/modoc/coco-shelf/tfr9/v4/misc/pc/mode84.tcl) (and can be copied to board LittleFS `/rc/mode84.tcl`):
+```tcl
+source /pc/boot_flat.tcl
+```
+Where `boot_flat.tcl` configures:
 ```tcl
 set Config(engine) "flat65280"
 set Config(flat_img) "/pc/flat65280.img"
@@ -160,7 +171,7 @@ Then launch directly with `-bootmode`:
 sh tether.sh -bootmode=84
 ```
 
-#### Option B: Interactive Launch via Tcl Shell
+#### Option C: Interactive Launch via Tcl Shell
 1. Launch Tether:
    ```bash
    sh tether.sh
@@ -190,9 +201,18 @@ sh tether.sh -bootmode=84
 
 ### Engine 3: Deep65280 (NitrOS-9 Level 2)
 
-Deep65280 boots NitrOS-9 Level 2 with MMU memory translation into 256 KB RAM using `deep65280.img` and `disk0.dsk`.
+Deep65280 boots NitrOS-9 Level 2 with MMU memory translation into 256 KB RAM using `deep65280.img` and `disk0.dsk` (or `deep0.dsk`).
 
-#### Option A: Using Boot Mode 8 (`mode8.tcl`)
+#### Option A: Dedicated Launcher Script (Recommended)
+Launch directly with a single shell script from the repository root:
+```bash
+./run_nitros9.sh     # symlink to run_nitros9_l2.sh
+# or:
+./run_nitros9_l2.sh
+```
+This automatically invokes Tether mounting `misc/pc` as `/pc` with `-bootmode=8`.
+
+#### Option B: Using Boot Mode 8 (`mode8.tcl`)
 Boot mode 8 is configured in [`misc/pc/mode8.tcl`](file:///home/strick/modoc/coco-shelf/tfr9/v4/misc/pc/mode8.tcl) and installed on board LittleFS (`/rc/mode8.tcl`):
 ```tcl
 set Config(engine) "deep65280"
@@ -203,12 +223,12 @@ menu store Config
 bye
 ```
 
-Launch with a single command:
+Launch directly via Tether:
 ```bash
 sh tether.sh -bootmode=8
 ```
 
-#### Option B: Interactive Launch via Tcl Shell
+#### Option C: Interactive Launch via Tcl Shell
 1. Launch Tether:
    ```bash
    sh tether.sh
