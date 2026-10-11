@@ -80,3 +80,167 @@ Expected output concludes with:
 >>> sync completed
 >>> FUZIX HARDWARE TEST SUCCESSFUL!
 ```
+
+---
+
+## 4. How to Recompile Fuzix (`platform-multicomp09`) from a Fresh Git Clone
+
+This section documents the end-to-end procedure for compiling the Fuzix kernel and userland filesystem for `multicomp09` starting from a clean upstream repository clone (such as [`/home/strick/codeberg.org/etchedpixels/fuzix.orig`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/)).
+
+### A. Prerequisites & Toolchain Setup
+
+The 6809 toolchain binaries are located in [`/home/strick/modoc/coco-shelf/bin/`](file:///home/strick/modoc/coco-shelf/bin/):
+- `m6809-unknown-gcc` (GCC 4.6.4 for 6809)
+- `m6809-unknown-as` & `lwasm` (LWTOOLS 6809 assembler)
+- `m6809-unknown-ld` (6809 linker)
+- `m6809-unknown-ar`
+
+Ensure this directory is at the front of your `PATH`:
+```bash
+export PATH="/home/strick/modoc/coco-shelf/bin:$PATH"
+```
+
+### B. Upstream Base Commit Selection
+
+> [!IMPORTANT]
+> In upstream master (August 2026 commits `90816b1cf`..`aee91d86e0`), Alan Cox began transitioning the 6809 architecture to `fcc` (an experimental ACK-based C compiler). That port is work-in-progress and breaks the `gcc6809` toolchain.
+>
+> When working from a fresh clone of upstream (e.g. `fuzix.orig`), create a working branch rooted at commit [`6fb7b22ab`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/) (the stable FUZIX 0.5 tree where GCC 6809 support is mature and complete):
+> ```bash
+> cd /path/to/fresh-fuzix-clone
+> git checkout -b work-multicomp09-256k 6fb7b22ab
+> ```
+
+### C. Essential Code Changes (6 Files)
+
+Apply the following modifications to adapt the multicomp09 target for 256 KB RAM and fix upstream kernel bugs:
+
+1. **[`Kernel/platform/platform-multicomp09/tricks.s`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/Kernel/platform/platform-multicomp09/tricks.s)**:
+   Fix stack alignment corruption in `fork_copy`:
+   ```diff
+   --- a/Kernel/platform/platform-multicomp09/tricks.s
+   +++ b/Kernel/platform/platform-multicomp09/tricks.s
+   @@ -200,10 +200,10 @@ fork_copy:
+    	puls	cc		       ; get remainder's cc (  )
+    	beq	skip@		       ; skip round-up if zero
+    	inca			       ; round up
+   -	cmpa	#4		       ; is 4th bank copied?
+   +skip@	cmpa	#4		       ; is 4th bank copied?
+    	pshs	cc,a		       ; and put on stack ( 4th?  no )
+    	;; copy parent's whole pages to child's
+   -skip@	ldx	fork_proc_ptr
+   +	ldx	fork_proc_ptr
+    	leax	P_TAB__P_PAGE_OFFSET,x ; X = * new process page tables (dest)
+   ```
+
+2. **[`Kernel/platform/platform-multicomp09/config.h`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/Kernel/platform/platform-multicomp09/config.h)**:
+   Define `DEFAULT_TOP 0x9000` (48 KB / 3 banks) to prevent out-of-memory deadlock during fork cascades:
+   ```diff
+   --- a/Kernel/platform/platform-multicomp09/config.h
+   +++ b/Kernel/platform/platform-multicomp09/config.h
+   @@ -39,6 +39,7 @@
+    #define TICKSPERSEC 50      /* Ticks per second */
+    #define PROGBASE    0x0100  /* also data base */
+    #define PROGTOP     0xe000  /* Top of program, base of U_DATA */
+   +#define DEFAULT_TOP 0x9000  /* Default process size in 256K RAM (3 banks = 48K) */
+    #define PROGLOAD    0x0100  /* ??? */
+   ```
+
+3. **[`Kernel/platform/platform-multicomp09/main.c`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/Kernel/platform/platform-multicomp09/main.c)**:
+   Configure `pagemap_init` for 256 KB RAM (pages 8..31 step 2 = 12 user banks):
+   ```diff
+   --- a/Kernel/platform/platform-multicomp09/main.c
+   +++ b/Kernel/platform/platform-multicomp09/main.c
+   @@ -41,10 +41,11 @@ void do_beep(void)
+    void pagemap_init(void)
+    {
+        int i;
+   -    for (i = 10; i < 64; i+=2)
+   +    /* Multicomp09 256KB RAM: pages 0-5 are kernel code/data,
+   +     * pages 6-7 are kernel common/udata (bank 6).
+   +     * Pages 8-31 are free 16KB banks (every other 8KB page).
+   +     */
+   +    for (i = 8; i < 32; i += 2)
+            pagemap_add(i);
+        /* add common page last so init gets it */
+        pagemap_add(6);
+   ```
+
+4. **[`Kernel/platform/platform-multicomp09/multicomp09.s`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/Kernel/platform/platform-multicomp09/multicomp09.s)**:
+   Set system RAM size variables to 256 KB:
+   ```diff
+   --- a/Kernel/platform/platform-multicomp09/multicomp09.s
+   +++ b/Kernel/platform/platform-multicomp09/multicomp09.s
+   @@ -219,11 +219,10 @@ init_early:
+    init_hardware:
+   -	ldd 	#512
+   +	ldd 	#256
+    	std 	_ramsize
+   -	ldd 	#512-64
+   +	ldd 	#256-64
+    	std 	_procmem
+   ```
+
+5. **[`Kernel/platform/platform-multicomp09/Makefile`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/Kernel/platform/platform-multicomp09/Makefile)**:
+   Fix the linker rule in the `image:` target to link `../../mm/bank16k.o`:
+   ```diff
+   --- a/Kernel/platform/platform-multicomp09/Makefile
+   +++ b/Kernel/platform/platform-multicomp09/Makefile
+   @@ -56,1 +56,1 @@ image:
+   -	../../mm.o ../../bank16k.o ../../swap.o ../../tty.o ../../devsys.o \
+   +	../../mm.o ../../mm/bank16k.o ../../swap.o ../../tty.o ../../devsys.o \
+   ```
+
+6. **[`Kernel/platform/platform-multicomp09/target.mk`](file:///home/strick/codeberg.org/etchedpixels/fuzix.orig/Kernel/platform/platform-multicomp09/target.mk)**:
+   Export big-endian flag for filesystem generation:
+   ```diff
+   --- a/Kernel/platform/platform-multicomp09/target.mk
+   +++ b/Kernel/platform/platform-multicomp09/target.mk
+   @@ -1 +1,2 @@
+    export CPU = 6809
+   +export ENDIANFLAG = "-X"
+   ```
+
+### D. Build Commands
+
+Run the following commands from the repository root:
+
+1. **Build the Kernel**:
+   ```bash
+   cd Kernel
+   make TARGET=multicomp09
+   cd ..
+   ```
+   - **Output file**: `Kernel/fuzix.bin` (Extended DECB format binary).
+
+2. **Build Host Standalone Tools, Libraries, and Userland Applications**:
+   ```bash
+   make TARGET=multicomp09 stand ltools libs apps
+   ```
+   - Compiles host tools `Standalone/mkfs` and `Standalone/ucp`.
+   - Compiles the 6809 C runtime library (`Library/libs/`).
+   - Compiles 6809 userland binaries in `Applications/` (`init`, `sh`, `fsck`, `ls`, `df`, `setdate`, etc.).
+
+3. **Generate Root Filesystem Image (`filesys.img`)**:
+   ```bash
+   make TARGET=multicomp09 YACC="yacc -y" diskimage
+   ```
+   - Runs `Standalone/filesystem-src/build-filesystem` to format a 32 MB filesystem and inject the compiled userland binaries.
+   - **Output file**: `Images/multicomp09/filesys.img` (32 MB raw filesystem).
+
+4. **Construct Partitioned SD Card Disk Image (`disk.img`)**:
+   ```bash
+   dd if=Standalone/filesystem-src/parttab.40M of=Images/multicomp09/disk.img bs=40017920 conv=sync
+   dd if=Images/multicomp09/filesys.img of=Images/multicomp09/disk.img bs=512 seek=2048 conv=notrunc
+   ```
+   - **Output file**: `Images/multicomp09/disk.img` (40 MB MBR partitioned disk with partition 1 at LBA 2048).
+
+### E. Deploying Resulting Files to TFR9/V4
+
+Copy the two build artifacts into the tether / emulator staging directories:
+
+| Build Artifact | Destination Path | Purpose |
+| :--- | :--- | :--- |
+| `Kernel/fuzix.bin` | `/home/strick/modoc/coco-shelf/tfr9/v4/misc/pc/fuzix.bin`<br>(and `/tmp/pc/fuzix.bin`) | Kernel boot image loaded by `boot_fuzix.tcl` or `gep9` |
+| `Images/multicomp09/disk.img` | `/home/strick/modoc/coco-shelf/tfr9/v4/misc/pc/disk.img`<br>(and `/tmp/pc/disk.img`) | Root SD block storage attached to Drive 0 (`/dev/hda1`) |
+
