@@ -272,7 +272,9 @@ func WriteBytes(channelToPico chan []byte, vec ...byte) {
 		ser := atomic.AddUint64(&tetherLogUsbSerial, 1)
 		log.Printf("_%d COBS OUT: len=%d %x", ser, len(vec), vec)
 	}
-	Logf("WriteBytes: [%d.] { % 3x }", len(vec), vec)
+	if *USB_VERBOSE {
+		Logf("WriteBytes: [%d.] { % 3x }", len(vec), vec)
+	}
 	channelToPico <- vec
 }
 
