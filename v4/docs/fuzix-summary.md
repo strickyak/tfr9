@@ -227,6 +227,10 @@ Run the following commands from the repository root:
    ```
    - Runs `Standalone/filesystem-src/build-filesystem` to format a 32 MB filesystem and inject the compiled userland binaries.
    - **Output file**: `Images/multicomp09/filesys.img` (32 MB raw filesystem).
+   > [!NOTE]
+   > After formatting and populating `filesys.img`, `make` will exit with:
+   > `make[2]: *** No rule to make target 'diskimage'. Stop.`
+   > This is **expected and harmless**: `build-filesystem` has already completed, but `platform-multicomp09` has no floppy/cartridge packaging target in `Kernel/platform/platform-multicomp09/Makefile`.
 
 4. **Construct Partitioned SD Card Disk Image (`disk.img`)**:
    ```bash
