@@ -50,7 +50,12 @@ func ScanTextContents() []byte {
 	const base = 0x0400
 	z := make([]byte, 512)
 	for i := uint(0); i < 512; i++ {
-		ch := the_ram.Peek1(base + i)
+		var ch byte
+		if (*BOOTMODE & 1024) != 0 {
+			ch = the_ram.PPeek1(base + i)
+		} else {
+			ch = the_ram.Peek1(base + i)
+		}
 		if 0 == (ch & 0x80) {
 			a := ch & 63
 			if a < 32 {
@@ -601,7 +606,12 @@ func GetTextScreen(base uint) []byte {
 	p := base
 	for y := uint(0); y < 16; y++ {
 		for x := uint(0); x < 32; x++ {
-			ch := the_ram.Peek1(p)
+			var ch byte
+			if (*BOOTMODE & 1024) != 0 {
+				ch = the_ram.PPeek1(p)
+			} else {
+				ch = the_ram.Peek1(p)
+			}
 			p++
 
 			if ch < 128 {

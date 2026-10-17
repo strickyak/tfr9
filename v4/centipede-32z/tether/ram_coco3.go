@@ -12,13 +12,20 @@ type Coco3Ram struct {
 
 type Mapping [8]uint
 
-const COCO3_RAM_SIZE = 128 * 1024 // 128K
+const COCO3_RAM_SIZE = 256 * 1024 // 256K (for Fuzix; 128K used in CoCo 3 mode)
 const COCO3_RAM_MASK = COCO3_RAM_SIZE - 1
 const COCO3_IO_PHYS = COCO3_RAM_SIZE - 256
 
-func (o *Coco3Ram) RamSize() uint { return COCO3_RAM_SIZE }
-func (o *Coco3Ram) RamMask() uint { return COCO3_RAM_MASK }
-func (o *Coco3Ram) IoPhys() uint  { return COCO3_IO_PHYS }
+func (o *Coco3Ram) activeMask() uint {
+	if (*BOOTMODE & 1024) != 0 {
+		return 256*1024 - 1
+	}
+	return 128*1024 - 1
+}
+
+func (o *Coco3Ram) RamSize() uint { return o.activeMask() + 1 }
+func (o *Coco3Ram) RamMask() uint { return o.activeMask() }
+func (o *Coco3Ram) IoPhys() uint  { return o.activeMask() + 1 - 256 }
 
 func (o *Coco3Ram) DumpRam() {
 	serial := MintSerial()
@@ -65,7 +72,7 @@ func (o *Coco3Ram) DumpRam() {
 
 // PPeek1: Physical Memory Peek
 func (o *Coco3Ram) PPeek1(addr uint) byte {
-	return o.trackRam[addr&COCO3_RAM_MASK]
+	return o.trackRam[addr&o.activeMask()]
 }
 func (o *Coco3Ram) PPeek2(addr uint) uint {
 	hi := o.PPeek1(addr)
@@ -75,18 +82,18 @@ func (o *Coco3Ram) PPeek2(addr uint) uint {
 
 func (o *Coco3Ram) Poke1(addr uint, data byte) {
 	longaddr := o.Physical(addr)
-	o.trackRam[longaddr&COCO3_RAM_MASK] = data
+	o.trackRam[longaddr&o.activeMask()] = data
 
 	SamPoke1(addr)
 }
 
 func (o *Coco3Ram) GetTrackRam() []byte {
-	return o.trackRam[:]
+	return o.trackRam[:o.RamSize()]
 }
 
 func (o *Coco3Ram) Peek1(addr uint) byte {
 	longaddr := o.Physical(addr)
-	return o.trackRam[longaddr&COCO3_RAM_MASK]
+	return o.trackRam[longaddr&o.activeMask()]
 }
 func (o *Coco3Ram) Peek2(addr uint) uint {
 	hi := o.Peek1(addr)
@@ -106,7 +113,7 @@ func (o *Coco3Ram) LPeek2(addr uint) uint {
 func (o *Coco3Ram) PhysicalAddrAtBlock(addr uint, block uint) uint {
 	addr &= 0x1FFF        // Use bottom 13 bits of address.
 	region := block << 13 // block provides the higher bits.
-	z := (addr | region) & COCO3_RAM_MASK
+	z := (addr | region) & o.activeMask()
 	//Logf("PhysicalAddrAtBlock: %04x %x -> %04x", addr, block, z)
 	return z
 }
@@ -130,6 +137,19 @@ func (o *Coco3Ram) PhysicalAddrWithMmu(logical uint) uint {
 
 	slot := logical >> 13
 	offset := logical & 0x1FFF
+
+	if (*BOOTMODE & 1024) != 0 {
+		if 0xFF00 <= logical && logical < 0xFFF0 {
+			return o.PhysicalAddrAtBlock(offset, IOBlock)
+		}
+		e := o.Peek1AtBlock(MmuEnableAddr, IOBlock)
+		if (e & MmuEnableBit) == 0 {
+			return o.PhysicalAddrAtBlock(offset, slot)
+		}
+		task := uint(o.Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
+		mapbyte := o.Peek1AtBlock(0xFFA0+slot+8*task, IOBlock)
+		return o.PhysicalAddrAtBlock(offset, uint(mapbyte))
+	}
 
 	e := o.Peek1AtBlock(MmuEnableAddr, IOBlock)
 	enabled := (e & MmuEnableBit) != 0

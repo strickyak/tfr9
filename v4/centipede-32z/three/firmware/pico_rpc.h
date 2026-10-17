@@ -20,7 +20,9 @@ extern int putchar_raw(int c);
 }
 
 extern unsigned char ram[];
-#if BECOME_COCO3
+#if FUZIX_COCO2CENTIPEDE
+constexpr size_t PICO_RAM_SIZE = 256 * 1024;
+#elif BECOME_COCO3
 constexpr size_t PICO_RAM_SIZE = 128 * 1024;
 #else
 constexpr size_t PICO_RAM_SIZE = 64 * 1024;

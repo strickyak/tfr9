@@ -5,9 +5,9 @@
 
 namespace orchestra90 {
 
-void WriteLeft(uint a, byte d) { pwm_set_chan_level(5, PWM_CHAN_A, d); }
+void IN_RAM WriteLeft(uint a, byte d) { pwm_set_chan_level(5, PWM_CHAN_A, d); }
 
-void WriteRight(uint a, byte d) { pwm_set_chan_level(5, PWM_CHAN_B, d); }
+void IN_RAM WriteRight(uint a, byte d) { pwm_set_chan_level(5, PWM_CHAN_B, d); }
 
 void initPorts() {
   IOWriters[0x7A] = WriteLeft;

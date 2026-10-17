@@ -192,11 +192,11 @@ void ResetOff() {
 }
 #endif
 
-void HaltOn() {
+FORCE_INLINE void IN_RAM HaltOn() {
   gpio_set_dir(G_HALT, GPIO_OUT);
   // SET_LED(1);
 }
-void HaltOff() {
+FORCE_INLINE void IN_RAM HaltOff() {
   // SET_LED(0);
   gpio_set_dir(G_HALT, GPIO_IN);
 }
@@ -241,7 +241,7 @@ UsbReceiver usb_receiver(usb_raw_buf);
 CobsDecoder<1024, 64> cobs_decoder(usb_raw_buf, usb_packet_buf);
 
 #if FUZIX_COCO2CENTIPEDE
-CrossCoreFIFO<uint, 4096> fg2bg;
+CrossCoreFIFO<uint, 8192> fg2bg;
 CrossCoreFIFO<uint, 512> bg2fg;
 #else
 CrossCoreFIFO<uint, 8192> fg2bg;
@@ -736,6 +736,7 @@ class CoreEngine : public BackgroundSharedState {
                 fuzix_rx_buf[fuzix_rx_head] = (uint8_t)ch;
                 fuzix_rx_head = next_head;
               }
+              keyboard_injector::queue_char(ch);
             }
           } else
 #endif
@@ -1044,7 +1045,6 @@ class CoreEngine : public BackgroundSharedState {
       bool floppy_emulation = centipede_config.floppy_fd || centipede_config.floppy_pc;
       while (true) {
         const uint signals = GERBIL_GET();
-        FlowControlCheck();  // Check watermark every cycle
 
         const bool reading = ((signals & (1u << G_RW)) != 0);
         const uint abus = volatile_sio_hw->gpio_hi_in & 0xFFFF;
@@ -1084,33 +1084,36 @@ class CoreEngine : public BackgroundSharedState {
                   GERBIL_DRIVE(dbus);
 #if FUZIX_COCO2CENTIPEDE
                 } else if (centipede_config.fuzix && (0x60 <= io_reg && io_reg <= 0x69)) {
-                  if (io_reg == 0x60) {
-                    dbus = 0x02 | ((fuzix_rx_head != fuzix_rx_tail) ? 0x01 : 0x00);
-                  } else if (io_reg == 0x61) {
-                    if (fuzix_rx_head != fuzix_rx_tail) {
-                      dbus = fuzix_rx_buf[fuzix_rx_tail];
-                      fuzix_rx_tail = (fuzix_rx_tail + 1) & 0xFF;
+                  if (io_reg == 0x68) {
+                    uint idx = fuzix_sd_idx;
+                    dbus = (idx < 512) ? fuzix_sd_buf[idx] : 0xFF;
+                    GERBIL_DRIVE(dbus);
+                    if (idx < 512) {
+                      idx++;
+                      fuzix_sd_idx = idx;
+                      if (idx >= 512) fuzix_sd_ctl = 0x80;
                     } else {
-                      dbus = 0;
-                    }
-                  } else if (io_reg == 0x62 || io_reg == 0x64) {
-                    dbus = 0x02;
-                  } else if (io_reg == 0x68) {
-                    if (fuzix_sd_idx < 512) {
-                      dbus = fuzix_sd_buf[fuzix_sd_idx++];
-                      if (fuzix_sd_idx >= 512) {
-                        fuzix_sd_ctl = 0x80;
-                      }
-                    } else {
-                      dbus = 0xFF;
                       fuzix_sd_ctl = 0x80;
                     }
                   } else if (io_reg == 0x69) {
                     dbus = fuzix_sd_ctl;
+                    GERBIL_DRIVE(dbus);
+                  } else if (io_reg == 0x60) {
+                    dbus = 0x02 | ((fuzix_rx_head != fuzix_rx_tail) ? 0x01 : 0x00);
+                    GERBIL_DRIVE(dbus);
+                  } else if (io_reg == 0x61) {
+                    uint tail = fuzix_rx_tail;
+                    bool has = (fuzix_rx_head != tail);
+                    dbus = has ? fuzix_rx_buf[tail] : 0;
+                    GERBIL_DRIVE(dbus);
+                    if (has) fuzix_rx_tail = (tail + 1) & 0xFF;
+                  } else if (io_reg == 0x62 || io_reg == 0x64) {
+                    dbus = 0x02;
+                    GERBIL_DRIVE(dbus);
                   } else {
                     dbus = 0xFF;
+                    GERBIL_DRIVE(dbus);
                   }
-                  GERBIL_DRIVE(dbus);
 #endif
                 } else if (0xB0 <= io_reg && io_reg <= 0xBF) {
                   dbus = gime_palette[io_reg & 0x0F];
@@ -1311,13 +1314,18 @@ class CoreEngine : public BackgroundSharedState {
                 ram[T::TranslateCoco64kRamAddress(abus)] = dbus;
               }
 #if FUZIX_COCO2CENTIPEDE
-              if (!centipede_config.fuzix)
+              if (!centipede_config.fuzix || abus == 0xFF02)
 #endif
               {
                 ram[abus] = dbus;
               }
               // Only trace non-special I/O writes if trace_writes enabled.
-              if (centipede_config.trace_writes) {
+              if (centipede_config.trace_writes
+#if FUZIX_COCO2CENTIPEDE
+                  && (!centipede_config.fuzix ||
+                      (abus != 0xFF02 && !(0xFF60 <= abus && abus <= 0xFF6C)))
+#endif
+              ) {
                 T::PushFifoWrite(abus, dbus);
               }
 
@@ -1341,7 +1349,11 @@ class CoreEngine : public BackgroundSharedState {
               }
 
               // Optionally, always trace all non-special writes.
-              if (centipede_config.trace_writes) {
+              if (centipede_config.trace_writes
+#if FUZIX_COCO2CENTIPEDE
+                  && (!centipede_config.fuzix || atrans < 0xC000)
+#endif
+              ) {
                 T::PushFifoWrite(abus, dbus);
               }
             }
@@ -1370,6 +1382,8 @@ class CoreEngine : public BackgroundSharedState {
             T::PushFifoWrite(abus, dbus);
           }  // end special read or write
         }  // end if special
+
+        FlowControlCheck();  // Check watermark after bus cycle response
 
 #if 0
         static bool record_active = false;
