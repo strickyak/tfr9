@@ -225,6 +225,11 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"become_coco3", 0);
         if (val && atoi(val) != 0) centipede_config.become_coco3 = true;
 
+#if FUZIX_COCO2CENTIPEDE
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"fuzix", 0);
+        if (val && atoi(val) != 0) centipede_config.fuzix = true;
+#endif
+
         set_floppy_names();
         
     } else if (sub == "fetch") {
@@ -240,6 +245,9 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(centipede_config.trace_writes ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(centipede_config.trace_reads ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"become_coco3", (char*)(centipede_config.become_coco3 ? "1" : "0"), 0);
+#if FUZIX_COCO2CENTIPEDE
+        Tcl_SetVar2(interp, (char*)arr, (char*)"fuzix", (char*)(centipede_config.fuzix ? "1" : "0"), 0);
+#endif
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {

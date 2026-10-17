@@ -564,6 +564,11 @@ func CookedInkeyRoutine(inkey chan byte) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "^C" || line == "^c" {
+			inkey <- 3 // Control-C
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
 		for _, b := range []byte(line) {
 			inkey <- b
 			time.Sleep(5 * time.Millisecond)
@@ -591,6 +596,7 @@ func InkeyRoutine(inkey chan byte) {
 	}()
 
 	var lineBuf []byte
+	var caretBuf []byte
 	atStartOfLine := true
 	readingCmd := false
 
@@ -718,6 +724,35 @@ func InkeyRoutine(inkey chan byte) {
 			continue
 		}
 
+		if len(caretBuf) > 0 {
+			if len(caretBuf) == 1 && (ch == 'C' || ch == 'c') {
+				caretBuf = append(caretBuf, ch)
+				os.Stdout.Write([]byte{ch})
+				continue
+			}
+			if len(caretBuf) == 2 && (ch == '\r' || ch == '\n') {
+				os.Stdout.Write([]byte{'\r', '\n'})
+				caretBuf = nil
+				atStartOfLine = true
+				sendKey(3) // Control-C
+				continue
+			}
+			if ch == 8 || ch == 127 {
+				caretBuf = caretBuf[:len(caretBuf)-1]
+				os.Stdout.Write([]byte{8, ' ', 8})
+				atStartOfLine = (len(caretBuf) == 0)
+				continue
+			}
+			for range caretBuf {
+				os.Stdout.Write([]byte{8, ' ', 8})
+			}
+			for _, b := range caretBuf {
+				sendKey(b)
+			}
+			caretBuf = nil
+			atStartOfLine = false
+		}
+
 		if ch == 27 && !readingCmd {
 			// Start escape sequence collection
 			escActive = true
@@ -764,6 +799,11 @@ func InkeyRoutine(inkey chan byte) {
 			readingCmd = true
 			lineBuf = []byte{}
 			os.Stdout.Write([]byte{'~'})
+			continue
+		}
+		if atStartOfLine && ch == '^' {
+			caretBuf = []byte{'^'}
+			os.Stdout.Write([]byte{'^'})
 			continue
 		}
 		atStartOfLine = (ch == '\r' || ch == '\n')

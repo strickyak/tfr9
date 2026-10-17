@@ -274,6 +274,25 @@ void IN_RAM Jump(uint a) {
   ReadStep(0, (byte)a);
 }
 
+#if FUZIX_COCO2CENTIPEDE
+void IN_RAM SetS(uint s) {
+  // Runs in Foreground.
+  // Performance Critical to keep up with the Gerbil.
+  Synchronize7E();
+
+  ReadStep(0, 0x1A);  // 1A 50 => ORCC #$50 (mask IRQ and FIRQ)
+  ReadStep(0, 0x50);
+  IdleStep();
+
+  Synchronize7E();
+
+  ReadStep(0, 0x10);  // 10 CE => LDS #immediate
+  ReadStep(0, 0xCE);
+  ReadStep(0, (byte)(s >> 8));
+  ReadStep(0, (byte)s);
+}
+#endif
+
 byte IN_RAM GPeek1(uint a) {
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
@@ -404,6 +423,18 @@ void IN_RAM DriveConsole() {
         // Reset VDG on PIA1 to 32x16 alphanumeric text mode (green)
         byte low_bits = GPeek1(0xFF22) & 0x07;
         GPoke1(0xFF22, low_bits);
+
+#if FUZIX_COCO2CENTIPEDE
+        if (centipede_config.fuzix) {
+          GPoke1(0xFFD4, 0);  // SAM P1=0
+          GPoke1(0xFFDF, 0);  // SAM TY=1 (all-RAM mode)
+          SamTyBit = true;
+          SamP1Bit = false;
+          SetS(0xE200);       // Initialize 6809 stack pointer before jumping to kernel!
+          Jump(fuzix_exec_addr);
+          return;
+        }
+#endif
 
         // Guarantee SAM P1=0 (Bank 0) and TY=0 (ROM mode) at boot
         GPoke1(0xFFD4, 0);
@@ -692,6 +723,86 @@ void SleepMillis(Coro* c, uint64_t ms) {
 
 Coro* g_spoon_coro = nullptr;
 
+#if FUZIX_COCO2CENTIPEDE
+void setup_fuzix(Coro* coro_self) {
+  centipede_config.fuzix = true;
+  centipede_config.become_coco3 = true;
+  centipede_config.ram_64k = true;
+  centipede_config.rom_disk11 = false;
+  centipede_config.floppy_fd = false;
+  centipede_config.floppy_pc = false;
+
+  // Initialize GIME MMU identity mapping for blocks 0..7 in Task 0 and Task 1
+  for (int i = 0; i < 8; i++) {
+    mmu_task[0][i] = i;
+    mmu_task[1][i] = i;
+    mmu_base[i] = (uint32_t)i << 13;
+    mmu_base[8 + i] = (uint32_t)i << 13;
+  }
+  gime_init0 = 0x4C;
+  gime_init1 = 0x01;
+  active_mmu_offset = 8;  // Task 1 (Kernel)
+  SamTyBit = true;
+  SamP1Bit = false;
+
+  fuzix_rx_head = 0;
+  fuzix_rx_tail = 0;
+  fuzix_sd_idx = 0;
+  fuzix_sd_ctl = 0x80;
+  fuzix_exec_addr = 0x0200;
+
+  // Open /pc/disk2.img for SD block device emulation
+  if (!g_fuzix_disk_opened) {
+    int res = vfs_file_open(&g_fuzix_disk_file, "/pc/disk2.img", LFS_O_RDWR);
+    cobs_printf("setup_fuzix: open /pc/disk2.img -> %d\n", res);
+    if (res >= 0) {
+      g_fuzix_disk_opened = true;
+    } else {
+      cobs_printf("ERROR: setup_fuzix failed to open /pc/disk2.img\n");
+    }
+  }
+
+  // Clear RAM and load /pc/fuzix.bin (DECB format) directly into ram[]
+  memset(ram, 0, sizeof(ram));
+  vfs_file_t fuzix_file;
+  int err = vfs_file_open(&fuzix_file, "/pc/fuzix.bin", LFS_O_RDONLY);
+  if (err < 0) {
+    cobs_printf("ERROR: setup_fuzix failed to open /pc/fuzix.bin (%d)\n", err);
+    return;
+  }
+  cobs_printf("setup_fuzix: loading /pc/fuzix.bin...\n");
+  uint32_t total_loaded = 0;
+  while (true) {
+    uint8_t hdr[5];
+    lfs_ssize_t n = vfs_file_read(&fuzix_file, hdr, 5);
+    if (n < 5) break;
+    uint8_t tag = hdr[0];
+    uint16_t len = ((uint16_t)hdr[1] << 8) | hdr[2];
+    uint16_t addr = ((uint16_t)hdr[3] << 8) | hdr[4];
+    if (tag == 0x00) {
+      uint16_t got = 0;
+      while (got < len) {
+        uint16_t chunk = (len - got > 512) ? 512 : (len - got);
+        lfs_ssize_t r = vfs_file_read(&fuzix_file, ram + addr + got, chunk);
+        if (r <= 0) break;
+        got += r;
+      }
+      total_loaded += got;
+      cobs_printf("  DECB seg addr=$%04x len=$%04x\n", addr, got);
+    } else if (tag == 0xFF) {
+      fuzix_exec_addr = addr;
+      cobs_printf("  DECB exec=$%04x (total %u bytes)\n", fuzix_exec_addr, (unsigned)total_loaded);
+      break;
+    } else {
+      cobs_printf("  DECB unknown tag=$%02x\n", tag);
+      break;
+    }
+  }
+  vfs_file_close(&fuzix_file, coro_self);
+  __dmb();
+}
+#endif
+
 
 // BackgroundSpoonFeeder runs in the background thread,
 // whereas all the above (which should have IN_RAM) run
@@ -749,6 +860,14 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
       cobs_printf("booted_via_rpc is true: waiting 3 seconds for tether USB...\n");
       SleepMillis(coro_self, 3000);
   }
+
+#if FUZIX_COCO2CENTIPEDE
+  if (boot_mode == 70 || boot_mode == 1170) {
+      centipede_config.fuzix = true;
+      centipede_config.trace_writes = (boot_mode == 1170);
+      goto BYE;
+  }
+#endif
 
   if (boot_mode != 27 ) {  // Source RC files, unless BREAK KEY (also known as ESCAPE)
       // First SOURCE /rc/init.tcl
@@ -994,6 +1113,12 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
   } // End REPL
 
 BYE:
+#if FUZIX_COCO2CENTIPEDE
+  if (centipede_config.fuzix) {
+    tcl_io::emit_string("Launching Fuzix (coco2centipede)...\n");
+    setup_fuzix(coro_self);
+  } else
+#endif
   if (centipede_config.become_coco3) {
     tcl_io::emit_string("Launching Coco3...\n");
   } else {

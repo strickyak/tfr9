@@ -311,7 +311,11 @@ struct DoCoco128k {
     uint task = (reg >> 3) & 1;
     uint slot = reg & 7;
     mmu_task[task][slot] = d & 0x3F;
+#if FUZIX_COCO2CENTIPEDE
+    mmu_base[reg] = (uint32_t)(d & (centipede_config.fuzix ? 0x1F : 0x0F)) << 13;
+#else
     mmu_base[reg] = (uint32_t)(d & 0x0F) << 13;
+#endif
   }
   static byte IN_RAM ReadFFAx_MMU(uint a) {
     uint reg = a & 0x0F;

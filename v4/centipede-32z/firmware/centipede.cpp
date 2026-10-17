@@ -23,7 +23,11 @@
 #define GSPOON_POC_DEMO 0
 #define ECHO_PUTCHAR_ON_CONSOLE 1
 #define USE_ORCHESTRA90 0
+#if FUZIX_COCO2CENTIPEDE
+#define STACK_SIZE   (12 * 1024)
+#else
 #define STACK_SIZE   (20 * 1024) // was 10K
+#endif
 
 // #define TRIGGER_ON_READ     0xCA71
 // #define TRIGGER_ON_WRITE 0xFE7F
@@ -236,8 +240,13 @@ CircBuf<std::string*, 64> usb_packet_buf;
 UsbReceiver usb_receiver(usb_raw_buf);
 CobsDecoder<1024, 64> cobs_decoder(usb_raw_buf, usb_packet_buf);
 
+#if FUZIX_COCO2CENTIPEDE
+CrossCoreFIFO<uint, 4096> fg2bg;
+CrossCoreFIFO<uint, 512> bg2fg;
+#else
 CrossCoreFIFO<uint, 8192> fg2bg;
 CrossCoreFIFO<uint, 8192> bg2fg;
+#endif
 
 // Foreground flow control: smooth HALT-based throttling to prevent fg2bg
 // overflow. High watermark: assert HALT when FIFO exceeds this (stop pushing,
@@ -321,7 +330,9 @@ using IOWriter = void (*)(uint addr, byte data);
 IOReader IOReaders[256];
 IOWriter IOWriters[256];
 
-#if BECOME_COCO3
+#if FUZIX_COCO2CENTIPEDE
+byte ram[256 * 1024];
+#elif BECOME_COCO3
 byte ram[128 * 1024];
 #else
 byte ram[64 * 1024];
@@ -357,6 +368,10 @@ enum FifoNumbers {
   FG2BG_W_256,
   FG2BG_PEEK_REPLY,
   FG2BG_START_KEYBOARD_INJECTOR,
+#if FUZIX_COCO2CENTIPEDE
+  FG2BG_FUZIX_SD_READ,
+  FG2BG_FUZIX_SD_WRITE,
+#endif
 };
 
 #include "cpu_tracker.h"
@@ -442,6 +457,24 @@ bool SamP1Bit = false;
 bool SamTyBit = false;
 volatile bool coco_running = false;
 inline volatile uint8_t gime_init0 = 0x0A;
+
+#if FUZIX_COCO2CENTIPEDE
+extern volatile uint8_t gime_init1;
+extern volatile uint8_t mmu_task[2][8];
+extern volatile uint32_t mmu_base[16];
+extern volatile uint8_t active_mmu_offset;
+
+inline vfs_file_t g_fuzix_disk_file;
+inline bool g_fuzix_disk_opened = false;
+inline volatile uint8_t fuzix_rx_buf[256];
+inline volatile uint8_t fuzix_rx_head = 0;
+inline volatile uint8_t fuzix_rx_tail = 0;
+inline uint8_t fuzix_sd_buf[512];
+inline volatile uint16_t fuzix_sd_idx = 0;
+inline volatile uint8_t fuzix_sd_lba[3] = {0, 0, 0};
+inline volatile uint8_t fuzix_sd_ctl = 0x80;  // 0x80 = Ready / Idle
+inline uint16_t fuzix_exec_addr = 0x0200;
+#endif
 
 #include "gspoon.h"
 #include "tcl_io.h"
@@ -695,8 +728,21 @@ class CoreEngine : public BackgroundSharedState {
                         (unsigned char)(*s)[0] >= 1 &&
                         (unsigned char)(*s)[0] <= 133;
                })) != nullptr) {
-          for (char ch : *pkt) {
-            keyboard_injector::queue_char(ch);
+#if FUZIX_COCO2CENTIPEDE
+          if (centipede_config.fuzix) {
+            for (char ch : *pkt) {
+              uint8_t next_head = (fuzix_rx_head + 1) & 0xFF;
+              if (next_head != fuzix_rx_tail) {
+                fuzix_rx_buf[fuzix_rx_head] = (uint8_t)ch;
+                fuzix_rx_head = next_head;
+              }
+            }
+          } else
+#endif
+          {
+            for (char ch : *pkt) {
+              keyboard_injector::queue_char(ch);
+            }
           }
           delete pkt;
         }
@@ -804,6 +850,10 @@ class CoreEngine : public BackgroundSharedState {
         case FG2BG_FLOPPY_LATCH:
         case FG2BG_FLOPPY_COMMAND:
         case FG2BG_W_256:
+#if FUZIX_COCO2CENTIPEDE
+        case FG2BG_FUZIX_SD_READ:
+        case FG2BG_FUZIX_SD_WRITE:
+#endif
           // Dispatch to floppy task — spin briefly if it's still busy.
           while (floppy_has_work) coro_yield(&self);
           floppy_pending_chore = chore;
@@ -859,6 +909,51 @@ class CoreEngine : public BackgroundSharedState {
         case FG2BG_W_256:
           T::BackgroundFifoFloppyW256(self, chore_byte);
           break;
+#if FUZIX_COCO2CENTIPEDE
+        case FG2BG_FUZIX_SD_READ: {
+          Coro* saved_vfs_coro = rpc::g_vfs_coro;
+          rpc::g_vfs_coro = &self;
+          uint32_t lba = chore & 0x00FFFFFF;
+          if (!g_fuzix_disk_opened) {
+            int res = vfs_file_open(&g_fuzix_disk_file, "/pc/disk2.img", LFS_O_RDWR);
+            if (res >= 0) g_fuzix_disk_opened = true;
+          }
+          if (g_fuzix_disk_opened) {
+            vfs_file_seek(&g_fuzix_disk_file, (lfs_soff_t)lba * 512, LFS_SEEK_SET, &self);
+            lfs_size_t got = 0;
+            while (got < 512) {
+              lfs_ssize_t n = vfs_file_read(&g_fuzix_disk_file, fuzix_sd_buf + got, 512 - got);
+              if (n <= 0) break;
+              got += n;
+            }
+            if (got < 512) memset(fuzix_sd_buf + got, 0, 512 - got);
+          } else {
+            memset(fuzix_sd_buf, 0xFF, 512);
+          }
+          fuzix_sd_idx = 0;
+          __dmb();
+          fuzix_sd_ctl = 0xE0;  // read byte ready (0x80 | 0x40 | 0x20)
+          rpc::g_vfs_coro = saved_vfs_coro;
+          break;
+        }
+        case FG2BG_FUZIX_SD_WRITE: {
+          Coro* saved_vfs_coro = rpc::g_vfs_coro;
+          rpc::g_vfs_coro = &self;
+          uint32_t lba = chore & 0x00FFFFFF;
+          if (!g_fuzix_disk_opened) {
+            int res = vfs_file_open(&g_fuzix_disk_file, "/pc/disk2.img", LFS_O_RDWR);
+            if (res >= 0) g_fuzix_disk_opened = true;
+          }
+          if (g_fuzix_disk_opened) {
+            vfs_file_seek(&g_fuzix_disk_file, (lfs_soff_t)lba * 512, LFS_SEEK_SET, &self);
+            vfs_file_write(&g_fuzix_disk_file, fuzix_sd_buf, 512);
+          }
+          __dmb();
+          fuzix_sd_ctl = 0x80;  // idle / write complete
+          rpc::g_vfs_coro = saved_vfs_coro;
+          break;
+        }
+#endif
       }
 
       floppy_has_work = false;
@@ -987,6 +1082,36 @@ class CoreEngine : public BackgroundSharedState {
                   uint reg = io_reg & 0x0F;
                   dbus = mmu_task[(reg >> 3) & 1][reg & 7];
                   GERBIL_DRIVE(dbus);
+#if FUZIX_COCO2CENTIPEDE
+                } else if (centipede_config.fuzix && (0x60 <= io_reg && io_reg <= 0x69)) {
+                  if (io_reg == 0x60) {
+                    dbus = 0x02 | ((fuzix_rx_head != fuzix_rx_tail) ? 0x01 : 0x00);
+                  } else if (io_reg == 0x61) {
+                    if (fuzix_rx_head != fuzix_rx_tail) {
+                      dbus = fuzix_rx_buf[fuzix_rx_tail];
+                      fuzix_rx_tail = (fuzix_rx_tail + 1) & 0xFF;
+                    } else {
+                      dbus = 0;
+                    }
+                  } else if (io_reg == 0x62 || io_reg == 0x64) {
+                    dbus = 0x02;
+                  } else if (io_reg == 0x68) {
+                    if (fuzix_sd_idx < 512) {
+                      dbus = fuzix_sd_buf[fuzix_sd_idx++];
+                      if (fuzix_sd_idx >= 512) {
+                        fuzix_sd_ctl = 0x80;
+                      }
+                    } else {
+                      dbus = 0xFF;
+                      fuzix_sd_ctl = 0x80;
+                    }
+                  } else if (io_reg == 0x69) {
+                    dbus = fuzix_sd_ctl;
+                  } else {
+                    dbus = 0xFF;
+                  }
+                  GERBIL_DRIVE(dbus);
+#endif
                 } else if (0xB0 <= io_reg && io_reg <= 0xBF) {
                   dbus = gime_palette[io_reg & 0x0F];
                   GERBIL_DRIVE(dbus);
@@ -1007,7 +1132,14 @@ class CoreEngine : public BackgroundSharedState {
                   }
                   GERBIL_DRIVE(dbus);
                 } else if (abus >= 0xFFF0) {
-                  dbus = coco3_rom[abus - 0x8000];
+#if FUZIX_COCO2CENTIPEDE
+                  if (centipede_config.fuzix) {
+                    dbus = ram[T::TranslateCoco64kRamAddress(abus)];
+                  } else
+#endif
+                  {
+                    dbus = coco3_rom[abus - 0x8000];
+                  }
                   GERBIL_DRIVE(dbus);
                 } else {
                   auto r = IOReaders[io_reg];
@@ -1035,7 +1167,11 @@ class CoreEngine : public BackgroundSharedState {
               // CoCo 3 Memory Decoding:
               // Below $FF00, addresses are either CoCo 3 ROM or MMU-mapped RAM.
               // Never pass to CoCo 2 motherboard ROM or RAM.
-              if (T::IsCoco3Rom(abus)) {
+              if (
+#if FUZIX_COCO2CENTIPEDE
+                  !centipede_config.fuzix &&
+#endif
+                  T::IsCoco3Rom(abus)) {
                 if (centipede_config.rom_disk11 && ((gime_init0 & 0x02) == 0) && (0xC000 <= abus && abus < 0xE000)) {
                   dbus = disk11_rom[abus & 0x1FFF];
                 } else {
@@ -1098,7 +1234,43 @@ class CoreEngine : public BackgroundSharedState {
                   uint task = (reg >> 3) & 1;
                   uint slot = reg & 7;
                   mmu_task[task][slot] = dbus & 0x3F;
+#if FUZIX_COCO2CENTIPEDE
+                  mmu_base[reg] = (uint32_t)(dbus & (centipede_config.fuzix ? 0x1F : 0x0F)) << 13;
+#else
                   mmu_base[reg] = (uint32_t)(dbus & 0x0F) << 13;
+#endif
+#if FUZIX_COCO2CENTIPEDE
+                } else if (centipede_config.fuzix && (0x60 <= io_reg && io_reg <= 0x6C)) {
+                  if (io_reg == 0x61) {
+                    PUSH_TO_BG(FG2BG_PUTCHAR, 0, dbus);
+                  } else if (io_reg == 0x68) {
+                    if (fuzix_sd_idx < 512) {
+                      fuzix_sd_buf[fuzix_sd_idx++] = dbus;
+                      if (fuzix_sd_idx == 512) {
+                        fuzix_sd_ctl = 0x00;
+                        __dmb();
+                        uint32_t lba = ((uint32_t)fuzix_sd_lba[2] << 16) |
+                                       ((uint32_t)fuzix_sd_lba[1] << 8) |
+                                       (uint32_t)fuzix_sd_lba[0];
+                        fg2bg.push(((uint)FG2BG_FUZIX_SD_WRITE << 24) | (lba & 0x00FFFFFF));
+                      }
+                    }
+                  } else if (io_reg == 0x69) {
+                    if (dbus == 0x00) {
+                      fuzix_sd_idx = 0;
+                      fuzix_sd_ctl = 0x00;
+                      uint32_t lba = ((uint32_t)fuzix_sd_lba[2] << 16) |
+                                     ((uint32_t)fuzix_sd_lba[1] << 8) |
+                                     (uint32_t)fuzix_sd_lba[0];
+                      fg2bg.push(((uint)FG2BG_FUZIX_SD_READ << 24) | (lba & 0x00FFFFFF));
+                    } else if (dbus == 0x01) {
+                      fuzix_sd_idx = 0;
+                      fuzix_sd_ctl = 0xA0;
+                    }
+                  } else if (0x6A <= io_reg && io_reg <= 0x6C) {
+                    fuzix_sd_lba[io_reg - 0x6A] = dbus;
+                  }
+#endif
                 } else if (0xB0 <= io_reg && io_reg <= 0xBF) {
                   gime_palette[io_reg & 0x0F] = dbus & 0x3F;
                 } else if (io_reg == 0xD4) {
@@ -1138,7 +1310,12 @@ class CoreEngine : public BackgroundSharedState {
               if (centipede_config.become_coco3 && abus >= 0xFFF0) {
                 ram[T::TranslateCoco64kRamAddress(abus)] = dbus;
               }
-              ram[abus] = dbus;
+#if FUZIX_COCO2CENTIPEDE
+              if (!centipede_config.fuzix)
+#endif
+              {
+                ram[abus] = dbus;
+              }
               // Only trace non-special I/O writes if trace_writes enabled.
               if (centipede_config.trace_writes) {
                 T::PushFifoWrite(abus, dbus);
@@ -1148,10 +1325,18 @@ class CoreEngine : public BackgroundSharedState {
               uint atrans = centipede_config.become_coco3
                                 ? T::TranslateCoco64kRamAddress(abus)
                                 : (T::UseCoco64kRam(abus) ? T::TranslateCoco64kRamAddress(abus) : abus);
-              if (!centipede_config.become_coco3 || !T::IsCoco3Rom(abus)) {
+              if (
+#if FUZIX_COCO2CENTIPEDE
+                  centipede_config.fuzix ||
+#endif
+                  !centipede_config.become_coco3 || !T::IsCoco3Rom(abus)) {
                 ram[atrans] = dbus;
               }
-              if (centipede_config.become_coco3 && 0x0400 <= abus && abus < 0x0600) {
+              if (centipede_config.become_coco3 &&
+#if FUZIX_COCO2CENTIPEDE
+                  !centipede_config.fuzix &&
+#endif
+                  0x0400 <= abus && abus < 0x0600) {
                 ram[abus] = dbus;
               }
 

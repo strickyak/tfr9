@@ -1,6 +1,10 @@
 #ifndef FIRMWARE_H_
 #define FIRMWARE_H_
 
+#ifndef FUZIX_COCO2CENTIPEDE
+#define FUZIX_COCO2CENTIPEDE 1
+#endif
+
 struct CentipedeConfig {
     bool    ram_64k;
     bool    rom_disk11;
@@ -9,6 +13,9 @@ struct CentipedeConfig {
     bool    trace_writes;
     bool    trace_reads;
     bool    become_coco3;
+#if FUZIX_COCO2CENTIPEDE
+    bool    fuzix;
+#endif
 
     void SetStandard() {
         this->ram_64k = true;
@@ -19,6 +26,9 @@ struct CentipedeConfig {
 
         this->floppy_pc = false;
         this->become_coco3 = false;
+#if FUZIX_COCO2CENTIPEDE
+        this->fuzix = false;
+#endif
     }
 };
 
