@@ -1,0 +1,133 @@
+(footprint "HOLE_D3M5_D7M0_PAD_PTH"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 0 0)
+		(layer "F.SilkS")
+		(uuid "0803fa99-b81c-4fa3-955e-2263c40c4d1a")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(uuid "6f97c721-7fd7-444e-ace0-857e599e9359")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "aa8d2dba-8f38-4d05-b6ac-2f8f2d517d4e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "313d6609-8d5b-4a29-92a8-2f6cd2805eb6")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_line
+		(start -3.75 0)
+		(end -4.5 0)
+		(stroke
+			(width 0.258)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "d6f47b79-d870-46b8-b302-9cd2cf808654")
+	)
+	(fp_line
+		(start 0 -3.75)
+		(end 0 -4.5)
+		(stroke
+			(width 0.258)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "5224e37b-439e-497c-a95b-8365e0b25d71")
+	)
+	(fp_line
+		(start 0 4.5)
+		(end 0 3.75)
+		(stroke
+			(width 0.258)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "e80959f3-7318-4366-b17b-fba1f50a4ec2")
+	)
+	(fp_line
+		(start 4.5 0)
+		(end 3.75 0)
+		(stroke
+			(width 0.258)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "ad3481b5-b351-4077-b2fc-fa1ce7613a68")
+	)
+	(fp_circle
+		(center 0 0)
+		(end 3.75 0)
+		(stroke
+			(width 0.258)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "9c7d9459-81d3-4bd7-833e-acbf556e039a")
+	)
+	(fp_line
+		(start -3.81 0)
+		(end 3.81 0)
+		(stroke
+			(width 0.254)
+			(type default)
+		)
+		(layer "Dwgs.User")
+		(uuid "b7bfae1b-f538-4a22-a143-f164b81b978d")
+	)
+	(fp_line
+		(start 0 -3.81)
+		(end 0 3.81)
+		(stroke
+			(width 0.254)
+			(type default)
+		)
+		(layer "Dwgs.User")
+		(uuid "001f7b56-d273-438b-89c5-fdce7b4c9294")
+	)
+	(pad "1" thru_hole circle
+		(at 0 0)
+		(size 7 7)
+		(drill 3.556)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(thermal_bridge_angle 90)
+		(uuid "702d6a83-da5e-46d2-a0cd-40845a864153")
+	)
+	(embedded_fonts no)
+)
