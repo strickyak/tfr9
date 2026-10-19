@@ -1,6 +1,9 @@
 #define MHz 250
 
 #define BECOME_COCO3 1 // Make a coco2 behave like a coco3
+#ifndef FUZIX_COCO2CENTIPEDE
+#define FUZIX_COCO2CENTIPEDE 1
+#endif
 
 #define FOR_COCO3 0 // For running on an actual coco3
 
