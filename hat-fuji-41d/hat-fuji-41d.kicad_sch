@@ -5,9 +5,10 @@
 	(uuid "530151af-e929-4ebc-81ba-062acbc84619")
 	(paper "A4")
 	(title_block
-		(title "CoCo FujiNet")
-		(date "2024-08-25")
-		(rev "Rev 0000")
+		(title "FujiNet Hat rev 41d for centipede 32z and TFR/911h")
+		(date "2026-10-19")
+		(rev "41d")
+		(company "Copico Labs")
 	)
 	(lib_symbols
 		(symbol "Connector:Conn_01x20_Pin"

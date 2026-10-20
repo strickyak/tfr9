@@ -268,7 +268,7 @@
       "internal_id": "",
       "mfg": "",
       "mpn": "",
-      "sch_revision": "Rev 0000"
+      "sch_revision": "41d"
     },
     "layer_pairs": [],
     "layer_presets": [],
@@ -684,7 +684,7 @@
   "sheets": [
     [
       "530151af-e929-4ebc-81ba-062acbc84619",
-      "hat-fuji-41a"
+      "hat-fuji-41d"
     ]
   ],
   "text_variables": {},
