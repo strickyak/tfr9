@@ -1529,15 +1529,8 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						fmt.Printf("%c", ch)
 						cr = false
 
-					case ch == 13: // CR: convert to LF and record that CR occurred
-						fmt.Printf("\n")
-						cr = true
-
-					case ch == 10: // LF: ignore if immediately after CR
-						if !cr {
-							fmt.Printf("\n")
-						}
-						cr = false
+					case ch == 10 || ch == 13:
+						fmt.Printf("%c", ch)
 
 					default:
 						if *CURLY_DEC {
