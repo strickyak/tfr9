@@ -1,0 +1,114 @@
+#!/usr/bin/expect -f
+# 06_engine_fuzix_test.exp - Test Multicomp09Fuzix engine (Fuzix 6809, 256KB MMU) on 6309E CPU
+
+set timeout 25
+
+set script_dir [file dirname [file normalize [info script]]]
+set v4_dir [file normalize "$script_dir/.."]
+set tether_bin "$v4_dir/build/tether.linux-amd64.exe"
+if {[info exists env(TETHER_BIN)] && [file executable $env(TETHER_BIN)]} {
+    set tether_bin $env(TETHER_BIN)
+}
+
+proc fail_and_exit {msg} {
+    puts stderr "  FAIL: $msg"
+    catch {exec kill -INT [exp_pid]}
+    catch {close}
+    catch {wait}
+    after 1000
+    exit 1
+}
+
+puts "Running Suite 6: Engine 3 — Multicomp09Fuzix (Fuzix 6809, 256KB MMU)"
+
+spawn $tether_bin -bind= -pc "$v4_dir/misc/pc" -bootmode=1170
+
+expect {
+    "FUZIX version" {
+        puts "  PASS: Booted Fuzix 6809 kernel ('FUZIX version')"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for Fuzix kernel banner"
+    }
+}
+
+expect {
+    "256KiB total RAM" {
+        puts "  PASS: Detected 256KiB total RAM (Multicomp09 MMU)"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 256KiB RAM message"
+    }
+}
+
+expect {
+    "Starting /init" {
+        puts "  PASS: Mounted root filesystem over SD SPI emulation and started /init"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for /init"
+    }
+}
+
+expect {
+    "Continue? " {
+        send "n\r"
+        exp_continue
+    }
+    "Enter new date: " {
+        send "\r"
+        exp_continue
+    }
+    "Enter new time: " {
+        send "\r"
+        exp_continue
+    }
+    "login: " {
+        puts "  PASS: Reached Fuzix multi-user 'login:' prompt"
+        send "root\r"
+    }
+    "# " {
+        puts "  PASS: Reached Fuzix root shell ('# ')"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for Fuzix login/shell prompt"
+    }
+}
+
+expect {
+    "# " {
+        puts "  PASS: Logged in as root ('# ')"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for root shell prompt"
+    }
+}
+
+send "echo HELLO_FUZIX_6809\r"
+expect "echo HELLO_FUZIX_6809"
+expect {
+    "HELLO_FUZIX_6809" {
+        puts "  PASS: 'echo' printed expected string in Fuzix shell"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'echo' output in Fuzix"
+    }
+}
+expect "# "
+
+# Terminate tether cleanly with SIGINT
+exec kill -INT [exp_pid]
+expect {
+    "SIGINT" {
+        puts "  PASS: Cleanly interrupted Tether session via SIGINT"
+    }
+    eof {
+        puts "  PASS: Tether session closed"
+    }
+}
+
+catch wait result
+puts "\n========================================================"
+puts " Summary for Suite 6 (Engine: Multicomp09Fuzix): ALL PASSED"
+puts "========================================================"
+exit 0

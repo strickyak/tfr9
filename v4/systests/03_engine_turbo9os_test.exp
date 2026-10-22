@@ -1,0 +1,94 @@
+#!/usr/bin/expect -f
+# 03_engine_turbo9os_test.exp - Test built-in Turbo9OS (Turbo9Sim) engine on 6309E CPU
+
+set timeout 20
+
+set script_dir [file dirname [file normalize [info script]]]
+set v4_dir [file normalize "$script_dir/.."]
+set tether_bin "$v4_dir/build/tether.linux-amd64.exe"
+if {[info exists env(TETHER_BIN)] && [file executable $env(TETHER_BIN)]} {
+    set tether_bin $env(TETHER_BIN)
+}
+
+proc fail_and_exit {msg} {
+    puts stderr "  FAIL: $msg"
+    catch {exec kill -INT [exp_pid]}
+    catch {close}
+    catch {wait}
+    after 1000
+    exit 1
+}
+
+puts "Running Suite 3: Engine 0 — Turbo9Sim / Turbo9OS (Built-in ROMs)"
+
+spawn $tether_bin -bind= -pc "$v4_dir/misc/pc" -bootmode=0
+
+expect {
+    "TCL>" {
+        puts "  PASS: Reached Phase 1 TCL> prompt"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for TCL> prompt"
+    }
+}
+
+send "set Config(engine) turbo9os ; menu store Config ; bye\r"
+
+expect {
+    "TOS:" {
+        puts "  PASS: Booted 6309E into Turbo9OS shell ('TOS:')"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for Turbo9OS 'TOS:' prompt"
+    }
+}
+
+send "mfree\r"
+expect {
+    "Total pages free" {
+        puts "  PASS: 'mfree' executed and reported free pages"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'mfree' output"
+    }
+}
+expect "TOS:"
+
+send "procs\r"
+expect {
+    -re "(?i)shell" {
+        puts "  PASS: 'procs' executed and listed shell process"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'procs' output"
+    }
+}
+expect "TOS:"
+
+send "mdir -e\r"
+expect {
+    -re "(?i)kernel" {
+        puts "  PASS: 'mdir -e' listed memory modules including 'kernel'"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'mdir -e' output"
+    }
+}
+expect "TOS:"
+
+# Terminate tether cleanly with SIGINT
+exec kill -INT [exp_pid]
+expect {
+    "SIGINT" {
+        puts "  PASS: Cleanly interrupted Tether session via SIGINT"
+    }
+    eof {
+        puts "  PASS: Tether session closed"
+    }
+}
+
+catch wait result
+puts "\n========================================================"
+puts " Summary for Suite 3 (Engine: Turbo9OS): ALL PASSED"
+puts "========================================================"
+exit 0

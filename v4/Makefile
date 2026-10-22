@@ -13,6 +13,12 @@ clean:
 test-cpu-tracker:
 	$(MAKE) -C cpu-tracker test
 
+systest:
+	$(MAKE) -C systests test
+
+systest-quick:
+	$(MAKE) -C systests test-quick
+
 
 ##########################################################
 

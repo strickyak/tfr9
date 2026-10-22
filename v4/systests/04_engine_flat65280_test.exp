@@ -1,0 +1,105 @@
+#!/usr/bin/expect -f
+# 04_engine_flat65280_test.exp - Test Flat65280 engine (NitrOS-9 Level 1) on 6309E CPU
+
+set timeout 25
+
+set script_dir [file dirname [file normalize [info script]]]
+set v4_dir [file normalize "$script_dir/.."]
+set tether_bin "$v4_dir/build/tether.linux-amd64.exe"
+if {[info exists env(TETHER_BIN)] && [file executable $env(TETHER_BIN)]} {
+    set tether_bin $env(TETHER_BIN)
+}
+
+proc fail_and_exit {msg} {
+    puts stderr "  FAIL: $msg"
+    catch {exec kill -INT [exp_pid]}
+    catch {close}
+    catch {wait}
+    after 1000
+    exit 1
+}
+
+puts "Running Suite 4: Engine 1 — Flat65280 (NitrOS-9 Level 1)"
+
+spawn $tether_bin -bind= -pc "$v4_dir/misc/pc" -bootmode=84
+
+expect {
+    "loaded 65536 bytes into RAM" {
+        puts "  PASS: Loaded 64KB flat65280.img into RAM"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for flat65280 image load"
+    }
+}
+
+expect {
+    "OS9:" {
+        puts "  PASS: Reached NitrOS-9 Level 1 'OS9:' shell prompt"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for NitrOS-9 Level 1 'OS9:' prompt"
+    }
+}
+
+send "mfree\r"
+expect {
+    "Total" {
+        puts "  PASS: 'mfree' executed and reported free memory"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'mfree' output"
+    }
+}
+expect "OS9:"
+
+send "procs\r"
+expect {
+    "Shell" {
+        puts "  PASS: 'procs' executed and listed Shell"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'procs' output"
+    }
+}
+expect "OS9:"
+
+send "mdir\r"
+expect {
+    "Krn" {
+        puts "  PASS: 'mdir' listed kernel modules"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'mdir' output"
+    }
+}
+expect "OS9:"
+
+send "echo HELLO_FLAT65280\r"
+expect "echo HELLO_FLAT65280"
+expect {
+    "HELLO_FLAT65280" {
+        puts "  PASS: 'echo' printed expected string"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'echo' output"
+    }
+}
+expect "OS9:"
+
+send "stop 0\r"
+expect {
+    "target shutdown OK (0)" {
+        puts "  PASS: 'stop 0' triggered clean target shutdown (status=0)"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'stop 0' shutdown"
+    }
+}
+
+catch wait result
+# Wait for RP2350 to finish rebooting and USB re-enumeration after stop 0 ($FC)
+after 3000
+puts "\n========================================================"
+puts " Summary for Suite 4 (Engine: Flat65280 L1): ALL PASSED"
+puts "========================================================"
+exit 0

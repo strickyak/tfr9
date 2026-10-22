@@ -1,0 +1,108 @@
+#!/usr/bin/expect -f
+# 05_engine_deep65280_test.exp - Test Deep65280 engine (NitrOS-9 Level 2, 256KB MMU) on 6309E CPU
+
+set timeout 25
+
+set script_dir [file dirname [file normalize [info script]]]
+set v4_dir [file normalize "$script_dir/.."]
+set tether_bin "$v4_dir/build/tether.linux-amd64.exe"
+if {[info exists env(TETHER_BIN)] && [file executable $env(TETHER_BIN)]} {
+    set tether_bin $env(TETHER_BIN)
+}
+
+proc fail_and_exit {msg} {
+    puts stderr "  FAIL: $msg"
+    catch {exec kill -INT [exp_pid]}
+    catch {close}
+    catch {wait}
+    after 1000
+    exit 1
+}
+
+puts "Running Suite 5: Engine 2 — Deep65280 (NitrOS-9 Level 2, 256KB MMU)"
+
+spawn $tether_bin -bind= -pc "$v4_dir/misc/pc" -bootmode=8
+
+expect {
+    "loaded 8192 + 57344 = 65536 bytes into RAM (256KB)" {
+        puts "  PASS: Loaded 64KB deep65280.img into 256KB paged RAM"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for deep65280 image load"
+    }
+}
+
+expect {
+    "OS9:" {
+        puts "  PASS: Reached NitrOS-9 Level 2 'OS9:' shell prompt"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for NitrOS-9 Level 2 'OS9:' prompt"
+    }
+}
+
+send "mfree\r"
+expect {
+    -re "Total:.*200k" {
+        puts "  PASS: 'mfree' reported 200k free across 256KB MMU blocks"
+    }
+    "Total:" {
+        puts "  PASS: 'mfree' reported free blocks"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'mfree' output"
+    }
+}
+expect "OS9:"
+
+send "procs\r"
+expect {
+    "Shell" {
+        puts "  PASS: 'procs' executed and listed Shell"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'procs' output"
+    }
+}
+expect "OS9:"
+
+send "mdir -e\r"
+expect {
+    "KrnP2" {
+        puts "  PASS: 'mdir -e' listed Level 2 kernel modules"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'mdir -e' output"
+    }
+}
+expect "OS9:"
+
+send "echo HELLO_DEEP65280\r"
+expect "echo HELLO_DEEP65280"
+expect {
+    "HELLO_DEEP65280" {
+        puts "  PASS: 'echo' printed expected string"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'echo' output"
+    }
+}
+expect "OS9:"
+
+send "stop 0\r"
+expect {
+    "target shutdown OK (0)" {
+        puts "  PASS: 'stop 0' triggered clean target shutdown (status=0)"
+    }
+    timeout {
+        fail_and_exit "Timed out waiting for 'stop 0' shutdown"
+    }
+}
+
+catch wait result
+# Wait for RP2350 to finish rebooting and USB re-enumeration after stop 0 ($FC)
+after 3000
+puts "\n========================================================"
+puts " Summary for Suite 5 (Engine: Deep65280 L2): ALL PASSED"
+puts "========================================================"
+exit 0
