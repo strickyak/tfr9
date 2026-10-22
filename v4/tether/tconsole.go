@@ -51,6 +51,7 @@ var TCL_INPUT = flag.String("tcl_input", "", "Inject Tcl commands before enterin
 var QUICK_UPLOAD = flag.String("quick-upload", "", "Quick mode: upload the Pico's flash from this zip file")
 var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
 var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
+var QUICK_GET_LABEL = flag.Bool("quick-get-label", false, "Quick mode: get the label from the highest sector of flash memory and print it")
 
 var tmpDirToClean string
 
@@ -419,6 +420,10 @@ func main() {
 	// Quick-reformat mode: connect and reformat LittleFS.
 	if *QUICK_REFORMAT {
 		RunQuickAction("reformat")
+		return
+	}
+	if *QUICK_GET_LABEL {
+		RunQuickGetLabel()
 		return
 	}
 

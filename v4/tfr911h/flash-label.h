@@ -1,12 +1,24 @@
 #ifndef _FIRMWARE_FLASH_LABEL_H_
 #define _FIRMWARE_FLASH_LABEL_H_
 
+#include <string>
+
 struct FlashLabel {
   static const uint32_t LABEL_MAX_LEN = 256;
   static const unsigned long long LABEL_ADDR = 0x10FFF000;
 
   // +2 guarantees space for the EOF double-NUL even if the string is 256 bytes
   static char Label[LABEL_MAX_LEN + 2];
+
+  static std::string RawLabel() {
+    std::string s;
+    for (uint32_t i = 0; i < LABEL_MAX_LEN; i++) {
+      uint8_t b = *(const uint8_t*)(LABEL_ADDR + i);
+      if (b == 0x00 || b == 0xFF) break;
+      s.push_back((char)b);
+    }
+    return s;
+  }
 
   static void InitLabel() {
     for (uint32_t i = 0; i < LABEL_MAX_LEN; i++) {

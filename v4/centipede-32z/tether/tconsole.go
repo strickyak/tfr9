@@ -49,6 +49,7 @@ var QUICK_INJECT = flag.String("quick-inject", "", "Quick mode: connect and inje
 var QUICK_UPLOAD = flag.String("quick-upload", "", "Quick mode: upload the Pico's flash from this zip file")
 var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
 var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
+var QUICK_GET_LABEL = flag.Bool("quick-get-label", false, "Quick mode: get the label from the highest sector of flash memory and print it")
 var QUICK_GET_RAM = flag.String("quick-get-ram", "", "Quick mode: get raw ram[] from Pico and save to filename")
 var QUICK_GET_TEXT = flag.String("quick-get-text", "", "Quick mode: get text screen from Pico RAM [addr,width,height] and print to stdout")
 var QUICK_GET_PMODE = flag.String("quick-get-pmode", "", "Quick mode: get PMODE screen from Pico RAM [M,P,C,filename] and save as PNG")
@@ -519,6 +520,10 @@ func main() {
 	}
 	if *QUICK_GET_CYCLES {
 		RunQuickGetCycles()
+		return
+	}
+	if *QUICK_GET_LABEL {
+		RunQuickGetLabel()
 		return
 	}
 

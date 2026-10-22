@@ -1038,5 +1038,25 @@ func RunQuickGetCycles() {
 	os.Exit(0)
 }
 
+// RunQuickGetLabel opens the USB serial with retries, sends a get-label
+// PicoRPC request, prints the label string on a line, and exits.
+func RunQuickGetLabel() {
+	label := "quick-get-label"
+	ch, disconnect := quickConnect(label)
+	defer disconnect()
+
+	resp, err := PicoRpcCall(ch, "get-label", nil, 5*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: FAIL: %v\n", label, err)
+		os.Exit(1)
+	}
+	if resp.Status != 0 {
+		fmt.Fprintf(os.Stderr, "%s: FAIL: status=%d %s\n", label, resp.Status, resp.Message)
+		os.Exit(1)
+	}
+	fmt.Printf("%s\n", string(resp.Data))
+	os.Exit(0)
+}
+
 
 

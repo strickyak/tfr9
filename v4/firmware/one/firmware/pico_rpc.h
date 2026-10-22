@@ -86,6 +86,9 @@ void handle_pico_rpc_request(std::string* pkt) {
     } else {
       resp.status = 0;
     }
+  } else if (req.method == "get-label") {
+    resp.status = 0;
+    resp.data = FlashLabel::RawLabel();
   } else if (req.method == "inject") {
     g_pending_injections.push_back(req);
     return; // Do not send response yet. The REPL will handle it.
