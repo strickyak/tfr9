@@ -8,7 +8,7 @@
 #include "../tcl6.7c/tcl.h"
 #include "tcl_io.h"
 #include "coro.h"
-#include "config.h"
+#include "../../firmware/config.h"
 
 enum class FieldType {
     CHECKBOX,
@@ -230,6 +230,13 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         if (val && atoi(val) != 0) centipede_config.fuzix = true;
 #endif
 
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"preload_decb", 0);
+        if (val && val[0] != '\0') {
+            strncpy(centipede_config.preload_decb, val, sizeof(centipede_config.preload_decb) - 1);
+            centipede_config.preload_decb[sizeof(centipede_config.preload_decb) - 1] = '\0';
+            centipede_config.ram_64k = true;
+        }
+
         set_floppy_names();
         
     } else if (sub == "fetch") {
@@ -248,6 +255,7 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
 #if FUZIX_COCO2CENTIPEDE
         Tcl_SetVar2(interp, (char*)arr, (char*)"fuzix", (char*)(centipede_config.fuzix ? "1" : "0"), 0);
 #endif
+        Tcl_SetVar2(interp, (char*)arr, (char*)"preload_decb", centipede_config.preload_decb, 0);
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {

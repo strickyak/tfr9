@@ -16,6 +16,7 @@ struct CentipedeConfig {
 #if FUZIX_COCO2CENTIPEDE
     bool    fuzix;
 #endif
+    char    preload_decb[128];
 
     void SetStandard() {
         this->ram_64k = true;
@@ -29,6 +30,7 @@ struct CentipedeConfig {
 #if FUZIX_COCO2CENTIPEDE
         this->fuzix = false;
 #endif
+        this->preload_decb[0] = '\0';
     }
 };
 

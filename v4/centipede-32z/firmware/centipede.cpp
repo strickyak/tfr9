@@ -439,6 +439,13 @@ volatile int nmi_fuse;
   } while(0)
 #define RELEASE_NMI() gpio_set_dir(G_NMI, GPIO_IN)
 
+volatile int cart_fuse;
+#define ASSERT_CART() do { \
+    gpio_set_dir(G_CART, GPIO_OUT); \
+    cart_fuse = 2; \
+  } while(0)
+#define RELEASE_CART() gpio_set_dir(G_CART, GPIO_IN)
+
 #define GERBIL_GET() gerbil_program_get_word(pio, sm)
 #define GERBIL_DRIVE(X) gerbil_program_put_word(pio, sm, 0x100 | (X))
 #define GERBIL_PASS() gerbil_program_put_word(pio, sm, 0)
@@ -458,6 +465,8 @@ bool SamP1Bit = false;
 bool SamTyBit = false;
 volatile bool coco_running = false;
 inline volatile uint8_t gime_init0 = 0x0A;
+inline volatile bool preload_active = false;
+inline uint16_t preload_exec_addr = 0x2400;
 
 #if FUZIX_COCO2CENTIPEDE
 extern volatile uint8_t gime_init1;
@@ -1210,7 +1219,7 @@ class CoreEngine : public BackgroundSharedState {
             }
             if (centipede_config.trace_reads
 #if ALWAYS_TRACE_READS_IF_ADDR_GE
-                    || (!centipede_config.become_coco3 && ALWAYS_TRACE_READS_IF_ADDR_GE <= abus)
+                    || (!centipede_config.become_coco3 && !preload_active && ALWAYS_TRACE_READS_IF_ADDR_GE <= abus)
 #endif
                ) {
                 T::PushFifoRead(abus, dbus);
@@ -1289,8 +1298,16 @@ class CoreEngine : public BackgroundSharedState {
                   switch (io_reg) {
                     case 0x92: gime_irqenr = dbus; break;
                     case 0x93: gime_firqenr = dbus; break;
-                    case 0x94: gime_timer_msb = dbus & 0x0F; break;
-                    case 0x95: gime_timer_lsb = dbus; break;
+                    case 0x94:
+                      gime_timer_msb = dbus & 0x0F;
+                      gime_timer_reload = ((uint16_t)gime_timer_msb << 8) | gime_timer_lsb;
+                      gime_timer_count = gime_timer_reload;
+                      break;
+                    case 0x95:
+                      gime_timer_lsb = dbus;
+                      gime_timer_reload = ((uint16_t)gime_timer_msb << 8) | gime_timer_lsb;
+                      gime_timer_count = gime_timer_reload;
+                      break;
                     case 0x98: gime_vmode = dbus; break;
                     case 0x99: gime_vres = dbus; break;
                     case 0x9A: gime_brdr = dbus; break;
@@ -1426,6 +1443,22 @@ class CoreEngine : public BackgroundSharedState {
               gpio_set_dir(G_NMI, GPIO_IN);  // Release NMI
             }
           }
+
+#if BECOME_COCO3
+          if (cart_fuse) {
+            if (--cart_fuse == 0) {
+              gpio_set_dir(G_CART, GPIO_IN);  // Release CART
+            }
+          }
+          if (gime_timer_reload != 0) {
+            if (--gime_timer_count == 0) {
+              gime_timer_count = gime_timer_reload;
+              if ((gime_init0 & 0x20) && (gime_firqenr & 0x20)) {
+                ASSERT_CART();
+              }
+            }
+          }
+#endif
 
       }  // end while true (until RESET)
 

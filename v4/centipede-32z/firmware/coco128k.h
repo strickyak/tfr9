@@ -7,6 +7,8 @@ inline volatile uint8_t gime_irqenr = 0;      // $FF92
 inline volatile uint8_t gime_firqenr = 0;     // $FF93
 inline volatile uint8_t gime_timer_msb = 0;   // $FF94
 inline volatile uint8_t gime_timer_lsb = 0;   // $FF95
+inline volatile uint16_t gime_timer_reload = 0;
+inline volatile uint16_t gime_timer_count = 0;
 inline volatile uint8_t gime_vmode = 0;       // $FF98
 inline volatile uint8_t gime_vres = 0;        // $FF99
 inline volatile uint8_t gime_brdr = 0;        // $FF9A
@@ -220,6 +222,10 @@ struct DoCoco128k {
     gime_init1 = 0;
     gime_irqenr = 0;
     gime_firqenr = 0;
+    gime_timer_msb = 0;
+    gime_timer_lsb = 0;
+    gime_timer_reload = 0;
+    gime_timer_count = 0;
 
     static const uint8_t default_task0[8] = {0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F};
     static const uint8_t default_task1[8] = {0x38, 0x30, 0x31, 0x32, 0x33, 0x3D, 0x35, 0x3F};
@@ -317,10 +323,18 @@ struct DoCoco128k {
   FORCE_INLINE static void DoWriteFF93_FirqEnr(uint a, byte d) { gime_firqenr = d; }
   FORCE_INLINE static byte DoReadFF93_FirqEnr(uint a) { return gime_firqenr; }
 
-  FORCE_INLINE static void DoWriteFF94_TimerMsb(uint a, byte d) { gime_timer_msb = d & 0x0F; }
+  FORCE_INLINE static void DoWriteFF94_TimerMsb(uint a, byte d) {
+    gime_timer_msb = d & 0x0F;
+    gime_timer_reload = ((uint16_t)gime_timer_msb << 8) | gime_timer_lsb;
+    gime_timer_count = gime_timer_reload;
+  }
   FORCE_INLINE static byte DoReadFF94_TimerMsb(uint a) { return gime_timer_msb; }
 
-  FORCE_INLINE static void DoWriteFF95_TimerLsb(uint a, byte d) { gime_timer_lsb = d; }
+  FORCE_INLINE static void DoWriteFF95_TimerLsb(uint a, byte d) {
+    gime_timer_lsb = d;
+    gime_timer_reload = ((uint16_t)gime_timer_msb << 8) | gime_timer_lsb;
+    gime_timer_count = gime_timer_reload;
+  }
   FORCE_INLINE static byte DoReadFF95_TimerLsb(uint a) { return gime_timer_lsb; }
 
   FORCE_INLINE static void DoWriteFF98_Vmode(uint a, byte d) { gime_vmode = d; }

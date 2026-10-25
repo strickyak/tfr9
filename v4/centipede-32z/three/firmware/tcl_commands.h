@@ -32,7 +32,7 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
                   char* argv[]) {
   if (argc < 2) {
     Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0],
-                     " bootmode|restart|reflash|reformat-flash-filesystem|flash-filesystem-stats|stacksize|type\"", NULL);
+                     " bootmode|restart|reflash|reformat-flash-filesystem|flash-filesystem-stats|stacksize|type|run-decb\"", NULL);
     return TCL_ERROR;
   }
 
@@ -60,6 +60,16 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
     keyboard_injector::queue_string(argv[2]);
     keyboard_injector::start_if_queued();
     return TCL_OK;
+  } else if (strcmp(argv[1], "run-decb") == 0) {
+    if (argc != 3) {
+      Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0], " run-decb <filename>\"", NULL);
+      return TCL_ERROR;
+    }
+    memset((void*)&centipede_config, 0, sizeof(centipede_config));
+    centipede_config.ram_64k = true;
+    strncpy(centipede_config.preload_decb, argv[2], sizeof(centipede_config.preload_decb) - 1);
+    centipede_config.preload_decb[sizeof(centipede_config.preload_decb) - 1] = '\0';
+    return TCL_BYE;
   } else if (strcmp(argv[1], "reformat-flash-filesystem") == 0) {
     if (argc < 3 || strcmp(argv[2], "-force")!=0) {
       Tcl_SetResult(interp, const_cast<char*>("Add a final word \"-force\" to your command, if you are sure you want to reformat."), TCL_STATIC);

@@ -274,7 +274,6 @@ void IN_RAM Jump(uint a) {
   ReadStep(0, (byte)a);
 }
 
-#if FUZIX_COCO2CENTIPEDE
 void IN_RAM SetS(uint s) {
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
@@ -291,7 +290,6 @@ void IN_RAM SetS(uint s) {
   ReadStep(0, (byte)(s >> 8));
   ReadStep(0, (byte)s);
 }
-#endif
 
 byte IN_RAM GPeek1(uint a) {
   // Runs in Foreground.
@@ -423,6 +421,20 @@ void IN_RAM DriveConsole() {
         // Reset VDG on PIA1 to 32x16 alphanumeric text mode (green)
         byte low_bits = GPeek1(0xFF22) & 0x07;
         GPoke1(0xFF22, low_bits);
+
+        if (preload_active) {
+          // Copy preloaded 32x16 VDG text screen ($0400..$05FF) into CoCo 2 physical motherboard DRAM
+          for (uint a = 0x0400; a < 0x0600; a++) {
+            GPoke1(a, ram[a]);
+          }
+          GPoke1(0xFFD4, 0);  // SAM P1=0
+          GPoke1(0xFFDF, 0);  // SAM TY=1 (all-RAM mode)
+          SamTyBit = true;
+          SamP1Bit = false;
+          SetS(0xFE00);
+          Jump(preload_exec_addr);
+          return;
+        }
 
 #if FUZIX_COCO2CENTIPEDE
         if (centipede_config.fuzix) {
@@ -789,6 +801,17 @@ void setup_fuzix(Coro* coro_self) {
       }
       total_loaded += got;
       cobs_printf("  DECB seg addr=$%04x len=$%04x\n", addr, got);
+    } else if (tag == 0xFD) {
+      // Extended DECB magic header (e.g., asm6809 "x9"): skip len bytes
+      uint16_t got = 0;
+      uint8_t discard[64];
+      while (got < len) {
+        uint16_t chunk = (len - got > sizeof(discard)) ? sizeof(discard) : (len - got);
+        lfs_ssize_t r = vfs_file_read(&fuzix_file, discard, chunk);
+        if (r <= 0) break;
+        got += r;
+      }
+      cobs_printf("  DECB magic tag=$%02x len=$%04x addr=$%04x\n", tag, len, addr);
     } else if (tag == 0xFF) {
       fuzix_exec_addr = addr;
       cobs_printf("  DECB exec=$%04x (total %u bytes)\n", fuzix_exec_addr, (unsigned)total_loaded);
@@ -802,6 +825,70 @@ void setup_fuzix(Coro* coro_self) {
   __dmb();
 }
 #endif
+
+void setup_preload_decb(Coro* coro_self) {
+  preload_active = false;
+  centipede_config.become_coco3 = false;
+  centipede_config.ram_64k = true;
+  centipede_config.rom_disk11 = false;
+  centipede_config.floppy_fd = false;
+  centipede_config.floppy_pc = false;
+  SamTyBit = true;
+  SamP1Bit = false;
+  preload_exec_addr = 0x2400;
+
+  memset(ram, 0, 65536);
+  // Default 32x16 VDG text screen ($0400..$05FF) to green spaces ($20) unless overwritten by DECB
+  memset(ram + 0x0400, 0x20, 0x0200);
+
+  vfs_file_t decb_file;
+  int err = vfs_file_open(&decb_file, centipede_config.preload_decb, LFS_O_RDONLY);
+  if (err < 0) {
+    cobs_printf("ERROR: setup_preload_decb failed to open %s (%d)\n", centipede_config.preload_decb, err);
+    return;
+  }
+  cobs_printf("setup_preload_decb: loading %s...\n", centipede_config.preload_decb);
+  uint32_t total_loaded = 0;
+  while (true) {
+    uint8_t hdr[5];
+    lfs_ssize_t n = vfs_file_read(&decb_file, hdr, 5);
+    if (n < 5) break;
+    uint8_t tag = hdr[0];
+    uint16_t len = ((uint16_t)hdr[1] << 8) | hdr[2];
+    uint16_t addr = ((uint16_t)hdr[3] << 8) | hdr[4];
+    if (tag == 0x00) {
+      uint16_t got = 0;
+      while (got < len) {
+        uint16_t chunk = (len - got > 512) ? 512 : (len - got);
+        lfs_ssize_t r = vfs_file_read(&decb_file, ram + addr + got, chunk);
+        if (r <= 0) break;
+        got += r;
+      }
+      total_loaded += got;
+      cobs_printf("  DECB seg addr=$%04x len=$%04x\n", addr, got);
+    } else if (tag == 0xFD) {
+      uint16_t got = 0;
+      uint8_t discard[64];
+      while (got < len) {
+        uint16_t chunk = (len - got > sizeof(discard)) ? sizeof(discard) : (len - got);
+        lfs_ssize_t r = vfs_file_read(&decb_file, discard, chunk);
+        if (r <= 0) break;
+        got += r;
+      }
+      cobs_printf("  DECB magic tag=$%02x len=$%04x addr=$%04x\n", tag, len, addr);
+    } else if (tag == 0xFF) {
+      preload_exec_addr = addr;
+      preload_active = true;
+      cobs_printf("  DECB exec=$%04x (total %u bytes)\n", preload_exec_addr, (unsigned)total_loaded);
+      break;
+    } else {
+      cobs_printf("  DECB unknown tag=$%02x\n", tag);
+      break;
+    }
+  }
+  vfs_file_close(&decb_file, coro_self);
+  __dmb();
+}
 
 
 // BackgroundSpoonFeeder runs in the background thread,
@@ -1113,6 +1200,12 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
   } // End REPL
 
 BYE:
+  if (centipede_config.preload_decb[0] != '\0') {
+    tcl_io::emit_string("Preloading DECB into 64KB CoCo2 RAM: ");
+    tcl_io::emit_string(centipede_config.preload_decb);
+    tcl_io::emit_string("\n");
+    setup_preload_decb(coro_self);
+  } else
 #if FUZIX_COCO2CENTIPEDE
   if (centipede_config.fuzix) {
     tcl_io::emit_string("Launching Fuzix (coco2centipede)...\n");
