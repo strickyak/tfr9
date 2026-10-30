@@ -1,0 +1,65 @@
+# ports.tsv -- THE source of truth for 6809-visible I/O addresses (spec section 7).
+# One row per register range:   profile  engine  device  first  last
+#   profile : TFR4  = v4's addresses (existing images run unmodified)
+#             COCO  = coexist with a real CoCo 1/2/3 (spec 7.2)
+#             E1    = the enhancement map; engine is "*" (any engine that enables the device)
+#   Addresses are full 16-bit values inside the I/O page $FF00-$FFFF.  $FF7F is FORBIDDEN (Multi-Pak select).
+# Generated from this file (scripts/gen-ports.sh): firmware C++ constants, NitrOS-9/Hatvan guest defs, docs.
+# Do not reuse a tag after release: a changed layout gets a new tag (COCO2 ...).
+#
+# --- flat65280 (NitrOS-9 Level 1, flat 64K) -----------------------------------------------------
+TFR4	flat65280	emudsk	0xFF80	0xFF86
+TFR4	flat65280	clockstop	0xFF87	0xFF87
+TFR4	flat65280	acia	0xFF88	0xFF89
+TFR4	flat65280	vectors	0xFFF0	0xFFFF
+COCO	flat65280	emudsk	0xFF80	0xFF86
+COCO	flat65280	clockstop	0xFF87	0xFF87
+COCO	flat65280	acia	0xFF88	0xFF89
+COCO	flat65280	vectors	0xFFF0	0xFFFF
+# --- deep65280 (NitrOS-9 Level 2, CoCo-3-style MMU) ---------------------------------------------
+TFR4	deep65280	emudsk	0xFF80	0xFF86
+TFR4	deep65280	clockstop	0xFF87	0xFF87
+TFR4	deep65280	acia	0xFF88	0xFF89
+TFR4	deep65280	gime	0xFF90	0xFF91
+TFR4	deep65280	mmu	0xFFA0	0xFFAF
+TFR4	deep65280	vectors	0xFFF0	0xFFFF
+COCO	deep65280	emudsk	0xFF80	0xFF86
+COCO	deep65280	clockstop	0xFF87	0xFF87
+COCO	deep65280	acia	0xFF88	0xFF89
+COCO	deep65280	gime	0xFF90	0xFF91
+COCO	deep65280	mmu	0xFFA0	0xFFAF
+COCO	deep65280	vectors	0xFFF0	0xFFFF
+# --- turbo9os (TurboOS; TFR4 only: TurboOS would have to be rebuilt for COCO) -------------------
+TFR4	turbo9os	turbo9sim_acia	0xFF00	0xFF03
+TFR4	turbo9os	vectors	0xFFF0	0xFFFF
+# --- gep9 / gep9big (Hatvan OS).  COCO moves it off the PIA window ($FF00-$FF3F) ---------------
+TFR4	gep9	console	0xFF00	0xFF05
+TFR4	gep9	disk	0xFF10	0xFF17
+TFR4	gep9	fuse_dma	0xFF20	0xFF2F
+TFR4	gep9	vectors	0xFFF0	0xFFFF
+COCO	gep9	console	0xFF60	0xFF65
+COCO	gep9	disk	0xFF68	0xFF6F
+COCO	gep9	fuse_dma	0xFF80	0xFF8F
+COCO	gep9	vectors	0xFFF0	0xFFFF
+TFR4	gep9big	console	0xFF00	0xFF05
+TFR4	gep9big	disk	0xFF10	0xFF17
+TFR4	gep9big	fuse_dma	0xFF20	0xFF2F
+TFR4	gep9big	embiggen_mmu	0xFF40	0xFF47
+TFR4	gep9big	vectors	0xFFF0	0xFFFF
+COCO	gep9big	console	0xFF60	0xFF65
+COCO	gep9big	disk	0xFF68	0xFF6F
+COCO	gep9big	fuse_dma	0xFF80	0xFF8F
+COCO	gep9big	embiggen_mmu	0xFFE0	0xFFE7
+COCO	gep9big	vectors	0xFFF0	0xFFFF
+# --- multicomp09 (Fuzix for the TFR; the port ABI is fixed, so TFR4 only) ------------------------
+TFR4	multicomp09	acia	0xFFD0	0xFFD1
+TFR4	multicomp09	uart_stubs	0xFFD2	0xFFD5
+TFR4	multicomp09	sd	0xFFD8	0xFFDC
+TFR4	multicomp09	timer	0xFFDD	0xFFDD
+TFR4	multicomp09	mmu	0xFFDE	0xFFDF
+# --- enhancement map E1 (same in every profile; draft addresses marked in the spec) --------------
+E1	*	becker	0xFF41	0xFF42
+E1	*	audio	0xFF70	0xFF71
+E1	*	rtc	0xFF72	0xFF79
+E1	*	orchestra90	0xFF7A	0xFF7B
+E1	*	info	0xFF7C	0xFF7D
