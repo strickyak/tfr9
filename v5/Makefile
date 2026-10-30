@@ -6,17 +6,21 @@ export SHELF
 # parallel jobs: getconf works on Linux and macOS
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
-.PHONY: help doctor check-sh clean tfr911h
+.PHONY: help doctor check-sh clean tfr911h test-host
 help:
 	@echo "targets:"
 	@echo "  tfr911h  build the TFR/911H firmware -> build/tfr911h.uf2"
 	@echo "  doctor   check toolchain (SHELF=$(SHELF))"
+	@echo "  test-host run the no-board host tests (build/host-tests)"
 	@echo "  check-sh lint scripts for bashisms (macOS-friendly sh)"
 	@echo "  clean    rm -rf build/"
 	@echo "(firmware/tether/test targets arrive in Phase 1+)"
 
 doctor:
 	@sh scripts/doctor.sh
+
+test-host:
+	@$(MAKE) -C tests/host test
 
 check-sh:
 	@sh scripts/check-sh.sh

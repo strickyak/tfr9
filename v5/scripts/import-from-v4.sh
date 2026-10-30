@@ -31,6 +31,7 @@ for p in "$@"; do
   fi
   mkdir -p "$here/$dest"
   # strip count: "v4/" is one component, plus the caller's $strip
-  git -C "$repo" archive HEAD -- "$src" | tar -x -C "$here/$dest" --strip-components="$((1 + strip))"
-  echo "imported $src -> $dest"
+  n=$(git -C "$repo" archive HEAD -- "$src" | tar -x -v -C "$here/$dest" --strip-components="$((1 + strip))" 2>&1 | grep -c .)
+  if [ "$n" -eq 0 ]; then echo "import-from-v4.sh: $src: nothing imported (is -s $strip too large?)" >&2; exit 1; fi
+  echo "imported $src -> $dest ($n entries)"
 done

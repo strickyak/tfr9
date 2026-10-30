@@ -127,31 +127,32 @@ class CobsDecoder {
 template <typename Func>
 inline void CobsEncodeAndTransmit(const unsigned char* data, size_t len, Func putc_func) {
 #if COBS_CHECKSUMS
-  // Build payload + checksum in a temp buffer
-  unsigned char ckbuf[1024];
-  for (size_t i = 0; i < len && i < sizeof(ckbuf) - 1; i++) ckbuf[i] = data[i];
-  ckbuf[len] = CobsChecksum(data, len);
-  const unsigned char* payload = ckbuf;
+  unsigned char checksum = CobsChecksum(data, len);
   size_t payload_len = len + 1;
+  auto get_byte = [data, len, checksum](size_t idx) -> unsigned char {
+    return (idx < len) ? data[idx] : checksum;
+  };
 #else
-  const unsigned char* payload = data;
   size_t payload_len = len;
+  auto get_byte = [data](size_t idx) -> unsigned char {
+    return data[idx];
+  };
 #endif
 
   putc_func(0); // Leading frame delimiter: kills any partial packet in receiver
   size_t ptr = 0;
   while (ptr < payload_len) {
     size_t dist = 1;
-    while (dist < 255 && ptr + dist - 1 < payload_len && payload[ptr + dist - 1] != 0) {
+    while (dist < 255 && ptr + dist - 1 < payload_len && get_byte(ptr + dist - 1) != 0) {
       dist++;
     }
     
     putc_func(dist);
     for (size_t i = 1; i < dist; i++) {
-      putc_func(payload[ptr + i - 1]);
+      putc_func(get_byte(ptr + i - 1));
     }
     ptr += dist - 1;
-    if (ptr < payload_len && payload[ptr] == 0) {
+    if (ptr < payload_len && get_byte(ptr) == 0) {
       ptr++;
       // If that zero was the last byte, emit an empty block (code=1)
       // so the decoder appends the implicit zero for it.
