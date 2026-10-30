@@ -8,7 +8,7 @@ itself.  **This revision (`-two-and-a-half.md`) folds in what a cross‑read of
 against the source/ELF/KiCad files; confirmed items were added as snags
 (S26 onward), errors in `-one` are listed in §14 so they don't propagate, and my
 advice on the CRTP question is in §5.5.  Changes vs `-two.md` are marked
-**[2.5]**.*
+**[2.5]**.  **On 2026‑10‑29 the recommendations were accepted; the answers to §13 are recorded there, their consequences in §15, and every place I departed from or had to reinterpret a decision is listed in §16 ("Revisions") for your review.  Items marked **[R#]** in the text refer to §16.***
 
 Sources studied (all read-only):
 
@@ -48,12 +48,10 @@ Sources studied (all read-only):
 7. **One Go module, one `tether`, many `Personality`s.**  v4 has three tether trees
    (12.7K, 15.5K and 5.5K lines).  Fold in Diller's tether changes — including a
    bug fix for `EmulateDiskWrite` that is *still present in Henry's v4*.
-8. **Converge NitrOS‑9 Level 2** (Henry's `deep65280` engine vs Diller's `l2`
-   engine) into a single `nitros9-l2` engine built on the shared GIME/ACIA/EmuDsk/RTC
-   devices.  Take Diller's RTC / 60 Hz VBORD / sound / FujiNet, Henry's VFS‑loaded images.  (§9)
+8. **Keep every engine** (`flat65280`, `deep65280`, `gep9`/`gep9big`, `multicomp09`, `turbo9os`; none is retired) and make them **parameterizable**: an engine takes a tagged **port profile** (`TFR4` or `COCO`) and can be **enhanced** with optional devices (audio, RTC, info, Becker/FujiNet, …) at addresses from a tagged enhancement map.  Diller's separate L2 *engine* is not adopted; his devices become enhancements and his guest software is kept.  Tcl chooses among the predefined tags at run time.  (§7, §9, Appendix F)
 9. **FujiNet becomes a shared device (`becker`/DriveWire over UART0, GPIO 12/13, 921600 baud) plus
    a guest‑side kit**, usable from the TFR/911H *and* the Centipede (same hat, rev 41d).
-   Decide the Becker address question first ($FF41 vs $FF45).  (§8)
+   **Decided: Becker at `$FF41/$FF42`** (Q1); sound/info/RTC move (§7).  (§8)
 10. **Never `cp -r ../v4`.**  `v4/` is **749 MB on disk but only 780 tracked files / 45 MB.**  Import
     with `git ls-files` / `git archive`, or you'll import 276 vim undo files, RCS dirs,
     `_log` (3.8 MB), `build/` trees, etc.  (§11)
@@ -250,11 +248,11 @@ Same story for wire constants (`C_CYCLE=200` vs `C_COMPRESSED_CYCLES=175`; tfr91
 
 **S14. Address‑map collisions are real the moment engines share devices** (§7).  E.g. Diller's ACIA at `$FF14/15` overlaps Hatvan's disk controller `$FF10‑17`; Diller's RTC at `$FFC0‑C7` and multicomp09's `$FFD0‑DF` sit on top of the CoCo **SAM** register window (`$FFC0‑$FFDF`) — harmless on the TFR/911H, **wrong on a Centipede in a real CoCo**; Diller's sound/info/becker `$FF41‑$FF46` sit inside the CoCo cartridge `SCS` window (`$FF40‑$FF5F`, where the FDC lives), which on a Centipede the cart really owns. **[2.5]** Also: on a real CoCo `$FF14/$FF15` is a **mirror of PIA0** (`$FF00‑$FF1F`, partial decode), so Diller's ACIA address cannot be used on a Centipede at all, and his `fujinet/c/term.c` writes `sta $FF15` directly (line 128) to dodge SCF's ~300 µs/char — that shortcut will talk to PIA0 on a real CoCo. (E)
 
-**S15. Becker port address.**  Emulators and stock NitrOS‑9/HDB‑DOS DriveWire use `$FF41/$FF42`.  Diller moved it to `$FF45/$FF46` *only because he had put the SN76489 at `$FF41`*, and built NitrOS‑9's `dwio`/`rbdw`/`boot_dw` with `BECKBASE=$FF45`.  Decide which one moves **before** more guest software is built (§8). (E)
+**S15. Becker port address.** *(Decided 2026‑10‑29: standard `$FF41/$FF42`; Diller's sound/control/info/RTC are re‑addressed, §7.)*  Emulators and stock NitrOS‑9/HDB‑DOS DriveWire use `$FF41/$FF42`.  Diller moved it to `$FF45/$FF46` *only because he had put the SN76489 at `$FF41`*, and built NitrOS‑9's `dwio`/`rbdw`/`boot_dw` with `BECKBASE=$FF45`.  Decide which one moves **before** more guest software is built (§8). (E)
 
 **S16. GPIO 8 is `CTS` on the Centipede 32Z and audio on the TFR/911H;** Diller's FujiNet UART is GPIO 12/13; Orchestra‑90 uses GPIO 10/11 + PWM slice 5.  Also hardware resources used outside the pins: alarm 2 (audio; "default pool uses 3"), UART0 + its IRQ (FujiNet, on core 0), PIO0 SM0 (bus).  Keep a per‑board resource ledger. (E)
 
-**S17. Centipede board revisions are `#if`‑chained** (`CENTIPEDE_REV` 3204/3205/3226/original) with bodged pins for 32d (`CTS 18`, `SCS 19`).  Decide which revisions v5 supports. (E)
+**S17. Centipede board revisions are `#if`‑chained** (`CENTIPEDE_REV` 3204/3205/3226/original) with bodged pins for 32d (`CTS 18`, `SCS 19`).  Decide which revisions v5 supports. (E)  **Resolved (§13 Q4): 32z only** — drop the `CENTIPEDE_REV` chain and the bodged‑pin variants; one `boards/centipede32z.h`. [R7]
 
 **S18. Three product flavors are chosen by `#define`s in the middle of the .cpp** (`BECOME_COCO3`, `FUZIX_COCO2CENTIPEDE`, `FOR_COCO3`, `SAM_BIT_16K/64K`, `ram[64K/128K/256K]`).  `keep/` holds hand‑named UF2s (`centipede-sam64k.uf2`, `…fff2_03`, `normal-coco2`).  Note `config.h` defaults `FUZIX_COCO2CENTIPEDE` to **1** via `#ifndef` while `centipede.cpp` sets 0 first (commit `e56b04a` made it non‑default); order‑dependent. (E)
 
@@ -301,6 +299,25 @@ Same story for wire constants (`C_CYCLE=200` vs `C_COMPRESSED_CYCLES=175`; tfr91
 
 **S37. Two incompatible `struct CentipedeConfig` with the same include guard `FIRMWARE_H_`** (`firmware/one/firmware/config.h` vs `centipede-32z/firmware/config.h`): whichever header is found first silently wins; field sets differ (§3.2).  Promoted from §3.2 so it has a number.  (E)
 
+**S38. Several firmware routines hold an entire file in RAM.  [R19]**  (Audit of `firmware/one/firmware/*.h`; the engines' image loaders and most commands are fine.)
+
+| Where | What it does | Fix |
+|---|---|---|
+| `ZipArchiveNode::open_file`, `vfs.h:706` | `mz_zip_reader_extract_to_heap` — **every** read of `x.zip!/entry` (or `x.pak!/…`) decompresses the whole entry into heap | *stored* entries: seek/read the byte range directly in the archive; *deflated* entries: streaming inflate (`tinfl`, 32 KB window) with forward reads, restart on backward seek; size cap with a clear error as the fallback |
+| `minizip_cmd` (Tcl `zip`), `tcl_commands.h:798` | `ckalloc(uncomp_size+1)` — a whole entry becomes one Tcl string | extract with `mz_zip_reader_extract_to_callback` into a VFS file or chunked output |
+| `source_cmd`, `tcl_commands.h:883‑935` | `ckalloc(size+1)`, then `Tcl_Eval` of the whole file (for `source x.pak!/boot.tcl` that is *two* copies: heap extract + Tcl buffer) | evaluate **one command at a time**: read lines into a small growing buffer, `Tcl_CommandComplete()`, `Tcl_Eval`, repeat — the technique the REPL already uses |
+| `multifile_cmd`, `tcl_commands.h:941‑` | `std::string content(info.size)` | process in chunks/lines |
+| `tail_cmd`, `tcl_commands.h` ≈379‑425 | collects **every line** in a `std::vector<std::string>` and prints the last *n* | ring buffer of *n* lines (or seek from the end) |
+| `edit` (`editor.h` ≈85‑110) | loads the whole file into `std::vector<std::string> lines` | acceptable for a text editor, but add a size guard (e.g. 64 KB) and a message |
+| `Os9DirNode`, `vfs.h:225` | `std::vector<uint8_t> dir_data(file_size)` reads a whole *directory file* | cap `file_size` (corrupt disk images can claim huge directories) |
+| `HexFileNode::read`, CR/LF filter nodes `vfs.h` ≈1045‑1236 | allocate a `std::vector` per call sized by the request | fine for small requests; use a stack buffer and clamp |
+
+Verified streaming (no change needed): `cat`, `wc`, `head`, `grep` (64‑byte chunks), `md5sum` (256 B), `hd` (16 B), `files_are_identical` (256 B), VFS tether reads (256 B RPCs), `setup_flat65280`/`deep65280` image loads (256 B chunks); no whole‑file buffers in `main.cpp` or `centipede.cpp` engine loaders.  Rule for v5: **no VFS or Tcl routine may allocate O(file size)**; add a test that runs each file command on a ≥2 MB file under a heap high‑water check.
+
+**S39. The tether's `/pc` confinement is textual only and follows symlinks.  [R17]**  `rpc.go:27` computes `filepath.Join(*PC_DIR, filepath.Clean("/"+req.Path))` — that stops `..` and absolute paths, **but** `os.Stat/Open/ReadDir` follow symlinks, so a symlink inside the `--pc` directory (v4's `misc/pc` has 11 absolute ones into `nitros9/recipes`, `hatvan-os/build`, Fuzix) escapes the root, and writes through such a link modify files elsewhere.  `rename` and `remove` use the same pattern (`realPath2`).  Required behavior is defined in §11.13.  (E)
+
+**S40. `quick-reflash` shells out with an interpolated path.**  `pico_rpc.go:361`: `exec.Command("/bin/sh","-c", fmt.Sprintf("cp -v '%s' /media/${USER}/RP*", uf2path))`.  The path comes from the operator's own command line, not from the Pico, so it is not an exposure under our threat model (§11.12), but a `'` in the name breaks it.  Replace with `filepath.Glob` + a direct `cp`/copy in Go, no shell.  The only other processes the tether starts are `stty` with fixed arguments (verified by grep over all four Go trees; the `vendor/websocket` example `command/main.go` is not part of the build).  (E)
+
 ---
 
 ## 5. Proposed v5 structure
@@ -341,6 +358,7 @@ Rules that keep the layering honest:
 * `lib/devices` have **no dependency on the Pico SDK except through a tiny HAL** (`hal.h`: `gpio_*`, `time_us_64`, `multicore`, `irq`).  Then device models *compile on the host* and can be unit‑tested (§11).
 * A device exposes: `Install(IoMap&, Params)` (claims addresses; **IoMap panics on overlap**), `IN_RAM` read/write handlers, optional `Poll()` (core 0), `Tick60Hz()`, `OnReset()`, `Report()` (for the `info` port/stats).
 * An engine = `{name, aliases, boards, ram_bytes, Setup(Config) [core 0], Foreground [IN_RAM, core 1], Report}`.  `bye` → `EngineRegistry::Launch(name)`.  `l2`, `l2fn`, `bye` become *aliases/boot recipes*, not special globals.
+* **[2.5, R13] Engines are parameterized and enhanced, not forked.**  `EngineSpec` also carries `supported_profiles` (e.g. `TFR4`, `COCO`) and an `enhancements` list; both are *data* chosen by `Config`/Tcl at launch (§7).  **Tcl is the first‑line tool for resolving conflicts** (pick the profile, add/omit an enhancement, point a drive at a file); only when Tcl cannot express it do we change C++.  Software distribution through `.pak` files (Appendix F) builds on this.
 * Each engine gets **its own** `IN_RAM` foreground function (specialised at compile time — by a plain policy template or by an explicit hand‑written loop, see §5.5) and core 0 does `multicore_launch_core1(engine.foreground)`.  **[2.5]** Earlier text here said "template `Foreground<Bus, Mem, Irq, Trace>` … like the Centipede's CRTP `Engine0`/`Engine3`"; I now advise against CRTP/mixins specifically (§5.5).  Check the RAM budget with the `.map` file — RP2350B has 520 KB SRAM and `ram[]` takes 256 KB.
 
 ### 5.2 Directory tree
@@ -368,7 +386,7 @@ v5/
       mem/                  flat64k.h, banked8k.h, paged256.h, sam64k.h
       devices/              acia6850.h, emudsk.h (blockdev), gime.h, rtc.h, audio_sn76489.h, becker_drivewire.h, clockstop.h, exitport.h, fdc_wd17xx.h, kbd_injector.h, vdg_shadow.h, orchestra90.h, turbo9sim_acia.h, hatvan_*.h, multicomp09_*.h
       images/               ImageLoader (raw64k, DECB, track-35 launcher), embedded-ROM helpers
-    engines/                turbo9os/ nitros9_l1/ nitros9_l2/ hatvan/ fuzix_multicomp09/ coco_rsbasic/ coco3/   (one dir each: engine.h, setup.cpp, foreground.cpp, README.md w/ address map)
+    engines/                turbo9os/ flat65280/ deep65280/ gep9/ (incl. gep9big) multicomp09/ coco2/ coco3/ fuzix_coco2/ …   (one dir each: engine.h, setup.cpp, foreground.cpp, ports_<TAG>.h, README.md; **engine dirs use the names you use**)
     products/
       tfr911h/              main.cpp (~200 lines), CMakeLists.txt, tcl_product.cpp (product-only Tcl cmds)
       centipede32z/         main.cpp, CMakeLists.txt, variants.cmake (coco2 | coco3 | fuzix | centiscope)
@@ -465,9 +483,10 @@ Also note a bonus from `-one`: its **`IODriveMask[8]` 256‑bit "drive vs pass" 
 | `tfr911h/v4_tfr911h_main.cpp` (2,618 l.) | split → `products/tfr911h/main.cpp` + `lib/*` + `engines/*` | The big refactor (Phase 3 below) |
 | `v4_gep9_{mmu,io}.h` | `engines/hatvan/` + `mem/paged256.h` | Mostly self‑contained already |
 | `v4_multicomp09.h` | `engines/fuzix_multicomp09/` | Keep the SD‑write fix (docs/fuzix-summary §D); drop bogus `extern queue_t fg2bg_queue` |
-| flat/deep EmuDsk/ACIA/CLOCK_AND_STOP/Install_* in main.cpp | `devices/{emudsk,acia6850,clockstop}.h`, `engines/nitros9_l1`, `engines/nitros9_l2` | |
+| flat/deep EmuDsk/ACIA/CLOCK_AND_STOP/Install_* in main.cpp | `devices/{emudsk,acia6850,clockstop}.h`, `engines/flat65280`, `engines/deep65280` | engines **kept** [R2] |
 | `turbo9sim.h`, `turbo9os.h`, `*.mod.h`, `turbo9os.rom.h`, `romlist.h` | `engines/turbo9os/` (+ ROM headers generated from `os/turbos`) | |
-| Diller `v4_nitros9_l2.h`, `v4_audio.h`, `v4_fujinet.h`, `nitros9_l2*_rom.h` | `engines/nitros9_l2/` (merge), `devices/audio_*`, `devices/becker_drivewire.h` | §8, §9 |
+| Diller `v4_audio.h`, `v4_fujinet.h`, RTC/info/ACIA‑arrow‑key code from `v4_nitros9_l2.h` | `devices/{audio_sn76489,becker_drivewire,rtc,info_port}.h` as **enhancements** | §7, §8, §9 |
+| Diller `v4_nitros9_l2.h` engine loop + `nitros9_l2*_rom.h` | **not adopted** (redundant with `deep65280`; `l2fn` deferred) | §9 [R2, R15] |
 | `centipede.cpp`, `coco64k.h`, `coco128k.h`, `floppy.h`, `gspoon.h`, `keyboard_injector.h`, `console.h`, `egg.h`, `bug.h`, `disk11_rom.h`, `coco3_rom.h` | `products/centipede32z/`, `devices/{gime,sam64k,fdc,kbd_injector,vdg_shadow}`, `engines/coco_*` | Keep Centipede's CRTP `Engine0/Engine3` shape as the template for others |
 | `v4_core_engine.h`, `v4_engine_tfr911.h`, `v4_compat_centipede.h`… (dead) | *(mine, don't copy)* | Delete after extracting ideas |
 | `hdb*_rom.h` | `os/rsbasic/` (generated) | They define the same symbol; generate one chosen ROM per build |
@@ -513,10 +532,68 @@ Allocate wire IDs and FIFO tag ranges once, with a "reserved/never reuse" list (
 | `$FFD0/D1`, `$FFD8‑DC`, `$FFDD`, `$FFDE/DF` | multicomp09 ACIA, SD, 50 Hz timer, MMU | fuzix |
 | `$FFF0‑FF` | vectors | all |
 
-Proposal:
-* The map is **per engine**, generated and documented; a TFR/911H engine may use any free address.
-* For things that must also work on a **Centipede in a real CoCo**, stay inside the cart's window (`$FF40‑$FF5F`, or `$FF60‑$FF6F` if free), and avoid `$FF00‑$FF3F` and the SAM/GIME ranges unless emulating a CoCo 3.
-* Suggested allocation for the *new, shared* devices (to be confirmed): Becker at **`$FF41/$FF42`** (standard; no guest rebuilds for stock drivers), SN76489 + control + info at a free cart‑window slot (e.g. `$FF50‑$FF55`), keeping Diller's bit layout.  Cost: change `BECKBASE` back (trivial) and re‑address `beep.asm`, `click.asm`, `tetris.c`, `vi`, `info` (small, all his).
+### 7.1 Vocabulary  **[R3, R13]**
+
+* **Engine** — an OS personality (memory model + core devices + loader).
+* **Port profile** — a named, **frozen** set of *fundamental port addresses* for an engine's core devices.  Engines are **parameterized** by a profile.  We offer only **a couple of predefined profiles** (no free‑form addresses for now).  A tag is never edited after release; a changed layout gets a new tag (`COCO2`), so every guest image can say which tag it was built for.
+* **Enhancement** — an optional extra device (audio, RTC, info port, Becker/FujiNet, Orchestra‑90, …) added to an engine at addresses taken from a tagged **enhancement map**.
+* **One source of truth:** each tag is *data* that generates the C++ constants (`ports_<TAG>.h`), the guest constants (NitrOS‑9 `defs`, Fuzix/Hatvan headers), the Go `gep9` emulator table, and the docs (R10).
+* **Tcl chooses** (R13): `Config(ports) = TFR4|COCO`, `enhance becker`, `enhance audio`, … in a boot script (or a `.pak`, Appendix F).  Tcl only selects among compiled‑in tags and switches enhancements on or off; it cannot invent addresses.  Later, "adjust to whatever constraints a user has" = add a user‑authored tag (`USER`, a data file) and recompile.
+
+### 7.2 Rules shared by all profiles
+
+1. **`$FF7F` is forbidden** (Multi‑Pak select) — *hard error* in the tag generator and in `IoMap::Claim`, in every profile and engine.  (Your instruction.)
+2. Conflicts with other real drives, cartridges and packs are **logged, not blocking, for now** (e.g. the Deluxe RS‑232 Pak around `$FF68‑6B`, a real RS disk controller over `$FF40‑47` — from memory, verify later).
+3. Real‑CoCo ranges are used only when *emulating that very chip*: `$FF00‑$FF3F` PIAs (incl. mirrors such as `$FF14/15`), `$FF40‑$FF5F` cartridge `SCS`, `$FF90‑$FFBF` GIME, `$FFC0‑$FFDF` SAM, `$FFF0‑$FFFF` vectors.
+4. **Per engine, not global:** an address may be reused by different engines (only one OS runs at a time); within one engine `IoMap::Claim` refuses overlap, naming both devices and the profile tag.
+5. A write is never vetoed on the Centipede: `SLENB` can replace a *read*, but the real PIA/SAM still sees the *write* (**verify on hardware**) — never place a register where a write has a real‑hardware side effect.
+6. Preferred windows for new things: `$FF60‑$FF7E`, then `$FF8x`, then `$FFEx`.
+
+### 7.3 The two predefined profiles
+
+* **`TFR4`** — "the v4 addresses".  Every engine exactly as in v4, so existing images (`flat65280.img`, `deep65280.img`, the Hatvan kernel, Fuzix `multicomp09`, TurboOS) run unmodified.  Default on the TFR/911H product.
+* **`COCO`** — "coexist with a real CoCo 1/2/3": core devices only where a real CoCo leaves the page free (rules 1‑6).  Default on the Centipede product for engines that have a `COCO` variant.
+
+| Engine | `TFR4` | `COCO` |
+|---|---|---|
+| `flat65280` | EmuDsk `$FF80‑86`, CLOCK_AND_STOP `$FF87`, ACIA `$FF88/89`, vectors `$FFF0‑FF` | same (already in `$FF8x`) |
+| `deep65280` | as `flat65280` + GIME‑style `$FF90/91`, MMU `$FFA0‑AF` (CoCo 3 standard) | same |
+| `turbo9os` | Turbo9Sim ACIA `$FF00‑03` | *unsupported* (TurboOS would have to be rebuilt) |
+| `gep9` / `gep9big` (Hatvan) | console `$FF00‑05`; disk `$FF10‑17`; TaskFuse/DMA/curtain/flags/purge group `$FF20‑2F`; `gep9big` embiggen MMU `$FF40‑47` | console **`$FF60‑65`**; disk **`$FF68‑6F`**; TaskFuse/DMA group **`$FF80‑8F`** (16 bytes — it cannot sit in `$FF60‑7E` without touching `$FF7F`); embiggen MMU **`$FFE0‑E7`** |
+| `multicomp09` (Fuzix, TFR only) | `$FFD0‑DF` | *unsupported* (Fuzix port ABI; sits on the SAM) |
+| Centipede engines (`coco2`/`coco3` stock configs, `fuzix_coco2`) | n/a | *they are the CoCo*: real PIA/SAM/GIME/floppy `$FF40`,`$FF48‑4B`; Fuzix console+SD `$FF60‑69` |
+
+An engine declares which profiles it supports; selecting an unsupported one is an error with a clear message.  The Hatvan `COCO` layout is engine‑exclusive, so it may reuse bytes that other engines use.
+
+### 7.4 Enhancement map `E1` (same in both profiles)
+
+| Enhancement | Registers | Address | Notes |
+|---|---|---|---|
+| Becker / DriveWire (FujiNet) | status, data | **`$FF41/$FF42`** | decided (Q1); standard |
+| SN76489 + control | data, control (bit0 click, bit1 bell, bit7 raw arrows) | *`$FF70/$FF71`* | moved from Diller's `$FF41/42` |
+| RTC | 8 regs (century … second) | *`$FF72‑$FF79`* | moved from Diller's `$FFC0‑C7` (on the SAM); `clock2_tfr911` re‑addressed |
+| Orchestra‑90 DAC | L, R | `$FF7A/$FF7B` | unchanged |
+| Info port | trigger/status, stream | *`$FF7C/$FF7D`* | moved from Diller's `$FF43/44` |
+| spare | | `$FF7E` | |
+| **forbidden** | | **`$FF7F`** | Multi‑Pak |
+
+Italic addresses are my proposals.  Consequences: (a) an enhancement that overlaps an engine's core ports under the chosen profile is refused — e.g. `gep9big`+`TFR4` (embiggen MMU at `$FF40‑47`) cannot have Becker at `$FF41/42`; use `COCO` for FujiNet there; (b) the ACIA's raw/translated arrow‑key switch (formerly bit 7 of `$FF42`) is now bit 7 of the audio‑control register `$FF71`, default clear when the enhancement is absent; (c) Hatvan `COCO` ($FF60‑6F, $FF80‑8F) and E1 (`$FF70‑7D`, `$FF41/42`) do not overlap; (d) Becker at `$FF41/42` conflicts with a *real* RS disk controller in the same CoCo (its latch is mirrored over `$FF40‑47`); on a Centipede the cart *is* the floppy controller, so that configuration is unsupported [R11].
+
+### 7.5 How an engine consumes this (sketch)
+
+```cpp
+struct FlatPorts { uint emudsk, clockstop, acia; };                 // per-engine port struct
+constexpr FlatPorts kFlat_TFR4 = {0x80, 0x87, 0x88}, kFlat_COCO = {0x80, 0x87, 0x88};
+constexpr EngineSpec kFlat65280 = { "flat65280", /*profiles*/ TFR4|COCO, &kFlat_TFR4, &kFlat_COCO, /*mem*/ ..., Setup };
+// Setup(cfg): ports = pick(cfg.ports);  IoMap::Claim(core devices at ports);  for e in cfg.enhancements: IoMap::Claim(e at E1);
+```
+```tcl
+set Config(engine) deep65280
+set Config(ports)  TFR4          ;# or COCO
+enhance audio ; enhance rtc ; enhance info ; enhance becker
+bye
+```
+Guest builds are tied to a tag: NitrOS‑9 recipes get `defs/ports_<TAG>.d` (e.g. `HwBASE=$FF88`) generated from the same data, so `term.c`'s direct store uses `ACIA_DATA` (R1).
 
 ---
 
@@ -535,7 +612,9 @@ Plan:
 
 ---
 
-## 9. NitrOS‑9 Level 2 — converging Henry's `deep65280` and Diller's `l2`
+## 9. NitrOS‑9 Level 1/2 and Diller's Level 2 work — engines kept, devices absorbed  **[2.5, revised 2026‑10‑29]**
+
+Comparison (as found):
 
 | | Henry `deep65280` (+`flat65280`) | Diller `l2` / `l2fn` |
 |---|---|---|
@@ -548,14 +627,16 @@ Plan:
 | Extras | stop/panic port, core‑dump | sound, info port, FujiNet, unix cmds, games, manual |
 | Selection | `Config(engine)="deep65280"` + `bye` (`-bootmode=8`) | `l2` / `l2fn` Tcl commands |
 
-Recommendation: **one engine, `nitros9-l2`**, built on shared `Gime(Mmu+Irq)`, `Acia6850`, `EmuDsk`, `Rtc`, `ExitPort`:
+**Decision (revised after your second note) [R2]:**
 
-* Hardware personality: take Diller's (closer to a real CoCo 3: VBORD IRQ at 60 Hz, RTC) — but **choose the ACIA address once**. `$FF14` collides with nothing in an L2‑only map, but matching the CoCo/Wildbits convention may matter if stock descriptors are wanted; `$FF88` is Henry's.  (Open question Q3.)
-* Boot path: keep **both** as options of the same engine: *(a) image from VFS* (developer loop; no firmware rebuild) and *(b) embedded kernel track* (students: works with only `-disks`; and **required for tether‑less `l2fn`**, where the Pico must supply `rel`+`boot_dw` before anything can be read from the FujiNet).  **[2.5]** `-one` argues embedding "wastes flash" with 64 KB images; measured: `nitros9_l2_rom.h` is **≈4.8 KB of data (304 lines × 16 bytes; 29 KB of source text)** — the kernel *track* loaded at `$2500`, not a 64 KB image.  Keep it, but generate it at build time instead of checking it in (S2).  Ship the `launcher.asm` approach only if it avoids maintaining a fork of NitrOS‑9.
-* NitrOS‑9 source: prefer **stock + patches** (Diller) over a long‑lived fork, unless `deep65280`'s `krn` placement changes are needed upstream; record the exact NitrOS‑9 commit in `os/nitros9/VERSION`.
-* Keep `flat65280` (L1) as a sibling engine sharing every device except the MMU.
-* Both the stop port (`$FF87 $FC/$FD/$FE`) and Diller's info port survive as `ExitPort` and `InfoPort` devices.
-* Acceptance: both existing systests (`04_engine_flat65280`, `05_engine_deep65280`) pass unchanged; add `08_nitros9_l2_unix` (Diller's `man unix`, `ls`, `vi` smoke) and `l2fn`.
+* **All existing engines stay:** `flat65280`, `deep65280`, `gep9`/`gep9big`, `multicomp09`, `turbo9os`.  They are *parameterized* (port profile, §7) and *enhanced* (optional devices), not merged or retired.  (My earlier proposal to merge `deep65280` with Diller's `l2` is withdrawn.)
+* **"Stock" is defined by the nitros9 repo:** the established configurations **`level1/coco2`** (recipe `coco`) and **`level2/coco3`** (recipe `coco3`).  They describe *real CoCo hardware* — exactly what the Centipede hosts — and are the reference for CoCo behavior.  `flat65280`/`deep65280` are TFR‑specific configurations (in the fork: `recipes/{flat,deep}65280`, `defs/{flat,deep}65280.d`); they are not stock and need not be.
+* **Diller's `l2` engine is not adopted as an engine:** it is new, used only by him so far, and duplicates what `deep65280` already provides (MMU, EmuDsk, ACIA).  What we keep:
+  * his **devices as enhancements** usable by any engine: `audio` (SN76489 + click/bell + Tcl `beep`/`click`), `rtc` (+ `T_WALLTIME`), `info` port, `becker` (FujiNet) — addresses per `E1` (§7.4);
+  * his **guest kit** (`vi`, `zm`, `tetris`, `info`, unix‑style aliases, `fn*` tools and apps, manual) under `os/`, built against `deep65280` with the ACIA at `$FF88` (R1) and the re‑addressed enhancements.
+* **Deferred (needs your OK) [R15]:** Diller's tether‑less `l2fn` (kernel track embedded in firmware + `boot_dw`) is not carried over.  With `deep65280`, standalone booting is possible by keeping `deep65280.img` in LittleFS; FujiNet‑as‑root‑disk is a later item (possibly shipped as a `.pak`, Appendix F).  (Earlier text said an embedded kernel track is *required* for `l2fn`; that is true only of Diller's design.)
+* **Possible later ports from Diller's engine into `deep65280`, only if needed:** a 60 Hz GIME‑VBORD‑style timer interrupt (`deep65280` uses CLOCK_AND_STOP ticks today), block‑wrap RAM probing.
+* **Acceptance:** `04_engine_flat65280` and `05_engine_deep65280` pass unchanged under `TFR4`; add smoke tests for the enhancements (audio register writes, RTC read‑back, info report, Becker loopback).
 
 ---
 
@@ -581,9 +662,12 @@ TurboLab's spec is explicit: *no Tcl, no LittleFS, tether‑only, "completely in
 6. **Host tests** (no board): `go test ./...`; `cpu-tracker` against golden logs; **device models as host‑compilable C++** with a fake bus, and replay of recorded bus logs; later, run the real OS images against the device library on the host using `gep9`/gomar‑style emulation (the Hatvan `gep9` emulator already defines the expected hardware for that engine).
 7. **Hardware tests** (`tests/systests`): keep Henry's expect‑based per‑engine suites; make port, tether binary, and image paths environment‑driven; add FujiNet (skippable) and L2.
 8. **Map‑file lint** in CI: assert that symbols reachable from core‑1 entry points are in `.time_critical*`/RAM (S6); report SRAM usage per engine.
-9. **Perf notes to keep with the code**: PIO timing constants (250 MHz), `GROUP_SIZE`, `DUMP_FIRST_CYCLES`, the `JUST_WAIT_DONT_HALT` decision, flash `qmi` divider (`safe_adjust_flash_speed`: 250/4 = 62.5 MHz, rxdelay 4).
+9. **Perf notes to keep with the code** (and, per Q10, `TCL_MEM_DEBUG=1` stays on *for now* — revisit before a first release [R8]): PIO timing constants (250 MHz), `GROUP_SIZE`, `DUMP_FIRST_CYCLES`, the `JUST_WAIT_DONT_HALT` decision, flash `qmi` divider (`safe_adjust_flash_speed`: 250/4 = 62.5 MHz, rxdelay 4).
 10. **Go**: single module, pin one Go version (`go 1.25.1`/toolchain), `CGO_ENABLED=0` cross‑builds from the Makefile (the 8 targets in v4 are good).
 11. **Docs**: relative links, no `file:///home/strick`; each engine README holds its register map (generated); `doc/manual/` carries Diller's ULTRIX‑style manual (LaTeX source + built PDF, ~300 KB).
+12. **Threat model (decided 2026‑10‑30) [R18].**  We assume a friendly CoCo community.  We do **not** try to sandbox Tcl 6.7 on the RP2350B, and we accept that a CoCo or an RP2350B could run unwanted software.  What we *do* guarantee is that **the PC is exposed only to one subdirectory of data and programs for the CoCo, and the PC never executes user‑contributed code** (the tether starts only `stty` with fixed arguments and, on the operator's request, a copy to the Pico's BOOTSEL drive — S40).  Paks (Appendix F) therefore need no Tcl sandbox.
+13. **Tether `/pc` rules [R17] — the spec.**  (a) **Default `-pc /tmp/pc`** (unchanged from v4).  (b) **Verify before use:** at startup *and on every request* `Lstat` the root; if it does not exist or is not a directory, log it once and make **every `/pc` operation fail** with a clear message ("no /pc: /tmp/pc does not exist"); never create it automatically; creating it later makes `/pc` work without restarting.  (c) **Symlinks are invisible:** below the root, each path component is checked in turn with `Lstat`; a component that is a symlink (on Windows also a junction/reparse point, `ModeIrregular`) is treated as **nonexistent** (ENOENT) for `stat`, `open`, `dir_open`, `mkdir`, `rename` (both paths), `remove`, and is **omitted from `dir_read` listings**; the root itself may be a symlink (resolved once, e.g. macOS `/tmp`).  (d) Only regular files and directories are served — FIFOs, sockets and devices are refused (opening a FIFO would hang the tether).  (e) Reject any component with `..`, `\`, NUL, or (Windows) a drive letter / reserved name.  (f) Narrow the check‑then‑open race: on Linux use `openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` (`golang.org/x/sys/unix`, kernel ≥ 5.6) as the fast path; elsewhere `O_NOFOLLOW` on the final component plus `Fstat`/`os.SameFile` against the earlier `Lstat`.  (g) Operator‑supplied paths on the command line (`-disks`, `-quick-upload`, UF2 files) are trusted and outside these rules.  (h) Tests: a temp tree with file/dir/dangling/looping symlinks, `..`, absolute names, FIFO — assert every operation behaves as ENOENT; a missing root fails all operations.  **Consequence:** v4's absolute symlinks in `misc/pc` stop working (this cures S9); v5 stages files into `/tmp/pc` by **copying** (`cp --reflink=auto`) or by shipping a `.pak`.
+14. **Memory hygiene [R19].**  Fix the routines in S38 (`source` and `zip` first, then the zip VFS node, `multifile`, `tail`); enforce "nothing allocates O(file size)" with the high‑water test.
 
 ---
 
@@ -592,9 +676,9 @@ TurboLab's spec is explicit: *no Tcl, no LittleFS, tether‑only, "completely in
 | Phase | Deliverable | Exit test |
 |---|---|---|
 | **0 Scaffold** | tree, `AGENTS.md`, `.gitignore`, `Makefile doctor`, `scripts/import-from-v4.sh`, CI skeleton | `make doctor` green |
-| **1 Lib** | `third_party/` + `firmware/lib/{core,fs,tcl}` merged from `firmware/one` + `three`; **TFR911H builds from them with behavior unchanged** (still monolithic main) | systests 01‑03 pass |
-| **2 Tether** | single Go module `host/`; union of tethers; Diller's `disk.go` fix, `T_WALLTIME`, `-boot`, `-pass_ctrl_c`, UTF‑8; generated protocol | `go test ./...`; talks to both fw builds |
-| **3 Devices/engines (TFR911H)** | split main.cpp; `Acia6850`, `EmuDsk/BlockDevice`, `ClockStop`, `Gime(Mmu)`, `IoMap::Claim`; per‑engine foregrounds; engines: turbo9os, nitros9‑l1, nitros9‑l2 (merged), hatvan, fuzix | systests 03‑06 pass; SRAM and bus‑speed numbers ≥ v4 |
+| **1 Lib** | `third_party/` + `firmware/lib/{core,fs,tcl}` merged from `firmware/one` + `three`; **TFR911H builds from them with behavior unchanged** (still monolithic main); then the S38 memory fixes (`source`, `zip`, zip VFS node, `multifile`, `tail`) | systests 01‑03 pass; high‑water test on a ≥2 MB file |
+| **2 Tether** | single Go module `host/`; union of tethers; Diller's `disk.go` fix, `T_WALLTIME`, `-boot`, `-pass_ctrl_c`, UTF‑8; generated protocol; **`/pc` confinement rules (§11.13: symlinks invisible, root verified)**, no shell in quick‑reflash | `go test ./...`; talks to both fw builds |
+| **3 Devices/engines (TFR911H)** (incl. the I/O‑map generator and the Hatvan relocation work item, §16 R4/R10) | split main.cpp; `Acia6850`, `EmuDsk/BlockDevice`, `ClockStop`, `Gime(Mmu)`, `IoMap::Claim`; per‑engine foregrounds; engines: turbo9os, flat65280, deep65280, gep9/gep9big, multicomp09 (port profiles `TFR4`/`COCO`, enhancements) | systests 03‑06 pass; SRAM and bus‑speed numbers ≥ v4 |
 | **4 Centipede on the lib** | `products/centipede32z` using shared core/fs/tcl + `Gime(full)`, `Sam64k`, FDC, VDG shadow; board header; variants via CMake | CoCo2 BASIC + CoCo3 modes demo (existing "CoCo Nation" skill) + Fuzix‑coco2 |
 | **5 Audio + Becker + FujiNet** | devices; both products; `os/fujinet`; docs of external fujinet‑firmware requirements | `l2fn` boot; Centipede NitrOS‑9/HDB mount from FujiNet |
 | **6 TurboLab flavor** | separate product + bundle; trace lib reuse | existing `turbolab/systests` pass |
@@ -605,22 +689,36 @@ TurboLab's spec is explicit: *no Tcl, no LittleFS, tether‑only, "completely in
 ## 13. Open questions for Strick
 
 1. **Becker address**: `$FF41/42` (standard; Diller's modules re‑address sound) or keep Diller's `$FF45/46`?
+    A: standard
 2. **Is TurboLab one UF2 or two?**  I recommend two (separate product, shared libs).  Keep "no Tcl/no LFS" strictly?
+    A: two
 3. **NitrOS‑9 L2 console ACIA address** (`$FF88` vs `$FF14`) and whether stock NitrOS‑9 descriptors or the `deep65280` fork are the baseline.
+    A: $FF88.  Stock NitrOS-9 descriptors are baseline.  Try to arrange things so they do not conflict with a Coco2 or Coco3.
 4. **Which Centipede board revisions does v5 support?** (32z only? 32e? 32d with bodges?)
+    A: Only 32z
 5. **Fuzix/Hatvan/RS BASIC on Centipede**: which are in scope for v5.0 vs later? (Fuzix‑coco2‑Centipede and CoCo 3 mode exist today in v4.)
+    A: All are in scope.
 6. **Licensing**: keep GPLv3 FujiNet kit in-tree (under `os/fujinet/`) or as a submodule / separate repo?  Anything with "no license stated" upstream must be resolved before redistribution.
+    A: Yes for now, in os/fujinet/
 7. **Large artifacts** (`golden-log.zip` 31 MB, BASIC "unravelled" dumps 2.4 MB, `turbos-*.zip`): Git LFS, release assets, or leave behind?
+    A: Leave them in v4
 8. **Branch policy for v5** (v4 required commits only on `work*` branches) and who coordinates with Diller (upstream his Tether/firmware patches, or has he agreed to rebase on v5)?
+    A: This project owns v5 for now; don't worry about coordinating any changes to v5 for now.
 9. **The TFR/911H flash size** (16 MB assumption in LittleFS offset and label address) — confirm all 911H boards carry 16 MB parts.
+    A: Confirmed all are 16MB.
 10. **`TCL_MEM_DEBUG=1`** — intentional in production builds?
+    A: Yes, for now.
 11. Should the *name* `CentipedeConfig` / `centipede_config` go away on the TFR/911H (`Config`)?  (I recommend yes; Tcl‑visible array name `Config` stays.)
+    A: Yes.
 
 ---
 
 12. **[2.5] CRTP decision** (§5.5): policy templates (my lean), explicit per‑engine loops, or keep Centipede's mixins as is for now?
+    A: use policy templates, as you recommemd.
 13. **[2.5] ACIA aliasing**: `-one` suggests mapping the 6850 at both `$FF88` and `$FF14` for compatibility.  I'd pick one canonical address per engine (and re‑address descriptors) with at most a transitional alias flag; `$FF14` is a PIA0 mirror on a real CoCo.  Your call.
+    A: Use $FF88 so it can work on a real Coco, too.
 14. **[2.5] `term.c` fast path**: replacing the direct `sta $FF15` with `I$WritLn` is right for portability but, by Diller's own numbers, drops `fnbounce` from 9.3 to ~2.8 frames/s.  Want a portable fast path (e.g. a driver `SetStat` for bulk write) before removing it?
+    A: Keep the direct STA for now, but remember this topic for later discussion.
 
 ---
 
@@ -654,6 +752,7 @@ Everything below was checked against files in the tree unless marked otherwise.
 7. **"Register the ACIA at both `$FF88` and `$FF14`"**: compatibility shim that perpetuates the collision; prefer one canonical address (Q13).
 8. **"Fix `term.c` to use `I$WritLn`"** without a fast path regresses Diller's measured throughput (Q14).
 9. **`rp2350/core0/` as a flat bucket** of ~25 unrelated headers (`bug.h`, `egg`, `editor.h`, `md5.h`, `heuristic_file.h`, …) re‑creates v4's monolith in a new folder; my layering (core / fs / tcl / bus / mem / devices / engines / products) keeps the seams.  `-one` also never addresses the run‑time `current_engine` chain (S5) or an engine registry.
+11. **Fuzix on the Centipede**: `-one` says "DMA block disk `$FF50‑$FF58`".  The code (`centipede.cpp` ≈1095‑1127) is a **byte‑FIFO SD at `$FF68` (data) / `$FF69` (ctl)** plus console status/data at `$FF60/$FF61`, in `$FF60‑$FF69`; the 6809 moves the bytes (no DMA).
 10. **Becker address**: `-one` keeps Diller's `$FF45/46` and calls `$FF41/42` optional.  Aliasing both is impossible when the SN76489 owns `$FF41/$FF42` (writes collide), so the decision (Q1) can't be deferred.
 
 ### 14.3 Did every bug I saw make it into the document?
@@ -662,6 +761,73 @@ Honest accounting (original draft → now):
 * **Present only in prose/tables, now promoted**: `hamster.pio` missing `gpio_pull_up(31)` (→ S30), FujiNet DevKitC GPIO14 reset (→ S33), CMOC traps (→ S34), shared‑lib drift lines (→ S26‑S29), two `CentipedeConfig` with one include guard (§3.2; still not numbered — add if you like), `extern queue_t fg2bg_queue` never defined (§3.5).
 * **Missed entirely until the `-one` cross‑read**: the `cobs.h` OOB write (S26), `vfs_rpc.h` coroutine‑vs‑main‑stack (S27), `floppy.h` running flash code on core 1 (S28), `centiscope` mismatch (S32), the 41d GPIO13 routing (S31).
 * **Found during this pass, not by either document**: core‑1 loop calling flash‑resident `Gep9MMU::Alloc*`, `cobs_printf`, `sleep_us` (S6 evidence); the false "GCC can't put methods in a section" claim (§5.5).
+
+---
+
+## 15. Decisions accepted (2026‑10‑29) and what follows from them
+
+| Q | Decision | Consequence recorded in the spec |
+|---|---|---|
+| 1 | Becker at the standard `$FF41/$FF42` | Sound, control, info and RTC move (§7); `BECKBASE` back to `$FF41`; Diller's `beep`, `click`, `tetris`, `vi`, `info`, `clock2_tfr911` re‑addressed |
+| 2 | TurboLab = **two UF2s** (separate product) | §10 stands as written |
+| 3 | ACIA at `$FF88`; "stock" = nitros9 `level1/coco2` and `level2/coco3` (2nd note); avoid CoCo 2/3 conflicts | Port profiles `TFR4`/`COCO` + enhancement map `E1` (§7); `$FF7F` forbidden; all engines kept (§9) |
+| 4 | **Centipede 32z only** | S17 resolved; one board header |
+| 5 | **All OSes in scope** (Fuzix, Hatvan, RS BASIC on the Centipede) | Supported matrix below; Hatvan gets a `COCO` profile [R4] |
+| 6 | GPLv3 FujiNet kit stays in `os/fujinet/` for now | §8 stands; keep its own `LICENSE` |
+| 7 | Large artifacts **stay in v4** | v5 must not depend on `../v4` at build/test time → fixture policy [R5] |
+| 8 | This project owns v5; no coordination with Diller | His patches are *copied and owned*, not upstreamed; `work*`‑branch rule kept in `AGENTS.md` (assumed, since you moved to `work`) [R9] |
+| 9 | All TFR/911H boards have 16 MB flash | S7 reduced to "put the layout in the board profile" |
+| 10 | `TCL_MEM_DEBUG=1` stays for now | revisit before first release [R8] |
+| 11 | Rename `CentipedeConfig` → `Config` | Done in §6 plan |
+| 12 | Policy templates (no CRTP) | Appendices C/D; §5.5 |
+| 13 | ACIA only at `$FF88`, no alias | Diller's `$FF14` images are rebuilt, not shimmed |
+| 14 | Keep the direct `sta` in `term.c` for now; revisit later | **Address must change `$FF15` → `$FF89`** [R1]; topic parked (see "Parked topics") |
+
+**Supported matrix (v5.0 scope per Q5; ✓ = in scope, TFR = TFR/911H, CEN = Centipede 32z):**
+
+| OS / runtime | TFR | CEN | Engine / note |
+|---|---|---|---|
+| TurboOS / TurboLab | ✓ | — | `turbo9os`; TurboLab is a separate UF2 |
+| NitrOS‑9 Level 1 | ✓ (`flat65280`) | ✓ (stock `level1/coco2`: real CoCo 2, floppy/HDB) | engines kept; stock on CEN |
+| NitrOS‑9 Level 2 | ✓ (`deep65280`) | ✓ (stock `level2/coco3`: CoCo 3 mode, 128 K) | engines kept; stock on CEN |
+| Fuzix | ✓ (`multicomp09`) | ✓ (`coco2centipede`, 256 K) | **two ports, kept permanently** (Q‑A) |
+| Hatvan | ✓ (`gep9`, `gep9big`) | ✓ **new** | I/O base configurable per register group (Q‑B, decided) |
+| RS BASIC (Color/Extended/Disk/Super Extended) | not planned | ✓ | real CoCo ROMs via Centipede |
+| FujiNet | ✓ | ✓ | shared Becker device (§8) |
+
+**Parked topics (remember for later discussion):** `term.c` fast console path vs portability (Q14); Centipede + real FDC coexistence; Diller's `l2fn` (FujiNet‑root boot) [R15]; **the `.pak` software pack (Appendix F) [R16]**.
+
+---
+
+## 16. Revisions to the spec after acceptance — for your review
+
+Format: *what I changed or reinterpreted → why → where*.  None silently reverses a decision; items marked **needs your OK** depart from the literal wording of an answer.
+
+| # | Revision | Why | Where | Status |
+|---|---|---|---|---|
+| R1 | `term.c`'s direct `sta` goes to **`$FF89`** (ACIA data), via one constant (`ACIA_DATA`), not `$FF15` | Q14 says keep the direct `sta`; Q13 moves the ACIA to `$FF88/89`.  Both can only hold if the address in `term.c` follows the ACIA.  (`$FF15` is a PIA0 mirror on a real CoCo.) | §7, §15 | consequence — **needs your OK** only if you wanted `$FF15` kept |
+| R2 | **Revised after your 10‑29 second note.** All engines stay (`flat65280`, `deep65280`, `gep9`…) and are parameterized + enhanced; "stock" = nitros9 `level1/coco2` and `level2/coco3`; Diller's `l2` **engine** is not adopted (his devices become enhancements, his guest kit is kept) | You do not want engines retired, and Diller's engine is new/one‑user, not stock; the earlier "CoCo 3 personality from Diller's model" is withdrawn | §9, §15 | applied; **needs your OK** on not adopting Diller's engine (see R15) |
+| R3 | **Port profiles with tags**: `TFR4` (v4 addresses) and `COCO` (coexist with a real CoCo), plus enhancement map `E1`; `$FF7F` hard‑forbidden; other cart/drive conflicts only logged | Your 10‑29 second note: pick from a couple of predefined configurations, tag them, avoid `$FF7F` | §7 | applied; the proposed `E1` addresses (`$FF70/71`, `$FF72‑79`, `$FF7C/7D`) **need your OK** |
+| R4 | **Hatvan gets a `COCO` profile** (console `$FF60‑65`, disk `$FF68‑6F`, TaskFuse/DMA group `$FF80‑8F`, embiggen MMU `$FFE0‑E7`) next to `TFR4`.  `strickyak/hatvan-os` (kernel **and** `gep9` emulator) is built per tag — two compile‑time tags, not free configurability | Hatvan is in scope on the Centipede (Q5); its `$FF00‑2F` registers sit on the real PIAs; the 16‑byte group cannot fit in `$FF60‑7E` without `$FF7F` | §7, §12, §15 | **decided** (Q‑B, then tags) |
+| R5 | Q7 "leave artifacts in v4" **but v5 may not depend on `../v4`** (**decided, Q‑C**).  Facts: only `golden-log.zip` (31 MB) is tracked in v4; the four `golden-log-*.txt` (20–63 MB each, ≈200 MB) are untracked local unzips; `cpu-tracker/Makefile` needs them; TurboLab's `turbos-2026-09-21.zip` is only 0.5 MB.  v5 `cpu-tracker` tests use **small excerpts** (≤ 2 MB total, committed) plus an optional `GOLDEN_LOG_DIR` env var for the full run; the 0.5 MB `turbos-2026-09-21.zip` is **copied** into v5 | otherwise two of v5's test suites silently point into v4 | §6, §11 | **decided** (a narrow exception to "leave them in v4") |
+| R6 | Added the **supported matrix** (§15); *both* Fuzix ports kept permanently | Q5 "all in scope" needs an explicit product × OS table | §15 | **decided** (Q‑A: keep both) |
+| R7 | Dropped `CENTIPEDE_REV` revisions | Q4 | S17 | applied |
+| R8 | `TCL_MEM_DEBUG=1` stays, flagged "revisit before first release" | Q10 says "for now" | §11 | applied |
+| R9 | `AGENTS.md` for v5 keeps v4's "never edit `../v4`" and "commit only on `work*`" rules | Q8 says v5 is ours; you moved to `work` to keep `main` clean | §5.2 | assumption |
+| R10 | **One machine‑readable I/O‑map source**; the Go `gep9` emulator as test oracle | Same maps live in C++ *and* Go (`hatvan-os/gep9/bus.go`); drift risk | §7 | new recommendation |
+| R11 | Becker at `$FF41/42` implies "no real RS FDC in the same CoCo" | Real FDC latch is mirrored over `$FF40‑47` | §7 | documented limitation |
+| R12 | Corrected `-one`'s Fuzix‑Centipede disk claim (it is `$FF60‑69` byte‑FIFO, not DMA at `$FF50‑58`) | Verified in `centipede.cpp` | §14.2 | applied |
+| R13 | **Tcl is the first‑line mechanism for resolving conflicts**: `Config(ports)`, `enhance <device>` in boot scripts; tags are data; user‑authored `USER` tag later | Your 10‑29 note | §5.1, §7.1, App. F | applied |
+| R14 | `$FF7F` is a hard error everywhere; other conflicts are warnings | Your instruction | §7.2 | applied |
+| R15 | Diller's `l2fn` (embedded kernel track, FujiNet root) **deferred** | Belongs to his engine; standalone boot via `/lfs` image is available on `deep65280` | §9 | **needs your OK** |
+| R16 | **`.pak` software pack** recorded as a design direction | Your 10‑29 note | Appendix F | parked (details later) |
+| R17 | **Tether refuses to see symlinks** below `--pc`; default `-pc /tmp/pc`; root verified on every request, all `/pc` operations fail if it is missing; only regular files/dirs served | Your 10‑30 notes; v4 follows symlinks (S39) | §11.13, S39 | applied; **side effect:** v4's absolute `misc/pc` symlinks stop working → staging by copy / `.pak` |
+| R18 | **Threat model**: no Tcl sandbox on the RP2350B (friendly community); PC exposed only to the `/pc` subdirectory; PC never executes user‑contributed code | Your 10‑30 note | §11.12, App. F | applied (dropped the sandbox item from App. F) |
+| R19 | **Fix routines that map whole files into RAM** (S38) and add the "nothing allocates O(file size)" rule + test | Your 10‑30 note | S38, §11.14, §12 | applied as a work item |
+
+**Follow‑up questions Q‑A, Q‑B, Q‑C — answered (2026‑10‑29):** Q‑A keep both Fuzix ports permanently; Q‑B make Hatvan's I/O base configurable (it will not fit in `$FF60‑7E` alone, so `$FF8x` and maybe `$FFEx` as well); Q‑C commit small log excerpts + copy the 0.5 MB TurboOS zip, full logs via `GOLDEN_LOG_DIR`.
+
+**Work items that now exist outside v5:** (1) `strickyak/hatvan-os`: build the kernel *and* the Go `gep9` emulator for two port tags (`TFR4`, `COCO`); (2) Diller's NitrOS‑9 L2 modules and apps (`dwio`/`scdwv` `BECKBASE`, `beep`, `click`, `tetris`, `vi`, `info`, `clock2_tfr911`, `term.c`) re‑addressed per §7 — copied into `os/`, owned by v5.
 
 ---
 
@@ -975,3 +1141,60 @@ Even without the NMI tier, naming the levels in the code and docs helps new cont
 | *(Middleground — not adopted)* | core 0 NMI | see E.5 |
 
 and the three communication idioms: *FIFO (async)*, *request+spin (sync, TFR/911H)*, *request+HALT (sync, Centipede)*.
+
+---
+
+## Appendix F — The `.pak` software pack: an idea to keep in mind  **[2.5, R16]**
+
+*Status: **idea, not designed**.  This appendix records the intent, what the v4 code already provides (checked), and the snags I can already see, so the later design discussion starts from facts.*
+
+### F.1 The idea
+
+A **`.pak` file is a zip** that bundles everything needed to run one piece of software on a TFR/911H or Centipede:
+
+* one or more **memory images** to pre‑load,
+* a **Tcl script** that is sourced to set things up (choose the engine and port profile, add enhancements, point drives at files inside the pak, then boot),
+* other artifacts: **disk images**, ROMs, docs, a manifest.
+
+It is meant to be **the standard way to distribute software**: anyone can publish a `.pak` for a new OS, a language environment, a game, anything.  **The name of the `.pak` file is the name a user types to boot it** (`boot nitros9-l2` ⇒ `nitros9-l2.pak`).
+
+### F.2 What v4 already provides (verified in `firmware/one/firmware/vfs.h`, `heuristic_file.h`, `tcl_commands.h`)
+
+* **A virtual mount for archives.**  `/dir/name.zip!/…` is a virtual directory of the zip's contents (the `!` suffix, `vfs.h` ≈1387‑1427).  Detection is **by content** — `HeuristicFileType` looks for the `PK\x03\x04` signature — **not by extension**, so `name.pak!/…` already works without code changes.  The same `!` also mounts DECB disk images and OS‑9 disk images, so a pak's disk images can be browsed too.
+* Tcl: `source`, `zip`, `lzip`, `multifile`, `menu fetch/store Config`, `rsync-a`; the `/rc/modeN.tcl` and `/pc/modeN.tcl` boot scripts; `Config(flat_img)`, `Config(drive0‑3)`, `Config(task1/2)` taking VFS paths (which may now be `…pak!/kernel.img`).
+* Both `/lfs` (internal flash) and `/pc` (tether) are valid places for paks.
+
+So a minimal pak boot is already almost: `source /pc/foo.pak!/boot.tcl`.
+
+### F.3 Strawman layout (not decided)
+
+```
+nitros9-l2.pak                 # zip; big files stored (uncompressed), see F.4(1)
+  pak.tcl                      # sourced with $pakdir set; selects engine+ports tag, `enhance …`, sets Config paths, then `bye`
+  manifest.txt                 # name, version, requires {product engine ports-tag firmware>=N}, description, license
+  kernel.img  disk0.dsk  …     # artifacts
+  README.md
+```
+User level: a `boot <name>` Tcl command searching a path (e.g. `/lfs/paks:/pc`) for `<name>.pak`, plus a tether option (`-boot name`).  The v4 pile of `misc/pc/*.tcl` and `rc/modeNN.tcl` scripts and the absolute‑path symlinks in `misc/pc/` (S9) become paks (or directories shaped like paks during development).
+
+### F.4 Snags already visible
+
+1. **Entries are extracted whole into heap memory** (S38, R19).  `ZipArchiveNode::open_file` uses `mz_zip_reader_extract_to_heap` — fine for a 64 KB image, **impossible for a 10 MB disk image** on a part with ≈520 KB SRAM.  Needs a **streaming node for *stored* (method 0) entries** (seek/read straight from the zip's byte range) and a pak packer that always stores large images.
+2. **Detection needs `PK\x03\x04` at byte 0**: an empty zip (`PK\x05\x06`) or a zip with prefix data is not recognized.
+3. **Nested mounts** (`a.pak!/disk0.dsk!/CMDS/…`) are plausible but depend on (1).
+4. **Trust and safety — decided (R18):** a pak's Tcl runs in the firmware shell with full powers (`reflash`, `reformat-flash-filesystem`, …) and we **do not sandbox it**: we assume a friendly CoCo community.  The PC is protected differently: the tether serves only the `/pc` subdirectory (symlinks invisible, §11.13) and never executes user‑contributed code.  Keep the `PK` + manifest checks (F.4.2, F.4.5) as *correctness* checks, not security.
+5. **Compatibility:** guest images are tied to a port‑profile tag (§7) — the manifest must say which (`ports: COCO`), plus engine and minimum firmware.
+6. **Name resolution and collisions** (search path order, versions, case‑insensitivity — the VFS ignores case by default).
+7. **Where paks come from:** tether (`/pc`), LittleFS, and later FujiNet/TNFS/HTTP; flash space (LittleFS is 11 MB) and update flow (`rsync-a`).
+8. **Licensing/metadata** (GPL kit, third‑party ROMs) belongs in the manifest.
+
+### F.5 Why this fits the rest of the plan
+
+* Tcl is already our customization layer (§7.1, R13); the pak script simply uses it to pick a port tag, add enhancements, and wire drives.
+* It replaces special‑case boot commands (Diller's `l2`/`l2fn`) with data (R15).
+* It removes absolute‑path symlinks and "stage files in `/tmp/pc`" instructions from docs (S9, S20).
+* It gives the test suite one uniform way to launch each engine+OS combination (`boot <pak>`).
+
+### F.6 To decide later
+
+Manifest format; boot‑name resolution and search path; whether a development directory may stand in for a zip (note: a directory pak under `/pc` may not contain symlinks, §11.13); streaming of stored/deflated entries (S38); how a guest discovers its pak (a pak as a mounted "drive"?); signing; fetching paks from the network.
