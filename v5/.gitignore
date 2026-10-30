@@ -1,0 +1,15 @@
+# Everything we build lives here.
+/build/
+
+# Editor / tool litter
+.*.un~
+*.swp
+*~
+RCS/
+*,v
+.agy_conversation_id*
+
+# The repo-root .gitignore ignores *.rom.h, which would hide the ROM-image
+# headers imported from v4 (they are inputs, not generated).  Re-include them.
+!*.rom.h
+!*.mod.h
