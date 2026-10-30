@@ -1,0 +1,54 @@
+# Test fixture for the boot-menu parser (the original menus.txt was never committed to v4).
+# Format:  "menu NAME"; a bare "||||" line opens the UI block (lines there start with a 4-character
+# prefix such as "|   "); a second bare "||||" opens the definitions; ";" ends the menu.
+menu MAIN
+||||
+|   [1] Memory   [2] Trace   [3] Floppy
+|   [4] Display  [5] Presets
+||||
+check 1 name memory
+check 2 name trace
+check 3 name floppy
+check 4 name display
+check 5 name presets
+;
+menu MEM
+||||
+|   [1] 16K RAM    [2] 64K RAM    [3] big RAM
+||||
+check 1 name smallram
+check 2 name ram64k
+check 3 name bigram
+atmostone 1, 2
+atmostone 2, 3
+;
+menu TRACE
+||||
+|   trace writes [6]   trace reads [7]
+|   after N writes [8]
+||||
+check 6 name trace-writes
+check 7 name trace-reads
+decimal 8 name after-n-writes
+;
+menu FLOPPY
+||||
+|   [1] floppy from flash   [2] floppy from PC
+||||
+check 1 name floppy-fd
+check 2 name floppy-pc
+exactlyone 1, 2
+;
+menu DISPLAY
+||||
+|   [1] CoCo 3 mode
+||||
+check 1 name become-coco3
+;
+menu PRESET
+||||
+|   [L] load   [S] save
+||||
+action L name load-preset
+action S name save-preset
+;
