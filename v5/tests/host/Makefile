@@ -17,3 +17,16 @@ test: $(OUT)/cobs_test $(OUT)/iomap_test
 	$(OUT)/cobs_test
 	$(OUT)/iomap_test
 .PHONY: all test
+
+# ---- tcl_stream_test: the real Tcl 6.7c sources compiled for the PC ----
+TCLDIR = ../../third_party/tcl6.7c
+TCLSRCS = panic regexp tclAssem tclBasic tclCkalloc tclCmdAH tclCmdIL tclCmdMZ tclEnv tclExpr tclGet tclGlob tclHash tclHistory tclParse tclProc tclUtil tclVar
+TCLOBJS = $(addprefix $(OUT)/tcl/,$(addsuffix .o,$(TCLSRCS)))
+$(OUT)/tcl:
+	mkdir -p $(OUT)/tcl
+$(OUT)/tcl/%.o: $(TCLDIR)/%.c | $(OUT)/tcl
+	$(CC) -std=gnu99 -O1 -w -DTCL_GENERIC_ONLY=1 -I$(TCLDIR) -c $< -o $@
+$(OUT)/tcl_stream_test: tcl_stream_test.cpp ../../firmware/lib/tcl/tcl_stream.h $(TCLOBJS) | $(OUT)
+	$(CXX) -std=gnu++17 -O1 -g -Wall -Wextra -I../../firmware/lib/tcl -I../../third_party -I$(TCLDIR) -fsanitize=address,undefined -o $@ tcl_stream_test.cpp $(TCLOBJS)
+test: $(OUT)/tcl_stream_test
+	$(OUT)/tcl_stream_test

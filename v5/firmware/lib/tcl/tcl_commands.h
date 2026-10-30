@@ -21,6 +21,7 @@ extern "C" {
 #include "vfs_rpc.h"
 #include "keyboard_injector.h"
 #include "md5.h"
+#include "tcl_stream.h"
 
 static int dummy_traverse_cb(void *data, lfs_block_t block) {
   int* count = (int*)data;
@@ -880,6 +881,10 @@ static int iota_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
   return TCL_OK;
 }
 
+static long source_read_chunk(void* ctx, char* buf, size_t n) {
+  return (long)vfs_file_read((vfs_file_t*)ctx, buf, (lfs_size_t)n);
+}
+
 static int source_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
                       char** argv) {
   if (argc != 2) {
@@ -902,22 +907,11 @@ static int source_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
     return TCL_ERROR;
   }
   
-  size_t size = info.size;
-  char* buf = (char*)ckalloc(size + 1);
-  
-  lfs_ssize_t n = vfs_file_read(&file, buf, size);
+  // Spec S38: evaluate one command at a time instead of slurping the whole file into a ckalloc buffer
+  // (see tcl_stream.h; tested on the host against Tcl_Eval of the whole text).  The file stays open while
+  // its commands run; it is closed on every exit path, including `bye`.
+  int result = TclEvalStream(interp, source_read_chunk, &file);
   vfs_file_close(&file);
-  
-  if (n < 0) {
-    ckfree(buf);
-    Tcl_AppendResult(interp, "error reading file \"", filename, "\"", (char*)NULL);
-    return TCL_ERROR;
-  }
-  
-  buf[n] = '\0';
-  
-  int result = Tcl_Eval(interp, buf, 0, (char**)NULL);
-  ckfree(buf);
   
   if (result == TCL_OK) {
     Tcl_SetResult(interp, (char*)"", TCL_STATIC);
