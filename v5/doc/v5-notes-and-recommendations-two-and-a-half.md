@@ -1198,3 +1198,41 @@ User level: a `boot <name>` Tcl command searching a path (e.g. `/lfs/paks:/pc`) 
 ### F.6 To decide later
 
 Manifest format; boot‑name resolution and search path; whether a development directory may stand in for a zip (note: a directory pak under `/pc` may not contain symlinks, §11.13); streaming of stored/deflated entries (S38); how a guest discovers its pak (a pak as a mounted "drive"?); signing; fetching paks from the network.
+
+---
+
+## Appendix G — Implementation log and findings (Phases 0–2)  **[2.5]**
+
+*Started 2026‑10‑30.  Everything below is committed on branch `work`; all build output is under `v5/build/`.*
+
+### G.1 What exists now
+
+| Phase | Result | How to check |
+|---|---|---|
+| 0 Scaffold | `AGENTS.md` (incl. rule 5: portable POSIX `sh`), `.gitignore`, `Makefile`, `scripts/{doctor,env,import-from-v4,check-sh,check-core1-sram,build-tethers}.sh`, directory skeleton | `make help`, `make doctor`, `make check-sh` |
+| 1A Walking skeleton | v4's TFR/911H closure imported verbatim into `third_party/`, `firmware/lib/{core,fs,tcl}`, `firmware/products/tfr911h`, `boards/`; **parity proven**: all 3,398 symbols identical (name, size, type) to a reference build of v4 HEAD made under `build/v4-ref/`; only `.rodata` differs by 208 bytes (shorter `__FILE__` paths) | `make tfr911h` → `build/tfr911h.uf2` |
+| 1B Safe fixes | S26 `cobs.h` (zero‑copy, with a host test that reproduces the old overflow under ASan); board header: `PICO_RP2350A 0` + 16 MB flash through `pico_board_cmake_set_default` (S35, S7) | `make test-host`; map shows `FLASH 0x01000000` |
+| 2 Tether | `host/` = one Go module; v4's two tether trees 3‑way merged (common base `fb63e5c`); Diller's patches applied (S13 `EmulateDiskWrite`, UTF‑8, `-pass_ctrl_c`, `-boot`, `T_WALLTIME`); `/pc` confinement (§11.13) with tests; builds for linux, windows, darwin | `make tether`, `make tethers`, `make test-host` |
+| 3 (started) | `check-core1-sram` (S6) | `make check-core1` |
+
+**Not yet done:** hardware parity (`systests` 01–03 need the board); S27–S29 product‑hook merge of `pico_rpc.h`/`tcl_commands.h`/`keyboard_injector.h`/`rtc.h` (deferred to Phase 4, because the TFR/911H build uses the `one` API); S38 memory fixes; engines/devices/profiles (Phase 3); Centipede (Phase 4).
+
+### G.2 Findings made while implementing (new snags)
+
+**S41. An ambient `PICO_SDK_PATH` can hijack the build.**  Your shell exports `PICO_SDK_PATH=/home/strick/pico/pico-sdk`, which is SDK **2.2.0**; v4's Makefiles only avoid it by overriding the variable on the command line.  v5's `env.sh` ignores the ambient value (override with `V5_PICO_SDK`) and `make doctor` warns when they differ.  (E)
+
+**S42. v4's `tfr911h` Makefile points `PICOTOOL_DIR` at `$(TOP)/picotool-install`, which does not exist** (picotool is installed under the shelf prefix: `lib/cmake/picotool`, `bin/picotool`).  It built only because CMake had cached the right `picotool_DIR` once.  v5 passes `-Dpicotool_DIR=$SHELF/lib/cmake/picotool`.  (E)
+
+**S43. A plain `#define PICO_FLASH_SIZE_BYTES` in a board header does not reach the linker.**  The SDK's CMake reads the `pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, …)` line.  **Correction to S7:** without it the linker's FLASH region is **4 MB** (not 2 MB as S7 said); with it, 16 MB.  Either way LittleFS (4 MB…15 MB) lies outside what the linker knows about.  Add a build check that the firmware image ends below `LFS_FLASH_OFFSET` (4 MB): today it is 1.18 MB.  (E)
+
+**S44. v4's tests depend on files outside their packages, and one fixture was never committed.**  `tether` tests read `../misc/*.bas` (from `centipede-32z/misc`), `bootmenu`'s test reads `../../misc/menus.txt` — **a file that has never existed in git**, so that test was failing in v4 (and the `bootmenu` package is not used by tether at all).  v5 keeps fixtures in `testdata/` next to each package and ships a small `menus.txt` that fits the parser.  (E)
+
+**S45. v4's tether created `/tmp/pc` itself and allowed unbounded reads.**  `tconsole.go` called `os.Mkdir(*PC_DIR, 0777)` at startup (so `/pc` was always "there"), and `read` allocated `make([]byte, req.Length)` for whatever length the Pico sent.  v5 never creates the directory (it warns, and every `/pc` operation fails until it exists) and caps a read at 64 KB.  (E)
+
+**S46. `make check-core1` baseline: 13 flash calls from SRAM code, all in one cluster.**  `Engine__Foreground` and the gep9 I/O handlers (`gep9_read_term_in`, `gep9_write_dma_count`, `gep9_write_vector`) call `cobs_printf`, `sleep_us`, `Gep9MMU::AllocFrame/AllocTaskTable/AllocBlockTable` and `Gep9MMU::CountTaskFrames` — i.e. gep9's demand paging and its diagnostics run from flash on core 1.  This is the concrete target for the Phase‑3 work in Appendix E.4 (pre‑allocated frame pool) and a removal of `cobs_printf`/`sleep_us` from the bus path.  (E)
+
+### G.3 Process notes
+
+* `import-from-v4.sh` originally reported success while extracting nothing for a wrong `-s` count; it now fails loudly.  It imports from v4's **git HEAD**, never from the working tree.
+* Both the C++ and Go test suites run with no board.  Mutation check on the `/pc` rules: with the symlink checks disabled, `TestSymlinksAreInvisible` and `TestWritesThroughSymlinksFail` fail (27 assertions); the "non‑regular/non‑directory" rule in `pcResolve` independently refuses symlinks, so the design is defense in depth.
+* Linux `openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS)` (spec §11.13 f) is **not yet implemented**; the current protection is per‑component `Lstat` + `O_NOFOLLOW` + a `SameFile` re‑check.
