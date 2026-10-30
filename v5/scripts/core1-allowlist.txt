@@ -1,0 +1,21 @@
+# Calls from SRAM functions into flash that are acceptable.  One entry per line:
+#   caller -> callee        (demangled names, exactly as printed by check-core1-sram.sh)
+#   caller:*                (every call made by this caller)
+# Everything NOT listed here is reported as FLASH-CALL.  Keep this file short and say why.
+
+# --- core 0 code that happens to live in RAM (IN_RAM background loop): not on the bus path ---
+tfr911_background():*
+# --- Pico SDK / TinyUSB internals placed in RAM by the SDK; they run on core 0 and only call flash on error paths ---
+dcd_event_handler:*
+dcd_rp2040_irq:*
+_hw_endpoint_buffer_control_update32:*
+hw_endpoint_xfer_continue:*
+mutex_enter_block_until:*
+mutex_enter_timeout_ms:*
+flash_range_erase:*
+flash_range_program:*
+__gnu_unwind_pr_common:*
+_Unwind_GetDataRelBase:*
+# --- deliberate end-of-session paths on core 1: the 6309 is being stopped and the board resets ---
+clock_and_stop_writer(unsigned int, unsigned char):*
+gep9_write_exit(unsigned int, unsigned char):*
