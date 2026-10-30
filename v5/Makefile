@@ -6,7 +6,7 @@ export SHELF
 # parallel jobs: getconf works on Linux and macOS
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
-.PHONY: help doctor check-sh check-core1 clean tfr911h test-host tether tethers gen-ports
+.PHONY: help doctor check-sh check-core1 clean tfr911h test-host systest tether tethers gen-ports
 help:
 	@echo "targets:"
 	@echo "  tfr911h  build the TFR/911H firmware -> build/tfr911h.uf2"
@@ -14,6 +14,7 @@ help:
 	@echo "  tethers  cross-build the 8 tether binaries -> build/tether.*.exe"
 	@echo "  doctor   check toolchain (SHELF=$(SHELF))"
 	@echo "  gen-ports generate build/generated/{ports_gen.h,io-map.md} from firmware/engines/ports.tsv"
+	@echo "  systest  hardware system tests (needs a board; skips cleanly without one)"
 	@echo "  test-host run the no-board host tests (C++ cobs test + go test)"
 	@echo "  check-core1 report flash calls made from SRAM (core-1) code in build/tfr911h"
 	@echo "  check-sh lint scripts for bashisms (macOS-friendly sh)"
@@ -27,6 +28,9 @@ test-host:
 	@sh scripts/gen-ports.sh
 	@$(MAKE) -C tests/host test
 	@V5=$(CURDIR); . scripts/env.sh; cd host && GOWORK=off go test ./...
+
+systest: tether
+	@sh tests/systests/run_all.sh
 
 gen-ports:
 	@sh scripts/gen-ports.sh
