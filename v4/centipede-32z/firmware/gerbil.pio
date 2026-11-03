@@ -21,11 +21,11 @@
 ;      Else (RW is HIGH, CPU read cycle):
 ;        a. Pull response from TX FIFO (C code provides 9-bit value)
 ;        b. Extract data byte (bits 0-7) into X, drive flag (bit 8) into Y
-;        c. If Y==0: drive X onto data bus, wait for EBAR rise, release bus
-;        d. If Y!=0: don't drive, loop back
+;        c. If Y!=0: drive X onto data bus, wait for EBAR rise, release bus
+;        d. If Y==0: don't drive, sample until EBAR rises, then PUSH
 ;   5. Loop back to step 1
 ;
-; The C code reads 1 word per read cycle, 2 words per write cycle.
+; The C code reads 1 word per driven read cycle, 2 words per undriven read or write.
 
 .program gerbil
 .side_set 1 pindirs
@@ -41,15 +41,13 @@ top:
 
     ; Step 2: Delay for signal settling.
     ; Each nop is 1 PIO clock cycle at clkdiv=1 (i.e., system clock).
-    ; The [n] delay field on instructions can add 0-31 extra cycles.
-    ; Using side-set-free instructions, we can get up to 31 cycles delay
-    ; per instruction via the delay field.  Adjust as needed.
+    ; With one side-set bit, the [n] delay field can add 0-15 extra cycles.
     nop [15] side 0         ; (tune as needed)  -- sometime in phase 2
 
     ; Step 3: Sample all 32 pins and push to RX FIFO.
     in pins, 32 side 0
     mov x, isr side 0       ; save sampled snapshot in X
-    push side 0             ; send ISR to C -- really just for RW on pin 20.
+    push side 0             ; send ISR to C
 
     ; Step 4: Branch on RW using bit 20 of the sampled snapshot.
     ; This ensures the branch uses the same RW value sent to C,
@@ -66,7 +64,7 @@ write_path:
     ;wait 1 gpio 22 side 0   ; stall until QBAR rises
     wait 1 gpio 22 side 0   ; stall until QBAR rises -- begin of phase 4.
     nop [15] side 0         ; Delay 64ns into phase 4 for write data bus to settle
-    in pins, 32 side 0      ; sample write data (disabled: autopush sends to RX FIFO)
+    in pins, 32 side 0      ; sample write data
     push side 0
     jmp top side 0          ; loop back to beginning
 

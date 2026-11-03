@@ -245,7 +245,7 @@ inline volatile bool fg_halt_for_flow_control = false;
 
 #if FIFO_INDICATOR_0500
 // Pointer to ram[] for FIFO pressure indicators in FlowControlCheck.
-// Set to ram[] before the foreground bus loop starts.
+// Never set here, so the indicators stay off.
 byte* fifo_indicator_ram = nullptr;
 #endif
 
@@ -563,24 +563,16 @@ class CoreEngine {
   // Cooperative Multitasking — Background Core
   // =========================================================================
   //
-  // Three coroutines run in round-robin on the background core:
-  //   drain_task  — pops from fg2bg, handles cycle logs/NMI/putchar inline,
-  //                 dispatches floppy and spoon chores to other tasks.
-  //   floppy_task — handles floppy commands; yields while waiting for USB data.
-  //   spoon_task  — runs BackgroundSpoonFeeder console; blocks internally
-  //   (acceptable
-  //                 because foreground doesn't push cycle logs during console).
-  //
-  // The scheduler pumps USB between every task switch.
+  // drain_task pops from fg2bg on the background core and handles cycle logs.
+  // The scheduler pumps USB between resumes.
 
   static inline cputracker::CpuTracker cpu_tracker;
 
-  // Coroutine stacks (4KB each, 8-byte aligned for ARM AAPCS)
+  // Coroutine stack (8-byte aligned for ARM AAPCS)
   static inline uint8_t drain_stack[STACK_SIZE] __attribute__((aligned(8)));
 
   // --- Drain Task ---
-  // The primary fg2bg consumer. Handles fast chores inline and dispatches
-  // slow ones to floppy_task/spoon_task.
+  // The fg2bg consumer.
   static void drain_task(Coro& self) {
     while (true) {
       // NOTE: Do NOT call HaltOff() here. Flow-control HALT is managed
@@ -588,9 +580,6 @@ class CoreEngine {
       // Calling HaltOff() here was defeating the watermark-based throttling,
       // causing fg2bg FIFO overflow and lost write cycle records.
 
-      // Note: drain_task handles background chores and USB polling.
-      // BackgroundSpoonFeeder cooperatively yields when waiting for input,
-      // allowing drain_task to run and decode keyboard COBS packets.
 
       uint chore = 0;
       if (!fg2bg.pop(chore)) {
@@ -674,10 +663,7 @@ class CoreEngine {
           cobs_printf("\nWUT? CHORE=%x\n", chore);
       }
 
-      // Yield after every chore so the scheduler can pump USB and
-      // resume floppy/spoon tasks. Without this, at SLOW_SPEED the
-      // FIFO is never empty and drain_task would run forever,
-      // starving ReceiveSectorData's USB polling.
+      // Yield after every chore so the scheduler can pump USB.
       coro_yield(&self);
     }
   }

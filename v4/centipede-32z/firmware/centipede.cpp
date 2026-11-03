@@ -1382,7 +1382,7 @@ class CoreEngine : public BackgroundSharedState {
           // CASE special
           if (LIKELY(reading)) {  // Special CPU READING -- we TX
             // CASE special read
-            if ((signals & NEG_SCS) == 0) {  // READ CTS
+            if ((signals & NEG_SCS) == 0) {  // READ SCS
               T::ReadScsFloppy(abus, dbus);
             }
             // JOIN special read
@@ -1482,7 +1482,6 @@ class CoreEngine : public BackgroundSharedState {
   }
   FORCE_INLINE static void PushFifoWrite(uint abus, byte dbus) {
     // Always push writes — they're rare and critical for the virtual screen.
-    // Only reads are throttled by flow control.
       bool ok = fg2bg.push(((FG2BG_WRITE) << 24) | ((abus) << 8) | (dbus));
 #if FIFO_INDICATOR_0500
       if (!ok) { push_fail_counter++; if (fifo_indicator_ram) fifo_indicator_ram[0x0504] = 0xFF; }
