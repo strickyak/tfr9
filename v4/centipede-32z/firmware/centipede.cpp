@@ -264,7 +264,7 @@ inline volatile bool fg_halt_for_flow_control = false;
 byte* fifo_indicator_ram = nullptr;
 #endif
 
-// Called every bus cycle in the foreground to manage flow control.
+// Called from the foreground bus loop to manage flow control.
 FORCE_INLINE void IN_RAM FlowControlCheck() {
   uint sz = fg2bg.size();
 
@@ -987,7 +987,9 @@ class CoreEngine : public BackgroundSharedState {
         continue;
       }
 
+#if !FOR_COCO3  // There the foreground holds HALT between bus accesses.
       HaltOff();
+#endif
       gspoon::BackgroundSpoonFeeder(&self);
       spoon_has_work = false;
     }
@@ -1040,7 +1042,7 @@ class CoreEngine : public BackgroundSharedState {
     }
 #endif
 
-    // Coco2 is running — enter normal PIO bus cycle loop.
+    // CoCo is running — enter normal PIO bus cycle loop.
       // ON RESET, GO INTO SPOONFEEDING.
       gspoon::SpoonfeedConsoleOnReset();
 
@@ -1048,6 +1050,27 @@ class CoreEngine : public BackgroundSharedState {
       PUSH_TO_BG(FG2BG_START_KEYBOARD_INJECTOR, 0, 0);
 
       coco_running = true;
+
+#if FOR_COCO3
+      // The real GIME, RAM and ROM serve the CPU, so the cart only watches.
+      {
+        const bool tracing = centipede_config.trace_reads || centipede_config.trace_writes;
+        while (true) {
+          const uint signals = GERBIL_GET();
+          const uint abus = volatile_sio_hw->gpio_hi_in & 0xFFFF;
+          if (signals & (1u << G_RW)) {
+            GERBIL_PASS();
+            const byte dbus = (byte)GERBIL_GET();
+            if (centipede_config.trace_reads) T::PushFifoRead(abus, dbus);
+          } else {
+            const byte dbus = (byte)GERBIL_GET();
+            if (centipede_config.trace_writes) T::PushFifoWrite(abus, dbus);
+          }
+          if (tracing) FlowControlCheck();
+          if ((signals & (1u << G_RESET)) == 0) rp2350_reset_standard();
+        }
+      }
+#endif
 
       // AFTER SPOONFEEDING, START NORMAL CYCLES.
 #if FIFO_INDICATOR_0500
@@ -1625,7 +1648,9 @@ int IN_RAM main() {
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
 
-#if !FOR_COCO3
+#if FOR_COCO3
+  startup_e_clock_detected = true;
+#else
   centipede_config.SetStandard();
 #endif
 #if BECOME_COCO3
