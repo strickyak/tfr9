@@ -38,7 +38,9 @@
 
 #define CENTIPEDE_INVERT_EQ 1
 
-#define IN_FLASH __in_flash("FLASH")
+#define IN_FLASH_STR_(x) #x
+#define IN_FLASH_STR(x) IN_FLASH_STR_(x)
+#define IN_FLASH __attribute__((section(".flashdata.FLASH" IN_FLASH_STR(__COUNTER__))))
 #define IN_RAM __not_in_flash("centipede")
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
