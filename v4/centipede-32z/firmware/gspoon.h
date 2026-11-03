@@ -223,7 +223,115 @@ bool IN_RAM WriteStep(uint want_addr = 0, byte feed_data = 0) {
   return ok;
 }
 
+#if FOR_COCO3
+// A CoCo 3 takes cart data at $FFF0-$FFFF but not at RAM addresses, so the fed
+// program stays there: idle is JMP $FFF0, and each access is
+//   FFF0 LDD #x / FFF3 STB or LDB addr / FFF6 JMP $FFF0
+// A late fetch loses the CPU for good, so HALT holds it between accesses.
+static constexpr uint WIN_STUCK_CYCLES = 2000000;
+static constexpr uint WIN_HALT_SETTLE_CYCLES = 8;
+byte win_feed[16] = {0x7E, 0xFF, 0xF0, 0, 0, 0, 0x7E, 0xFF, 0xF0,
+                     0, 0, 0, 0, 0, 0xFF, 0xF0};
+bool win_pass_only = false;
+byte win_data;
+
+FORCE_INLINE uint IN_RAM WinStep() {
+  const uint signals = GERBIL_GET();
+  const uint abus = (uint)volatile_sio_hw->gpio_hi_in & 0xFFFFu;
+  if ((signals & (1u << G_RW)) == 0) {
+    win_data = (byte)GERBIL_GET();
+  } else if (abus >= 0xFFF0 && !win_pass_only) {
+    GERBIL_DRIVE(win_feed[abus & 15]);
+  } else {
+    GERBIL_PASS();
+    win_data = (byte)GERBIL_GET();
+  }
+  return abus;
+}
+
+// Matches the whole JMP, since a halted CPU's address bus shows other values.
+void IN_RAM WinWaitForIdleJmp() {
+  uint matched = 0;
+  for (uint i = 0; i < WIN_STUCK_CYCLES; i++) {
+    const uint abus = WinStep();
+    if (abus == 0xFFF0 + matched) {
+      if (++matched == 3) return;
+    } else {
+      matched = (abus == 0xFFF0) ? 1 : 0;
+    }
+  }
+  cobs_printf("WinWaitForIdleJmp: CPU lost, restarting\n");
+  sleep_ms(50);
+  ::rp2350_reset_standard();
+}
+
+// After a stall the PIO lags the bus, so a running CPU would get stale bytes.
+void IN_RAM WinDrainBacklog() {
+  uint empty_steps = 0;
+  while (empty_steps < 2) {
+    WinStep();
+    empty_steps = pio_sm_is_rx_fifo_empty(pio, sm) ? empty_steps + 1 : 0;
+  }
+}
+
+void IN_RAM WinHoldCpu() {
+  HaltOn();
+  for (uint i = 0; i < WIN_HALT_SETTLE_CYCLES; i++) WinStep();
+}
+
+byte IN_RAM WinAccess(byte opcode, uint a, byte x) {
+  WinDrainBacklog();
+  HaltOff();
+  WinWaitForIdleJmp();
+  win_feed[0] = 0xCC;
+  win_feed[1] = 0;
+  win_feed[2] = x;
+  win_feed[3] = opcode;
+  win_feed[4] = (byte)(a >> 8);
+  win_feed[5] = (byte)a;
+  byte got = 0;
+  uint abus;
+  do {
+    abus = WinStep();
+    if (abus == a) got = win_data;
+  } while (abus != 0xFFF8);
+  win_feed[0] = 0x7E;
+  win_feed[1] = 0xFF;
+  win_feed[2] = 0xF0;
+  WinHoldCpu();
+  return got;
+}
+
+void IN_RAM WinResetCpu() {
+  gpio_put(G_RESET, 0);
+  gpio_set_dir(G_RESET, GPIO_OUT);
+  HaltOff();
+  for (uint i = 0; i < 20000; i++) WinStep();
+  gpio_set_dir(G_RESET, GPIO_IN);
+}
+
+void IN_RAM WinTakeControl() {
+  WinResetCpu();
+  WinWaitForIdleJmp();
+  WinHoldCpu();
+}
+
+// The RESET line rises slowly, and the bus loop treats low as a new reset.
+void IN_RAM WinLaunch() {
+  win_pass_only = true;
+  WinResetCpu();
+  uint high = 0;
+  while (high < 1000) {
+    WinStep();
+    high = (volatile_sio_hw->gpio_in & (1u << G_RESET)) ? high + 1 : 0;
+  }
+}
+#endif  // FOR_COCO3
+
 uint IN_RAM AnyStep(bool to_log = true) {
+#if FOR_COCO3
+  return WinStep();
+#endif
   constexpr uint want_addr = 0;
   byte feed_data = 0x7E;
   PREMISE
@@ -294,6 +402,9 @@ void IN_RAM SetS(uint s) {
 byte IN_RAM GPeek1(uint a) {
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
+#if FOR_COCO3
+  return WinAccess(0xF6, a, 0);  // LDB extended
+#endif
   Synchronize7E();
 
   ReadStep(0, 0xF6);  // F6 => LDB extended
@@ -306,6 +417,10 @@ byte IN_RAM GPeek1(uint a) {
 void IN_RAM GPoke1(uint a, byte x) {
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
+#if FOR_COCO3
+  WinAccess(0xF7, a, x);  // STB extended
+  return;
+#endif
   Synchronize7E();
 
   ReadStep(0, 0xCC);  // CC => LDD #immediate
@@ -323,6 +438,11 @@ void IN_RAM GPoke1(uint a, byte x) {
 void IN_RAM GPoke2(uint a, uint x) {
   // Runs in Foreground.
   // Performance Critical to keep up with the Gerbil.
+#if FOR_COCO3
+  GPoke1(a, (byte)(x >> 8));
+  GPoke1(a + 1, (byte)x);
+  return;
+#endif
   Synchronize7E();
 
   ReadStep(0, 0xCC);  // CC => LDD #immediate
@@ -380,7 +500,7 @@ void IN_RAM DriveConsole() {
 
   while (true) {
     uint z = 0;
-    AnyStep();  // keep gerbil fed (6809 runs JMP $7E7E)
+    AnyStep();  // keep gerbil fed
 
     { // Check for Coco is being RESET.
         const uint signals = volatile_sio_hw->gpio_in;
@@ -405,6 +525,19 @@ void IN_RAM DriveConsole() {
       } else if (cmd == BG2FG_EXIT_CONSOLE) {
         drive_console_ready = false;
         tcl_io::remove_coco2();
+
+#if FOR_COCO3
+        // Not supported on a real CoCo 3.
+        centipede_config.ram_64k = false;
+        centipede_config.become_coco3 = false;
+        // Force BASIC to cold start.
+        GPoke1(0x0071, 0);
+        GPoke1(0x0072, 0);
+        GPoke1(0x0073, 0);
+        GPoke1(0xFEED, 0);
+        WinLaunch();
+        return;
+#endif
 
         // Reset SAM VDG mode bits (V0..V2) and display offset bits (F0..F6)
         for (uint a = 0xFFC0; a <= 0xFFD2; a += 2) {
@@ -506,6 +639,7 @@ void IN_RAM SpoonfeedConsoleOnReset() {
   // (Moved to just before DriveConsole() call below.)
 
 #if FOR_COCO3
+  WinTakeControl();
   for (auto *p = gime_reset_sequence; p->a; p++) {
     GPoke1(p->a, p->b);
   }
@@ -968,8 +1102,13 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
         }
       }
 
-      // Then SOURCE /rc/mode%d.tcl
+      // Then SOURCE /rc/mode%d.tcl, or /rc/coco3.tcl for a CoCo 3's default mode.
       char cmd_buf[40];
+#if FOR_COCO3
+      if (boot_mode == 1) {
+        sprintf(cmd_buf, "source /rc/coco3.tcl");
+      } else
+#endif
       sprintf(cmd_buf, "source /rc/mode%d.tcl", boot_mode);
       int mode_result = Tcl_Eval(global_tcl_interp, cmd_buf, 0, (char**)0);
       if (mode_result == TCL_ERROR) {
@@ -1215,7 +1354,11 @@ BYE:
   if (centipede_config.become_coco3) {
     tcl_io::emit_string("Launching Coco3...\n");
   } else {
+#if FOR_COCO3
+    tcl_io::emit_string("Launching Coco3...\n");
+#else
     tcl_io::emit_string("Launching Coco2...\n");
+#endif
   }
 
   uint cmd = ((uint)BG2FG_EXIT_CONSOLE << 24);

@@ -25,12 +25,12 @@
 //     - WriteCommand, WriteTrack, WriteSector, WriteLatch (via WriteScsFloppy)
 //     - ReadStatus, ReadData (via ReadScsFloppy)
 //     - WriteData: collects 256 bytes, snapshots, asserts NMI
+//       (with /fd, after HALT through the flash write)
 //
 //   Background (Core 0) processes coroutines and the fg2bg software FIFO.
 //   It may execute from Flash. It handles:
-//     - Read sector: sends request to tether, receives data, sets DRQ
-//     - Write sector: transmits snapshot buffer to tether
-//     - NMI release: via high-priority volatile flag (nmi_pending)
+//     - Read sector: loads it through the VFS, sets DRQ
+//     - Write sector: stores the snapshot buffer through the VFS
 //
 // KEY TIMING CONSTRAINTS:
 //   1. Disk BASIC writes $FF40 (latch) AFTER $FF48 (command). So floppy_latch
@@ -39,7 +39,7 @@
 //      handlers run long after the foreground event. Never touch foreground-
 //      owned state (like floppy_ptr) from a background handler during writes.
 //   3. NMI is edge-triggered on the 6809. Pin must return high before the
-//      next NMI. Use nmi_pending flag, not the FIFO, for NMI release.
+//      next NMI. The foreground releases it through nmi_fuse, not the FIFO.
 //   4. ReadStatus clears DRQ — DSKCON relies on this behavior.
 // ============================================================================
 
@@ -68,6 +68,10 @@ byte floppy_data;      // FG-written (WriteData / data reg for seek)
 volatile byte *floppy_ptr;  // FG-owned during transfers, BG sets after read load
 
 byte floppy_buf[256];  // Shared sector buffer; BG writes (read), FG writes (write)
+
+// HALT holds the CPU until a flash write finishes, so writes cannot overlap.
+volatile bool floppy_commit_wait = false;  // FG-owned
+std::atomic<bool> floppy_commit_done{false};  // Set by BG
 #define floppy_limit (256 + floppy_buf)
 
 #if FLOPPY_OVER_VFS
@@ -265,10 +269,20 @@ struct DoFloppy {
       if (floppy_vfs_opened[hnum]) {
         uint dden_offset = (floppy_write_latch & 0x40) ? 18 : 0;
         uint lsn = dden_offset + 18 * floppy_write_track + floppy_write_sector - 1;
-        lfs_soff_t seeked = vfs_file_seek(&floppy_vfs_files[hnum], lsn * 256, LFS_SEEK_SET, &self);
-        lfs_ssize_t bytes_written = vfs_file_write(&floppy_vfs_files[hnum], write_buf, 256);
-        cobs_printf("[W h%d lsn%d sk%d wr%d]", hnum, lsn, (int)seeked, (int)bytes_written);
-        if (bytes_written == 256) write_ok = true;
+        const uint64_t start_us = time_us_64();
+        lfs_ssize_t bytes_written = -1;
+        int synced = 0;
+        // A LittleFS write would rewrite the file from here to its end.
+        bytes_written = vfs_file_overwrite(&floppy_vfs_files[hnum], lsn * 256, write_buf, 256);
+        const bool in_place = bytes_written == 256;
+        if (!in_place) {
+          vfs_file_seek(&floppy_vfs_files[hnum], lsn * 256, LFS_SEEK_SET, &self);
+          bytes_written = vfs_file_write(&floppy_vfs_files[hnum], write_buf, 256);
+          synced = vfs_file_sync(&floppy_vfs_files[hnum]);
+        }
+        cobs_printf("[W h%d lsn%d wr%d %s sync%d %ums]", hnum, lsn, (int)bytes_written,
+                    in_place ? "inplace" : "file", synced, (uint)((time_us_64() - start_us) / 1000));
+        if (bytes_written == 256 && synced >= 0) write_ok = true;
       }
     }
     if (!write_ok) {
@@ -329,8 +343,8 @@ struct DoFloppy {
           floppy_ptr = floppy_buf;
           if ((floppy_latch & 0x80) != 0) {
             // HALT/NMI enabled: pulse NMI to signal transfer complete.
-            // NMI is edge-triggered — release is via nmi_pending flag
-            // in the background drain_task (not the FIFO, which is too slow).
+            // NMI is edge-triggered — release is via nmi_fuse in the
+            // foreground (not the FIFO, which is too slow).
             ASSERT_NMI();
           }
         }
@@ -394,8 +408,13 @@ struct DoFloppy {
             uint8_t completed_idx = floppy_write_active_idx;
             floppy_write_active_idx ^= 1;
             floppy_ptr = floppy_write_bufs[floppy_write_active_idx];
+            if (centipede_config.floppy_fd) {
+              HaltOn();
+              floppy_commit_done.store(false, std::memory_order_relaxed);
+              floppy_commit_wait = true;
+            }
             PUSH_TO_BG(FG2BG_W_256, 0, completed_idx);
-            ASSERT_NMI();
+            if (!floppy_commit_wait) ASSERT_NMI();
           } else {
             floppy_ptr = floppy_write_bufs[floppy_write_active_idx];  // Reset to prevent overrun
           }

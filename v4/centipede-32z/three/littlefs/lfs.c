@@ -6214,6 +6214,80 @@ int lfs_file_sync(lfs_t *lfs, lfs_file_t *file) {
     LFS_UNLOCK(lfs->cfg);
     return err;
 }
+
+static lfs_ssize_t lfs_file_overwrite_(lfs_t *lfs, lfs_file_t *file,
+        lfs_off_t pos, const void *buffer, lfs_size_t size) {
+    static uint8_t block_buf[4096];
+    if (lfs->cfg->block_size > sizeof(block_buf)) {
+        return LFS_ERR_INVAL;
+    }
+
+    int err = lfs_file_sync_(lfs, file);
+    if (err) {
+        return err;
+    }
+    if ((file->flags & LFS_F_INLINE) || pos + size > file->ctz.size) {
+        return LFS_ERR_INVAL;
+    }
+
+    const uint8_t *data = buffer;
+    lfs_size_t left = size;
+    while (left > 0) {
+        lfs_block_t block;
+        lfs_off_t off;
+        err = lfs_ctz_find(lfs, NULL, &lfs->rcache,
+                file->ctz.head, file->ctz.size, pos, &block, &off);
+        if (err) {
+            return err;
+        }
+        lfs_size_t chunk = lfs_min(left, lfs->cfg->block_size - off);
+
+        err = lfs->cfg->read(lfs->cfg, block, 0, block_buf, lfs->cfg->block_size);
+        if (err) {
+            return err;
+        }
+        memcpy(block_buf + off, data, chunk);
+
+        lfs_cache_drop(lfs, &lfs->rcache);
+        err = lfs->cfg->erase(lfs->cfg, block);
+        if (err) {
+            return err;
+        }
+        for (lfs_off_t page = 0; page < lfs->cfg->block_size;
+                page += lfs->cfg->prog_size) {
+            err = lfs->cfg->prog(lfs->cfg, block, page,
+                    block_buf + page, lfs->cfg->prog_size);
+            if (err) {
+                return err;
+            }
+        }
+        err = lfs->cfg->sync(lfs->cfg);
+        if (err) {
+            return err;
+        }
+
+        pos += chunk;
+        data += chunk;
+        left -= chunk;
+    }
+
+    lfs_cache_drop(lfs, &file->cache);
+    return size;
+}
+
+lfs_ssize_t lfs_file_overwrite(lfs_t *lfs, lfs_file_t *file,
+        lfs_off_t pos, const void *buffer, lfs_size_t size) {
+    int err = LFS_LOCK(lfs->cfg);
+    if (err) {
+        return err;
+    }
+    LFS_ASSERT(lfs_mlist_isopen(lfs->mlist, (struct lfs_mlist*)file));
+
+    lfs_ssize_t res = lfs_file_overwrite_(lfs, file, pos, buffer, size);
+
+    LFS_UNLOCK(lfs->cfg);
+    return res;
+}
 #endif
 
 lfs_ssize_t lfs_file_read(lfs_t *lfs, lfs_file_t *file,
