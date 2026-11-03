@@ -598,6 +598,12 @@ int lfs_file_close(lfs_t *lfs, lfs_file_t *file);
 // Returns a negative error code on failure.
 int lfs_file_sync(lfs_t *lfs, lfs_file_t *file);
 
+// Overwrite existing bytes in the file's current blocks, without rewriting the
+// rest of the file. No sync needed. Power loss during the call can damage those
+// blocks. Returns size, or LFS_ERR_INVAL if the range is outside the file.
+lfs_ssize_t lfs_file_overwrite(lfs_t *lfs, lfs_file_t *file,
+        lfs_off_t pos, const void *buffer, lfs_size_t size);
+
 // Read data from file
 //
 // Takes a buffer and size indicating where to store the read data.

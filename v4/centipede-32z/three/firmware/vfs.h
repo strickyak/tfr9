@@ -44,6 +44,8 @@ public:
   virtual lfs_ssize_t write(const void* buffer, lfs_size_t size) { return -1; }
   virtual lfs_soff_t seek(lfs_soff_t offset, int whence, Coro* self) { return -1; }
   virtual int close_file(Coro* self) { return 0; }
+  virtual int sync_file() { return 0; }
+  virtual lfs_ssize_t overwrite(lfs_off_t pos, const void* buffer, lfs_size_t size) { return -1; }
 
   virtual int open_dir() { return -1; }
   virtual int read_dir(struct vfs_info* info) { return -1; }
@@ -932,6 +934,12 @@ public:
   int close_file(Coro* self) override {
     return lfs_file_close(&lfs_volume, &lfs_file);
   }
+  int sync_file() override {
+    return lfs_file_sync(&lfs_volume, &lfs_file);
+  }
+  lfs_ssize_t overwrite(lfs_off_t pos, const void* buffer, lfs_size_t size) override {
+    return lfs_file_overwrite(&lfs_volume, &lfs_file, pos, buffer, size);
+  }
   
   int open_dir() override {
     virtual_pc_returned = false;
@@ -1495,6 +1503,16 @@ inline lfs_ssize_t vfs_file_write(vfs_file_t* file, const void* buffer, lfs_size
 inline lfs_soff_t vfs_file_seek(vfs_file_t* file, lfs_soff_t offset, int whence, Coro* self = nullptr) {
   if (!file->node) return -1;
   return file->node->seek(offset, whence, self);
+}
+
+inline int vfs_file_sync(vfs_file_t* file) {
+  if (!file->node) return -1;
+  return file->node->sync_file();
+}
+
+inline lfs_ssize_t vfs_file_overwrite(vfs_file_t* file, lfs_off_t pos, const void* buffer, lfs_size_t size) {
+  if (!file->node) return -1;
+  return file->node->overwrite(pos, buffer, size);
 }
 
 inline int vfs_file_close(vfs_file_t* file, Coro* self = nullptr) {

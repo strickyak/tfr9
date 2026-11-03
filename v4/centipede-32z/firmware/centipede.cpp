@@ -921,6 +921,7 @@ class CoreEngine : public BackgroundSharedState {
           break;
         case FG2BG_W_256:
           T::BackgroundFifoFloppyW256(self, chore_byte);
+          floppy_commit_done.store(true, std::memory_order_release);
           break;
 #if FUZIX_COCO2CENTIPEDE
         case FG2BG_FUZIX_SD_READ: {
@@ -1066,7 +1067,17 @@ class CoreEngine : public BackgroundSharedState {
         while (true) {
           const uint signals = GERBIL_GET();
           const uint abus = volatile_sio_hw->gpio_hi_in & 0xFFFF;
-          if (signals & (1u << G_RW)) {
+          if (floppy_commit_wait) {
+            // The halted CPU's address bus is not meaningful, so decode nothing.
+            if (signals & (1u << G_RW)) GERBIL_PASS();
+            GERBIL_GET();
+            if (floppy_commit_done.load(std::memory_order_acquire)) {
+              floppy_commit_wait = false;
+              HaltOff();
+              ASSERT_NMI();
+              disk_led_cycles = 90000;
+            }
+          } else if (signals & (1u << G_RW)) {
             if (floppy && (abus & 0xFFF0) == 0xFF40) {
               byte dbus = 0xFF;
               T::ReadScsFloppy(abus, dbus);
@@ -1099,12 +1110,12 @@ class CoreEngine : public BackgroundSharedState {
               }
             }
           }
-          if (tracing) FlowControlCheck();
+          if (tracing && !floppy_commit_wait) FlowControlCheck();
           if ((signals & (1u << G_RESET)) == 0) rp2350_reset_standard();
           if (nmi_fuse) {
             if (--nmi_fuse == 0) gpio_set_dir(G_NMI, GPIO_IN);
           }
-          if (disk_led_cycles && --disk_led_cycles == 0) SET_LED(0);
+          if (!floppy_commit_wait && disk_led_cycles && --disk_led_cycles == 0) SET_LED(0);
         }
       }
 #endif
@@ -1121,6 +1132,22 @@ class CoreEngine : public BackgroundSharedState {
         const bool reading = ((signals & (1u << G_RW)) != 0);
         const uint abus = volatile_sio_hw->gpio_hi_in & 0xFFFF;
         byte dbus = 0x00;
+
+        if (UNLIKELY(floppy_commit_wait)) {
+          // The halted CPU's address bus is not meaningful, so decode nothing.
+          if (reading) GERBIL_PASS();
+          GERBIL_GET();
+          if (floppy_commit_done.load(std::memory_order_acquire)) {
+            floppy_commit_wait = false;
+            HaltOff();
+            ASSERT_NMI();
+          }
+          if ((signals & (1 << G_RESET)) == 0) {
+            coco_running = false;
+            break;
+          }
+          continue;
+        }
 
         constexpr uint NEG_CTS = (1 << G_CTS);
         constexpr uint NEG_SCS = (1 << G_SCS);
