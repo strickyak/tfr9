@@ -45,27 +45,9 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]);
 
 #endif // _MENU_H_
 
-static void menu_draw_screen() {
-        coro_yield(gspoon::g_spoon_coro);
-    tcl_io::emit_string("\x1b[2J"); // Clear screen
-        coro_yield(gspoon::g_spoon_coro);
-    // Draw title
+static void menu_draw_fields() {
     char buf[64];
-    snprintf(buf, sizeof(buf), "\x1b[1;1H%s", g_menu.title.c_str());
-        coro_yield(gspoon::g_spoon_coro);
-    tcl_io::emit_string(buf);
-        coro_yield(gspoon::g_spoon_coro);
-    
-    // Draw template
-    int row = 0;
-    for (const auto& line : g_menu.template_lines) {
-        coro_yield(gspoon::g_spoon_coro);
-        snprintf(buf, sizeof(buf), "\x1b[%d;1H%s", row + 2, line.c_str());
-        tcl_io::emit_string(buf);
-        row++;
-    }
-    
-    // Draw fields
+
     for (size_t i = 0; i < g_menu.fields.size(); i++) {
         coro_yield(gspoon::g_spoon_coro);
         const auto& field = g_menu.fields[i];
@@ -97,6 +79,29 @@ static void menu_draw_screen() {
     // Position cursor at the end (or out of the way)
     snprintf(buf, sizeof(buf), "\x1b[%d;1H", (int)g_menu.template_lines.size() + 2);
     tcl_io::emit_string(buf);
+}
+
+static void menu_draw_screen() {
+        coro_yield(gspoon::g_spoon_coro);
+    tcl_io::emit_string("\x1b[2J"); // Clear screen
+        coro_yield(gspoon::g_spoon_coro);
+    // Draw title
+    char buf[64];
+    snprintf(buf, sizeof(buf), "\x1b[1;1H%s", g_menu.title.c_str());
+        coro_yield(gspoon::g_spoon_coro);
+    tcl_io::emit_string(buf);
+        coro_yield(gspoon::g_spoon_coro);
+    
+    // Draw template
+    int row = 0;
+    for (const auto& line : g_menu.template_lines) {
+        coro_yield(gspoon::g_spoon_coro);
+        snprintf(buf, sizeof(buf), "\x1b[%d;1H%s", row + 2, line.c_str());
+        tcl_io::emit_string(buf);
+        row++;
+    }
+    
+    menu_draw_fields();
 }
 
 int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) {
@@ -281,8 +286,14 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         g_menu.active = true;
         console::inkey_state iks = {};
         
+        bool full_redraw = true;
         while (g_menu.active) {
-            menu_draw_screen();
+            if (full_redraw) {
+                menu_draw_screen();
+            } else {
+                menu_draw_fields();
+            }
+            full_redraw = false;
             
             while (true) {
                 byte key = tcl_io::poll_key(&iks);
@@ -318,6 +329,7 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
                     if (key == '\r' || key == '\n' || key == ' ') {
                         int code = Tcl_Eval(interp, (char*)g_menu.actions[field.hotkey].c_str(), 0, NULL);
                         if (code != TCL_OK) return code;
+                        full_redraw = true;
                         break;
                     }
                 } else if (field.type == FieldType::CHECKBOX) {
