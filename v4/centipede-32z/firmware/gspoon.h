@@ -529,9 +529,6 @@ void IN_RAM DriveConsole() {
 #if FOR_COCO3
         // Not supported on a real CoCo 3.
         centipede_config.ram_64k = false;
-        centipede_config.rom_disk11 = false;
-        centipede_config.floppy_fd = false;
-        centipede_config.floppy_pc = false;
         centipede_config.become_coco3 = false;
         // Force BASIC to cold start.
         GPoke1(0x0071, 0);

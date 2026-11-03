@@ -1052,22 +1052,59 @@ class CoreEngine : public BackgroundSharedState {
       coco_running = true;
 
 #if FOR_COCO3
-      // The real GIME, RAM and ROM serve the CPU, so the cart only watches.
+      // The real GIME, RAM and ROM serve the CPU. The cart answers only for the
+      // floppy controller and, while the GIME routes $C000 to it, Disk BASIC.
       {
         const bool tracing = centipede_config.trace_reads || centipede_config.trace_writes;
+        const bool disk_rom = centipede_config.rom_disk11;
+        const bool floppy = centipede_config.floppy_fd || centipede_config.floppy_pc;
+        byte init0 = 0;
+        bool ty = false;
+        bool serve = disk_rom;
+        uint disk_led_cycles = 0;
+        floppy_ptr = floppy_buf;
         while (true) {
           const uint signals = GERBIL_GET();
           const uint abus = volatile_sio_hw->gpio_hi_in & 0xFFFF;
           if (signals & (1u << G_RW)) {
-            GERBIL_PASS();
-            const byte dbus = (byte)GERBIL_GET();
-            if (centipede_config.trace_reads) T::PushFifoRead(abus, dbus);
+            if (floppy && (abus & 0xFFF0) == 0xFF40) {
+              byte dbus = 0xFF;
+              T::ReadScsFloppy(abus, dbus);
+              GERBIL_DRIVE(dbus);
+            } else if (serve && (abus & 0xE000) == 0xC000) {
+              GERBIL_DRIVE(disk11_rom[abus & 0x1FFF]);
+            } else {
+              GERBIL_PASS();
+              const byte dbus = (byte)GERBIL_GET();
+              if (centipede_config.trace_reads) T::PushFifoRead(abus, dbus);
+            }
           } else {
-            const byte dbus = (byte)GERBIL_GET();
+            byte dbus = (byte)GERBIL_GET();
             if (centipede_config.trace_writes) T::PushFifoWrite(abus, dbus);
+            if (abus >= 0xFF90) {
+              if (abus == 0xFF90) {
+                init0 = dbus;
+              } else if (abus == 0xFFDE) {
+                ty = false;
+              } else if (abus == 0xFFDF) {
+                ty = true;
+              }
+              // Serving outside these modes would override internal ROM or fight RAM.
+              serve = disk_rom && !ty && (!(init0 & 2) || (init0 & 1));
+            } else if (floppy && (abus & 0xFFF0) == 0xFF40) {
+              T::WriteScsFloppy(abus, dbus);
+              if (abus == 0xFF48) {
+                SET_LED(1);
+                disk_led_cycles = 90000;  // About 0.1 s at 0.89 MHz.
+              }
+            }
           }
           if (tracing) FlowControlCheck();
           if ((signals & (1u << G_RESET)) == 0) rp2350_reset_standard();
+          if (nmi_fuse) {
+            if (--nmi_fuse == 0) gpio_set_dir(G_NMI, GPIO_IN);
+          }
+          if (disk_led_cycles && --disk_led_cycles == 0) SET_LED(0);
         }
       }
 #endif
@@ -1650,6 +1687,8 @@ int IN_RAM main() {
 
 #if FOR_COCO3
   startup_e_clock_detected = true;
+  centipede_config.rom_disk11 = true;
+  centipede_config.floppy_fd = true;
 #else
   centipede_config.SetStandard();
 #endif
