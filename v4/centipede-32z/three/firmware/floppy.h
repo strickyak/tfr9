@@ -76,6 +76,18 @@ inline vfs_file_t floppy_vfs_files[4];
 inline bool floppy_vfs_opened[4] = {false, false, false, false};
 char floppy_vfs_paths[4][136];
 
+// $FF40 bit 6 selects drive 3 by itself, or side 2 alongside another drive select.
+inline int FloppyLatchDrive(byte latch) {
+  if (latch & 1) return 0;
+  if (latch & 2) return 1;
+  if (latch & 4) return 2;
+  if (latch & 0x40) return 3;
+  return -1;
+}
+inline uint FloppyLatchSideOffset(byte latch) {
+  return (latch & 7) && (latch & 0x40) ? 18 : 0;
+}
+
 void set_floppy_names() {
         for (uint i = 0; i < 4; i++) {
             sprintf(floppy_vfs_paths[i], "/%s/f%d",
@@ -158,11 +170,7 @@ struct DoFloppy {
           Coro* saved_vfs_coro = rpc::g_vfs_coro;
           rpc::g_vfs_coro = &self;
 
-          int hnum = -1;
-          if (floppy_latch & 1) hnum = 0;
-          else if (floppy_latch & 2) hnum = 1;
-          else if (floppy_latch & 4) hnum = 2;
-          else if (floppy_latch & 8) hnum = 3;
+          int hnum = FloppyLatchDrive(floppy_latch);
 
           cobs_printf(":%d", hnum);
 
@@ -174,7 +182,7 @@ struct DoFloppy {
               if (res >= 0) floppy_vfs_opened[hnum] = true;
             }
             if (floppy_vfs_opened[hnum]) {
-              uint dden_offset = (floppy_latch & 0x40) ? 18 : 0;
+              uint dden_offset = FloppyLatchSideOffset(floppy_latch);
               uint lsn = dden_offset + 18 * floppy_track + floppy_sector - 1;
               lfs_soff_t seeked = vfs_file_seek(&floppy_vfs_files[hnum], lsn * 256, LFS_SEEK_SET, &self);
               lfs_ssize_t bytes_read = vfs_file_read(&floppy_vfs_files[hnum], floppy_buf, 256);
@@ -247,11 +255,7 @@ struct DoFloppy {
     Coro* saved_vfs_coro = rpc::g_vfs_coro;
     rpc::g_vfs_coro = &self;
 
-    int hnum = -1;
-    if (floppy_write_latch & 1) hnum = 0;
-    else if (floppy_write_latch & 2) hnum = 1;
-    else if (floppy_write_latch & 4) hnum = 2;
-    else if (floppy_write_latch & 8) hnum = 3;
+    int hnum = FloppyLatchDrive(floppy_write_latch);
 
     cobs_printf(":%d", hnum);
 
@@ -263,7 +267,7 @@ struct DoFloppy {
         if (res >= 0) floppy_vfs_opened[hnum] = true;
       }
       if (floppy_vfs_opened[hnum]) {
-        uint dden_offset = (floppy_write_latch & 0x40) ? 18 : 0;
+        uint dden_offset = FloppyLatchSideOffset(floppy_write_latch);
         uint lsn = dden_offset + 18 * floppy_write_track + floppy_write_sector - 1;
         lfs_soff_t seeked = vfs_file_seek(&floppy_vfs_files[hnum], lsn * 256, LFS_SEEK_SET, &self);
         lfs_ssize_t bytes_written = vfs_file_write(&floppy_vfs_files[hnum], write_buf, 256);
