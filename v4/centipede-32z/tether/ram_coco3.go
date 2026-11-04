@@ -12,13 +12,16 @@ type Coco3Ram struct {
 
 type Mapping [8]uint
 
-const COCO3_RAM_SIZE = 256 * 1024 // 256K (for Fuzix; 128K used in CoCo 3 mode)
+const COCO3_RAM_SIZE = 512 * 1024 // Largest used: 256K for Fuzix, 128K or 512K in CoCo 3 mode
 const COCO3_RAM_MASK = COCO3_RAM_SIZE - 1
 const COCO3_IO_PHYS = COCO3_RAM_SIZE - 256
 
 func (o *Coco3Ram) activeMask() uint {
 	if (*BOOTMODE & 1024) != 0 {
 		return 256*1024 - 1
+	}
+	if *COCO3_RAM_KB == 512 {
+		return 512*1024 - 1
 	}
 	return 128*1024 - 1
 }
