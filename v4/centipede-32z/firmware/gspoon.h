@@ -42,14 +42,14 @@ struct addr_byte __not_in_flash("coco2_reset") Coco2StartupGPokes[] = {
     // PIA1
     {0xff21, 0x00},  // choose data directions
     {0xff23, 0x00},  // choose data directions
-    {0xff20, 0xfe},  // PA* outputs, execpt PA0 input.
-    {0xff22, 0xfe},  // PB* outputs, execpt PB0 input. // add
+    {0xff20, 0xfe},  // PA* outputs, except PA0 input.
+    {0xff22, 0xfa},  // PB* outputs, except inputs PB0 and PB2 (RAM size; as an output it can hold keyboard PB6 low).
     //
     {0xff21, 0x34},  // CA2 is 0. Choose data. disable irqA (firq on rs232)
     // {0xff23, 0x37},  // Enables IRQB by CB1
     {0xff23, 0x34},  // Disables IRQB by CB1
     {0xff22, 0x00},  // PB* are zero.
-    {0xff20, 0x02},  // PA* are 0. execpt PA1 is 1 (rs232 out)
+    {0xff20, 0x02},  // PA* are 0, except PA1 is 1 (rs232 out)
     // END
     {0, 0}};
 
@@ -517,7 +517,7 @@ void IN_RAM SpoonfeedConsoleOnReset() {
 
 #if USE_PMODE4
   // PMODE4: PIA1 PB sets VDG control lines:
-  //   PB4 = ~A/G = 1 (graphics mode)
+  //   PB7 = A*/G = 1 (graphics mode)
   //   PB3 = CSS  = 1 (alternate color set: white on black)
   // GPoke1(0xFF22, 0x18);
   // GPoke1(0xFF22, 0xF8);  // F8 or F0
