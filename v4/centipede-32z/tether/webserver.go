@@ -62,6 +62,7 @@ func WebServer(wcc *WebConsoleConfig) {
 	http.HandleFunc("/ram.hex", serveRam)
 	http.HandleFunc("/pico_rpc", servePicoRpc)
 	http.HandleFunc("/pico_rpc/", servePicoRpc)
+	registerDiskHandlers()
 
 	fmt.Printf("Internal web server started at %q\n", wcc.Bind)
 	log.Fatal(http.ListenAndServe(wcc.Bind, nil))
@@ -446,6 +447,7 @@ const CONTENT = `
         #zoomLabel { min-width: 3em; text-align: center; }
         #monitor { display: none; margin-left: 12px; gap: 6px; }
         #zoom button.on { background: #0a0; border-color: #0d0; }
+        #diskslink { color: #8cf; margin-top: 6px; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -461,6 +463,7 @@ const CONTENT = `
         </span>
     </div>
     <div id="status">Connecting...</div>
+    <a id="diskslink" href="/disks" target="_blank">Disks</a>
 
     <script>
         const canvas = document.getElementById('screen');
