@@ -24,7 +24,7 @@ func SamModeTY() uint        { return 1 & (SamBits >> 15) }
 func SamScreenAddress() uint { return SamModeF() << 9 }
 
 func Pia1OutB() byte {
-	return the_ram.Peek1(0xFF23) // assuming write DATA after writing DIRECTION
+	return the_ram.Peek1(0xFF22) // assuming write DATA after writing DIRECTION
 }
 
 func SamPoke1(addr uint) {
@@ -166,6 +166,17 @@ func IsGimeGraphics() bool {
 	return (the_ram.Peek1(0xFF98) & 0x80) != 0
 }
 
+// gimeRowLayout applies $FF9F: bit 7 makes rows 256 bytes apart, and the rest
+// offsets each row by that many words, wrapping within 256 bytes.
+func gimeRowLayout(bytesPerRow uint) (stride, xoff uint) {
+	hoff := the_ram.Peek1(0xFF9F)
+	stride = bytesPerRow
+	if hoff&0x80 != 0 {
+		stride = 256
+	}
+	return stride, uint(hoff&0x7F) * 2
+}
+
 func GetHscreenScreen() []byte {
 	vres := the_ram.Peek1(0xFF99)
 	cres := vres & 0x03        // Bits 0-1: Color resolution (0=2 colors, 1=4 colors, 2=16 colors)
@@ -240,6 +251,10 @@ func GetHscreenScreen() []byte {
 	offset1 := uint(the_ram.Peek1(0xFF9D))
 	offset0 := uint(the_ram.Peek1(0xFF9E))
 	base := ((offset1<<8 | offset0) * 8) & COCO3_RAM_MASK
+	rowStride, xoff := gimeRowLayout(uint(bytesPerRow))
+	rowByte := func(y, col int) byte {
+		return the_ram.PPeek1(base + uint(y)*rowStride + (xoff+uint(col))&0xFF)
+	}
 
 	var buf bytes.Buffer
 	buf.WriteByte(OpBitmap)
@@ -252,13 +267,12 @@ func GetHscreenScreen() []byte {
 		binary.Write(&buf, binary.LittleEndian, uint16(uint16(height)))
 
 		for y := 0; y < height; y++ {
-			rowOffset := base + uint(y*bytesPerRow)
 			for byteCol := 0; byteCol < bytesPerRow; byteCol += 2 {
 				if bpp == 1 {
-					b0 := the_ram.PPeek1(rowOffset + uint(byteCol))
+					b0 := rowByte(y, byteCol)
 					b1 := byte(0)
 					if byteCol+1 < bytesPerRow {
-						b1 = the_ram.PPeek1(rowOffset + uint(byteCol+1))
+						b1 = rowByte(y, byteCol+1)
 					}
 					for bit := 0; bit < 8; bit += 2 {
 						colIdx := (b0 >> (7 - bit)) & 1
@@ -269,13 +283,13 @@ func GetHscreenScreen() []byte {
 						buf.Write(palette[colIdx])
 					}
 				} else if bpp == 2 {
-					b0 := the_ram.PPeek1(rowOffset + uint(byteCol))
+					b0 := rowByte(y, byteCol)
 					c0 := (b0 >> 6) & 3
 					c2 := (b0 >> 2) & 3
 					buf.Write(palette[c0])
 					buf.Write(palette[c2])
 					if byteCol+1 < bytesPerRow {
-						b1 := the_ram.PPeek1(rowOffset + uint(byteCol+1))
+						b1 := rowByte(y, byteCol+1)
 						c0_1 := (b1 >> 6) & 3
 						c2_1 := (b1 >> 2) & 3
 						buf.Write(palette[c0_1])
@@ -290,10 +304,9 @@ func GetHscreenScreen() []byte {
 		binary.Write(&buf, binary.LittleEndian, uint16(uint16(height)))
 
 		for y := 0; y < height; y++ {
-			rowOffset := base + uint(y*bytesPerRow)
 			pixelsWritten := 0
 			for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
-				b := the_ram.PPeek1(rowOffset + uint(byteCol))
+				b := rowByte(y, byteCol)
 				switch bpp {
 				case 4: // 2 pixels per byte (16 colors)
 					p0 := (b >> 4) & 0x0F
@@ -358,6 +371,10 @@ func GetGimeTextScreen() []byte {
 
 	const rows = 24
 	const height = 192
+	width := cols * 8
+	if width < 320 {
+		width = 320
+	}
 
 	palette := make([][]byte, 16)
 	hasNonZero := false
@@ -384,20 +401,19 @@ func GetGimeTextScreen() []byte {
 	buf.WriteByte(OpBitmap)
 	binary.Write(&buf, binary.LittleEndian, uint16(0))   // X
 	binary.Write(&buf, binary.LittleEndian, uint16(0))   // Y
-	binary.Write(&buf, binary.LittleEndian, uint16(320)) // W (canvas width)
+	binary.Write(&buf, binary.LittleEndian, uint16(width))
 	binary.Write(&buf, binary.LittleEndian, uint16(uint16(height))) // H
 
 	stride := uint(1)
 	if hasAttrs {
 		stride = 2
 	}
-
-	sampleCols := [4]int{1, 3, 5, 0}
+	rowStride, xoff := gimeRowLayout(uint(cols) * stride)
 
 	for row := 0; row < rows; row++ {
 		for py := 0; py < 8; py++ {
 			for col := 0; col < cols; col++ {
-				charOffset := base + uint(row*cols+col)*stride
+				charOffset := base + uint(row)*rowStride + (xoff+uint(col)*stride)&0xFF
 				ch := the_ram.PPeek1(charOffset)
 				var fg, bg []byte
 				underline := false
@@ -411,28 +427,16 @@ func GetGimeTextScreen() []byte {
 					bg = palette[0] // default green
 				}
 
-				if cols == 80 {
-					// 80 columns: 4 pixels per character cell, downsampling 2:1 horizontally
-					for px := 0; px < 4; px++ {
-						if underline || getGlyphPixel(ch, sampleCols[px], py) {
-							buf.Write(fg)
-						} else {
-							buf.Write(bg)
-						}
-					}
-				} else {
-					// 40 columns (or <= 40): 8 pixels per character cell
-					for px := 0; px < 8; px++ {
-						if underline || getGlyphPixel(ch, px, py) {
-							buf.Write(fg)
-						} else {
-							buf.Write(bg)
-						}
+				for px := 0; px < 8; px++ {
+					if underline || getGlyphPixel(ch, px, py) {
+						buf.Write(fg)
+					} else {
+						buf.Write(bg)
 					}
 				}
 			}
 			// Pad remaining scanline pixels if cols < 40
-			for p := cols * 8; p < 320; p++ {
+			for p := cols * 8; p < width; p++ {
 				buf.Write(palette[0])
 			}
 		}
@@ -484,15 +488,36 @@ func SyncLiveScreenRam(addr uint, size int) {
 	}()
 }
 
+// withCanvasSize prefixes a frame with the canvas size it needs.
+func withCanvasSize(frame []byte, width, height uint16) []byte {
+	if frame == nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	buf.WriteByte(OpSize)
+	binary.Write(&buf, binary.LittleEndian, width)
+	binary.Write(&buf, binary.LittleEndian, height)
+	buf.Write(frame)
+	return buf.Bytes()
+}
+
+// wholeScreen sizes the canvas to a frame that is one bitmap from (0,0).
+func wholeScreen(frame []byte) []byte {
+	if len(frame) < 9 {
+		return frame
+	}
+	return withCanvasSize(frame, binary.LittleEndian.Uint16(frame[5:]), binary.LittleEndian.Uint16(frame[7:]))
+}
+
 func GetScreenForWebsocket() []byte {
 	if the_ram == nil {
 		return nil
 	}
 	if IsGimeGraphics() {
-		return GetHscreenScreen()
+		return wholeScreen(GetHscreenScreen())
 	}
 	if IsGimeText() {
-		return GetGimeTextScreen()
+		return wholeScreen(GetGimeTextScreen())
 	}
 
 	fb := SamScreenAddress()
@@ -501,79 +526,47 @@ func GetScreenForWebsocket() []byte {
 	}
 	Logf("SAM V=%d addr=$%04x P1B=$%02x", SamModeV(), fb, Pia1OutB())
 
-	switch SamModeV() {
-	case 0: // Text
+	v := SamModeV()
+	if v == 0 {
 		SyncLiveScreenRam(fb, 512)
-		return GetTextScreen(fb)
-	case 4: // PMODE 1
-		SyncLiveScreenRam(fb, 128*96/4)
-		return GetPmode1Screen(fb)
-		// case 6: // PMODE 3 : SAM V=6 addr=$0600 P1B=$37 // TODO -- look this up
-	case 6: // PMODE 4
-		SyncLiveScreenRam(fb, 256*192/8)
-		return GetPmode4Screen(fb)
+		return withCanvasSize(GetTextScreen(fb), 256, 192)
+	}
+	if g, ok := samGraphicsGeometry[v]; ok {
+		SyncLiveScreenRam(fb, int(g.rows*g.bytesPerRow))
+		return wholeScreen(GetVdgGraphicsScreen(fb, g.rows, g.bytesPerRow))
 	}
 	return nil
 }
 
-func GetPmode1Screen(base uint) []byte {
-	var buf bytes.Buffer
-	buf.WriteByte(OpBitmap)
-	binary.Write(&buf, binary.LittleEndian, uint16(0))
-	binary.Write(&buf, binary.LittleEndian, uint16(0))
-	binary.Write(&buf, binary.LittleEndian, uint16(128*2))
-	binary.Write(&buf, binary.LittleEndian, uint16(96*2))
-
-	colorBias := (Pia1OutB() & 8) >> 1 // 0 or 4
-
-	p := base
-	for y := uint(0); y < 96; y++ {
-		for t := 0; t < 2; t++ {
-			prep := p
-			for x := uint(0); x < 128/4; x++ {
-				b := the_ram.Peek1(p)
-				p++
-				for j := uint(0); j < 4; j++ {
-					color := colorBias + 3&(b>>(6-(j+j)))
-					rgb := VdgSemiGraphicsColors[color]
-					buf.Write(rgb)
-					buf.Write(rgb)
-				}
-			}
-			if t == 0 {
-				p = prep
-			}
-		}
-	}
-	return buf.Bytes()
-}
-func GetPmode3Screen(base uint) []byte { // TODO -- look this up.
-	var buf bytes.Buffer
-	buf.WriteByte(OpBitmap)
-	binary.Write(&buf, binary.LittleEndian, uint16(0))
-	binary.Write(&buf, binary.LittleEndian, uint16(0))
-	binary.Write(&buf, binary.LittleEndian, uint16(128*2))
-	binary.Write(&buf, binary.LittleEndian, uint16(192))
-
-	colorBias := (Pia1OutB() & 8) >> 1 // 0 or 4
-
-	p := base
-	for y := uint(0); y < 192; y++ {
-		for x := uint(0); x < 128/4; x++ {
-			b := the_ram.Peek1(p)
-			p++
-			for j := uint(0); j < 4; j++ {
-				color := colorBias + 3&(b>>(6-(j+j)))
-				rgb := VdgSemiGraphicsColors[color]
-				buf.Write(rgb)
-				buf.Write(rgb)
-			}
-		}
-	}
-	return buf.Bytes()
+// Graphics modes PMODE selects, by SAM V. PMODE 3 and 4 differ only in VDG GM0.
+var samGraphicsGeometry = map[uint]struct{ rows, bytesPerRow uint }{
+	3: {96, 16},  // PMODE 0
+	4: {96, 32},  // PMODE 1
+	5: {192, 16}, // PMODE 2
+	6: {192, 32}, // PMODE 3, 4
 }
 
-func GetPmode4Screen(base uint) []byte {
+// vdgGraphicsColors returns the color-graphics sets, then CSS 0 off, on, CSS 1 off, on
+// for resolution graphics. A CoCo 3 takes them from $FFB0-$FFBB in the same order.
+func vdgGraphicsColors() [][]byte {
+	if _, isCoco3 := the_ram.(*Coco3Ram); isCoco3 {
+		colors := make([][]byte, 12)
+		hasNonZero := false
+		for i := range colors {
+			code := the_ram.Peek1(0xFFB0+uint(i)) & 0x3F
+			hasNonZero = hasNonZero || code != 0
+			c := coco3ColorToRGBA(code)
+			colors[i] = []byte{c.R, c.G, c.B}
+		}
+		if hasNonZero {
+			return colors
+		}
+	}
+	return append(VdgSemiGraphicsColors[:8:8], VdgResolutionColors...)
+}
+
+// GetVdgGraphicsScreen draws any VDG graphics mode at 256x192.
+func GetVdgGraphicsScreen(base, rows, bytesPerRow uint) []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(OpBitmap)
 	binary.Write(&buf, binary.LittleEndian, uint16(0))
@@ -581,20 +574,31 @@ func GetPmode4Screen(base uint) []byte {
 	binary.Write(&buf, binary.LittleEndian, uint16(256))
 	binary.Write(&buf, binary.LittleEndian, uint16(192))
 
-	colorBias := (Pia1OutB() & 8) >> 1 // 0 or 4
+	colors := vdgGraphicsColors()
+	pia := Pia1OutB()
+	css := uint(pia>>3) & 1
+	bitsPerPixel := uint(2)
+	pixels := colors[4*css : 4*css+4]
+	if pia&0x10 != 0 { // GM0: resolution graphics
+		bitsPerPixel = 1
+		pixels = colors[8+2*css : 8+2*css+2]
+	}
+	widen := 256 / (bytesPerRow * 8 / bitsPerPixel)
 
-	p := base
-	for y := uint(0); y < 192; y++ {
-		for x := uint(0); x < 256/8; x++ {
-			b := the_ram.Peek1(p)
-			p++
-			for j := uint(0); j < 8; j++ {
-				if (1 & (b >> (7 - j))) != 0 {
-					buf.Write(VdgSemiGraphicsColors[colorBias])
-				} else {
-					buf.Write([]byte{0, 0, 0}) // blackish
+	var row bytes.Buffer
+	for y := uint(0); y < rows; y++ {
+		row.Reset()
+		for x := uint(0); x < bytesPerRow; x++ {
+			b := the_ram.Peek1(base + y*bytesPerRow + x)
+			for j := uint(0); j < 8/bitsPerPixel; j++ {
+				rgb := pixels[(uint(b)>>(8-bitsPerPixel*(j+1)))&(1<<bitsPerPixel-1)]
+				for w := uint(0); w < widen; w++ {
+					row.Write(rgb)
 				}
 			}
+		}
+		for t := uint(0); t < 192/rows; t++ {
+			buf.Write(row.Bytes())
 		}
 	}
 	return buf.Bytes()
@@ -744,6 +748,14 @@ var VdgSemiGraphicsColors = [][]byte{
 	{50, 150, 250},  // lt blue
 	{200, 50, 200},  // magenta
 	{250, 140, 0},   // orange
+}
+
+// CSS 0 off, on, CSS 1 off, on. The VDG's "black" under CSS 0 is a dark green.
+var VdgResolutionColors = [][]byte{
+	{0, 40, 0},
+	{50, 200, 50},
+	{0, 0, 0},
+	{200, 200, 200},
 }
 
 var BlackRGB = []byte{0, 0, 0}

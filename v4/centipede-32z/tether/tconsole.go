@@ -64,7 +64,8 @@ var tetherLogUsbSerial uint64
 
 var CENTIPEDE = flag.Bool("centipede", true, "Centipede should set this flag")
 var LEVEL = flag.Int("level", 0, "NitrOS9 level, or 0")
-var COCO3 = flag.Bool("coco3", false, "Start with CoCo 3 128K RAM enabled")
+var COCO3 = flag.Bool("coco3", false, "Start with CoCo 3 RAM enabled")
+var COCO3_RAM_KB = flag.Uint("coco3_ram_kb", 128, "CoCo 3 RAM to track: 128, or 512 for a real 512K machine")
 var COBS_CHECKSUMS = flag.Bool("cobs_checksums", true, "Enable COBS packet checksums")
 
 var the_ram Rammer
@@ -1053,7 +1054,8 @@ func CheckUpgradeToCoco3Ram(_addr uint, _data byte) {
 			newRam := new(Coco3Ram)
 			oldRam := the_ram.GetTrackRam()
 			if len(oldRam) >= 0x10000 {
-				copy(newRam.trackRam[0x10000:0x20000], oldRam[:0x10000])
+				top := newRam.RamSize() - 0x10000
+				copy(newRam.trackRam[top:top+0x10000], oldRam[:0x10000])
 				copy(newRam.trackRam[0x00000:0x10000], oldRam[:0x10000])
 			}
 			the_ram = newRam

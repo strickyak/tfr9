@@ -26,10 +26,13 @@ const (
 	OpSetColor = 0x04
 	OpFillRect = 0x05
 	OpBitmap   = 0x06
+	OpSize     = 0x07
+	OpMonitor  = 0x08
+	OpSystem   = 0x09
 )
 
 // --- Input Structure (JSON) ---
-// This matches the JSON sent by your index.html
+// This matches the JSON sent by the page below
 type InputEvent struct {
 	Type  string `json:"type"`
 	Key   string `json:"key,omitempty"`
@@ -60,6 +63,7 @@ func WebServer(wcc *WebConsoleConfig) {
 	http.HandleFunc("/ram.hex", serveRam)
 	http.HandleFunc("/pico_rpc", servePicoRpc)
 	http.HandleFunc("/pico_rpc/", servePicoRpc)
+	registerDiskHandlers()
 
 	fmt.Printf("Internal web server started at %q\n", wcc.Bind)
 	log.Fatal(http.ListenAndServe(wcc.Bind, nil))
@@ -150,7 +154,7 @@ func serveRam(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if isCoco3 && !isPhys {
-		// In CoCo 3, default to active 64K RAM base (0x10000) rather than unused physical 0
+		// In CoCo 3, default to the active 64K rather than physical 0
 		start = the_ram.Physical(0)
 	}
 
@@ -268,7 +272,9 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 				}
 
 				// LOGIC UPDATE: Handle modifiers and Mouse Moves
-				if input.Type == "keydown" {
+				if input.Type == "monitor" {
+					RgbMonitor.Store(input.Key == "rgb")
+				} else if input.Type == "keydown" {
 					// Build a string like "CTRL+ALT+A"
 					prefix := ""
 					flags := uint(0)
@@ -306,7 +312,7 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 		// ---------------------------------------------------------
 		// CHANNEL 2: OUTPUT LOOP (Server -> Client)
 		// ---------------------------------------------------------
-		// This ticker drives the "Frame Rate" of the emulator (33 us == 30 FPS)
+		// This ticker drives the "Frame Rate" of the emulator (100 ms == 10 FPS)
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -328,17 +334,7 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			// Prepare the Binary Buffer
 			buf := new(bytes.Buffer)
 
-			// 1. Draw "UI Controls" (Bottom Area)
-			buf.WriteByte(OpSetColor)
-			buf.Write([]byte{50, 50, 50}) // Dark Grey
-
-			buf.WriteByte(OpFillRect)
-			binary.Write(buf, binary.LittleEndian, uint16(0))   // X
-			binary.Write(buf, binary.LittleEndian, uint16(200)) // Y (Start below screen)
-			binary.Write(buf, binary.LittleEndian, uint16(320)) // W
-			binary.Write(buf, binary.LittleEndian, uint16(50))  // H
-
-			// 2. Clear Screen (Top Area)
+			// 1. Clear Screen
 			buf.WriteByte(OpSetColor)
 			buf.Write([]byte{0, 0, 0}) // Black
 
@@ -348,7 +344,12 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			binary.Write(buf, binary.LittleEndian, uint16(320))
 			binary.Write(buf, binary.LittleEndian, uint16(200))
 
-			// 3. Draw
+			buf.WriteByte(OpMonitor)
+			buf.WriteByte(monitorState())
+			buf.WriteByte(OpSystem)
+			buf.WriteByte(systemState())
+
+			// 2. Draw
 			pixelData := GetScreenForWebsocket()
 			if pixelData != nil {
 				buf.Write(pixelData)
@@ -381,6 +382,50 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			}
 		}
 	}
+}
+
+// monitorState tells the page which monitor switch to show: 0 none, 1 CMP, 2 RGB.
+// A CoCo 3's screen reaches the tether only as traced writes, so long silence there probably means tracing is off.
+const traceHintAfter = 10 * time.Second
+
+// What the screen page's status line shows.
+const (
+	SystemOffline   = 0 // The CoCo is off.
+	SystemOnline    = 1
+	SystemNoUpdates = 2 // A CoCo 3 is on, but no traced writes are arriving.
+	SystemChecking  = 3
+	SystemNoBoard   = 4
+)
+
+func systemState() byte {
+	rpcMu.Lock()
+	lastViewerFrame = time.Now()
+	known, on := cocoKnown, cocoOn
+	rpcMu.Unlock()
+	switch {
+	case GetChannelToPico() == nil:
+		return SystemNoBoard
+	case !known:
+		return SystemChecking
+	case !on:
+		return SystemOffline
+	}
+	if _, isCoco3 := the_ram.(*Coco3Ram); isCoco3 {
+		if LastWriteCycleTime.IsZero() || time.Since(LastWriteCycleTime) > traceHintAfter {
+			return SystemNoUpdates
+		}
+	}
+	return SystemOnline
+}
+
+func monitorState() byte {
+	if _, isCoco3 := the_ram.(*Coco3Ram); !isCoco3 {
+		return 0
+	}
+	if RgbMonitor.Load() {
+		return 2
+	}
+	return 1
 }
 
 func KeystrokeValue(flags uint, s string) byte {
@@ -432,23 +477,116 @@ const CONTENT = `
             /* (NOT YET) cursor: none; */ /* (NOT YET) Hide standard cursor for immersion */
         }
         #status { color: #888; margin-top: 10px; font-size: 0.9em; }
+        #tracehint { color: #e94; margin-top: 10px; max-width: 40em; text-align: center; }
+        #zoom { margin-top: 10px; display: flex; gap: 6px; align-items: center; }
+        #zoom button { background: #333; color: #fff; border: 1px solid #666; border-radius: 3px; padding: 3px 10px; font: inherit; cursor: pointer; }
+        #zoom button:hover { border-color: #aaa; }
+        #zoomLabel { min-width: 3em; text-align: center; }
+        #monitor { display: none; margin-left: 12px; gap: 6px; }
+        #zoom button.on { background: #0a0; border-color: #0d0; }
+        #diskslink { color: #8cf; margin-top: 6px; font-size: 0.9em; }
     </style>
 </head>
 <body>
-    <canvas id="screen" width="320" height="250"></canvas>
+    <canvas id="screen" width="320" height="192"></canvas>
+    <div id="zoom">
+        <button id="zoomOut" type="button" aria-label="Smaller">-</button>
+        <span id="zoomLabel"></span>
+        <button id="zoomIn" type="button" aria-label="Larger">+</button>
+        <button id="zoomFit" type="button">Fit</button>
+        <span id="monitor">
+            <button id="monitorCmp" type="button">CMP</button>
+            <button id="monitorRgb" type="button">RGB</button>
+        </span>
+    </div>
+    <div id="tracehint" hidden>No screen updates are coming in. On a CoCo 3, the screen needs <b>[4] Trace Memory Write Cycles</b> turned on in the Centipede menu before you Launch.</div>
     <div id="status">Connecting...</div>
+    <a id="diskslink" href="/disks">Disks</a>
 
     <script>
         const canvas = document.getElementById('screen');
         const ctx = canvas.getContext('2d', { alpha: false }); 
         const statusDiv = document.getElementById('status');
-        
+
+        // Whole-number scales keep every CoCo pixel the same size.
+        // 0 means fit the window.
+        const MAX_ZOOM = 8;
+        let zoom = 0;
+        try { zoom = parseInt(localStorage.getItem('zoom'), 10) || 0; } catch (e) {}
+
+        // Wide screens (640 x 192) have half-width pixels, so they scale by half across.
+        function isWide() { return canvas.width > 320; }
+        function fitZoom() {
+            const room = window.innerHeight - 100;
+            const across = isWide() ? canvas.width / 2 : canvas.width;
+            let z = Math.floor(Math.min((window.innerWidth - 20) / across, room / canvas.height));
+            if (isWide()) z -= z % 2; // Even, so no column of pixels is lost.
+            return Math.max(isWide() ? 2 : 1, Math.min(MAX_ZOOM, z));
+        }
+        function scales() {
+            const z = Math.max(zoom || fitZoom(), isWide() ? 2 : 1);
+            return { x: isWide() ? z / 2 : z, y: z };
+        }
+        function applyZoom() {
+            const s = scales();
+            canvas.style.width = (canvas.width * s.x) + 'px';
+            canvas.style.height = (canvas.height * s.y) + 'px';
+            document.getElementById('zoomLabel').textContent = (zoom ? '' : 'Fit ') + s.y + 'x';
+            try { localStorage.setItem('zoom', String(zoom)); } catch (e) {}
+        }
+        function zoomButton(id, next) {
+            const b = document.getElementById(id);
+            b.addEventListener('click', () => {
+                zoom = next(zoom || fitZoom());
+                applyZoom();
+                b.blur(); // Otherwise SPACE and ENTER typed for the CoCo press it again.
+            });
+        }
+        zoomButton('zoomOut', z => Math.max(1, z - 1));
+        zoomButton('zoomIn', z => Math.min(MAX_ZOOM, z + 1));
+        zoomButton('zoomFit', z => 0);
+        window.addEventListener('resize', applyZoom);
+        applyZoom();
+
         const socket = new WebSocket("ws://" + window.location.host + "/ws");
         socket.binaryType = "arraybuffer";
 
+        function sendMonitor(key) {
+            socket.send(JSON.stringify({ type: "monitor", key: key }));
+            try { localStorage.setItem('monitor', key); } catch (e) {}
+        }
+        function monitorButton(id, key) {
+            const b = document.getElementById(id);
+            b.addEventListener('click', () => { sendMonitor(key); b.blur(); });
+        }
+        monitorButton('monitorCmp', 'cmp');
+        monitorButton('monitorRgb', 'rgb');
+        const SYSTEM = [
+            ["System Offline: the CoCo is off", "#f44"],
+            ["System Online", "#0f0"],
+            ["CoCo is on, but no screen updates are coming in", "#e94"],
+            ["Checking the CoCo...", "#888"],
+            ["Board not connected", "#f44"],
+        ];
+        function showSystem(state) {
+            const [text, color] = SYSTEM[state] || SYSTEM[3];
+            statusDiv.innerText = text;
+            statusDiv.style.color = color;
+            document.getElementById('tracehint').hidden = state !== 2;
+        }
+        function showMonitor(state) {
+            document.getElementById('monitor').style.display = state ? 'inline-flex' : 'none';
+            document.getElementById('monitorCmp').classList.toggle('on', state === 1);
+            document.getElementById('monitorRgb').classList.toggle('on', state === 2);
+        }
+
         socket.onopen = () => { 
-            statusDiv.innerText = "System Online"; 
-            statusDiv.style.color = "#0f0";
+            try {
+                const key = localStorage.getItem('monitor');
+                if (key) sendMonitor(key);
+            } catch (e) {}
+            statusDiv.innerText = "Connected";
+            statusDiv.style.color = "#888";
         };
 
         socket.onclose = () => {
@@ -533,6 +671,24 @@ const CONTENT = `
                         ctx.putImageData(imgData, bx, by);
                         break;
                         
+                    case 0x07: // CANVAS SIZE
+                        const cw = view.getUint16(offset, true); offset += 2;
+                        const ch = view.getUint16(offset, true); offset += 2;
+                        if (canvas.width !== cw || canvas.height !== ch) {
+                            canvas.width = cw;
+                            canvas.height = ch;
+                            applyZoom();
+                        }
+                        break;
+
+                    case 0x08: // MONITOR SWITCH
+                        showMonitor(view.getUint8(offset++));
+                        break;
+
+                    case 0x09: // SYSTEM STATE
+                        showSystem(view.getUint8(offset++));
+                        break;
+
                     default:
                         // Sync lost or unknown command
                         offset = buffer.byteLength; 
@@ -567,8 +723,8 @@ const CONTENT = `
                 const rect = canvas.getBoundingClientRect();
                 socket.send(JSON.stringify({
                     type: "mousemove",
-                    x: Math.floor(e.clientX - rect.left),
-                    y: Math.floor(e.clientY - rect.top)
+                    x: Math.floor((e.clientX - rect.left) / scales().x),
+                    y: Math.floor((e.clientY - rect.top) / scales().y)
                 }));
             }
         });
@@ -579,8 +735,8 @@ const CONTENT = `
                 socket.send(JSON.stringify({
                     type: "mousedown",
                     key: "mouse_left",
-                    x: e.offsetX, // Simpler way to get coordinates relative to element
-                    y: e.offsetY
+                    x: Math.floor(e.offsetX / scales().x), // Simpler way to get coordinates relative to element
+                    y: Math.floor(e.offsetY / scales().y)
                 }));
             }
         });
@@ -589,8 +745,8 @@ const CONTENT = `
                 socket.send(JSON.stringify({
                     type: "mouseup",
                     key: "mouse_left",
-                    x: e.offsetX, // Simpler way to get coordinates relative to element
-                    y: e.offsetY
+                    x: Math.floor(e.offsetX / scales().x), // Simpler way to get coordinates relative to element
+                    y: Math.floor(e.offsetY / scales().y)
                 }));
             }
         });

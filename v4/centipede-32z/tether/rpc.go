@@ -23,12 +23,15 @@ func HandleRpc(payload []byte, channelToPico chan []byte) {
 	var resp RpcResponse
 	resp.Serial = req.Serial
 
+	rpcMu.Lock()
+	defer rpcMu.Unlock()
+
 	// All PC paths are rooted at `*PC_DIR` (which defaults to `.`)
 	realPath := filepath.Join(*PC_DIR, filepath.Clean("/"+req.Path))
 
 	switch req.Method {
 	case "stat":
-		info, err := os.Stat(realPath)
+		info, err := os.Stat(pcRealPath(req.Path))
 		if err != nil {
 			resp.Status = 1
 			resp.Message = err.Error()
@@ -64,7 +67,7 @@ func HandleRpc(payload []byte, channelToPico chan []byte) {
 			osFlags |= os.O_APPEND
 		}
 
-		f, err := os.OpenFile(realPath, osFlags, 0644)
+		f, err := os.OpenFile(pcRealPath(req.Path), osFlags, 0644)
 		if err != nil {
 			resp.Status = 1
 			resp.Message = err.Error()
@@ -72,6 +75,9 @@ func HandleRpc(payload []byte, channelToPico chan []byte) {
 			h := nextHandle
 			nextHandle++
 			tetherHandles[h] = f
+			if slot, ok := remoteSlotOf(filepath.Clean("/" + req.Path)); ok {
+				remoteSlotHandles[h] = slot
+			}
 			resp.Status = 0
 			resp.Handle = h
 		}
@@ -125,6 +131,7 @@ func HandleRpc(payload []byte, channelToPico chan []byte) {
 		if ok {
 			f.Close()
 			delete(tetherHandles, req.Handle)
+			delete(remoteSlotHandles, req.Handle)
 		}
 		resp.Status = 0
 	case "dir_open":

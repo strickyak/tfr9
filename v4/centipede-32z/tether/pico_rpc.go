@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -286,7 +287,7 @@ func RunQuickPing(value uint32) {
 }
 
 // RunQuickAction opens the USB serial with retries, sends a PicoRPC
-// request with the given method (reflash, reformat), prints
+// request with the given method (reformat), prints
 // the result, and exits.
 func RunQuickAction(method string) {
 	label := "quick-" + method
@@ -849,40 +850,43 @@ func parseQuickGetHscreenArg(arg string) (int, string) {
 	return mode, filename
 }
 
+// RgbMonitor picks how palette codes look: RGB, or NTSC composite when false.
+var RgbMonitor atomic.Bool
+
+// Palette codes as XRoar's NTSC CoCo 3 shows them on composite, measured from its
+// screen. Code 0 is true black, and code 38 is matched by eye to a real CoCo 3.
+var coco3CompositeColors = [64][3]uint8{
+	{0, 0, 0}, {5, 67, 0}, {18, 60, 0}, {42, 49, 0},
+	{79, 38, 0}, {117, 29, 2}, {146, 22, 19}, {155, 18, 60},
+	{139, 16, 119}, {106, 17, 181}, {67, 21, 221}, {34, 28, 222},
+	{3, 49, 124}, {0, 59, 63}, {0, 67, 21}, {0, 70, 2},
+	{63, 63, 63}, {41, 157, 12}, {71, 145, 5}, {117, 128, 5},
+	{175, 110, 11}, {231, 93, 31}, {255, 79, 75}, {255, 71, 145},
+	{255, 68, 234}, {215, 71, 255}, {157, 79, 255}, {102, 92, 255},
+	{34, 127, 241}, {22, 145, 151}, {19, 157, 79}, {25, 161, 33},
+	{154, 154, 154}, {99, 255, 48}, {145, 249, 32}, {211, 226, 31},
+	{255, 200, 46}, {255, 176, 83}, {250, 140, 0}, {255, 145, 249},
+	{255, 141, 255}, {255, 145, 255}, {255, 157, 255}, {189, 175, 255},
+	{89, 225, 255}, {67, 248, 255}, {62, 255, 156}, {72, 255, 87},
+	{255, 255, 255}, {188, 255, 138}, {228, 255, 118}, {255, 255, 117},
+	{255, 255, 136}, {255, 253, 174}, {255, 238, 233}, {255, 228, 255},
+	{255, 225, 255}, {255, 228, 255}, {255, 237, 255}, {255, 252, 255},
+	{179, 255, 255}, {158, 255, 255}, {153, 255, 237}, {255, 255, 255},
+}
+
 // coco3ColorToRGBA converts a 6-bit CoCo 3 palette code (0..63) to color.RGBA.
 func coco3ColorToRGBA(code byte) color.RGBA {
-	switch code {
-	case 0:
-		return color.RGBA{R: 0, G: 0, B: 0, A: 255} // Black
-	case 63:
-		return color.RGBA{R: 240, G: 240, B: 240, A: 255} // White
-	case 18:
-		return color.RGBA{R: 50, G: 200, B: 50, A: 255} // Green
-	case 36:
-		return color.RGBA{R: 220, G: 220, B: 50, A: 255} // Yellow
-	case 11:
-		return color.RGBA{R: 50, G: 80, B: 220, A: 255} // Blue
-	case 7:
-		return color.RGBA{R: 220, G: 50, B: 50, A: 255} // Red
-	case 31:
-		return color.RGBA{R: 50, G: 200, B: 200, A: 255} // Cyan
-	case 9:
-		return color.RGBA{R: 200, G: 50, B: 200, A: 255} // Magenta
-	case 38:
-		return color.RGBA{R: 240, G: 140, B: 40, A: 255} // Orange
-	case 54:
-		return color.RGBA{R: 220, G: 220, B: 50, A: 255} // RGB Yellow
-	case 27:
-		return color.RGBA{R: 50, G: 200, B: 200, A: 255} // RGB Cyan
-	case 45:
-		return color.RGBA{R: 200, G: 50, B: 200, A: 255} // RGB Magenta
-	default:
-		// Fallback to RGB 2-bit per channel
-		r := uint8(((code >> 4) & 3) * 85)
-		g := uint8(((code >> 2) & 3) * 85)
-		b := uint8((code & 3) * 85)
-		return color.RGBA{R: r, G: g, B: b, A: 255}
+	code &= 0x3F
+	if RgbMonitor.Load() {
+		// The bits are R1 G1 B1 R0 G0 B0. Levels are as a CRT shows them, not linear.
+		levels := [4]uint8{0, 71, 166, 255}
+		level := func(hi, lo uint) uint8 {
+			return levels[((code>>hi)&1)*2+((code>>lo)&1)]
+		}
+		return color.RGBA{R: level(5, 2), G: level(4, 1), B: level(3, 0), A: 255}
 	}
+	c := coco3CompositeColors[code]
+	return color.RGBA{R: c[0], G: c[1], B: c[2], A: 255}
 }
 
 // RunQuickGetHscreen fetches the CoCo 3 HSCREEN framebuffer from Pico RAM via get-ram,
