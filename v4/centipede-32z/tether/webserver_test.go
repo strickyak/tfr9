@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestServeRam(t *testing.T) {
@@ -458,5 +459,41 @@ func TestHorizontalOffsetRegister(t *testing.T) {
 	ram.trackRam[0] = 0x10
 	if got := pixel(4, 0); !bytes.Equal(got, white) {
 		t.Errorf("wrapped offset: got %v", got)
+	}
+}
+
+func TestSystemState(t *testing.T) {
+	saved, savedTime, savedKnown, savedOn := the_ram, LastWriteCycleTime, cocoKnown, cocoOn
+	savedCh := currentChannelToPico
+	defer func() {
+		the_ram, LastWriteCycleTime, cocoKnown, cocoOn = saved, savedTime, savedKnown, savedOn
+		currentChannelToPico = savedCh
+	}()
+
+	currentChannelToPico = nil
+	if got := systemState(); got != SystemNoBoard {
+		t.Errorf("no board: %d", got)
+	}
+	currentChannelToPico = make(chan []byte)
+	cocoKnown = false
+	if got := systemState(); got != SystemChecking {
+		t.Errorf("unknown: %d", got)
+	}
+	cocoKnown, cocoOn = true, false
+	if got := systemState(); got != SystemOffline {
+		t.Errorf("off: %d", got)
+	}
+	cocoOn = true
+	the_ram, LastWriteCycleTime = new(Coco1Ram), time.Time{}
+	if got := systemState(); got != SystemOnline {
+		t.Errorf("CoCo 1/2 without traced writes: %d", got)
+	}
+	the_ram = new(Coco3Ram)
+	if got := systemState(); got != SystemNoUpdates {
+		t.Errorf("CoCo 3 without traced writes: %d", got)
+	}
+	LastWriteCycleTime = time.Now()
+	if got := systemState(); got != SystemOnline {
+		t.Errorf("CoCo 3 with traced writes: %d", got)
 	}
 }

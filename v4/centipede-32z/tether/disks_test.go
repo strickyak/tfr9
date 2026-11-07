@@ -235,3 +235,34 @@ func TestStatusClock(t *testing.T) {
 		}
 	}
 }
+
+func TestCocoOffClearsLastResult(t *testing.T) {
+	savedStatus, savedKnown, savedOn, savedBusy := applyStatus, cocoKnown, cocoOn, applyBusy
+	savedOpened, savedStarted := pageOpened, flashReadStarted
+	t.Cleanup(func() {
+		applyStatus, cocoKnown, cocoOn, applyBusy = savedStatus, savedKnown, savedOn, savedBusy
+		pageOpened, flashReadStarted = savedOpened, savedStarted
+	})
+	pageOpened, flashReadStarted, applyBusy = true, true, false
+
+	cocoKnown, cocoOn, applyStatus = true, true, "Read the on-board drives."
+	noteCocoPower(true, true)
+	if applyStatus == "" {
+		t.Errorf("cleared while the CoCo stayed on")
+	}
+	noteCocoPower(false, false)
+	if applyStatus == "" {
+		t.Errorf("cleared on a failed reading")
+	}
+	cocoKnown, cocoOn = true, true
+	noteCocoPower(true, false)
+	if applyStatus != "" || cocoOn {
+		t.Errorf("not cleared at power-off: %q on=%v", applyStatus, cocoOn)
+	}
+
+	cocoKnown, cocoOn, applyBusy, applyStatus = true, true, true, "Copying..."
+	noteCocoPower(true, false)
+	if applyStatus != "Copying..." {
+		t.Errorf("cleared during a copy: %q", applyStatus)
+	}
+}

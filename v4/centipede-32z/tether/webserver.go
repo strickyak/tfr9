@@ -28,6 +28,7 @@ const (
 	OpBitmap   = 0x06
 	OpSize     = 0x07
 	OpMonitor  = 0x08
+	OpSystem   = 0x09
 )
 
 // --- Input Structure (JSON) ---
@@ -345,6 +346,8 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 
 			buf.WriteByte(OpMonitor)
 			buf.WriteByte(monitorState())
+			buf.WriteByte(OpSystem)
+			buf.WriteByte(systemState())
 
 			// 2. Draw
 			pixelData := GetScreenForWebsocket()
@@ -382,6 +385,39 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 }
 
 // monitorState tells the page which monitor switch to show: 0 none, 1 CMP, 2 RGB.
+// A CoCo 3's screen reaches the tether only as traced writes, so long silence there probably means tracing is off.
+const traceHintAfter = 10 * time.Second
+
+// What the screen page's status line shows.
+const (
+	SystemOffline   = 0 // The CoCo is off.
+	SystemOnline    = 1
+	SystemNoUpdates = 2 // A CoCo 3 is on, but no traced writes are arriving.
+	SystemChecking  = 3
+	SystemNoBoard   = 4
+)
+
+func systemState() byte {
+	rpcMu.Lock()
+	lastViewerFrame = time.Now()
+	known, on := cocoKnown, cocoOn
+	rpcMu.Unlock()
+	switch {
+	case GetChannelToPico() == nil:
+		return SystemNoBoard
+	case !known:
+		return SystemChecking
+	case !on:
+		return SystemOffline
+	}
+	if _, isCoco3 := the_ram.(*Coco3Ram); isCoco3 {
+		if LastWriteCycleTime.IsZero() || time.Since(LastWriteCycleTime) > traceHintAfter {
+			return SystemNoUpdates
+		}
+	}
+	return SystemOnline
+}
+
 func monitorState() byte {
 	if _, isCoco3 := the_ram.(*Coco3Ram); !isCoco3 {
 		return 0
@@ -441,6 +477,7 @@ const CONTENT = `
             /* (NOT YET) cursor: none; */ /* (NOT YET) Hide standard cursor for immersion */
         }
         #status { color: #888; margin-top: 10px; font-size: 0.9em; }
+        #tracehint { color: #e94; margin-top: 10px; max-width: 40em; text-align: center; }
         #zoom { margin-top: 10px; display: flex; gap: 6px; align-items: center; }
         #zoom button { background: #333; color: #fff; border: 1px solid #666; border-radius: 3px; padding: 3px 10px; font: inherit; cursor: pointer; }
         #zoom button:hover { border-color: #aaa; }
@@ -462,8 +499,9 @@ const CONTENT = `
             <button id="monitorRgb" type="button">RGB</button>
         </span>
     </div>
+    <div id="tracehint" hidden>No screen updates are coming in. On a CoCo 3, the screen needs <b>[4] Trace Memory Write Cycles</b> turned on in the Centipede menu before you Launch.</div>
     <div id="status">Connecting...</div>
-    <a id="diskslink" href="/disks" target="_blank">Disks</a>
+    <a id="diskslink" href="/disks">Disks</a>
 
     <script>
         const canvas = document.getElementById('screen');
@@ -523,6 +561,19 @@ const CONTENT = `
         }
         monitorButton('monitorCmp', 'cmp');
         monitorButton('monitorRgb', 'rgb');
+        const SYSTEM = [
+            ["System Offline: the CoCo is off", "#f44"],
+            ["System Online", "#0f0"],
+            ["CoCo is on, but no screen updates are coming in", "#e94"],
+            ["Checking the CoCo...", "#888"],
+            ["Board not connected", "#f44"],
+        ];
+        function showSystem(state) {
+            const [text, color] = SYSTEM[state] || SYSTEM[3];
+            statusDiv.innerText = text;
+            statusDiv.style.color = color;
+            document.getElementById('tracehint').hidden = state !== 2;
+        }
         function showMonitor(state) {
             document.getElementById('monitor').style.display = state ? 'inline-flex' : 'none';
             document.getElementById('monitorCmp').classList.toggle('on', state === 1);
@@ -534,8 +585,8 @@ const CONTENT = `
                 const key = localStorage.getItem('monitor');
                 if (key) sendMonitor(key);
             } catch (e) {}
-            statusDiv.innerText = "System Online"; 
-            statusDiv.style.color = "#0f0";
+            statusDiv.innerText = "Connected";
+            statusDiv.style.color = "#888";
         };
 
         socket.onclose = () => {
@@ -632,6 +683,10 @@ const CONTENT = `
 
                     case 0x08: // MONITOR SWITCH
                         showMonitor(view.getUint8(offset++));
+                        break;
+
+                    case 0x09: // SYSTEM STATE
+                        showSystem(view.getUint8(offset++));
                         break;
 
                     default:

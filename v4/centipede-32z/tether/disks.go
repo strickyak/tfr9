@@ -47,7 +47,7 @@ var flashReadStarted bool
 
 // The page needs the CoCo running for anything on-board, because the board's shell waits on it.
 var pageOpened bool
-var lastPagePoll time.Time
+var lastPagePoll, lastViewerFrame time.Time
 var cocoKnown, cocoOn bool
 
 var eTransitions = regexp.MustCompile(`e_trans=(\d+)`)
@@ -66,29 +66,39 @@ func cocoRunning(ch chan []byte) (bool, bool) {
 	return n > 0, true
 }
 
-// watchCoco checks the CoCo while the page is open, and starts the one-time read once it is on.
+// watchCoco checks the CoCo while either page is open, and starts the one-time read once it is on.
 func watchCoco() {
 	for range time.Tick(2 * time.Second) {
 		rpcMu.Lock()
-		watching := time.Since(lastPagePoll) < 10*time.Second && !applyBusy
+		open := time.Since(lastPagePoll) < 10*time.Second || time.Since(lastViewerFrame) < 10*time.Second
+		watching := open && !applyBusy
 		rpcMu.Unlock()
 		ch := GetChannelToPico()
 		if !watching || ch == nil {
 			continue
 		}
 		on, ok := cocoRunning(ch)
-		rpcMu.Lock()
-		cocoKnown, cocoOn = ok, on
-		start := ok && on && pageOpened && !flashReadStarted && !applyBusy
-		if start {
-			flashReadStarted = true
-			applyBusy = true
-		}
-		rpcMu.Unlock()
-		if start {
+		if noteCocoPower(ok, on) {
 			go readOnBoard()
 		}
 	}
+}
+
+// noteCocoPower records a reading and reports whether to start the one-time read.
+// Turning the CoCo off clears the last result, which no longer describes the board.
+func noteCocoPower(ok, on bool) bool {
+	rpcMu.Lock()
+	defer rpcMu.Unlock()
+	if ok && !on && cocoKnown && cocoOn && !applyBusy {
+		applyStatus = ""
+	}
+	cocoKnown, cocoOn = ok, on
+	start := ok && on && pageOpened && !flashReadStarted && !applyBusy
+	if start {
+		flashReadStarted = true
+		applyBusy = true
+	}
+	return start
 }
 
 // The board's shell copies staged images from /pc/.disk-copy/N, and sends drives for reading to /pc/.disk-read/N.

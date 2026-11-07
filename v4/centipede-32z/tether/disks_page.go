@@ -23,7 +23,14 @@ const DisksPage = `<!DOCTYPE html>
   .dim { color: var(--dim); }
   button.small { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 3px; font: inherit; padding: 2px 8px; cursor: pointer; }
   #apply { margin-top: 10px; background: #533; color: #fff; border: 1px solid var(--warn); border-radius: 4px; font: inherit; padding: 6px 14px; cursor: pointer; }
-  #apply:disabled { opacity: 0.4; cursor: default; }
+  #apply:disabled { background: var(--panel); color: var(--dim); border-color: var(--line); cursor: not-allowed; }
+  #why { margin-left: 10px; color: var(--warn); }
+  .top { display: flex; align-items: baseline; gap: 16px; margin: 0 0 12px; }
+  .top h1 { margin: 0; }
+  .top a { color: #8cf; }
+  #power { padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; }
+  #power.on { color: var(--accent); border-color: var(--accent); }
+  #power.off { color: var(--warn); border-color: var(--warn); }
   #status { margin: 10px 0; color: var(--accent); min-height: 1.2em; max-width: 900px; }
   #where { margin: 16px 0 6px; word-break: break-all; }
   #files { max-width: 900px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); }
@@ -35,7 +42,11 @@ const DisksPage = `<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>Centipede Disks</h1>
+<div class="top">
+  <h1>Centipede Disks</h1>
+  <span id="power" class="dim"></span>
+  <a href="/">Back to the screen</a>
+</div>
 <div class="tabs">
   <button id="tabRemote" type="button">Remote (PC)</button>
   <button id="tabOnboard" type="button">On-board (flash)</button>
@@ -43,7 +54,7 @@ const DisksPage = `<!DOCTYPE html>
 <div class="hint" id="hint"></div>
 <table id="slots"></table>
 <div class="hint" id="legend" hidden><span class="mark">*</span> Already on the flash at startup, so its image name is unknown. Shown by its only or largest file.</div>
-<button id="apply" type="button" hidden>Copy staged disks to flash</button>
+<div><button id="apply" type="button" hidden>Copy staged disks to flash</button><span id="why"></span></div>
 <div id="status"></div>
 <div id="where"></div>
 <div id="files"></div>
@@ -125,6 +136,20 @@ function render() {
   apply.hidden = kind !== 'onboard';
   apply.disabled = staged === 0 || state.busy || !state.connected || !state.cocoOn;
   apply.textContent = staged ? 'Copy ' + staged + ' staged disk' + (staged > 1 ? 's' : '') + ' to flash' : 'Copy staged disks to flash';
+  let why = '';
+  if (state.busy) why = 'Working...';
+  else if (!state.connected) why = 'The board is not connected.';
+  else if (!state.cocoOn) why = 'Turn the CoCo on to copy.';
+  else if (staged === 0) why = 'Stage a disk first.';
+  document.getElementById('why').textContent = kind === 'onboard' ? why : '';
+
+  const power = document.getElementById('power');
+  let powerText = 'CoCo: checking...', powerClass = 'dim';
+  if (!state.connected) [powerText, powerClass] = ['Board not connected', 'off'];
+  else if (state.busy) [powerText, powerClass] = ['CoCo: busy', 'dim'];
+  else if (state.cocoKnown) [powerText, powerClass] = state.cocoOn ? ['CoCo is on', 'on'] : ['CoCo is off', 'off'];
+  power.textContent = powerText;
+  power.className = powerClass;
   let status = state.status || '';
   if (!state.connected) status = 'The board is not connected.';
   document.getElementById('status').textContent = status;
