@@ -62,7 +62,7 @@ run_tether --quick-inject="rm /tmp/systest.txt"
 assert_exit_code 0 "$TETHER_EXIT" "Removed temporary file from LittleFS"
 
 log_test "TCL interactive line redraw emits CR (0x0d) instead of LF (0x0a)"
-HEX_OUT=$(printf 'ls\n' | "$TETHER" -bind="" -pc "$TMP_PC" -cooked -cooked-drain 1s 2>/dev/null | od -An -tx1 | tr -d ' \n')
+HEX_OUT=$(printf 'ls\n' | "$TETHER" -bind="" ${WIRE:+-wire="$WIRE"} -pc "$TMP_PC" -cooked -cooked-drain 1s 2>/dev/null | od -An -tx1 | tr -d ' \n')
 # 0d54434c3e20 = "\rTCL> "
 if printf '%s' "$HEX_OUT" | grep -q "0d54434c3e206c"; then pass "Found '\\rTCL> l' in console output stream"
 else fail "Did not find '\\rTCL> l' (0d54434c3e206c) in hex stream: $HEX_OUT"; fi

@@ -31,9 +31,9 @@ run_tether -pc "$TMP_PC" --quick-inject="source /pc/a.tcl; set a"
 assert_contains "$TETHER_STDOUT" "42" "nested source and proc definition worked"
 
 log_test "a ~600 KB script from /pc (v4 would try to ckalloc it all at once)"
-awk 'BEGIN { for (i = 1; i <= 30000; i++) print "set v" i " " i; print "set done 1" }' > "$TMP_PC/big.tcl"
+awk 'BEGIN { for (i = 1; i <= 30000; i++) print "set v " i; print "set done 1" }' > "$TMP_PC/big.tcl"
 echo "  script size: $(size_of "$TMP_PC/big.tcl") bytes"
-run_tether -pc "$TMP_PC" --quick-inject="source /pc/big.tcl; list \$done \$v30000"
+run_tether -pc "$TMP_PC" --quick-inject="source /pc/big.tcl; list \$done \$v"
 assert_exit_code 0 "$TETHER_EXIT" "big script sourced"
 assert_contains "$TETHER_STDOUT" "1 30000" "last command of the big script ran"
 

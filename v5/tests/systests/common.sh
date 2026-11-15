@@ -53,7 +53,9 @@ size_of() { wc -c < "$1" | tr -d ' '; }
 # run_tether ARGS... : sets TETHER_STDOUT, TETHER_STDERR, TETHER_EXIT
 run_tether() {
   _o=$(mktemp "${TMPDIR:-/tmp}/tether_out.XXXXXX"); _e=$(mktemp "${TMPDIR:-/tmp}/tether_err.XXXXXX")
-  if [ -n "${WIRE:-}" ]; then "$TETHER" -bind="" -wire="$WIRE" "$@" >"$_o" 2>"$_e"; else "$TETHER" -bind="" "$@" >"$_o" 2>"$_e"; fi
+  # -n and </dev/null: tether must never wait on (or fight over) the caller's stdin; without them a
+  # run from a script or tool pipe could hang until killed.
+  if [ -n "${WIRE:-}" ]; then "$TETHER" -n -bind="" -wire="$WIRE" "$@" >"$_o" 2>"$_e" </dev/null; else "$TETHER" -n -bind="" "$@" >"$_o" 2>"$_e" </dev/null; fi
   TETHER_EXIT=$?
   TETHER_STDOUT=$(cat "$_o"); TETHER_STDERR=$(cat "$_e")
   rm -f "$_o" "$_e"
