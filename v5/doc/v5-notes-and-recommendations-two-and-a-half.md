@@ -1236,3 +1236,15 @@ Manifest format; boot‑name resolution and search path; whether a development d
 * `import-from-v4.sh` originally reported success while extracting nothing for a wrong `-s` count; it now fails loudly.  It imports from v4's **git HEAD**, never from the working tree.
 * Both the C++ and Go test suites run with no board.  Mutation check on the `/pc` rules: with the symlink checks disabled, `TestSymlinksAreInvisible` and `TestWritesThroughSymlinksFail` fail (27 assertions); the "non‑regular/non‑directory" rule in `pcResolve` independently refuses symlinks, so the design is defense in depth.
 * Linux `openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS)` (spec §11.13 f) is **not yet implemented**; the current protection is per‑component `Lstat` + `O_NOFOLLOW` + a `SameFile` re‑check.
+
+### G.4 First hardware results (2026-11-14; TFR/911H with 63C09E, v5 firmware `build/tfr911h.uf2`)
+
+Flashed with `tether --quick-reflash` (picotool cannot open the USB device without extra permissions, and we do not use sudo for it).  `make systest`: suites 01 (quick RPC and labels), 02 (Tcl, VFS, `/pc` symlink refusal, LittleFS, console redraw) and 03 (streaming `source`) **all pass**.  This **verifies on hardware** the S38 `source` fix (commit d5de52f): small scripts, stop-at-first-error, nested `source`, and a 349 KB script sourced in about 2 s with the board still answering afterwards.
+
+**S47. `tether` waits on its stdin unless given `-n`; scripts must pass `-n` and `</dev/null`.**  Run from a script or tool pipe, `tether --quick-inject=…` hung until killed.  It looked exactly like a wedged board (and cost several needless resets).  The systest harness now always passes `-n` and redirects stdin.
+
+**S48. With two boards attached, `/dev/ttyACM*` numbers are not stable, and `tether` guesses.**  After `--quick-restart`/`--quick-reflash`, `tether` rewrites its wire to "the last `/dev/ttyACM*`", which may be the other board.  The harness now finds the board by **label** (`scripts/find-board.sh b=tfr9 v=911h`; probes all devices in parallel, so a silent board cannot delay finding another), re-finds it after a restart, and refuses to run a test rather than let `tether` guess.
+
+**S49. Defining ~30 000 distinct Tcl variables reboots the board** (Tcl heap exhaustion, with `TCL_MEM_DEBUG=1` on).  Found by a test that wanted a big script but accidentally made 30 000 variables.  Not caused by streaming `source`; the test now reuses one variable.  Open: should heap exhaustion be an error instead of a reboot?
+
+**S50. `tail` was already bounded** (it keeps only the last N lines); the earlier note that it "keeps all lines" was wrong.  Remaining O(file) allocations: zip entries (`ZipArchiveNode::open_file` extracts the whole entry), the Tcl `zip` command, `multifile`, `edit`.  Streaming zip entries needs one design decision: the zip's parent node is shared, so an open entry must not hold the parent's single file handle (two entries of one zip open at once would clash); each open entry needs its own parent handle.

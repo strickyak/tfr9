@@ -30,10 +30,12 @@ skip() { TESTS_SKIPPED=$((TESTS_SKIPPED + 1)); printf '  %sSKIP:%s %s\n' "$YELLO
 
 # Resolve WIRE by label unless the caller fixed it.  Never fall back to "any /dev/ttyACM*":
 # with several boards attached that could run a test against the wrong one.
-if [ -z "${WIRE:-}" ]; then
+WIRE_AUTO=0
+find_wire() {
   # shellcheck disable=SC2086
   WIRE=$("$V5/scripts/find-board.sh" ${BOARD_MATCH:-b=tfr9 v=911h}) || WIRE=
-fi
+}
+if [ -z "${WIRE:-}" ]; then WIRE_AUTO=1; find_wire; fi
 # board_present: did we find the board we are testing?
 board_present() { [ -n "${WIRE:-}" ] && [ -e "$WIRE" ]; }
 # need_board "description": skip (and return 1) when no board is attached
@@ -55,8 +57,22 @@ run_tether() {
   _o=$(mktemp "${TMPDIR:-/tmp}/tether_out.XXXXXX"); _e=$(mktemp "${TMPDIR:-/tmp}/tether_err.XXXXXX")
   # -n and </dev/null: tether must never wait on (or fight over) the caller's stdin; without them a
   # run from a script or tool pipe could hang until killed.
-  if [ -n "${WIRE:-}" ]; then "$TETHER" -n -bind="" -wire="$WIRE" "$@" >"$_o" 2>"$_e" </dev/null; else "$TETHER" -n -bind="" "$@" >"$_o" 2>"$_e" </dev/null; fi
-  TETHER_EXIT=$?
+  if [ "$WIRE_AUTO" = 1 ] && [ -z "${WIRE:-}" ]; then
+    # Never let tether guess a device: with several boards attached it could pick the wrong one.
+    printf 'run_tether: board %s not found\n' "${BOARD_MATCH:-b=tfr9 v=911h}" > "$_e"; : > "$_o"; TETHER_EXIT=99
+  elif [ -n "${WIRE:-}" ]; then
+    "$TETHER" -n -bind="" -wire="$WIRE" "$@" >"$_o" 2>"$_e" </dev/null; TETHER_EXIT=$?
+  else
+    "$TETHER" -n -bind="" "$@" >"$_o" 2>"$_e" </dev/null; TETHER_EXIT=$?
+  fi
+  # A restart or reflash can re-enumerate the board under a different /dev name (and tether itself
+  # re-guesses "the last /dev/ttyACM*", which is wrong with two boards): find it again by label.
+  if [ "$WIRE_AUTO" = 1 ]; then
+    case " $* " in *" --quick-restart"* | *" -quick-restart"* | *" --quick-reflash"* | *" -quick-reflash"*)
+      _try=0; WIRE=
+      while [ -z "$WIRE" ] && [ $_try -lt 15 ]; do find_wire; [ -n "$WIRE" ] || sleep 1; _try=$((_try + 1)); done ;;
+    esac
+  fi
   TETHER_STDOUT=$(cat "$_o"); TETHER_STDERR=$(cat "$_e")
   rm -f "$_o" "$_e"
   return 0
