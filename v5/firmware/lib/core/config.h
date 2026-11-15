@@ -9,7 +9,6 @@ struct CentipedeConfig {
     volatile bool    trace_writes;
     volatile bool    trace_reads;
 
-    char             engine[32];
     char             flat_img[64];
     char             drive0[64];
     char             drive1[64];
@@ -25,7 +24,6 @@ struct CentipedeConfig {
         this->floppy_pc = b;
         this->trace_writes = b;
         this->trace_reads = b;
-        this->engine[0] = 0;
         this->flat_img[0] = 0;
         this->drive0[0] = 0;
         this->drive1[0] = 0;

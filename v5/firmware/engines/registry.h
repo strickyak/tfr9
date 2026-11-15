@@ -1,32 +1,31 @@
 #pragma once
-// registry.h -- the engines the TFR911H firmware can launch, by canonical name.  Replaces the strcmp() chain that
-// used to live in the background loop's `bye` handler (spec section 5.1: an engine = {name, setup}).
+// registry.h -- the `(run, for)` targets the TFR911H firmware can launch on core 0.
 //
-// `bye` and `ports check` look up Config(engine) here.  Only canonical names are accepted (aliases were removed on
-// 2026-11-15 to avoid confusion); an empty Config(engine) means the built-in default "turbo9os", and any unknown
-// non-empty name is refused at `bye` / `ports check`.
+// `bye` and `ports check` resolve `(on, run, for)` via `ports_config.h` (`g_port_settings`) and look up the core-0
+// setup function here; an unimplemented `(run, for)` target is refused cleanly at `bye`.
 //
 // Included by main.cpp after all the engines/*.h headers, because it names their setup functions.
 #include <cstring>
 
-struct EngineSpec {
-  const char* name;            // canonical name (what `Config(engine)` and `ports.tsv` use)
+struct TargetLauncher {
+  const char* run_os;
+  const char* for_hw;
   void (*setup)();             // nullptr: nothing to set up (Turbo9OS is built in)
 };
 
-static const EngineSpec kEngines[] = {
-  {"turbo9os",         nullptr},
-  {"flat65280",        setup_flat65280},
-  {"deep65280",        setup_deep65280},
-  {"gep9",             setup_gep9},
-  {"gep9big",          setup_gep9big},
-  {"multicomp09fuzix", setup_multicomp09},
+static const TargetLauncher kLaunchers[] = {
+  {"turbo9os",  "turbo9sim",   nullptr},
+  {"nitros9l1", "flat65280",   setup_flat65280},
+  {"nitros9l2", "deep65280",   setup_deep65280},
+  {"hatvan",    "gep9",        setup_gep9},
+  {"hatvan",    "gep9big",     setup_gep9big},
+  {"hatvan",    "coco2",       setup_hatvan_coco2},
+  {"fuzix",     "multicomp09", setup_multicomp09},
 };
 
-// The spec for `name`, or nullptr if there is no such engine.
-static inline const EngineSpec* FindEngine(const char* name) {
-  for (const EngineSpec& e : kEngines) {
-    if (strcmp(name, e.name) == 0) return &e;
+static inline const TargetLauncher* FindLauncher(const char* run_os, const char* for_hw) {
+  for (const TargetLauncher& t : kLaunchers) {
+    if (!strcmp(run_os, t.run_os) && !strcmp(for_hw, t.for_hw)) return &t;
   }
   return nullptr;
 }

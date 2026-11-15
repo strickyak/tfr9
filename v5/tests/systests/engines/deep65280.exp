@@ -1,9 +1,9 @@
 #!/usr/bin/expect -f
-# deep65280.exp -- NitrOS-9 engine deep65280 (boot mode 8).  Ported from v4 systests 04/05.
+# deep65280.exp -- NitrOS-9 engine deep65280 (boot mode 85).  Ported from v4 systests 04/05.
 set timeout 30
 source [file join [file dirname [file normalize [info script]]] common.exp]
 puts "Engine deep65280"
-start_tether 8
+start_tether 85
 expect_pass {loaded 8192 + 57344 = 65536 bytes into RAM (256KB)} "Loaded the boot image into RAM"
 expect_pass "OS9:" "Reached the NitrOS-9 'OS9:' prompt"
 send "mfree\r";  expect_pass "Total" "'mfree' reported free memory";  expect "OS9:"

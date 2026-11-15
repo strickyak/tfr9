@@ -1,98 +1,107 @@
 #!/bin/sh
-# 07_ports_test.sh -- choosing the I/O port placement from Tcl: `ports`, `enhance`, and a `bye` that refuses a bad
-# placement (spec 15.x).  Everything is checked at the TCL> prompt; nothing is launched except the final ping.
+# 07_ports_test.sh -- `on ... run ... for ... with ...`, `ports list|check`, and checked `bye` (spec 7, 15.y).
+# Everything is verified at the TCL> prompt on real TFR/911H hardware; nothing launches the 6309.
 . "$(dirname "$0")/common.sh"
-echo "Running Suite 7: port profiles, enhancements and conflict reporting"
+echo "Running Suite 7: on/run/for/with grammar, ports list|check, and conflict reporting"
 if ! board_present; then skip "whole suite (no board attached)"; print_summary "Suite 7 (ports)"; exit $?; fi
 
-inj() { run_tether --quick-inject="$1"; }                      # sets TETHER_EXIT / TETHER_STDOUT
-engine() { inj "ports clear; set Config(engine) $1; menu store Config"; }
+inj() { run_tether --quick-inject="$1"; }                      # sets TETHER_EXIT / TETHER_STDOUT / TETHER_STDERR
 all_out() { printf '%s\n%s\n' "$TETHER_STDOUT" "$TETHER_STDERR"; }
 
-run_tether --quick-restart=0 > /dev/null            # a clean boot: the settings are RAM only
+run_tether --quick-restart=0 > /dev/null            # clean boot: settings live in RAM only
 
-log_test "profile and key-value basics"
-inj "ports clear; ports profile"
-assert_contains "$TETHER_STDOUT" "TFR4" "default profile is TFR4"
-inj "ports profile COCO; ports profile"
-assert_contains "$TETHER_STDOUT" "COCO" "ports profile COCO sets the profile"
-inj "ports COCO"
-assert_exit_code 1 "$TETHER_EXIT" "the old shortcut ports COCO is gone: ports is an ensemble"
-inj "ports show"
-assert_contains "$TETHER_STDOUT" "profile COCO" "ports show lists flat key value pairs"
-inj "ports profile Bogus"
-assert_exit_code 1 "$TETHER_EXIT" "an unknown profile is an error"
-inj "ports set becker banana"
-assert_exit_code 1 "$TETHER_EXIT" "a value that is not an address is an error"
-inj "ports clear; enhance becker 0xFF48; ports show"
-assert_contains "$TETHER_STDOUT" "becker 0xFF48" "enhance becker 0xFF48 shows as a plain key value pair"
+log_test "default target and minimal ports ensemble (list|check only)"
+inj "on"
+assert_contains "$TETHER_STDOUT" "tfr9" "default host is tfr9"
+inj "ports list"
+assert_contains "$TETHER_STDOUT" "on tfr9 run turbo9os for turbo9sim engine hamster_flat" "default ports list"
+inj "ports check"
+assert_contains "$TETHER_STDOUT" "ok" "default ports check is ok"
+for gone in "ports" "ports show" "ports profile coco" "ports set becker on" "ports clear" "enhance"; do
+  inj "$gone"
+  assert_exit_code 1 "$TETHER_EXIT" "removed command '$gone' is an error"
+done
 
-log_test "enhancements are listed"
-inj "enhance"
-assert_contains "$TETHER_STDOUT" "becker 0xFF41-0xFF42" "the list gives each enhancement's default range"
-inj "enhance nonesuch"
-assert_exit_code 1 "$TETHER_EXIT" "an unknown enhancement is an error"
+log_test "ON ... RUN ... FOR ... WITH ... uppercase folding & key-value digestion"
+inj "ON coco2 RUN nitros9l2 FOR coco3 WITH E1, becker at 0xFF41, dw over bitbang baud 9600, rtc at 0xFFE0; PORTS LIST"
+assert_contains "$TETHER_STDOUT" "on coco2 run nitros9l2 for coco3 engine gerbil_gime" "compiled host/os/target/engine"
+assert_contains "$TETHER_STDOUT" "with e1" "compiled enhancement map in lowercase"
+assert_contains "$TETHER_STDOUT" "becker on becker.at 0xff41" "compiled becker and 0x... address in lowercase"
+assert_contains "$TETHER_STDOUT" "dw on dw.over bitbang dw.baud 9600" "compiled multi-parameter dw transport"
+assert_contains "$TETHER_STDOUT" "rtc on rtc.at 0xffe0" "compiled rtc override"
+inj "PORTS CHECK"
+assert_contains "$TETHER_STDOUT" "ok" "coco2 nitros9l2 for coco3 validates"
 
-log_test "the default placement is valid for each engine"
-for e in turbo9os flat65280 deep65280 gep9 gep9big multicomp09fuzix; do
-  engine $e; inj "ports check"
-  assert_contains "$TETHER_STDOUT" "ok" "$e on TFR4"
+log_test "coco2 vs coco3 engine selection and 'on <host>' + 'run ...' shorthand"
+inj "on coco3; run nitros9l2 for coco3 with e1, becker; ports list"
+assert_contains "$TETHER_STDOUT" "on coco3 run nitros9l2 for coco3 engine gerbil_io" "real coco3 implies gerbil_io"
+inj "ports check"
+assert_contains "$TETHER_STDOUT" "ok" "coco3 nitros9l2 for coco3 validates"
+
+log_test "every tfr9 target validates"
+for pair in "turbo9os turbo9sim" "nitros9l1 flat65280" "nitros9l2 deep65280" \
+            "nitros9l2 jamesbrown" "nitros9l2 coco3" \
+            "hatvan gep9" "hatvan gep9big" "hatvan coco2" "fuzix multicomp09"; do
+  set -- $pair
+  inj "on tfr9 run $1 for $2; ports check"
+  assert_contains "$TETHER_STDOUT" "ok" "tfr9: $1 for $2"
 done
 
 log_test "the known clash: gep9 and gep9big embiggen_mmu vs Becker's default address (spec 15.x)"
-for e in gep9 gep9big; do
-  engine $e; inj "enhance becker; ports check"
-  assert_exit_code 1 "$TETHER_EXIT" "$e: ports check refuses default Becker on TFR4"
-  assert_contains "$(all_out)" "becker" "$e: the message names becker"
-  assert_contains "$(all_out)" "embiggen_mmu" "$e: the message names embiggen_mmu"
-  inj "enhance becker 0xFF48; ports check"
-  assert_contains "$TETHER_STDOUT" "ok" "$e: moving Becker to 0xFF48 fixes it"
-  inj "ports clear; ports profile COCO; enhance becker; ports check"
-  assert_contains "$TETHER_STDOUT" "ok" "$e: the COCO profile has no clash at the default Becker address"
+for f in gep9 gep9big; do
+  inj "on tfr9 run hatvan for $f with e1, becker; ports check"
+  assert_exit_code 1 "$TETHER_EXIT" "$f: ports check refuses default Becker"
+  assert_contains "$(all_out)" "becker" "$f: message names becker"
+  assert_contains "$(all_out)" "embiggen_mmu" "$f: message names embiggen_mmu"
+  inj "on tfr9 run hatvan for $f with e1, becker at 0xff48; ports check"
+  assert_contains "$TETHER_STDOUT" "ok" "$f: moving Becker to 0xff48 fixes it"
 done
+inj "on tfr9 run hatvan for coco2 with e1, becker; ports check"
+assert_contains "$TETHER_STDOUT" "ok" "hatvan for coco2 has no clash at default Becker address"
 
-log_test "bye refuses a bad placement and leaves the board at TCL>"
-engine gep9big; inj "enhance becker; bye"
-assert_exit_code 1 "$TETHER_EXIT" "bye failed"
-assert_contains "$(all_out)" "embiggen_mmu" "bye's message names the other device"
-inj "expr 6*7"
-assert_contains "$TETHER_STDOUT" "42" "still at the Tcl prompt, nothing was launched"
-run_tether --quick-ping=7
-assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=7)" "the board did not restart"
+log_test "0xff7f (\$FF7F), core overlaps, and CoCo motherboard reserved ranges"
+inj "on tfr9 run nitros9l1 for flat65280 with becker at 0xff7f; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "0xff7f is refused"
+assert_contains "$(all_out)" "Multi-Pak" "message names Multi-Pak"
+inj "on tfr9 run nitros9l2 for deep65280 with emudsk at 0xff90; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "emudsk onto gime is refused"
+assert_contains "$(all_out)" "gime" "message names gime"
+inj "on coco2 run nitros9l2 for coco3 with becker at 0xff14; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "coco2 PIA collision is refused"
+assert_contains "$(all_out)" "coco_pia" "message names coco_pia"
+inj "on coco3 run nitros9l2 for coco3 with rtc at 0xff90; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "real coco3 GIME collision is refused"
+assert_contains "$(all_out)" "coco3_gime" "message names coco3_gime"
+inj "on tfr9 run nitros9l1 for flat65280 with emudsk at 0xff20; ports check"
+assert_contains "$TETHER_STDOUT" "ok" "movable core device"
+inj "on tfr9 run nitros9l1 for flat65280 with emudsk off; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "core device cannot be turned off"
+inj "on tfr9 run nitros9l1 for flat65280 with vectors at 0xffe0; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "vectors cannot be moved"
+inj "on tfr9 run fuzix for multicomp09 with acia at 0xff20; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "multicomp09 ports cannot be moved"
 
-log_test "\$FF7F and core overlaps"
-engine flat65280; inj "ports set becker 0xFF7F; ports check"
-assert_exit_code 1 "$TETHER_EXIT" "\$FF7F is refused"
-assert_contains "$(all_out)" "Multi-Pak" "the message says why"
-engine deep65280; inj "ports set emudsk 0xFF90; ports check"
-assert_exit_code 1 "$TETHER_EXIT" "emudsk onto the GIME registers is refused"
-assert_contains "$(all_out)" "gime" "the message names gime"
-engine flat65280; inj "ports set emudsk 0xFF20; ports check"
-assert_contains "$TETHER_STDOUT" "ok" "a core device can be moved to free space"
-engine flat65280; inj "ports set emudsk off; ports check"
-assert_exit_code 1 "$TETHER_EXIT" "a core device cannot be turned off"
-engine flat65280; inj "ports set vectors 0xFFE0; ports check"
-assert_exit_code 1 "$TETHER_EXIT" "the vectors cannot be moved"
+log_test "bye refuses conflicts, wrong host, unimplemented targets, and obsolete Config(engine)"
+inj "on tfr9 run hatvan for gep9big with e1, becker; bye"
+assert_exit_code 1 "$TETHER_EXIT" "bye refuses conflict"
+assert_contains "$(all_out)" "embiggen_mmu" "bye names embiggen_mmu"
 
-log_test "profiles an engine does not have"
-engine multicomp09fuzix; inj "ports profile COCO; ports check"
-assert_exit_code 1 "$TETHER_EXIT" "multicomp09fuzix has no COCO profile"
-engine gep9; inj "ports profile COCO; ports check"
-assert_contains "$TETHER_STDOUT" "ok" "gep9 on COCO"
+inj "on coco2 run nitros9l2 for coco3; bye"
+assert_exit_code 1 "$TETHER_EXIT" "bye refuses coco2 target on tfr9 hardware"
+assert_contains "$(all_out)" "this hardware is" "bye names host mismatch"
+assert_contains "$(all_out)" "tfr9" "bye names tfr9 hardware"
 
-log_test "engine names: canonical names only; all old aliases are refused"
-for alias in multicomp09 flat deep deep64280 hatvan gep9+ big6809 hatvanbig; do
-  engine "$alias"; inj "ports check"
-  assert_exit_code 1 "$TETHER_EXIT" "removed alias $alias is refused"
-done
-assert_contains "$(all_out)" "unknown engine" "the message says unknown engine"
-assert_contains "$(all_out)" "gep9big" "and lists the canonical names"
-engine flat; inj "bye"
-assert_exit_code 1 "$TETHER_EXIT" "bye refuses an old alias instead of running Turbo9OS"
-run_tether --quick-ping=8
-assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=8)" "the board did not restart"
-engine multicomp09fuzix; inj "ports check"
-assert_contains "$TETHER_STDOUT" "ok" "multicomp09fuzix is accepted"
+inj "on tfr9 run nitros9l2 for jamesbrown; bye"
+assert_exit_code 1 "$TETHER_EXIT" "bye refuses unimplemented jamesbrown target"
+assert_contains "$(all_out)" "not implemented" "bye says not implemented yet"
 
-engine turbo9os                                               # leave the board tidy
+inj "on tfr9 run turbo9os for turbo9sim; set Config(engine) deep65280; bye"
+assert_exit_code 1 "$TETHER_EXIT" "bye refuses obsolete Config(engine)"
+assert_contains "$(all_out)" "Config(engine) is no longer supported" "bye explains Config(engine) removal"
+inj "unset Config(engine); expr 6*7"
+assert_contains "$TETHER_STDOUT" "42" "board stayed at TCL> through all refused byes"
+run_tether --quick-ping=9
+assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=9)" "board did not restart"
+
+inj "on tfr9 run turbo9os for turbo9sim"                      # leave board tidy
 print_summary "Suite 7 (ports)"

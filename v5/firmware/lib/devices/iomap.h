@@ -35,15 +35,6 @@ class IoMap {
   const char* owner_[256];
 };
 
-// ---- helpers over the generated table (build/generated/ports_gen.h, from firmware/engines/ports.tsv) ----
-// These take the table as parameters so tests can pass their own.
-template <typename Row>
-inline bool PortsSupported(const Row* t, size_t n, const char* engine, const char* profile) {
-  for (size_t i = 0; i < n; i++)
-    if (!strcmp(t[i].engine, engine) && !strcmp(t[i].profile, profile)) return true;
-  return false;
-}
-
 struct ClaimReport {
   bool ok;
   uint16_t addr;
@@ -51,22 +42,35 @@ struct ClaimReport {
   const char* owner;   // the earlier owner, or nullptr (forbidden address)
 };
 
-// Claim every row of (engine, profile) -- the engine's core devices.
-template <typename Row>
-inline ClaimReport ClaimCorePorts(IoMap& m, const Row* t, size_t n, const char* engine, const char* profile) {
+// Claim host motherboard reserved ranges (e.g. coco_pia, coco_sam, coco3_gime).
+template <typename HostRow>
+inline ClaimReport ClaimHostReserved(IoMap& m, const HostRow* t, size_t n, const char* on_host, const char* engine) {
   for (size_t i = 0; i < n; i++) {
-    if (strcmp(t[i].engine, engine) || strcmp(t[i].profile, profile)) continue;
+    if (strcmp(t[i].on_host, on_host)) continue;
+    if (strcmp(t[i].engine, "*") && strcmp(t[i].engine, engine)) continue;
     IoMap::Result r = m.Claim(t[i].first, t[i].last, t[i].device);
     if (!r.ok) return {false, r.addr, t[i].device, r.owner};
   }
   return {true, 0, nullptr, nullptr};
 }
 
-// Claim one enhancement (a row of profile `emap`, engine "*") by device name.
-template <typename Row>
-inline ClaimReport ClaimEnhancement(IoMap& m, const Row* t, size_t n, const char* emap, const char* device) {
+// Claim every core port row of (on_host, run_os, for_hw).
+template <typename PortRow>
+inline ClaimReport ClaimCorePorts(IoMap& m, const PortRow* t, size_t n,
+                                  const char* on_host, const char* run_os, const char* for_hw) {
   for (size_t i = 0; i < n; i++) {
-    if (strcmp(t[i].profile, emap) || strcmp(t[i].engine, "*") || strcmp(t[i].device, device)) continue;
+    if (strcmp(t[i].on_host, on_host) || strcmp(t[i].run_os, run_os) || strcmp(t[i].for_hw, for_hw)) continue;
+    IoMap::Result r = m.Claim(t[i].first, t[i].last, t[i].device);
+    if (!r.ok) return {false, r.addr, t[i].device, r.owner};
+  }
+  return {true, 0, nullptr, nullptr};
+}
+
+// Claim one enhancement from `map_name` (e.g. "e1") by device name.
+template <typename MapRow>
+inline ClaimReport ClaimEnhancement(IoMap& m, const MapRow* t, size_t n, const char* map_name, const char* device) {
+  for (size_t i = 0; i < n; i++) {
+    if (strcmp(t[i].map_name, map_name) || strcmp(t[i].device, device)) continue;
     IoMap::Result r = m.Claim(t[i].first, t[i].last, t[i].device);
     return {r.ok, r.addr, t[i].device, r.owner};
   }

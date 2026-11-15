@@ -112,14 +112,16 @@ void IN_RAM tfr911_background() {
         uint offset = pio_add_program(pio0, &hamster_program);
         hamster_program_init(pio0, 0, offset);
 
-        // Look the engine up by name (canonical or alias); unknown names and "turbo9os" run no setup.
-        const EngineSpec* spec = FindEngine(centipede_config.engine);
-        if (spec && spec->setup) {
-          spec->setup();
+        // Resolve the active (on, run, for) target approved by `bye` and run its core-0 setup.
+        const TargetSpec* active_tgt = nullptr;
+        ResolveActiveTarget(g_port_settings, &active_tgt, kBoardHost);
+        const TargetLauncher* launcher = active_tgt ? FindLauncher(active_tgt->run_os, active_tgt->for_hw) : nullptr;
+        if (launcher && launcher->setup) {
+          launcher->setup();
         } else {
           // Turbo9OS (built in): install its I/O now (settings may have changed since startup) and report it.
           Install_Turbo9os_IO();
-          IoFinish("turbo9os");
+          IoFinish();
         }
 
         foreground_running = false;

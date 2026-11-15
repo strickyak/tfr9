@@ -170,7 +170,7 @@ void setup_gep9() {
   gep9_load_decb_into_task(2, t2_path);
 
   // 4. Install IO handlers
-  Install_Gep9_IO("gep9");
+  Install_Gep9_IO();
   cobs_printf("[gep9: IO and MMU initialized | preloaded %d / 1024 pages (Task 0: %d, Task 1: %d, Task 2: %d)]\n",
               (int)gep9_mmu.allocated_count,
               gep9_mmu.CountTaskFrames(0),
@@ -235,12 +235,16 @@ void setup_gep9big() {
     gep9_load_decb_into_task(2, centipede_config.task2);
   }
 
-  // 4. Install IO handlers (including $FF40..$FF47 MMAP vector)
-  Install_Gep9_IO("gep9big");
+  // 4. Install IO handlers (including 0xff40..0xff47 or 0xffe0..0xffe7 MMAP vector)
+  Install_Gep9_IO();
   cobs_printf("[gep9big: EMBIGGEN IO and MMU initialized | preloaded %d / 1024 pages (Task 0: %d, Task 1: %d, Task 2: %d)]\n",
               (int)gep9_mmu.allocated_count,
               gep9_mmu.CountTaskFrames(0),
               gep9_mmu.CountTaskFrames(1),
               gep9_mmu.CountTaskFrames(2));
+}
+
+void setup_hatvan_coco2() {
+  setup_gep9big();
 }
 

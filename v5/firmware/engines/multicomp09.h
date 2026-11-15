@@ -66,7 +66,7 @@ struct MulticompIo {
     IoClaim(0xFFD8, 0xFFDC, "sd");
     IoClaim(0xFFDD, 0xFFDD, "timer");
     IoClaim(0xFFDE, 0xFFDF, "mmu");
-    IoFinish("multicomp09fuzix");
+    IoFinish();
   }
 };
 

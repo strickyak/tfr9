@@ -5,7 +5,7 @@
 //   IoClaim(first, last, name)     record who owns an address range; an overlap, or $FF7F (Multi-Pak select),
 //                                  is a configuration error: say which devices clash and stop (see iomap.h)
 //   IoSet(addr, reader, writer)    store the handlers for one address (nullptr = none)
-//   IoFinish(engine)               after setup: reserve user-requested enhancements, check the result against the plan
+//   IoFinish()                     after setup: reserve user-requested enhancements, check the result against the plan
 //
 // RULE: handlers are NAMED functions marked IN_RAM -- never lambdas.  A lambda cannot be IN_RAM, so it would
 // run from flash and stall the bus (spec 5.1; enforced by scripts/check-no-lambda-io.sh).  Install() itself runs
@@ -13,7 +13,7 @@
 //
 // Requires IOReader/IOWriter/IOReaders/IOWriters (main.cpp), cobs_printf and centipede_abort.
 #include "iomap.h"
-#include "ports_config.h"   // profile/overrides (PortBase, PortsValidate); includes the generated ports.tsv table
+#include "ports_config.h"   // PortBase, PortsValidate; includes the generated ports.tsv tables
 
 static IoMap g_io_map;      // who owns what, for the engine being set up
 static IoMap g_io_scratch;  // working copy for checks (`ports check`, IoFinish): one shared map, RAM is scarce
@@ -29,8 +29,8 @@ static inline void IoReset() {
 static void IoClaim(uint16_t first, uint16_t last, const char* name) {
   IoMap::Result r = g_io_map.Claim(first, last, name);
   if (r.ok) return;
-  if (r.owner) cobs_printf("[io-map: %s wants $%04X-$%04X but $%04X already belongs to %s]\n", name, first, last, r.addr, r.owner);
-  else         cobs_printf("[io-map: %s may not use $%04X-$%04X ($%04X is forbidden or out of range)]\n", name, first, last, r.addr);
+  if (r.owner) cobs_printf("[io-map: %s wants 0x%04x-0x%04x but 0x%04x already belongs to %s]\n", name, first, last, r.addr, r.owner);
+  else         cobs_printf("[io-map: %s may not use 0x%04x-0x%04x (0x%04x is forbidden or out of range)]\n", name, first, last, r.addr);
   centipede_abort("io-map conflict");
 }
 
@@ -39,34 +39,39 @@ static inline void IoSet(uint16_t addr, IOReader r, IOWriter w) {
   IOWriters[addr & 0xFF] = w;
 }
 
-// Enhancement devices the user asked for (`enhance becker 0xFF48`) are not implemented yet: reserve their ranges
-// (so they are checked and shown like any device) and say so, once per device.
-static void IoClaimEnhancements(const char* engine) {
-  const char* profile = g_port_settings.Profile(); (void)profile;
-  for (int k = 0; k < g_port_settings.n_; k++) {
-    const char* key = g_port_settings.key_[k];
-    const char* val = g_port_settings.val_[k];
-    if (!strcmp(val, "off")) continue;
-    const PortRange* e = nullptr;
-    for (size_t i = 0; i < kNumPorts; i++)
-      if (!strcmp(kPorts[i].profile, "E1") && !strcmp(kPorts[i].device, key)) e = &kPorts[i];
-    if (!e) continue;                       // not an enhancement (a core device override, or "profile")
-    uint16_t base;
-    if (!ParsePortAddr(val, &base)) continue;
-    uint16_t last = (uint16_t)(base + (e->last - e->first));
-    IoClaim(base, last, key);
-    cobs_printf("[io-map: %s reserved at $%04X-$%04X for %s: no handler in this firmware yet]\n", key, base, last, engine);
+// Enhancement devices the user asked for (`with e1, becker at 0xff48`) are not implemented
+// yet (Phase 5): reserve their ranges so they are checked and shown like any device, and say so once per device.
+static void IoClaimEnhancements(const TargetSpec& tgt) {
+  const char* wmap = g_port_settings.WithMap();
+  for (size_t i = 0; i < kNumMapPorts; i++) {
+    const MapPortRange& e = kMapPorts[i];
+    if (strcmp(e.map_name, wmap)) continue;
+    if (IsCoreDeviceOf(tgt, e.device)) continue;
+    const char* dv = g_port_settings.Get(e.device);
+    char at_key[PortSettings::kLen];
+    snprintf(at_key, sizeof at_key, "%s.at", e.device);
+    const char* ov = g_port_settings.Get(at_key);
+    bool enabled = (dv && !strcmp(dv, "on")) || (!dv && ov != nullptr);
+    if (!enabled) continue;
+    uint16_t base = e.first;
+    if (ov && !ParsePortAddr(ov, &base)) continue;
+    uint16_t last = (uint16_t)(base + (e.last - e.first));
+    IoClaim(base, last, e.device);
+    cobs_printf("[io-map: %s reserved at 0x%04x-0x%04x for %s/%s: no handler in this firmware yet]\n",
+                e.device, base, last, tgt.run_os, tgt.for_hw);
   }
 }
 
-// After an engine's devices are installed: reserve the enhancements, then compare the ownership map with what the
-// configuration says it should be (profile + overrides, resolved by the same code that `bye` used to approve it).
-// A mismatch is printed, not fatal: it means the code and the plan disagree and one of them needs fixing.
-static void IoFinish(const char* engine) {
-  IoClaimEnhancements(engine);
+// After an engine's devices are installed: reserve the enhancements, then compare the RP2350 ownership map with
+// what the configuration says it should be (resolved by the same code that `bye` used to approve it).
+static void IoFinish() {
+  const TargetSpec* tgt = nullptr;
+  PortsCheck trc = ResolveActiveTarget(g_port_settings, &tgt);
+  if (!trc.ok || !tgt) { cobs_printf("[io-map: target resolution problem: %s]\n", trc.msg); return; }
+  IoClaimEnhancements(*tgt);
   IoMap& expect = g_io_scratch;
-  PortsCheck pc = PortsValidate(engine, g_port_settings, expect);
-  if (!pc.ok) { cobs_printf("[io-map: %s: configuration problem: %s]\n", engine, pc.msg); return; }
+  PortsCheck pc = PortsValidate(g_port_settings, expect, /*include_host_reserved=*/false);
+  if (!pc.ok) { cobs_printf("[io-map: %s/%s: configuration problem: %s]\n", tgt->run_os, tgt->for_hw, pc.msg); return; }
   int bad = 0, ranges = 0;
   const char* prev = nullptr;
   for (uint32_t a = 0xFF00; a <= 0xFFFF; a++) {
@@ -75,8 +80,11 @@ static void IoFinish(const char* engine) {
     if (have && (!prev || strcmp(prev, have))) ranges++;
     prev = have;
     if ((want == nullptr) == (have == nullptr) && (!want || !strcmp(want, have))) continue;
-    cobs_printf("[io-map: %s $%04X should be %s but is %s]\n", engine, (unsigned)a, want ? want : "unclaimed", have ? have : "unclaimed");
+    cobs_printf("[io-map: %s/%s 0x%04x should be %s but is %s]\n",
+                tgt->run_os, tgt->for_hw, (unsigned)a, want ? want : "unclaimed", have ? have : "unclaimed");
     bad++;
   }
-  if (!bad) cobs_printf("[io-map: %s matches the plan (profile %s, %d ranges, %d settings)]\n", engine, g_port_settings.Profile(), ranges, g_port_settings.n_);
+  if (!bad)
+    cobs_printf("[io-map: %s/%s/%s matches the plan (engine %s, %d ranges, %d settings)]\n",
+                tgt->on_host, tgt->run_os, tgt->for_hw, tgt->engine, ranges, g_port_settings.n_);
 }

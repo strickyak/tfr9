@@ -77,13 +77,13 @@ struct DeepVectors {   // $FFF0..$FFFF: a small RAM of its own
 
 void Install_Deep65280_IO() {
   IoReset();
-  EmuDsk::Install(PortBase("deep65280", "emudsk", EmuDsk::kDefaultBase));
-  ClockStop::Install(PortBase("deep65280", "clockstop", ClockStop::kDefaultBase));
-  TermAcia::Install(PortBase("deep65280", "acia", TermAcia::kDefaultBase));
-  DeepGime::Install(PortBase("deep65280", "gime", DeepGime::kDefaultBase));
-  DeepMmu::Install(PortBase("deep65280", "mmu", DeepMmu::kDefaultBase));
+  EmuDsk::Install(PortBase("emudsk", EmuDsk::kDefaultBase));
+  ClockStop::Install(PortBase("clockstop", ClockStop::kDefaultBase));
+  TermAcia::Install(PortBase("acia", TermAcia::kDefaultBase));
+  DeepGime::Install(PortBase("gime", DeepGime::kDefaultBase));
+  DeepMmu::Install(PortBase("mmu", DeepMmu::kDefaultBase));
   DeepVectors::Install();
-  IoFinish("deep65280");
+  IoFinish();
 }
 
 void setup_deep65280() {

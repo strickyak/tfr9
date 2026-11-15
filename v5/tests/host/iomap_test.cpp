@@ -10,18 +10,7 @@
 static int failures = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); failures++; } } while (0)
 
-static std::vector<std::string> Engines() {
-  std::vector<std::string> v;
-  for (size_t i = 0; i < kNumPorts; i++) {
-    if (!strcmp(kPorts[i].engine, "*")) continue;
-    bool seen = false;
-    for (auto& e : v) if (e == kPorts[i].engine) seen = true;
-    if (!seen) v.push_back(kPorts[i].engine);
-  }
-  return v;
-}
 static const char* kEnh[] = {"becker", "audio", "rtc", "orchestra90", "info"};
-static const char* kProfiles[] = {"TFR4", "COCO"};
 
 static void TestIoMapBasics() {
   IoMap m;
@@ -29,99 +18,137 @@ static void TestIoMapBasics() {
   IoMap::Result r = m.Claim(0xFF86, 0xFF88, "acia");
   CHECK(!r.ok && r.addr == 0xFF86 && !strcmp(r.owner, "emudsk"), "overlap names the owner");
   CHECK(m.OwnerOf(0xFF87) == nullptr, "a failed claim claims nothing (all-or-nothing)");
-  CHECK(!m.Claim(0xFF7F, 0xFF7F, "x").ok, "$FF7F alone is refused");
-  CHECK(!m.Claim(0xFF70, 0xFF80, "x").ok && m.OwnerOf(0xFF70) == nullptr, "a range containing $FF7F is refused, nothing claimed");
+  CHECK(!m.Claim(0xFF7F, 0xFF7F, "x").ok, "0xff7f alone is refused");
+  CHECK(!m.Claim(0xFF70, 0xFF80, "x").ok && m.OwnerOf(0xFF70) == nullptr, "a range containing 0xff7f is refused, nothing claimed");
   CHECK(!m.Claim(0xFE00, 0xFE01, "x").ok, "outside the I/O page is refused");
   CHECK(!m.Claim(0xFF90, 0xFF8F, "x").ok, "first > last is refused");
   CHECK(m.Claim(0xFFF0, 0xFFFF, "vectors").ok, "top of the page is claimable");
 }
 
 static void TestTableIsSane() {
-  for (size_t i = 0; i < kNumPorts; i++) {
-    CHECK(kPorts[i].first >= 0xFF00 && kPorts[i].first <= kPorts[i].last, "row %zu range", i);
-    CHECK(!(kPorts[i].first <= 0xFF7F && kPorts[i].last >= 0xFF7F), "row %zu (%s) touches $FF7F", i, kPorts[i].device);
+  for (size_t i = 0; i < kNumCorePorts; i++) {
+    CHECK(kCorePorts[i].first >= 0xFF00 && kCorePorts[i].first <= kCorePorts[i].last, "core row %zu range", i);
+    CHECK(!(kCorePorts[i].first <= 0xFF7F && kCorePorts[i].last >= 0xFF7F), "core row %zu (%s) touches 0xff7f", i, kCorePorts[i].device);
+  }
+  for (size_t i = 0; i < kNumHostReserved; i++) {
+    CHECK(kHostReserved[i].first >= 0xFF00 && kHostReserved[i].first <= kHostReserved[i].last, "host row %zu range", i);
+    CHECK(!(kHostReserved[i].first <= 0xFF7F && kHostReserved[i].last >= 0xFF7F), "host row %zu (%s) touches 0xff7f", i, kHostReserved[i].device);
+  }
+  for (size_t i = 0; i < kNumMapPorts; i++) {
+    CHECK(kMapPorts[i].first >= 0xFF00 && kMapPorts[i].first <= kMapPorts[i].last, "map row %zu range", i);
+    CHECK(!(kMapPorts[i].first <= 0xFF7F && kMapPorts[i].last >= 0xFF7F), "map row %zu (%s) touches 0xff7f", i, kMapPorts[i].device);
   }
 }
 
-// Every engine under every profile it supports: core ports must not overlap each other.
-static void TestCoreNeverOverlaps() {
-  for (auto& e : Engines())
-    for (auto p : kProfiles) {
-      if (!PortsSupported(kPorts, kNumPorts, e.c_str(), p)) continue;
-      IoMap m;
-      ClaimReport r = ClaimCorePorts(m, kPorts, kNumPorts, e.c_str(), p);
-      CHECK(r.ok, "%s/%s: core device %s overlaps %s at $%04X", e.c_str(), p, r.device, r.owner ? r.owner : "?", r.addr);
-    }
+// Every declared target: host motherboard reserved ranges + core RP2350 ports must never overlap.
+static void TestCoreAndHostNeverOverlap() {
+  for (size_t i = 0; i < kNumTargets; i++) {
+    const TargetSpec& t = kTargets[i];
+    IoMap m;
+    ClaimReport hr = ClaimHostReserved(m, kHostReserved, kNumHostReserved, t.on_host, t.engine);
+    CHECK(hr.ok, "%s/%s/%s: host reserved %s overlaps %s at 0x%04x", t.on_host, t.run_os, t.for_hw, hr.device, hr.owner ? hr.owner : "?", hr.addr);
+    ClaimReport cr = ClaimCorePorts(m, kCorePorts, kNumCorePorts, t.on_host, t.run_os, t.for_hw);
+    CHECK(cr.ok, "%s/%s/%s: core device %s overlaps %s at 0x%04x", t.on_host, t.run_os, t.for_hw, cr.device, cr.owner ? cr.owner : "?", cr.addr);
+  }
 }
 
-// Enhancements: the ONLY allowed conflicts are gep9/TFR4 and gep9big/TFR4 (embiggen MMU $FF40-47) vs becker ($FF41/42).
+// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clashes across all 22
+// targets are tfr9/hatvan/gep9 and tfr9/hatvan/gep9big (embiggen_mmu 0xff40-47) vs becker (0xff41-42).
 static void TestEnhancementsFitEverywhere() {
   int conflicts = 0;
-  for (auto& e : Engines())
-    for (auto p : kProfiles) {
-      if (!PortsSupported(kPorts, kNumPorts, e.c_str(), p)) continue;
-      for (auto enh : kEnh) {
-        IoMap m;
-        ClaimCorePorts(m, kPorts, kNumPorts, e.c_str(), p);
-        ClaimReport r = ClaimEnhancement(m, kPorts, kNumPorts, "E1", enh);
-        if (!r.ok) {
-          conflicts++;
-          bool is_gep = !strcmp(e.c_str(), "gep9") || !strcmp(e.c_str(), "gep9big");
-          bool expected = is_gep && !strcmp(p, "TFR4") && !strcmp(enh, "becker");
-          CHECK(expected, "unexpected conflict: %s/%s + %s at $%04X (owner %s)", e.c_str(), p, enh, r.addr, r.owner ? r.owner : "?");
-        }
+  for (size_t i = 0; i < kNumTargets; i++) {
+    const TargetSpec& t = kTargets[i];
+    for (const char* enh : kEnh) {
+      bool already_core = false;
+      for (size_t j = 0; j < kNumCorePorts; j++) {
+        if (!strcmp(kCorePorts[j].on_host, t.on_host) && !strcmp(kCorePorts[j].run_os, t.run_os) &&
+            !strcmp(kCorePorts[j].for_hw, t.for_hw) && !strcmp(kCorePorts[j].device, enh))
+          already_core = true;
+      }
+      if (already_core) continue;
+      IoMap m;
+      ClaimHostReserved(m, kHostReserved, kNumHostReserved, t.on_host, t.engine);
+      ClaimCorePorts(m, kCorePorts, kNumCorePorts, t.on_host, t.run_os, t.for_hw);
+      ClaimReport r = ClaimEnhancement(m, kMapPorts, kNumMapPorts, "e1", enh);
+      if (!r.ok) {
+        conflicts++;
+        bool is_gep = !strcmp(t.on_host, "tfr9") && !strcmp(t.run_os, "hatvan") &&
+                      (!strcmp(t.for_hw, "gep9") || !strcmp(t.for_hw, "gep9big"));
+        bool expected = is_gep && !strcmp(enh, "becker");
+        CHECK(expected, "unexpected conflict: %s/%s/%s + %s at 0x%04x (owner %s)",
+              t.on_host, t.run_os, t.for_hw, enh, r.addr, r.owner ? r.owner : "?");
       }
     }
-  CHECK(conflicts == 2, "expected exactly 2 known conflicts (gep9/TFR4 and gep9big/TFR4 + becker), saw %d", conflicts);
-}
-
-// The COCO profile must stay off hardware a real CoCo owns (spec 7.2 rule 3), except for devices that
-// emulate that very chip (GIME/MMU) and the vectors.
-static void TestCocoProfileAvoidsRealHardware() {
-  for (size_t i = 0; i < kNumPorts; i++) {
-    if (strcmp(kPorts[i].profile, "COCO")) continue;
-    const char* d = kPorts[i].device;
-    if (!strcmp(d, "gime") || !strcmp(d, "mmu") || !strcmp(d, "vectors")) continue;
-    uint16_t a = kPorts[i].first, b = kPorts[i].last;
-    auto overlaps = [&](uint16_t lo, uint16_t hi) { return a <= hi && b >= lo; };
-    CHECK(!overlaps(0xFF00, 0xFF3F), "COCO %s/%s sits on the PIAs ($FF00-3F)", kPorts[i].engine, d);
-    CHECK(!overlaps(0xFF40, 0xFF5F), "COCO %s/%s sits in the cartridge SCS window ($FF40-5F)", kPorts[i].engine, d);
-    CHECK(!overlaps(0xFF90, 0xFFBF), "COCO %s/%s sits on the GIME ($FF90-BF)", kPorts[i].engine, d);
-    CHECK(!overlaps(0xFFC0, 0xFFDF), "COCO %s/%s sits on the SAM ($FFC0-DF)", kPorts[i].engine, d);
   }
+  CHECK(conflicts == 2, "expected exactly 2 known conflicts (gep9 and gep9big + becker), saw %d", conflicts);
 }
 
-// TFR4 must reproduce v4's addresses exactly (existing images depend on them).
-static void TestTfr4MatchesV4() {
-  struct G { const char* engine; const char* device; uint16_t first, last; };
+// CoCo 2 vs CoCo 3 GIME/MMU rule: `on coco2 run nitros9l2 for coco3` simulates GIME/MMU/vectors (`gerbil_gime`),
+// whereas `on coco3 run nitros9l2 for coco3` uses the real CoCo 3 motherboard (`gerbil_io`) and claims ONLY cart I/O.
+static void TestCoco2VsCoco3GimeOwnership() {
+  IoMap m2, m3;
+  ClaimCorePorts(m2, kCorePorts, kNumCorePorts, "coco2", "nitros9l2", "coco3");
+  ClaimCorePorts(m3, kCorePorts, kNumCorePorts, "coco3", "nitros9l2", "coco3");
+  CHECK(m2.OwnerOf(0xFF90) && !strcmp(m2.OwnerOf(0xFF90), "gime"), "coco2 simulates GIME");
+  CHECK(m2.OwnerOf(0xFFA0) && !strcmp(m2.OwnerOf(0xFFA0), "mmu"), "coco2 simulates MMU");
+  CHECK(m2.OwnerOf(0xFFF0) && !strcmp(m2.OwnerOf(0xFFF0), "vectors"), "coco2 simulates vectors");
+  CHECK(m3.OwnerOf(0xFF90) == nullptr, "coco3 leaves GIME to real CoCo 3 motherboard");
+  CHECK(m3.OwnerOf(0xFFA0) == nullptr, "coco3 leaves MMU to real CoCo 3 motherboard");
+  CHECK(m3.OwnerOf(0xFFF0) == nullptr, "coco3 leaves vectors to real CoCo 3 motherboard");
+  CHECK(m3.OwnerOf(0xFF80) && !strcmp(m3.OwnerOf(0xFF80), "emudsk"), "coco3 still claims emudsk");
+  CHECK(m3.OwnerOf(0xFF88) && !strcmp(m3.OwnerOf(0xFF88), "acia"), "coco3 still claims acia");
+}
+
+// Golden addresses for existing guest images and Diller's jamesbrown L2.
+static void TestGoldenAddresses() {
+  struct G { const char* on_h; const char* run_o; const char* for_t; const char* dev; uint16_t first, last; };
   static const G golden[] = {
-    {"flat65280", "emudsk", 0xFF80, 0xFF86}, {"flat65280", "clockstop", 0xFF87, 0xFF87}, {"flat65280", "acia", 0xFF88, 0xFF89},
-    {"deep65280", "emudsk", 0xFF80, 0xFF86}, {"deep65280", "acia", 0xFF88, 0xFF89}, {"deep65280", "gime", 0xFF90, 0xFF91},
-    {"deep65280", "mmu", 0xFFA0, 0xFFAF}, {"turbo9os", "turbo9sim_acia", 0xFF00, 0xFF03},
-    {"gep9", "console", 0xFF00, 0xFF05}, {"gep9", "disk", 0xFF10, 0xFF17}, {"gep9", "fuse_dma", 0xFF20, 0xFF2F},
-    {"gep9", "embiggen_mmu", 0xFF40, 0xFF47}, {"gep9big", "embiggen_mmu", 0xFF40, 0xFF47},
-    {"multicomp09fuzix", "acia", 0xFFD0, 0xFFD1}, {"multicomp09fuzix", "sd", 0xFFD8, 0xFFDC}, {"multicomp09fuzix", "mmu", 0xFFDE, 0xFFDF},
+    {"tfr9", "turbo9os",  "turbo9sim",   "turbo9sim_acia", 0xFF00, 0xFF03},
+    {"tfr9", "nitros9l1", "flat65280",   "emudsk",         0xFF80, 0xFF86},
+    {"tfr9", "nitros9l1", "flat65280",   "clockstop",      0xFF87, 0xFF87},
+    {"tfr9", "nitros9l1", "flat65280",   "acia",           0xFF88, 0xFF89},
+    {"tfr9", "nitros9l2", "deep65280",   "gime",           0xFF90, 0xFF91},
+    {"tfr9", "nitros9l2", "deep65280",   "mmu",            0xFFA0, 0xFFAF},
+    {"tfr9", "nitros9l2", "jamesbrown",  "acia",           0xFF14, 0xFF15},
+    {"tfr9", "nitros9l2", "jamesbrown",  "audio",          0xFF41, 0xFF42},
+    {"tfr9", "nitros9l2", "jamesbrown",  "info",           0xFF43, 0xFF44},
+    {"tfr9", "nitros9l2", "jamesbrown",  "becker",         0xFF45, 0xFF46},
+    {"tfr9", "nitros9l2", "jamesbrown",  "emudsk",         0xFF80, 0xFF86},
+    {"tfr9", "nitros9l2", "jamesbrown",  "gime",           0xFF90, 0xFF93},
+    {"tfr9", "nitros9l2", "jamesbrown",  "mmu",            0xFFA0, 0xFFAF},
+    {"tfr9", "nitros9l2", "jamesbrown",  "rtc",            0xFFC0, 0xFFC7},
+    {"tfr9", "hatvan",    "gep9",        "console",        0xFF00, 0xFF05},
+    {"tfr9", "hatvan",    "gep9",        "embiggen_mmu",   0xFF40, 0xFF47},
+    {"tfr9", "hatvan",    "gep9big",     "embiggen_mmu",   0xFF40, 0xFF47},
+    {"tfr9", "hatvan",    "coco2",       "console",        0xFF60, 0xFF65},
+    {"tfr9", "hatvan",    "coco2",       "embiggen_mmu",   0xFFE0, 0xFFE7},
+    {"tfr9", "fuzix",     "multicomp09", "acia",           0xFFD0, 0xFFD1},
+    {"tfr9", "fuzix",     "multicomp09", "sd",             0xFFD8, 0xFFDC},
+    {"tfr9", "fuzix",     "multicomp09", "mmu",            0xFFDE, 0xFFDF},
   };
-  for (auto& g : golden) {
+  for (const auto& g : golden) {
     bool found = false;
-    for (size_t i = 0; i < kNumPorts; i++)
-      if (!strcmp(kPorts[i].profile, "TFR4") && !strcmp(kPorts[i].engine, g.engine) && !strcmp(kPorts[i].device, g.device)) {
+    for (size_t i = 0; i < kNumCorePorts; i++) {
+      const CorePortRange& p = kCorePorts[i];
+      if (!strcmp(p.on_host, g.on_h) && !strcmp(p.run_os, g.run_o) &&
+          !strcmp(p.for_hw, g.for_t) && !strcmp(p.device, g.dev)) {
         found = true;
-        CHECK(kPorts[i].first == g.first && kPorts[i].last == g.last, "TFR4 %s/%s is $%04X-$%04X, v4 had $%04X-$%04X",
-              g.engine, g.device, kPorts[i].first, kPorts[i].last, g.first, g.last);
+        CHECK(p.first == g.first && p.last == g.last, "%s/%s/%s %s is 0x%04x-0x%04x, want 0x%04x-0x%04x",
+              g.on_h, g.run_o, g.for_t, g.dev, p.first, p.last, g.first, g.last);
       }
-    CHECK(found, "TFR4 %s/%s missing", g.engine, g.device);
+    }
+    CHECK(found, "%s/%s/%s %s missing", g.on_h, g.run_o, g.for_t, g.dev);
   }
 }
 
 int main() {
   TestIoMapBasics();
   TestTableIsSane();
-  TestCoreNeverOverlaps();
+  TestCoreAndHostNeverOverlap();
   TestEnhancementsFitEverywhere();
-  TestCocoProfileAvoidsRealHardware();
-  TestTfr4MatchesV4();
+  TestCoco2VsCoco3GimeOwnership();
+  TestGoldenAddresses();
   if (failures) { printf("iomap_test: %d FAILURES\n", failures); return 1; }
-  printf("iomap_test: OK (%zu port rows)\n", kNumPorts);
+  printf("iomap_test: OK (%zu targets, %zu core rows, %zu map rows)\n", kNumTargets, kNumCorePorts, kNumMapPorts);
   return 0;
 }

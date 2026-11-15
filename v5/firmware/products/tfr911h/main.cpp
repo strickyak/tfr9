@@ -486,8 +486,8 @@ void IN_RAM Engine__Foreground() {
 #include "timers.h"   // 60 Hz timer callback and flash-speed adjustment
 #include "repl.h"   // Tcl REPL coroutine (core 0, before the 6309 starts)
 #include "drain.h"   // USB drain coroutines (characters and events)
-#include "registry.h"   // engine names -> setup functions
-#include "ports_cmd.h"   // ports / enhance commands and the checked `bye`
+#include "registry.h"   // (run_os, for_hw) target launchers
+#include "ports_cmd.h"   // `on` / `run`, `ports list|check`, and the checked `bye`
 #include "background.h"   // periodic_status and the background loop (core 0 scheduler)
 // ═══════════════════════════════════════════════════════════════════
 // main()

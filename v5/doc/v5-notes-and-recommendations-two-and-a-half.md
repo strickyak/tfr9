@@ -532,65 +532,71 @@ Allocate wire IDs and FIFO tag ranges once, with a "reserved/never reuse" list (
 | `$FFD0/D1`, `$FFD8‑DC`, `$FFDD`, `$FFDE/DF` | multicomp09 ACIA, SD, 50 Hz timer, MMU | fuzix |
 | `$FFF0‑FF` | vectors | all |
 
-### 7.1 Vocabulary  **[R3, R13]**
+### 7.1 Vocabulary & User Grammar  **[R3, R13, R20]**
 
-* **Engine** — an OS personality (memory model + core devices + loader).
-* **Port profile** — a named, **frozen** set of *fundamental port addresses* for an engine's core devices.  Engines are **parameterized** by a profile.  We offer only **a couple of predefined profiles** (no free‑form addresses for now).  A tag is never edited after release; a changed layout gets a new tag (`COCO2`), so every guest image can say which tag it was built for.
-* **Enhancement** — an optional extra device (audio, RTC, info port, Becker/FujiNet, Orchestra‑90, …) added to an engine at addresses taken from a tagged **enhancement map**.
-* **One source of truth:** each tag is *data* that generates the C++ constants (`ports_<TAG>.h`), the guest constants (NitrOS‑9 `defs`, Fuzix/Hatvan headers), the Go `gep9` emulator table, and the docs (R10).
-* **Tcl chooses** (R13): `Config(ports) = TFR4|COCO`, `enhance becker`, `enhance audio`, … in a boot script (or a `.pak`, Appendix F).  Tcl only selects among compiled‑in tags and switches enhancements on or off; it cannot invent addresses.  Later, "adjust to whatever constraints a user has" = add a user‑authored tag (`USER`, a data file) and recompile.
+* **Engine (internal C++ concept)** — a compiled `IN_RAM` core‑1 foreground bus loop, with fixed memory/bus policy so zero runtime branches are spent on "which machine am I?" (`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp` on TFR/911H; `gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9` on Centipede 32z).  Users do not need to name or know C++ engines; `(on, run, for)` implies the engine.
+* **`on ... run ... for ... with ...` (user‑facing Tcl grammar, 2026‑11‑15)** — what users and `.pak` scripts write:
+  `on <host> run <os> for <target> [with <options...>]` (or `run <os> for <target> [...]` when `on <host>` was already set by the board or `/rc/init.tcl`).
+  * **Case rule:** any uppercase in `on`/`run` commands is converted to lowercase (CoCo 1/2 keyboards lack natural lowercase/uppercase distinction, while docs may capitalize `ON ... RUN ... FOR ... WITH ...` for readability).
+  * **Hex rule:** bareword `0xffe0` / `0xFFE0` is preferred over `$FFE0` in Tcl (unescaped `$` triggers Tcl variable substitution).
+  * **Digestion to flat key‑value pairs:** `on`/`run` compiles down into flat key‑value pairs in `g_port_settings` (`on`, `run`, `for`, `engine`, `with`, `<dev>=on|off`, `<dev>.<param>=<val>`), inspected via `ports list` and validated via `ports check` / `bye`.  Legacy `Config(engine)`, `enhance`, and extra `ports` subcommands were removed.
+* **Enhancement** — an optional device or transport (`becker`, `audio`, `rtc`, `orchestra90`, `info`, `dw`, …) enabled via `with` (e.g. `with e1, becker at 0xff41, dw over bitbang baud 9600, rtc at 0xffe0`).
+* **One source of truth:** `firmware/engines/ports.tsv` defines every valid `(on, run, for)` triple, its implied C++ `engine`, core device ranges, CoCo motherboard reserved ranges, and enhancement map `e1`; `scripts/gen-ports.sh` generates `ports_gen.h` and `io-map.md` (R10).
 
-### 7.2 Rules shared by all profiles
+### 7.2 Rules shared by all targets
 
-1. **`$FF7F` is forbidden** (Multi‑Pak select) — *hard error* in the tag generator and in `IoMap::Claim`, in every profile and engine.  (Your instruction.)
-2. Conflicts with other real drives, cartridges and packs are **logged, not blocking, for now** (e.g. the Deluxe RS‑232 Pak around `$FF68‑6B`, a real RS disk controller over `$FF40‑47` — from memory, verify later).
-3. Real‑CoCo ranges are used only when *emulating that very chip*: `$FF00‑$FF3F` PIAs (incl. mirrors such as `$FF14/15`), `$FF40‑$FF5F` cartridge `SCS`, `$FF90‑$FFBF` GIME, `$FFC0‑$FFDF` SAM, `$FFF0‑$FFFF` vectors.
-4. **Per engine, not global:** an address may be reused by different engines (only one OS runs at a time); within one engine `IoMap::Claim` refuses overlap, naming both devices and the profile tag.
+1. **`$FF7F` (`0xff7f`) is forbidden** (Multi‑Pak select) — *hard error* in `gen-ports.sh` and in `IoMap::Claim`, for every target and enhancement.
+2. Conflicts with other real drives, cartridges and packs are **logged, not blocking, for now** (e.g. the Deluxe RS‑232 Pak around `$FF68‑6B`, a real RS disk controller over `$FF40‑47`).
+3. **Host motherboard ownership (`coco2` vs `coco3`):** on `coco2` and `coco3`, `$FF00‑$FF3F` (`coco_pia`) and `$FFC0‑$FFDF` (`coco_sam`) belong to the motherboard; on `coco3` with `gerbil_io` (pass‑through to real CoCo 3 hardware), `$FF90‑$FFBF` (`coco3_gime`) and `$FFF0‑$FFFF` (`coco3_vectors`) also belong to the motherboard and are **not** simulated or claimed by the cartridge.  `PortsValidate` refuses placing any device onto a motherboard‑owned range.
+4. **Per target, not global:** an address may be reused by different `(on, run, for)` targets (only one OS runs at a time); within one target `IoMap::Claim` refuses overlap, naming both owners.
 5. A write is never vetoed on the Centipede: `SLENB` can replace a *read*, but the real PIA/SAM still sees the *write* (**verify on hardware**) — never place a register where a write has a real‑hardware side effect.
 6. Preferred windows for new things: `$FF60‑$FF7E`, then `$FF8x`, then `$FFEx`.
 
-### 7.3 The two predefined profiles
+### 7.3 Targets (`on`, `run`, `for`) and Implied C++ Engines  **[R2, R4, R20]**
 
-* **`TFR4`** — "the v4 addresses".  Every engine exactly as in v4, so existing images (`flat65280.img`, `deep65280.img`, the Hatvan kernel, Fuzix `multicomp09fuzix`, TurboOS) run unmodified.  Default on the TFR/911H product.
-* **`COCO`** — "coexist with a real CoCo 1/2/3": core devices only where a real CoCo leaves the page free (rules 1‑6).  Default on the Centipede product for engines that have a `COCO` variant.
+| `on` | `run` | `for` | Implied C++ `engine` | Core RP2350 I/O ranges |
+|---|---|---|---|---|
+| `tfr9` | `turbo9os` | `turbo9sim` | `hamster_flat` | `0xff00‑03` acia, `0xfff0‑ff` vectors |
+| `tfr9` | `nitros9l1` | `flat65280` | `hamster_flat` | `0xff80‑86` emudsk, `0xff87` clockstop, `0xff88‑89` acia, `0xfff0‑ff` vectors |
+| `tfr9` | `nitros9l2` | `deep65280` | `hamster_gime` | as `flat65280` + `0xff90‑91` gime, `0xffa0‑af` mmu |
+| `tfr9` | `nitros9l2` | `jamesbrown` | `hamster_gime` | Diller L2: `0xff14‑15` acia, `0xff41‑42` audio, `0xff43‑44` info, `0xff45‑46` becker, `0xff80‑86` emudsk, `0xff90‑93` gime, `0xffa0‑af` mmu, `0xffc0‑c7` rtc, `0xfff0‑ff` vectors |
+| `tfr9` | `nitros9l2` | `coco3` | `hamster_gime` | `0xff80‑86` emudsk, `0xff88‑89` acia, `0xff90‑9f` gime, `0xffa0‑af` mmu, `0xffb0‑bf` palette, `0xfff0‑ff` vectors |
+| `tfr9` | `hatvan` | `gep9` / `gep9big` | `hamster_gep9` | `0xff00‑05` console, `0xff10‑17` disk, `0xff20‑2f` fuse_dma, `0xff40‑47` embiggen_mmu, `0xfff0‑ff` vectors |
+| `tfr9` | `hatvan` | `coco2` | `hamster_gep9` | `0xff60‑65` console, `0xff68‑6f` disk, `0xff80‑8f` fuse_dma, `0xffe0‑e7` embiggen_mmu, `0xfff0‑ff` vectors |
+| `tfr9` | `fuzix` | `multicomp09` | `hamster_multicomp` | `0xffd0‑d1` acia, `0xffd2‑d5` uart_stubs, `0xffd8‑dc` sd, `0xffdd` timer, `0xffde‑df` mmu |
+| `coco2` | `nitros9l1` | `flat65280` | `gerbil_sam64k` | `0xff80‑89` emudsk/clockstop/acia, `0xfff0‑ff` vectors |
+| `coco2` | `nitros9l2` | `deep65280` | `gerbil_gime` | `0xff80‑89`, `0xff90‑91` gime, `0xffa0‑af` mmu, `0xfff0‑ff` vectors |
+| `coco2` | `nitros9l2` | `coco3` | `gerbil_gime` | simulates CoCo 3 GIME/MMU/RAM + `0xff80‑86` emudsk, `0xff88‑89` acia, `0xfff0‑ff` vectors |
+| `coco2` | `hatvan` | `coco2` | `gerbil_gep9` | `0xff60‑65` console, `0xff68‑6f` disk, `0xff80‑8f` fuse_dma, `0xffe0‑e7` embiggen_mmu, `0xfff0‑ff` vectors |
+| `coco2` | `fuzix` | `coco2` | `gerbil_gime` | `0xff60‑65` acia/stubs, `0xff68‑6c` sd + simulated GIME/MMU/vectors |
+| `coco2` | `rsbasic` | `coco2` / `coco3` | `gerbil_sam64k` / `gerbil_gime` | 64K BASIC (0 `$FFxx` ports) / "Become CoCo 3" (`0xff90‑bf`, `0xfff0‑ff`) |
+| `coco3` | `nitros9l1` / `l2` | `flat65280` / `deep65280` / `coco3` | `gerbil_io` | `0xff80‑86` emudsk (+ `0xff87`), `0xff88‑89` acia — **real CoCo 3 owns GIME/MMU/RAM/vectors** |
+| `coco3` | `hatvan` | `coco2` | `gerbil_gep9` | `0xff60‑65`, `0xff68‑6f`, `0xff80‑8f`, `0xffe0‑e7`, `0xfff0‑ff` |
+| `coco3` | `fuzix` | `coco2` | `gerbil_io` | `0xff60‑65` acia/stubs, `0xff68‑6c` sd (real CoCo 3 owns GIME/MMU/RAM) |
+| `coco3` | `rsbasic` | `coco3` | `gerbil_io` | 0 core `$FFxx` ports (real CoCo 3 owns GIME/MMU/RAM/ROM) |
 
-| Engine | `TFR4` | `COCO` |
-|---|---|---|
-| `flat65280` | EmuDsk `$FF80‑86`, CLOCK_AND_STOP `$FF87`, ACIA `$FF88/89`, vectors `$FFF0‑FF` | same (already in `$FF8x`) |
-| `deep65280` | as `flat65280` + GIME‑style `$FF90/91`, MMU `$FFA0‑AF` (CoCo 3 standard) | same |
-| `turbo9os` | Turbo9Sim ACIA `$FF00‑03` | *unsupported* (TurboOS would have to be rebuilt) |
-| `gep9` / `gep9big` (Hatvan) | console `$FF00‑05`; disk `$FF10‑17`; TaskFuse/DMA/curtain/flags/purge group `$FF20‑2F`; embiggen MMU `$FF40‑47` (both `gep9` and `gep9big`) | console **`$FF60‑65`**; disk **`$FF68‑6F`**; TaskFuse/DMA group **`$FF80‑8F`** (16 bytes — it cannot sit in `$FF60‑7E` without touching `$FF7F`); embiggen MMU **`$FFE0‑E7`** (both `gep9` and `gep9big`) |
-| `multicomp09fuzix` (Fuzix, TFR only) | `$FFD0‑DF` | *unsupported* (Fuzix port ABI; sits on the SAM) |
-| Centipede engines (`coco2`/`coco3` stock configs, `fuzix_coco2`) | n/a | *they are the CoCo*: real PIA/SAM/GIME/floppy `$FF40`,`$FF48‑4B`; Fuzix console+SD `$FF60‑69` |
+### 7.4 Enhancement map `e1` ("Enhancement map 1")
 
-An engine declares which profiles it supports; selecting an unsupported one is an error with a clear message.  The Hatvan `COCO` layout is engine‑exclusive, so it may reuse bytes that other engines use.
-
-### 7.4 Enhancement map `E1` ("Enhancement map 1"; same in both profiles)
-
-| Enhancement | Registers | Address | Notes |
+| Enhancement | Registers | Default (`e1`) | Notes |
 |---|---|---|---|
-| Becker / DriveWire (FujiNet) | status, data | **`$FF41/$FF42`** | decided (Q1); standard |
-| SN76489 + control | data, control (bit0 click, bit1 bell, bit7 raw arrows) | *`$FF70/$FF71`* | moved from Diller's `$FF41/42` |
-| RTC | 8 regs (century … second) | *`$FF72‑$FF79`* | moved from Diller's `$FFC0‑C7` (on the SAM); `clock2_tfr911` re‑addressed |
-| Orchestra‑90 DAC | L, R | `$FF7A/$FF7B` | unchanged |
-| Info port | trigger/status, stream | *`$FF7C/$FF7D`* | moved from Diller's `$FF43/44` |
-| spare | | `$FF7E` | |
-| **forbidden** | | **`$FF7F`** | Multi‑Pak |
+| `becker` | status, data | **`0xff41‑0xff42`** | decided (Q1); standard Becker port |
+| `audio` | SN76489 data, control (bit0 click, bit1 bell, bit7 raw arrows) | *`0xff70‑0xff71`* | moved from Diller's `$FF41/42` |
+| `rtc` | 8 regs (century … second) | *`0xff72‑0xff79`* | moved from Diller's `$FFC0‑C7` (on the SAM); `clock2_tfr911` re‑addressed |
+| `orchestra90` | DAC L, R | `0xff7a‑0xff7b` | unchanged |
+| `info` | trigger/status, stream | *`0xff7c‑0xff7d`* | moved from Diller's `$FF43/44` |
+| spare | | `0xff7e` | |
+| **forbidden** | | **`0xff7f`** | Multi‑Pak |
+| `dw` *(transport)* | `over` (`bitbang`\|`uart`\|`usb`), `baud` (`9600`…) | *(no `$FFxx` ports)* | non‑memory‑mapped DriveWire backend option |
 
-Italic addresses are my proposals.  Consequences: (a) an enhancement that overlaps an engine's core ports under the chosen profile is refused — e.g. `gep9`/`gep9big`+`TFR4` (embiggen MMU at `$FF40‑47`) cannot have Becker at `$FF41/42`; move Becker (`enhance becker 0xFF48`) or use `COCO` for FujiNet there; (b) the ACIA's raw/translated arrow‑key switch (formerly bit 7 of `$FF42`) is now bit 7 of the audio‑control register `$FF71`, default clear when the enhancement is absent; (c) Hatvan `COCO` ($FF60‑6F, $FF80‑8F, $FFE0‑E7) and E1 (`$FF70‑7D`, `$FF41/42`) do not overlap; (d) Becker at `$FF41/42` conflicts with a *real* RS disk controller in the same CoCo (its latch is mirrored over `$FF40‑47`); on a Centipede the cart *is* the floppy controller, so that configuration is unsupported [R11].
+Consequences: (a) an enhancement that overlaps a target's core ports or host motherboard ports is refused — e.g. `on tfr9 run hatvan for gep9 with e1, becker` clashes with `embiggen_mmu` at `0xff40‑47`; fix with `becker at 0xff48` or `for coco2`; (b) the ACIA's raw/translated arrow‑key switch is bit 7 of the audio‑control register (`0xff71` on `e1`, `0xff42` on `jamesbrown`), default clear when absent; (c) `hatvan for coco2` (`0xff60‑6f, 0xff80‑8f, 0xffe0‑e7`) and `e1` (`0xff41‑42, 0xff70‑7d`) do not overlap; (d) Becker at `0xff41‑42` conflicts with a *real* RS disk controller in the same CoCo [R11].
 
-### 7.5 How an engine consumes this (sketch)
+### 7.5 Tcl configuration example
 
-```cpp
-struct FlatPorts { uint emudsk, clockstop, acia; };                 // per-engine port struct
-constexpr FlatPorts kFlat_TFR4 = {0x80, 0x87, 0x88}, kFlat_COCO = {0x80, 0x87, 0x88};
-constexpr EngineSpec kFlat65280 = { "flat65280", /*profiles*/ TFR4|COCO, &kFlat_TFR4, &kFlat_COCO, /*mem*/ ..., Setup };
-// Setup(cfg): ports = pick(cfg.ports);  IoMap::Claim(core devices at ports);  for e in cfg.enhancements: IoMap::Claim(e at E1);
-```
 ```tcl
-set Config(engine) deep65280
-set Config(ports)  TFR4          ;# or COCO
-enhance audio ; enhance rtc ; enhance info ; enhance becker
+ON coco2 RUN nitros9l2 FOR coco3 WITH E1, becker at 0xFF41, dw over bitbang baud 9600, rtc at 0xFFE0
+# Digests into flat key-value pairs (`ports list`):
+#   on coco2  run nitros9l2  for coco3  engine gerbil_gime  with e1
+#   becker on  becker.at 0xff41  dw on  dw.over bitbang  dw.baud 9600  rtc on  rtc.at 0xffe0
 bye
 ```
 Guest builds are tied to a tag: NitrOS‑9 recipes get `defs/ports_<TAG>.d` (e.g. `HwBASE=$FF88`) generated from the same data, so `term.c`'s direct store uses `ACIA_DATA` (R1).
@@ -805,7 +811,19 @@ Honest accounting (original draft → now):
 * **Mechanism: Tcl commands that set RAM state, applied when the engine launches** — for example `ports profile COCO` and `enhance becker 0xFF48` — not new fields in the `Config` struct (which the Centipede also shares).
 * **The final configuration is flat key-value pairs**, one value per key, no multi-valued keys (never `"becker=FF48 audio=off"` in one value).  Human-friendly shortcuts are welcome — a command that sets many keys, or a named group (a profile) with a few overrides on top — as long as they **flatten into plain key-value pairs** that can be listed (`ports show`).  Sketch (details to be fixed when built): a RAM-only array `Ports` with `Ports(profile)` = `TFR4`/`COCO` and `Ports(<device>)` = a base address, or `off`; `ports profile COCO` is a shortcut that sets `profile`; `enhance becker 0xFF48` sets `Ports(becker)`.
 * **A placement conflict is a Tcl error, not a hang.**  If a requested placement overlaps another device, or uses `$FF7F`, the engine is **not launched**: the message names both devices and the board stays at `TCL>` so the user can fix the setting.  (Today `IoClaim` stops the board with `ABORT`; that is acceptable only for errors in our own built-in tables, and must change before users can set addresses.)
-* **Becker moves, embiggen does not.**  On `TFR4`, both `gep9` and `gep9big` keep EMBIGGEN MMU at `$FF40..$FF47` (all `gep*` machines will eventually embiggen by default, and hatvan-os, minigolf and every built big6809 binary hard-code `$FF40..$FF47`).  The Becker enhancement (default `$FF41/$FF42`) is the one that is overridden — e.g. to `$FF48/$FF49` — when both are wanted; no Hatvan guest uses Becker today.  The `COCO` profile avoids the clash anyway (embiggen at `$FFE0`).
+* **Becker moves, embiggen does not.**  On `tfr9` (`gep9` and `gep9big`), EMBIGGEN MMU stays at `0xff40..0xff47` (all `gep*` machines will eventually embiggen by default, and hatvan-os, minigolf and every built big6809 binary hard-code `$FF40..$FF47`).  The Becker enhancement (default `0xff41..0xff42`) is the one that is overridden — e.g. `becker at 0xff48` — when both are wanted; no Hatvan guest uses Becker today.  `for coco2` avoids the clash anyway (embiggen at `0xffe0`).
+
+### 15.y Engine vs Target separation and the `on ... run ... for ... with ...` grammar: decisions of 2026-11-15 (Strick)
+
+* **Engine = internal C++ `IN_RAM` foreground loop (pragmatic SRAM/speed split):** what is frozen in an Engine (bus PIO + MMU policy, costing zero runtime branches on core 1) vs variable (`IOReaders`/`IOWriters` tables) is an internal C++ choice: 4 Hamster engines on TFR/911H (`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and 4 Gerbil engines on Centipede (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`).  Users never have to pick a C++ engine directly.
+* **User-facing grammar:** `on <host> run <os> for <target> [with <options...>]` (plus `run <os> for <target> [...]` when `on <host>` is already set by the board or `/rc/init.tcl`).  Example:
+  `ON coco2 RUN nitros9l2 FOR coco3 WITH E1, becker at 0xFF41, dw over bitbang baud 9600, rtc at 0xFFE0`
+* **Lowercase normalization:** any uppercase in `on`/`run` commands is converted to lowercase as a general rule (CoCo 1/2 keyboards are naturally uppercase-only / case-awkward).
+* **Hex barewords in Tcl:** prefer `0xffe0` / `0xFFE0` over `$FFE0` (unescaped `$` triggers Tcl variable substitution).
+* **Compile down to flat key-value pairs; retire `Config(engine)` and `enhance`:** `on`/`run` digests into flat key-value pairs in `g_port_settings` (`on`, `run`, `for`, `engine`, `with`, `<dev>=on|off`, `<dev>.<param>=<val>`).  `ports` has just two subcommands — **`ports list`** and **`ports check`**; `enhance` and `Config(engine)` are removed (`menu store` and `bye` refuse `Config(engine)` with a message pointing to `on <host> run <os> for <target>`).
+* **Both L2 address layouts kept (`jamesbrown` and `coco3`), and `coco2` vs `coco3` resolved:**
+  * `on tfr9 run nitros9l2 for jamesbrown` — Diller's L2 I/O addresses (`0xff14` acia, `0xff41` audio, `0xff43` info, `0xff45` becker, `0xff80` emudsk, `0xff90` gime, `0xffa0` mmu, `0xffc0` rtc).
+  * `on tfr9|coco2|coco3 run nitros9l2 for coco3` — CoCo-compatible L2 (`0xff80` emudsk, `0xff88` acia + `e1` enhancements); on `coco2` this implies `gerbil_gime` (simulates GIME/MMU/RAM), while on `coco3` it implies `gerbil_io` (uses the real CoCo 3 motherboard's GIME/MMU/RAM).
 
 ## 16. Revisions to the spec after acceptance — for your review
 
@@ -814,9 +832,9 @@ Format: *what I changed or reinterpreted → why → where*.  None silently reve
 | # | Revision | Why | Where | Status |
 |---|---|---|---|---|
 | R1 | `term.c`'s direct `sta` goes to **`$FF89`** (ACIA data), via one constant (`ACIA_DATA`), not `$FF15` | Q14 says keep the direct `sta`; Q13 moves the ACIA to `$FF88/89`.  Both can only hold if the address in `term.c` follows the ACIA.  (`$FF15` is a PIA0 mirror on a real CoCo.) | §7, §15 | **approved** (2026‑11‑15: do not use `$FF15`) |
-| R2 | **Revised after your 10‑29 second note & 11‑15 note.** All existing engines stay (`flat65280`, `deep65280`, `gep9`…) and are parameterized + enhanced; "stock" = nitros9 `level1/coco2` and `level2/coco3`.  For Diller's L2: keep his devices as reusable enhancements + guest kit on CoCo‑safe addresses, **and** provide an engine/profile configuration with Diller's I/O addresses alongside one using our CoCo‑compatible addresses | You do not want engines retired, and want both unmodified Diller‑address L2 compatibility and a CoCo‑friendly L2 layout | §9, §15 | **open / under discussion** (2026‑11‑15: deciding two engine names vs profile tag for Diller's L2 addresses) |
-| R3 | **Port profiles with tags**: `TFR4` (v4 addresses) and `COCO` (coexist with a real CoCo), plus enhancement map `E1` ("Enhancement map 1"); `$FF7F` hard‑forbidden; other cart/drive conflicts only logged | Your 10‑29 second note: pick from a couple of predefined configurations, tag them, avoid `$FF7F` | §7 | **approved** (2026‑11‑15; `E1` = Enhancement map 1) |
-| R4 | **Hatvan gets a `COCO` profile** (console `$FF60‑65`, disk `$FF68‑6F`, TaskFuse/DMA group `$FF80‑8F`, embiggen MMU `$FFE0‑E7`) next to `TFR4`.  `strickyak/hatvan-os` (kernel **and** `gep9` emulator) is built per tag — two compile‑time tags, not free configurability | Hatvan is in scope on the Centipede (Q5); its `$FF00‑2F` registers sit on the real PIAs; the 16‑byte group cannot fit in `$FF60‑7E` without `$FF7F` | §7, §12, §15 | **decided** (Q‑B, then tags) |
+| R2 | **Both L2 targets kept alongside `flat65280`/`deep65280`:** `nitros9l2 for jamesbrown` (`tfr9`, Diller's I/O addresses) and `nitros9l2 for coco3` (`tfr9`/`coco2`/`coco3`, CoCo‑safe addresses + `e1` enhancements) | Preserves unmodified Diller‑address L2 compatibility (`jamesbrown`) while giving TFR9, CoCo 2 (`gerbil_gime`) and real CoCo 3 (`gerbil_io`) a clean CoCo‑compatible L2 (`coco3`) | §7.3, §9, §15.y | **decided** (2026‑11‑15) |
+| R3 | **Lowercase target & enhancement maps**: `(on, run, for)` port tables in `ports.tsv` + enhancement map `e1` ("Enhancement map 1"); `0xff7f` (`$FF7F`) hard‑forbidden; CoCo motherboard ranges (`coco_pia`, `coco_sam`, and `coco3_gime`/`coco3_vectors` on `coco3`+`gerbil_io`) enforced | Replaced uppercase `TFR4`/`COCO` profiles with lowercase `on tfr9\|coco2\|coco3 run ... for ...` (2026‑11‑15) | §7, §15.y | **decided** (2026‑11‑15) |
+| R4 | **Hatvan `for coco2` target** (console `0xff60‑65`, disk `0xff68‑6f`, TaskFuse/DMA `0xff80‑8f`, embiggen MMU `0xffe0‑e7`) alongside `for gep9` / `for gep9big` (`0xff00‑47`).  `strickyak/hatvan-os` (kernel **and** `gep9` emulator) built per tag | Hatvan is in scope on the Centipede (Q5); its `$FF00‑2F` registers sit on the real PIAs; the 16‑byte group cannot fit in `$FF60‑7E` without `$FF7F` | §7, §12, §15 | **decided** (Q‑B, then tags) |
 | R5 | Q7 "leave artifacts in v4" **but v5 may not depend on `../v4`** (**decided, Q‑C**).  Facts: only `golden-log.zip` (31 MB) is tracked in v4; the four `golden-log-*.txt` (20–63 MB each, ≈200 MB) are untracked local unzips; `cpu-tracker/Makefile` needs them; TurboLab's `turbos-2026-09-21.zip` is only 0.5 MB.  v5 `cpu-tracker` tests use **small excerpts** (≤ 2 MB total, committed) plus an optional `GOLDEN_LOG_DIR` env var for the full run; the 0.5 MB `turbos-2026-09-21.zip` is **copied** into v5 | otherwise two of v5's test suites silently point into v4 | §6, §11 | **decided** (a narrow exception to "leave them in v4") |
 | R6 | Added the **supported matrix** (§15); *both* Fuzix ports kept permanently | Q5 "all in scope" needs an explicit product × OS table | §15 | **decided** (Q‑A: keep both) |
 | R7 | Dropped `CENTIPEDE_REV` revisions | Q4 | S17 | applied |
@@ -825,13 +843,14 @@ Format: *what I changed or reinterpreted → why → where*.  None silently reve
 | R10 | **One machine‑readable I/O‑map source**; the Go `gep9` emulator as test oracle | Same maps live in C++ *and* Go (`hatvan-os/gep9/bus.go`); drift risk | §7 | new recommendation |
 | R11 | Becker at `$FF41/42` implies "no real RS FDC in the same CoCo" | Real FDC latch is mirrored over `$FF40‑47` | §7 | documented limitation |
 | R12 | Corrected `-one`'s Fuzix‑Centipede disk claim (it is `$FF60‑69` byte‑FIFO, not DMA at `$FF50‑58`) | Verified in `centipede.cpp` | §14.2 | applied |
-| R13 | **Tcl is the first‑line mechanism for resolving conflicts**: `Config(ports)`, `enhance <device>` in boot scripts; tags are data; user‑authored `USER` tag later | Your 10‑29 note | §5.1, §7.1, App. F | applied |
+| R13 | **Tcl is the first‑line mechanism for resolving conflicts**: `on ... run ... for ... with ...` (`ports list\|check`) in boot scripts; tags are data; user‑authored tag later | Your 10‑29 & 11‑15 notes | §5.1, §7.1, §15.y, App. F | applied |
 | R14 | `$FF7F` is a hard error everywhere; other conflicts are warnings | Your instruction | §7.2 | applied |
 | R15 | Diller's `l2fn` (embedded kernel track, FujiNet root) **deferred** | Belongs to his engine; standalone boot via `/lfs` image is available on `deep65280` | §9 | **deferred / open to discussion** (2026‑11‑15) |
 | R16 | **`.pak` software pack** recorded as a design direction | Your 10‑29 note | Appendix F | parked (details later) |
 | R17 | **Tether refuses to see symlinks** below `--pc`; default `-pc /tmp/pc`; root verified on every request, all `/pc` operations fail if it is missing; only regular files/dirs served | Your 10‑30 notes; v4 follows symlinks (S39) | §11.13, S39 | applied; **side effect:** v4's absolute `misc/pc` symlinks stop working → staging by copy / `.pak` |
 | R18 | **Threat model**: no Tcl sandbox on the RP2350B (friendly community); PC exposed only to the `/pc` subdirectory; PC never executes user‑contributed code | Your 10‑30 note | §11.12, App. F | applied (dropped the sandbox item from App. F) |
 | R19 | **Fix routines that map whole files into RAM** (S38) and add the "nothing allocates O(file size)" rule + test | Your 10‑30 note | S38, §11.14, §12 | applied as a work item |
+| R20 | **`on ... run ... for ... with ...` grammar + 8 C++ `IN_RAM` engines**: compiles to flat lowercase key‑value pairs (`ports list`, `ports check`); `0x...` hex barewords; uppercase converted to lowercase; `Config(engine)` and `enhance` removed | Separates internal C++ foreground loops (`hamster_*`, `gerbil_*`) from user‑facing host/OS/target configuration and resolves `coco2` vs `coco3` | §7.1–7.5, §15.y | **decided** (2026‑11‑15) |
 
 **Follow‑up questions Q‑A, Q‑B, Q‑C — answered (2026‑10‑29):** Q‑A keep both Fuzix ports permanently; Q‑B make Hatvan's I/O base configurable (it will not fit in `$FF60‑7E` alone, so `$FF8x` and maybe `$FFEx` as well); Q‑C commit small log excerpts + copy the 0.5 MB TurboOS zip, full logs via `GOLDEN_LOG_DIR`.
 
@@ -1294,3 +1313,9 @@ The v4 expect suites 03–06 are ported as `tests/systests/06_engines_test.sh` (
 **Naming changes (2026-11-14, Strick).**  The Fuzix engine is called **`multicomp09fuzix`** everywhere — `Config(engine)`, `ports.tsv`, the registry, log messages (`[multicomp09fuzix: …]`), the tests and these docs — and has **no aliases** (`multicomp09`, `multicomp09fuxiz`, `fuzix` are gone); the registry's `ports_name` field that bridged the two spellings was removed.  (C++ identifiers and file names such as `setup_multicomp09` and `engines/multicomp09.h` keep the shorter form for now.)  Consequence, handled: an engine name that does not exist used to launch Turbo9OS silently, so a stale `multicomp09` in someone's script would have booted the wrong OS; now **`bye` and `ports check` refuse an unknown name** with `unknown engine "X" (engines: …)`; an empty name still means Turbo9OS.  `ports` is now an ensemble: **`ports profile ?NAME?`** shows or sets the profile (the shortcut `ports COCO` and a bare `ports` are errors).
 
 **Embiggen in plain `gep9` & engine aliases removed (2026-11-15, Strick).**  (1) Plain `gep9` keeps installing the EMBIGGEN MMU range (`$FF40..$FF47` on `TFR4`, `$FFE0..$FFE7` on `COCO`, now listed in `ports.tsv` for both `gep9` and `gep9big` since all `gep*` machines will eventually embiggen by default); the temporary `tolerated` parameter on `IoFinish()` was removed, and `gep9_read_mmap`/`gep9_write_mmap` now index by `(addr - gep9_embiggen_base) & 0x07` so an unaligned override works too.  (2) All remaining engine aliases (`flat`, `deep`, `deep64280`, `hatvan`, `gep9+`, `big6809`, `hatvanbig`) were removed from `engines/registry.h` (`EngineSpec` is now just `{name, setup}`).  (3) Spec §16 statuses updated: R1 and R3 approved, R15 deferred/open, R2 open for incorporating an engine/profile with Diller's I/O addresses alongside our CoCo-compatible addresses.
+
+**`on ... run ... for ... with ...` grammar, 8-engine target table, and `Config(engine)` / `enhance` retirement (2026-11-15, Strick).**  Implements 15.y and R2/R3/R20.
+* **`ports.tsv` & `gen-ports.sh`:** redesigned around four lowercase record types (`target`, `port`, `host`, `map`): 22 `(on, run, for) -> engine` targets across the 4 Hamster (`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and 4 Gerbil (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`) C++ foreground engines; 6 CoCo motherboard reserved ranges (`coco_pia`, `coco_sam`, plus `coco3_gime` and `coco3_vectors` when `on=coco3` uses `gerbil_io`); 95 core `port` rows (including `nitros9l2 for jamesbrown` with Diller's `$FF14/$FF41-$FF46/$FFC0` addresses and `nitros9l2 for coco3` on `tfr9`/`coco2`/`coco3`); and 5 `map e1` rows.
+* **Tcl grammar & flat key-value digestion (`ports_config.h`, `ports_cmd.h`):** `on <host> run <os> ?for <target>? ?with ...?` (plus `run ...` inheriting `on <host>`, and `on ?<host>?`) folds all uppercase to lowercase, prefers `0x...` hex barewords, and compiles transactionally into up to 32 flat key-value pairs (`on`, `run`, `for`, `engine`, `with`, `<dev>=on|off`, `<dev>.<param>=<val>`, including `dw over bitbang baud 9600`).  Both lowercase and uppercase Tcl command names (`on`/`ON`, `run`/`RUN`, `ports`/`PORTS`, `bye`/`BYE`) are registered because `Tcl_CreateCommand` is case-sensitive.
+* **Simplifications:** `ports` now has only **`ports list`** and **`ports check`** (`ports show|set|unset|clear|profile` and `enhance` were removed).  Legacy `Config(engine)` (`CentipedeConfig::engine`) was removed; `menu store`, `ports check`, and `bye` explicitly detect `Config(engine)` and fail with a clear migration hint pointing to `on <host> run <os> for <target>` (preventing stale v4 `/rc/mode*.tcl` files on LittleFS from silently booting Turbo9OS — note S55: the attached TFR/911H still has v4 `/rc/mode2.tcl` and `/rc/mode8.tcl`, so `deep65280.exp` uses bootmode `85` `/pc/mode85.tcl`).
+* **Verification:** `make check-sh`, `make check-io`, `make test-host` (`iomap_test` + `ports_config_test` + Go tests, ASAN/UBSAN clean), `make check-core1`, and all **7 hardware system-test suites on TFR/911H** (`129` checks across suites 01–07, including Turbo9OS, Flat65280, Deep65280, Fuzix, and `07_ports_test.sh` `58/58`).

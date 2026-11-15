@@ -122,14 +122,17 @@ make systest </dev/null > build/systest.log 2>&1; grep -E "FAIL|Total:|Suites|SU
    `[io-map: <engine> matches the plan (profile P, N ranges, M settings)]` at every launch.  Old-vs-new dispatch
    tables were compared entry by entry on the board: identical (512/512) for all table-driven engines.
 4. **No lambda I/O handlers any more** (they cannot be `IN_RAM`); `make check-io` enforces it, no exceptions.
-5. **Port configuration from Tcl** (decisions in spec §15.x): flat key-value RAM-only settings
-   (`lib/devices/ports_config.h`), commands `ports profile ?NAME?`, `ports show|set|unset|clear|check`,
-   `enhance ?DEVICE ?BASE|off??`; `bye` validates the placement first — a conflict, `$FF7F`, an unknown device or
-   profile, or an unknown engine name makes `bye` fail with a message naming both devices and **leaves the board at
-   `TCL>`**.  Engines install at the configured addresses; the embiggen test in the bus loop uses the variable
-   `gep9_embiggen_base` (and both `gep9` and `gep9big` include `embiggen_mmu` in `ports.tsv`).
-6. **Naming:** canonical engine names only (`turbo9os`, `flat65280`, `deep65280`, `gep9`, `gep9big`,
-   `multicomp09fuzix`), no aliases.
+5. **Target & port configuration from Tcl** (decisions in spec §15.x / §15.y): user-facing grammar
+   `on <host> run <os> ?for <target>? ?with ...?` (case-insensitive, `0x...` hex barewords) compiles down into flat
+   lowercase key-value RAM-only settings (`lib/devices/ports_config.h`); `ports` has two subcommands (`ports list`,
+   `ports check`); legacy `Config(engine)` and `enhance` were removed.  `bye` validates the placement, host hardware,
+   and launcher first — a conflict, `$FF7F`, CoCo motherboard collision, wrong host, unimplemented target, or obsolete
+   `Config(engine)` makes `bye` fail with a clear message and **leaves the board at `TCL>`**.  Engines install at the
+   configured addresses; the embiggen test in the bus loop uses `(addr - gep9_embiggen_base) & 0x07` (and both `gep9`
+   and `gep9big` include `embiggen_mmu` in `ports.tsv`).
+6. **Naming:** `(run_os, for_hw)` launchers in `engines/registry.h` (`turbo9os/turbo9sim`, `nitros9l1/flat65280`,
+   `nitros9l2/deep65280`, `hatvan/gep9|gep9big|coco2`, `fuzix/multicomp09`), plus planned targets including
+   `nitros9l2/jamesbrown` (Diller L2 addresses) and `nitros9l2/coco3` (CoCo-compatible L2 on `tfr9`, `coco2`, `coco3`).
 
 ### 3.5 Commits (newest first, v5-related)
 `3d7f886` names/ensemble · `401796a` ports commands · `7a81bfe` spec §15.x · `c26a59b` engines converted ·
@@ -157,7 +160,7 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 | 04 heap | 9 | `heap-free`, runaway loop → catchable "out of memory", memory returns, no reboot |
 | 05 zip | 17 | stored 200 KB + deflated 207 KB entries (md5 equals PC), `source` from zip, `zip get` limits, `multifile` refusal, fragmentation survival |
 | 06 engines (expect) | 4 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Fuzix boot and run commands |
-| 07 ports | 51 | profile/keys, enhancements, gep9/gep9big+Becker clash and fixes, `bye` refusal keeps `TCL>`, `$FF7F`, core overlap, unsupported profile, canonical engine names (all old aliases refused) |
+| 07 ports | 58 | `on/run/for/with` uppercase folding & key-value digestion, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal (conflict, wrong host, unimplemented target, obsolete `Config(engine)`) keeps `TCL>` |
 
 Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing image **skips** that engine):
 `V5_IMG_FLAT_BOOT/DISK` (`nitros9/recipes/flat65280/…`), `V5_IMG_DEEP_BOOT/DISK` (`…/deep65280/…`),
@@ -191,9 +194,9 @@ and running a guest on it.
   device/ports work — `IoMap` ×3, the settings table).  Heap fragments (largest block can be ~51 KB of 67 KB free).
   A single command that allocates more than the 16 KB reserve at once can still abort; C++ `new` failure aborts
   with a message (intended).
-* **Enhancement devices are not implemented** (Becker, audio, RTC, Orchestra-90, info): `enhance becker` only
+* **Enhancement devices are not implemented** (Becker, audio, RTC, Orchestra-90, info): `with e1, becker` only
   *reserves* the range (and says so); the conflict checking is real.
-* `ports` / `enhance` state is RAM only and must be re-set by Tcl every boot (by design).
+* `on` / `run` / `ports` state is RAM only and must be re-set by Tcl every boot (by design).
 * **`IoClaim` still stops the board (`ABORT`)** — only reachable by an internal error that `PortsValidate` should
   have caught.
 * `quick-reflash` still runs `/bin/sh -c cp …` (spec S40/§11.13 wants no shell); picotool unusable without USB
@@ -213,16 +216,15 @@ and running a guest on it.
 
 ## 6. Open questions for Strick (unanswered or awaiting OK)
 
-1. **Spec §16 items (updated 2026-11-15):** R1 approved (`$FF89`, do not use `$FF15`); R3 approved (`E1` =
-   "Enhancement map 1": audio `$FF70/71`, RTC `$FF72–79`, Orchestra-90 `$FF7A/7B`, info `$FF7C/7D`; Becker stays
-   `$FF41/42`); **R15 (`l2fn`) deferred and open to discussion**; **R2 open** — Strick wants both an engine/profile
-   with Diller's I/O addresses (`$FF14`, `$FF41–46`, `$FFC0–C7`) and one with our CoCo-compatible addresses.
-2. **Plain `gep9` and EMBIGGEN:** *Resolved 2026-11-15* — plain `gep9` keeps `$FF40–47` (`$FFE0–E7` on `COCO`), now
+1. **Spec §16 items (updated 2026-11-15):** R1 approved (`$FF89`, do not use `$FF15`); R2 decided (both `jamesbrown`
+   with Diller's I/O addresses and `coco3` with CoCo-compatible addresses); R3 & R20 decided (`on ... run ... for ...
+   with ...` lowercase grammar, `ports list|check`, `Config(engine)` and `enhance` removed); **R15 (`l2fn`) deferred
+   and open to discussion**.
+2. **Plain `gep9` and EMBIGGEN:** *Resolved 2026-11-15* — plain `gep9` keeps `$FF40–47` (`$FFE0–E7` on `for coco2`), now
    in `ports.tsv`, since all `gep*` machines will eventually embiggen by default.
-3. **Other engine aliases:** *Resolved 2026-11-15* — all engine aliases (`flat`, `deep`, `deep64280`, `hatvan`,
-   `gep9+`, `big6809`, `hatvanbig`) removed.
+3. **Other engine aliases:** *Resolved 2026-11-15* — all engine aliases removed; replaced by `(on, run, for)`.
 4. **Rename C++ identifiers/files** that still say `multicomp09`?  And `CentipedeConfig` → `Config`?
-5. **Fold `enhance` into the `ports` ensemble** (`ports enhance becker 0xFF48`) for consistency?
+5. **`enhance` and `ports` subcommands:** *Resolved 2026-11-15* — `enhance` removed; `ports` trimmed to `ports list` and `ports check`.
 6. **Hatvan `COCO` profile (R4)** needs `strickyak/hatvan-os` (kernel *and* `gep9` emulator) built per profile; the
    embiggen base is hard-coded in ~15 places in `hatvan-os` and in minigolf (`cstart.asm` variants,
    `big6809/cstart.go`, `main.go`, `prelude.golf`, tests, and every built binary).  When, and who edits those repos?
@@ -280,7 +282,7 @@ v5/
   build/    generated/ports_gen.h, io-map.md · tfr911h.uf2 · tether · systest-logs/ · host-tests/   (git-ignored)
 ```
 
-Tcl commands added in v5: `centipede heap-free|heap-info|heap-probe`, `ports …`, `enhance …`, checked `bye`.
+Tcl commands added in v5: `centipede heap-free|heap-info|heap-probe`, `on`/`run`, `ports list|check`, checked `bye`.
 Environment: `scripts/env.sh` (POSIX) selects pico-sdk 2.3.0 under the shelf (ignores a stale ambient
 `PICO_SDK_PATH`; override with `V5_PICO_SDK`); Go commands use `GOWORK=off CGO_ENABLED=0`.
 

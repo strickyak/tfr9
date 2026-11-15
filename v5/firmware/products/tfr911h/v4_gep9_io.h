@@ -379,15 +379,15 @@ struct GepVectors {     // system vectors $FFF0..$FFFF, through the paged memory
   }
 };
 
-// Both gep9 and gep9big install the EMBIGGEN range ($FF40..$FF47 on TFR4, $FFE0..$FFE7 on COCO).
-void Install_Gep9_IO(const char* engine) {
+// All gep9/hatvan targets install the EMBIGGEN range (0xff40..0xff47 on gep9/gep9big, 0xffe0..0xffe7 on coco2).
+void Install_Gep9_IO() {
   IoReset();
-  GepConsole::Install(PortBase(engine, "console", 0xFF00));
-  GepDisk::Install(PortBase(engine, "disk", 0xFF10));
-  GepFuseDma::Install(PortBase(engine, "fuse_dma", 0xFF20));
-  GepEmbiggen::Install(PortBase(engine, "embiggen_mmu", 0xFF40));
+  GepConsole::Install(PortBase("console", 0xFF00));
+  GepDisk::Install(PortBase("disk", 0xFF10));
+  GepFuseDma::Install(PortBase("fuse_dma", 0xFF20));
+  GepEmbiggen::Install(PortBase("embiggen_mmu", 0xFF40));
   GepVectors::Install();
-  IoFinish(engine);
+  IoFinish();
 }
 
 #endif  // V4_GEP9_IO_H_

@@ -55,6 +55,6 @@ struct RamVectors {      // $FFF0..$FFFF belong to the engine's RAM; nothing in 
 // again when `bye` launches Turbo9OS, so that port settings made in the meantime take effect.
 void Install_Turbo9os_IO() {
   IoReset();
-  Turbo9SimAcia::Install(PortBase("turbo9os", "turbo9sim_acia", Turbo9SimAcia::kDefaultBase));
+  Turbo9SimAcia::Install(PortBase("turbo9sim_acia", Turbo9SimAcia::kDefaultBase));
   RamVectors::Claim();
 }

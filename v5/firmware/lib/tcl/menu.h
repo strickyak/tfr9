@@ -223,9 +223,9 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         if (val && atoi(val) != 0) centipede_config.trace_reads = true;
 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"engine", 0);
-        if (val) {
-            strncpy((char*)centipede_config.engine, val, sizeof(centipede_config.engine)-1);
-            centipede_config.engine[sizeof(centipede_config.engine)-1] = 0;
+        if (val && val[0]) {
+            Tcl_AppendResult(interp, "Config(engine) is no longer supported; use \"on <host> run <os> for <target>\"", (char*)NULL);
+            return TCL_ERROR;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"flat_img", 0);
         if (val) {
@@ -277,7 +277,6 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_pc", (char*)(centipede_config.floppy_pc ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(centipede_config.trace_writes ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(centipede_config.trace_reads ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"engine", (char*)(centipede_config.engine[0] ? centipede_config.engine : "turbo9os"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"flat_img", (char*)centipede_config.flat_img, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"drive0", (char*)centipede_config.drive0, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"drive1", (char*)centipede_config.drive1, 0);

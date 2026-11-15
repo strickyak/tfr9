@@ -26,11 +26,11 @@ struct FlatVectors {   // $FFF0..$FFFF read from RAM (the 6809 vectors live in t
 
 void Install_Flat65280_IO() {
   IoReset();
-  EmuDsk::Install(PortBase("flat65280", "emudsk", EmuDsk::kDefaultBase));
-  ClockStop::Install(PortBase("flat65280", "clockstop", ClockStop::kDefaultBase));
-  TermAcia::Install(PortBase("flat65280", "acia", TermAcia::kDefaultBase));
+  EmuDsk::Install(PortBase("emudsk", EmuDsk::kDefaultBase));
+  ClockStop::Install(PortBase("clockstop", ClockStop::kDefaultBase));
+  TermAcia::Install(PortBase("acia", TermAcia::kDefaultBase));
   FlatVectors::Install();
-  IoFinish("flat65280");
+  IoFinish();
 }
 
 void setup_flat65280() {
