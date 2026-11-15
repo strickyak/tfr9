@@ -1932,13 +1932,13 @@ static void tcl_repl_task(Coro& self) {
     // v4 slept a fixed 3 s here.  USB re-enumeration plus the PC reopening the port takes a variable time;
     // if the tether was late, /pc/modeN.tcl could not be read, the warning below was dropped (nobody was
     // connected to hear it) and the board sat at TCL> forever (spec S53).  Wait until the host has opened
-    // the port (DTR), up to 20 s, then give the tether a moment to start its handlers.
+    // the port (DTR), up to 20 s, then give the tether a moment (0.3 s) to start its handlers.
     uint32_t waited_ms = 0;
     while (!usb_tether_ok() && waited_ms < 20000) {
       gspoon::SleepMillis(&self, 50);
       waited_ms += 50;
     }
-    gspoon::SleepMillis(&self, 1000);
+    gspoon::SleepMillis(&self, 300);
     cobs_printf("booted_via_rpc: tether connected after %u ms\n", (unsigned)waited_ms);
   }
 

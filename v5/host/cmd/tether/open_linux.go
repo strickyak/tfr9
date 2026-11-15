@@ -150,8 +150,11 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 			portName,
 			syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK,
 			0600)
+	// If the named /dev/ttyACMn is gone (renumbered after a reboot), fall back to the only ttyACM device --
+	// but ONLY when there is exactly one: with two boards attached guessing could open the wrong one.
+	// Boards should be named by /dev/serial/by-id/..., which follows them (see scripts/find-board.sh).
 	if openErr != nil && strings.HasPrefix(portName, "/dev/ttyACM") {
-		if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
+		if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) == 1 {
 			for _, m := range matches {
 				if m != portName {
 					if f, err := os.OpenFile(m, syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0600); err == nil {
@@ -168,29 +171,28 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 		return nil, openErr
 	}
 
-	// Clear the non-blocking flag set above.
-	nonblockErr := syscall.SetNonblock(int(file.Fd()), false)
-	if nonblockErr != nil {
-		return nil, nonblockErr
+	// Keep the descriptor NON-blocking so Go's poller manages it: Close() then interrupts a blocked Read at once,
+	// the port really gets closed (DTR drops), and a reopen raises DTR again.  With a blocking descriptor (what
+	// file.Fd() forces) Close() waits for the reader goroutine's read(2), which may never return on a quiet
+	// tty; the old descriptor then stays open, DTR never toggles, and a board that just restarted never sees
+	// the new session as "connected" (spec S54).  So use SyscallConn().Control, never file.Fd().
+	sc, scErr := file.SyscallConn()
+	if scErr != nil {
+		return nil, scErr
+	}
+	ioctl := func(req uintptr, arg unsafe.Pointer) (errno syscall.Errno) {
+		sc.Control(func(fd uintptr) {
+			_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
+		})
+		return errno
 	}
 
 	t2, optErr := makeTermios2(options)
 	if optErr != nil {
 		return nil, optErr
 	}
-
-	r, _, errno := syscall.Syscall(
-		syscall.SYS_IOCTL,
-		uintptr(file.Fd()),
-		uintptr(kTCSETS2),
-		uintptr(unsafe.Pointer(t2)))
-
-	if errno != 0 {
+	if errno := ioctl(kTCSETS2, unsafe.Pointer(t2)); errno != 0 {
 		return nil, os.NewSyscallError("SYS_IOCTL", errno)
-	}
-
-	if r != 0 {
-		return nil, errors.New("unknown error from SYS_IOCTL")
 	}
 
 	if options.Rs485Enable {
@@ -209,18 +211,8 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 			rs485.flags |= sER_RS485_RTS_AFTER_SEND
 		}
 
-		r, _, errno := syscall.Syscall(
-			syscall.SYS_IOCTL,
-			uintptr(file.Fd()),
-			uintptr(tIOCSRS485),
-			uintptr(unsafe.Pointer(&rs485)))
-
-		if errno != 0 {
+		if errno := ioctl(tIOCSRS485, unsafe.Pointer(&rs485)); errno != 0 {
 			return nil, os.NewSyscallError("SYS_IOCTL (RS485)", errno)
-		}
-
-		if r != 0 {
-			return nil, errors.New("Unknown error from SYS_IOCTL (RS485)")
 		}
 	}
 

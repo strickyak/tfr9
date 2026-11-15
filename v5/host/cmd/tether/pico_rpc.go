@@ -262,14 +262,48 @@ func quickConnect(label string) (chan []byte, func()) {
 		}
 	}()
 
-	// Wait for the connection to stabilize.
-	time.Sleep(1 * time.Second)
+	// Wait briefly for the connection to stabilize.
+	time.Sleep(300 * time.Millisecond)
 
 	disconnect := func() {
-		serialPort.Close()
+		// With the poller-managed descriptor (open_linux.go) Close() interrupts the blocked Read and returns
+		// at once, really closing the port.  On other platforms it may take long, so bound it (spec S54).
+		done := make(chan struct{})
+		go func() { serialPort.Close(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			log.Printf("%s: closing the serial port timed out; continuing", label)
+		}
 	}
 
 	return channelToPico, disconnect
+}
+
+// waitForDeviceReplaced waits until the serial device at path is no longer the device described by orig: it
+// vanished and came back, or it is a different device node now.  After a restart request the board resets
+// within 100 ms, but the host can take 10 s or more to notice and re-enumerate; reconnecting before that
+// attaches to the dying old device and the new session hears nothing.  Returns false if nothing changed
+// within limit (the board did not restart).  If the path cannot be examined at all (Windows COM ports),
+// it just sleeps 3 s and returns true.
+func waitForDeviceReplaced(path string, orig os.FileInfo, limit time.Duration) bool {
+	if orig == nil {
+		time.Sleep(3 * time.Second)
+		return true
+	}
+	deadline := time.Now().Add(limit)
+	sawGone := false
+	for time.Now().Before(deadline) {
+		st, err := os.Stat(path)
+		if err != nil {
+			sawGone = true
+		} else if !os.SameFile(orig, st) || sawGone {
+			time.Sleep(300 * time.Millisecond) // let the new device settle
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 // RunQuickPing opens the USB serial with retries, sends a single PicoRPC
@@ -334,8 +368,16 @@ func RunQuickRestart(bootMode uint32, shouldExit bool) {
 	}
 	// Close the serial port so Linux can cleanly re-enumerate
 	// /dev/ttyACM0 if the Pico reboots.
+	orig, _ := os.Stat(*WIRE)
 	disconnect()
-	time.Sleep(3 * time.Second)
+	// The board resets 100 ms after its reply.  Often the host re-enumerates it (the device node is replaced);
+	// sometimes the reset is so quick the host never notices.  Either way the port must be closed (done above,
+	// and Close() is now interruptible) and reopened, which raises DTR for the new firmware.  Wait for the
+	// node to be replaced, but not forever, and never less than 2 s.
+	time.Sleep(500 * time.Millisecond)
+	if !waitForDeviceReplaced(*WIRE, orig, 8*time.Second) {
+		log.Printf("%s: the device node did not change within 8 s (fast reset?); reopening anyway", label)
+	}
 	if strings.HasPrefix(*WIRE, "/dev/serial/by-id/") {
 		// A by-id name follows the board through re-enumeration: keep it, never guess another device.
 	} else if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {

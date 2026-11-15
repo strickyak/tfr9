@@ -42,6 +42,15 @@ run_engine() {   # run_engine NAME DESCRIPTION [source:dest ...]
   name=$1; desc=$2; shift 2
   case " ${ENGINES:-turbo9os flat65280 deep65280 fuzix} " in *" $name "*) ;; *) return 0 ;; esac
   log_test "$desc"
+  # The board must answer an RPC before we start: it may still be rebooting or re-enumerating after the
+  # previous engine, and an expect session started too early just hangs.
+  _ok=0; _try=0
+  while [ $_try -lt 8 ]; do
+    run_tether --quick-ping=1
+    case "$TETHER_STDOUT" in *"quick-ping: OK"*) _ok=1; break ;; esac
+    sleep 2; _try=$((_try + 1))
+  done
+  [ $_ok -eq 1 ] || { fail "$name: board does not answer ping before the test"; return 0; }
   if ! stage "$@"; then skip "$name (images not available; see the variables at the top of this file)"; return 0; fi
   out=$(TETHER="$TETHER" PC_DIR="$PC_DIR" WIRE="$WIRE" expect "$SYSTEST_DIR/engines/$name.exp" < /dev/null 2>&1)
   rc=$?

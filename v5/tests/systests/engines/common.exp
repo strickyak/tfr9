@@ -6,6 +6,10 @@ set wire $env(WIRE)
 
 proc fail_and_exit {msg} {
     puts stderr "  FAIL: $msg"
+    # SIGQUIT makes tether (Go) dump all goroutine stacks into the transcript: shows where it was stuck.
+    catch {exec kill -QUIT [exp_pid]}
+    set timeout 3
+    catch {expect eof}
     catch {exec kill -INT [exp_pid]}
     catch {close}
     catch {wait}
