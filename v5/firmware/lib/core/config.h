@@ -1,7 +1,7 @@
-#ifndef FIRMWARE_H_
-#define FIRMWARE_H_
+#ifndef V5_LIB_CORE_CONFIG_H_
+#define V5_LIB_CORE_CONFIG_H_
 
-struct CentipedeConfig {
+struct Config {
     volatile bool    ram_64k;
     volatile bool    rom_disk11;
     volatile bool    floppy_fd;
@@ -34,6 +34,6 @@ struct CentipedeConfig {
     }
 };
 
-CentipedeConfig centipede_config;
+inline Config g_config;
 
-#endif //// FIRMWARE_H_
+#endif  // V5_LIB_CORE_CONFIG_H_

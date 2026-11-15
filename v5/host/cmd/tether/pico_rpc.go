@@ -19,7 +19,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -390,10 +389,99 @@ func RunQuickRestart(bootMode uint32, shouldExit bool) {
 	}
 }
 
+// findBootselMounts locates mounted RP2040/RP2350 BOOTSEL volumes (verified by INFO_UF2.TXT)
+// across Linux (/media, /run/media) and macOS (/Volumes) without invoking a shell (spec S40).
+func findBootselMounts() []string {
+	var patterns []string
+	if user := os.Getenv("USER"); user != "" {
+		patterns = append(patterns,
+			filepath.Join("/media", user, "RP*"),
+			filepath.Join("/run/media", user, "RP*"),
+		)
+	}
+	patterns = append(patterns,
+		"/media/*/RP*",
+		"/run/media/*/RP*",
+		"/Volumes/RP*",
+	)
+
+	seen := make(map[string]bool)
+	var mounts []string
+	for _, pat := range patterns {
+		matches, err := filepath.Glob(pat)
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			clean := filepath.Clean(m)
+			if seen[clean] {
+				continue
+			}
+			st, err := os.Stat(clean)
+			if err != nil || !st.IsDir() {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(clean, "INFO_UF2.TXT")); err != nil {
+				continue
+			}
+			seen[clean] = true
+			mounts = append(mounts, clean)
+		}
+	}
+	return mounts
+}
+
+// copyUf2ToMount copies uf2path into mountDir directly in Go without spawning a shell.
+func copyUf2ToMount(uf2path, mountDir string) (string, error) {
+	srcInfo, err := os.Stat(uf2path)
+	if err != nil {
+		return "", err
+	}
+	if srcInfo.IsDir() || srcInfo.Size() == 0 {
+		return "", fmt.Errorf("invalid UF2 file %q", uf2path)
+	}
+	src, err := os.Open(uf2path)
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+
+	dstPath := filepath.Join(mountDir, filepath.Base(uf2path))
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return dstPath, err
+	}
+	written, copyErr := io.Copy(dst, src)
+	syncErr := dst.Sync()
+	closeErr := dst.Close()
+	if copyErr != nil {
+		return dstPath, copyErr
+	}
+	if written != srcInfo.Size() {
+		return dstPath, fmt.Errorf("short write (%d of %d bytes)", written, srcInfo.Size())
+	}
+	// When the final UF2 block reaches BOOTSEL, the RP2350 may reboot and detach USB mass storage
+	// while Sync/Close finishes; treat Sync/Close errors as fatal only if BOOTSEL is still mounted.
+	if syncErr != nil || closeErr != nil {
+		if _, stErr := os.Stat(filepath.Join(mountDir, "INFO_UF2.TXT")); stErr == nil {
+			if syncErr != nil {
+				return dstPath, syncErr
+			}
+			return dstPath, closeErr
+		}
+	}
+	return dstPath, nil
+}
+
 // RunQuickReflash sends a reflash RPC to enter BOOTSEL mode, waits for
 // the Pico to appear as a USB mass storage device, copies the UF2 file
-// to it, and waits for the automatic unmount.
+// to it directly (no /bin/sh), and waits for reboot/unmount.
 func RunQuickReflash(uf2path string) {
+	if st, err := os.Stat(uf2path); err != nil || st.IsDir() || st.Size() == 0 {
+		fmt.Fprintf(os.Stderr, "quick-reflash: invalid UF2 path %q: %v\n", uf2path, err)
+		os.Exit(1)
+	}
+
 	ch, disconnect := quickConnect("quick-reflash")
 	resp, err := PicoRpcCall(ch, "reflash", nil, 5*time.Second)
 	if err != nil {
@@ -405,27 +493,45 @@ func RunQuickReflash(uf2path string) {
 		os.Exit(1)
 	}
 
-	// Close the serial port so Linux can cleanly re-enumerate
-	// /dev/ttyACM0 when the Pico reboots after flashing.
+	// Close the serial port so the host can cleanly re-enumerate when the Pico reboots.
 	disconnect()
 
-	fmt.Printf("quick-reflash: Pico entering BOOTSEL mode, waiting 5s for mount...\n")
-	time.Sleep(5 * time.Second)
+	fmt.Printf("quick-reflash: Pico entering BOOTSEL mode, waiting for mount...\n")
+	time.Sleep(1 * time.Second)
+	var mounts []string
+	deadline := time.Now().Add(12 * time.Second)
+	for time.Now().Before(deadline) {
+		mounts = findBootselMounts()
+		if len(mounts) > 0 {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if len(mounts) == 0 {
+		fmt.Fprintf(os.Stderr, "quick-reflash: FAIL: no mounted BOOTSEL volume (INFO_UF2.TXT) found within 13s\n")
+		os.Exit(1)
+	}
+	if len(mounts) > 1 {
+		fmt.Fprintf(os.Stderr, "quick-reflash: FAIL: multiple BOOTSEL volumes mounted (%v); refusing ambiguous flash\n", mounts)
+		os.Exit(1)
+	}
 
-	// Copy the UF2 file to the mounted RP2350 mass storage device.
-	cpCmd := fmt.Sprintf("cp -v '%s' /media/${USER}/RP*", uf2path)
-	fmt.Printf("quick-reflash: %s\n", cpCmd)
-	cmd := exec.Command("/bin/sh", "-c", cpCmd)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
+	dstPath, err := copyUf2ToMount(uf2path, mounts[0])
+	fmt.Printf("quick-reflash: %s -> %s\n", uf2path, dstPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "quick-reflash: copy FAIL: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("quick-reflash: copy done, waiting 5s for unmount...\n")
-	time.Sleep(5 * time.Second)
+	fmt.Printf("quick-reflash: copy done, waiting for reboot...\n")
+	unmountDeadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(unmountDeadline) {
+		if _, err := os.Stat(filepath.Join(mounts[0], "INFO_UF2.TXT")); err != nil {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	time.Sleep(2 * time.Second)
 	fmt.Printf("quick-reflash: OK\n")
 	os.Exit(0)
 }

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -96,4 +99,40 @@ func TestCpsToTicks(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyUf2ToMountNoShell(t *testing.T) {
+	srcDir := t.TempDir()
+	mntDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mntDir, "INFO_UF2.TXT"), []byte("UF2 Bootloader"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Path with spaces and single quotes that would break `/bin/sh -c "cp '%s' ..."`
+	srcPath := filepath.Join(srcDir, "test 'quoted' image.uf2")
+	payload := bytes.Repeat([]byte{0x0A, 0x32, 0x46, 0x55}, 128)
+	if err := os.WriteFile(srcPath, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dstPath, err := copyUf2ToMount(srcPath, mntDir)
+	if err != nil {
+		t.Fatalf("copyUf2ToMount failed: %v", err)
+	}
+	got, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q): %v", dstPath, err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("copied UF2 content mismatch (%d vs %d bytes)", len(got), len(payload))
+	}
+
+	// Empty UF2 file must be rejected.
+	emptyPath := filepath.Join(srcDir, "empty.uf2")
+	if err := os.WriteFile(emptyPath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := copyUf2ToMount(emptyPath, mntDir); err == nil {
+		t.Fatalf("expected error on empty UF2 file")
+	}
+}
+
 

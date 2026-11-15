@@ -89,21 +89,6 @@ byte IN_RAM gep9_read_term_out(uint) { return 0; }
 void IN_RAM gep9_write_term_out(uint, byte d) { Say(d); }
 
 byte IN_RAM gep9_read_term_in(uint) {
-  static bool reported_shell_stats = false;
-  if (!reported_shell_stats && gep9_mmu.task_tables[3] != nullptr && gep9_mmu.CountTaskFrames(3) > 0) {
-    reported_shell_stats = true;
-    cobs_printf("\n[gep9 shell running: %d / 1024 physical pages allocated (%.1f KB / 256 KB)]\n",
-                (int)gep9_mmu.allocated_count,
-                (float)(gep9_mmu.allocated_count * 256) / 1024.0f);
-    for (int t = 0; t < 16; t++) {
-      int cnt = gep9_mmu.CountTaskFrames(t);
-      if (cnt > 0) {
-        cobs_printf("  Task %2d: %3d pages (%5d bytes / %4.1f KB)\n",
-                    t, cnt, cnt * 256, (float)(cnt * 256) / 1024.0f);
-      }
-    }
-  }
-
   if (gep9_rx_has_char) {
     byte c = gep9_rx_char;
     gep9_rx_has_char = false;
@@ -313,8 +298,45 @@ void IN_RAM gep9_write_vector(uint addr, byte d) {
 // ── Devices and the register table installer ──
 // Each device claims its range in the IoMap and stores NAMED IN_RAM handlers (see lib/devices/io_install.h).
 
+inline bool gep9_reported_shell_stats = false;
+
+inline void gep9_poll_rx() {
+  if (!gep9_reported_shell_stats && gep9_mmu.task_tables[3] != nullptr && gep9_mmu.CountTaskFrames(3) > 0) {
+    gep9_reported_shell_stats = true;
+    cobs_printf("\n[gep9 shell running: %d / 1024 physical pages allocated (%.1f KB / 256 KB)]\n",
+                (int)gep9_mmu.allocated_count,
+                (float)(gep9_mmu.allocated_count * 256) / 1024.0f);
+    for (int t = 0; t < 16; t++) {
+      int cnt = gep9_mmu.CountTaskFrames(t);
+      if (cnt > 0) {
+        cobs_printf("  Task %2d: %3d pages (%5d bytes / %4.1f KB)\n",
+                    t, cnt, cnt * 256, (float)(cnt * 256) / 1024.0f);
+      }
+    }
+  }
+  if (!gep9_rx_has_char && term_input.NumBuffered() > 0) {
+    gep9_rx_char = term_input.Take();
+    gep9_rx_has_char = true;
+    gep9_io.reg_stat |= 0x02; // Set Term.RxReady
+    gep9_update_irq_pin();
+  }
+}
+
+void IN_RAM gep9_tick_60hz() {
+  static uint8_t gep9_div = 0;
+  if (++gep9_div >= 12) { // 60 Hz / 12 = 5 Hz (matches emulator default tick-hz)
+    gep9_div = 0;
+    gep9_io.reg_stat |= 0x01; // Set Timer.Ready flag
+    gep9_update_irq_pin();
+  }
+}
+
 struct GepConsole {     // console and diagnostics, $FF00..$FF05
   static void Install(uint16_t base = 0xFF00) {
+    gep9_io.reg_stat = 0;
+    gep9_io.reg_ctrl = 0;
+    gep9_rx_has_char = false;
+    gep9_reported_shell_stats = false;
     IoClaim(base, base + 5, "console");
     IoSet(base + 0, gep9_read_term_out, gep9_write_term_out);
     IoSet(base + 1, gep9_read_term_in,  gep9_write_term_in);
@@ -322,6 +344,8 @@ struct GepConsole {     // console and diagnostics, $FF00..$FF05
     IoSet(base + 3, gep9_read_reg_ctrl, gep9_write_reg_ctrl);
     IoSet(base + 4, gep9_read_logchar,  gep9_write_logchar);
     IoSet(base + 5, gep9_read_exit,     gep9_write_exit);
+    g_rx_poll_fn = gep9_poll_rx;
+    g_timer_60hz_fn = gep9_tick_60hz;
   }
 };
 

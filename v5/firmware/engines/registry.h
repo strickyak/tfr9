@@ -10,11 +10,11 @@
 struct TargetLauncher {
   const char* run_os;
   const char* for_hw;
-  void (*setup)();             // nullptr: nothing to set up (Turbo9OS is built in)
+  void (*setup)();             // core-0 setup function run before launching core 1
 };
 
 static const TargetLauncher kLaunchers[] = {
-  {"turbo9os",  "turbo9sim",   nullptr},
+  {"turbo9os",  "turbo9sim",   setup_turbo9os},
   {"nitros9l1", "flat65280",   setup_flat65280},
   {"nitros9l2", "deep65280",   setup_deep65280},
   {"hatvan",    "gep9",        setup_gep9},

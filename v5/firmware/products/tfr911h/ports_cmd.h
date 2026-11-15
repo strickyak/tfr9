@@ -37,7 +37,7 @@ static int ports_check_now(Tcl_Interp* interp, const char* who, bool for_launch)
                        "\", but this hardware is \"", kBoardHost, "\"", (char*)NULL);
       return TCL_ERROR;
     }
-    if (!FindLauncher(tgt->run_os, tgt->for_hw)) {
+    if (!FindLauncher(tgt->run_os, tgt->for_hw) || !FindHamsterEngine(tgt->engine)) {
       Tcl_AppendResult(interp, who, ": target \"", tgt->run_os, " for ", tgt->for_hw,
                        "\" is not implemented in this firmware yet", (char*)NULL);
       return TCL_ERROR;

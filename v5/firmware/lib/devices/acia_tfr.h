@@ -38,11 +38,17 @@ void IN_RAM acia_write_control(uint addr, byte data) {
 struct Turbo9SimAcia {   // Turbo9Sim's ACIA: tx data, rx data, status, control at $FF00..$FF03
   static constexpr uint16_t kDefaultBase = 0xFF00;
   static void Install(uint16_t base = kDefaultBase) {
+    sim_timer_irq = false;
+    sim_rx_ready_irq = false;
+    sim_status_reg = 0;
+    sim_control_reg = 0;
     IoClaim(base, base + 3, "turbo9sim_acia");
     IoSet(base + 0, acia_read_tx,      acia_write_tx);
     IoSet(base + 1, acia_read_rx,      acia_write_rx);
     IoSet(base + 2, acia_read_status,  acia_write_status);
     IoSet(base + 3, acia_read_control, acia_write_control);
+    g_rx_poll_fn = turbo9sim_poll_rx;
+    g_timer_60hz_fn = turbo9sim_tick_60hz;
   }
 };
 

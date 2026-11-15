@@ -10,11 +10,13 @@ see §1).  Time of writing: 2026-11-14 ≈ 23:45.
 ## 0. One-paragraph summary
 
 v5 is a copy-then-modify of v4 (`../v4/`, never touched).  The TFR/911H firmware, a unified Go `tether`, the test
-harness and a new device/port architecture are in place and **verified on real hardware**: seven system-test suites
-(122 checks) pass, and the engines Turbo9OS, Flat65280 (NitrOS-9 L1), Deep65280 (NitrOS-9 L2) and Fuzix boot and
-talk.  Along the way we fixed a pile of latent v4 bugs (hangs, memory, restart races).  **Not done:** the Centipede
-product, FujiNet/Becker/audio devices, TurboLab, the flash-free core-1 work, policy-template foregrounds, and —
-important — **gep9/gep9big have not been re-verified at run time since the port-configuration change** (§5.1).
+harness, the `on/run/for/with` device/port architecture, the **4 policy-template `IN_RAM` Hamster foregrounds**
+(`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`), **0 core-1 SRAM→flash calls** (`make check-core1`
+strict), shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on
+real hardware**: seven system-test suites (129 checks) pass, and Turbo9OS, Flat65280 (NitrOS-9 L1), Deep65280
+(NitrOS-9 L2) and Fuzix boot and talk (`run_gep9.sh` reaches `--  Hatvan OS`, full interactive Hatvan recipe still to
+finish).  **Not done:** the Centipede product (Phase 4), FujiNet/Becker/audio enhancement devices (Phase 5), guest
+kit/generated port headers, and TurboLab (Phase 6).
 
 ---
 
@@ -168,8 +170,9 @@ Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing
 `tests/systests/pcfix/`; full per-engine transcripts land in `build/systest-logs/` (they include a goroutine dump
 when tether times out).
 
-Other checks: `make check-sh`, `make check-io`, `make check-core1` (reports flash calls from core-1 code; 13
-findings today; `-s` strict mode fails until fixed), `scripts/elf-parity.sh`.
+Other checks: `make check-sh`, `make check-io`, `make check-core1` (strict `-s`: **0** flash calls from core-1 SRAM
+functions, enforced on every `make tfr911h`), `scripts/check-flash-size.sh` (`< 4 MB` LittleFS boundary, enforced on
+every `make tfr911h`), `scripts/elf-parity.sh`.
 
 **Not covered by any automated test:** gep9/gep9big guests, Centipede, anything on a real CoCo, moving a core device
 and running a guest on it.
@@ -188,19 +191,17 @@ and running a guest on it.
    hang).  Big pak entries should be stored.
 
 ### 5.2 Known quirks (understood, not fixed)
-* **`multicomp09fuzix` leaves the Turbo9Sim ACIA handlers installed at `$FF00–03`** (it never clears the tables).
-  Harmless today; a stale claim for any future device at `$FF00`.
-* **Heap is small:** ~64 KB free after boot (`centipede heap-info`: free=63 928 on 2026-11-14; was 68 496 before the
-  device/ports work — `IoMap` ×3, the settings table).  Heap fragments (largest block can be ~51 KB of 67 KB free).
-  A single command that allocates more than the 16 KB reserve at once can still abort; C++ `new` failure aborts
+* **Heap is small:** ~63.5 KB free after boot (`centipede heap-info`: `free=63528` on 2026-11-15 after placing all 4
+  `IN_RAM` Hamster foregrounds and `Gep9MMU` allocators in SRAM).  Heap fragments (largest block can be ~51 KB of 67 KB
+  free).  A single command that allocates more than the 16 KB reserve at once can still abort; C++ `new` failure aborts
   with a message (intended).
 * **Enhancement devices are not implemented** (Becker, audio, RTC, Orchestra-90, info): `with e1, becker` only
   *reserves* the range (and says so); the conflict checking is real.
 * `on` / `run` / `ports` state is RAM only and must be re-set by Tcl every boot (by design).
 * **`IoClaim` still stops the board (`ABORT`)** — only reachable by an internal error that `PortsValidate` should
   have caught.
-* `quick-reflash` still runs `/bin/sh -c cp …` (spec S40/§11.13 wants no shell); picotool unusable without USB
-  permissions.
+* picotool is unusable without USB permissions (`quick-reflash` now copies directly in Go without `/bin/sh`, verifying
+  `INFO_UF2.TXT` and refusing ambiguous multi-board BOOTSEL mounts).
 * tether: many files fail `gofmt -l`, `go vet` says "unreachable code" at `tconsole.go:1710` — inherited from v4.
 * The restart/engine suite flaked badly before S54; after the fix the last several full runs passed, but it was not
   measured over many runs.  If a spawn prints nothing, look at the goroutine dump in `build/systest-logs/`.
@@ -209,8 +210,8 @@ and running a guest on it.
 * The 30 000-distinct-variables case now gives a Tcl error; a script that makes one huge string in one command could
   still abort.
 * `TCL_MEM_DEBUG=1` is on in the product build (decided "for now"; revisit before release).
-* C++ identifiers/files keep the short name (`setup_multicomp09`, `engines/multicomp09.h`); the config struct is
-  still `CentipedeConfig` / `centipede_config` (Q11 said rename to `Config`).
+* C++ identifiers/files keep the short name (`setup_multicomp09`, `engines/multicomp09.h`); `CentipedeConfig` /
+  `centipede_config` has been renamed to `Config` / `g_config`.
 
 ---
 
@@ -241,17 +242,10 @@ and running a guest on it.
 
 ## 7. Next steps (suggested order)
 
-1. **Verify gep9/gep9big** (§5.1.1): get a boot recipe from hatvan-os, add a suite (08) and run it; decide §6.2.
-2. **Finish Phase 3** (spec §12):
-   * per-engine `IN_RAM` foregrounds with **policy templates** (not CRTP; spec §5.5, Appendices C/D) — `guts.h` is
-     still the v4 CRTP `Guts<T>`;
-   * **remove the 13 flash calls from core-1 code** (`make check-core1 -s`; the gep9 cluster —
-     `Engine__Foreground`, `gep9_read_term_in`, `gep9_write_dma_count`, `gep9_write_vector` → `cobs_printf`,
-     `sleep_us`, `Gep9MMU::Alloc*`; idea: pre-allocated frame pool, no `cobs_printf`/`sleep_us` on the bus path) —
-     needs the gep9 test first;
+1. **Remaining Phase 3 items:**
    * generate the guest definitions (NitrOS-9 `.d`, Go `gep9` table) from `ports.tsv`;
-   * rename `CentipedeConfig` → `Config`; add the post-build check that the image ends below the LittleFS offset
-     (4 MB); `third_party/PATCHES.md` upstream audit; remove the duplicate `flash-label.h`; Linux `openat2` for `/pc`.
+   * `third_party/PATCHES.md` upstream audit; Linux `openat2` (`RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`) fast path for `/pc`;
+   * debug `run_gep9.sh` past `--  Hatvan OS` when ready and add an automated `hatvan` systest.
 3. **Phase 4 — Centipede 32z product** (`firmware/products/centipede32z`, Gerbil bus, coco2/coco3/fuzix_coco2
    engines, board header, centiscope fix S32, merge the S27–S29 hooks of `pico_rpc.h`/`tcl_commands.h`/
    `keyboard_injector.h`/`rtc.h`).  The Centipede board is on `/dev/ttyACM0`; **never flash it without asking**.

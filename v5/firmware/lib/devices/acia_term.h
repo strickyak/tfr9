@@ -30,11 +30,21 @@ void IN_RAM flat65280_acia_write_tx(uint, byte d) {
 }
 
 
+inline void term_acia_poll_rx() {
+  if (!flat65280_rx_has_char && term_input.NumBuffered() > 0) {
+    flat65280_rx_char = term_input.Take();
+    flat65280_rx_has_char = true;
+  }
+}
+
 struct TermAcia {
   static constexpr uint16_t kDefaultBase = 0xFF88;
   static void Install(uint16_t base = kDefaultBase) {
+    flat65280_acia_ctrl = 0;
+    flat65280_rx_has_char = false;
     IoClaim(base, base + 1, "acia");
     IoSet(base + 0, flat65280_acia_read_status, flat65280_acia_write_ctrl);
     IoSet(base + 1, flat65280_acia_read_rx,     flat65280_acia_write_tx);
+    g_rx_poll_fn = term_acia_poll_rx;
   }
 };

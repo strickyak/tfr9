@@ -116,42 +116,21 @@ void IN_RAM tfr911_background() {
         const TargetSpec* active_tgt = nullptr;
         ResolveActiveTarget(g_port_settings, &active_tgt, kBoardHost);
         const TargetLauncher* launcher = active_tgt ? FindLauncher(active_tgt->run_os, active_tgt->for_hw) : nullptr;
-        if (launcher && launcher->setup) {
-          launcher->setup();
-        } else {
-          // Turbo9OS (built in): install its I/O now (settings may have changed since startup) and report it.
-          Install_Turbo9os_IO();
-          IoFinish();
+        if (!launcher || !launcher->setup) {
+          centipede_abort("bye: missing target launcher");
+        }
+        launcher->setup();
+
+        ForegroundFn fg = FindHamsterEngine(active_tgt->engine);
+        if (!fg) {
+          centipede_abort("bye: unknown hamster engine");
         }
 
-        foreground_running = false;
-        cobs_printf("[bye: launching core1...]\n");
-        multicore_launch_core1(Engine__Foreground);
+        foreground_running.store(false, std::memory_order_relaxed);
+        cobs_printf("[bye: launching core1 (%s)...]\n", active_tgt->engine);
+        multicore_launch_core1(fg);
 
-        // Drain ROM writes from fg2bg while waiting for foreground.
-        // Install_OS pushes ~34K FG2BG_WRITE entries.
-        // sleep_ms(1) gives Core 1 time to grab USB mutex for prints.
-        while (!foreground_running) {
-          uint chore = 0;
-          while (fg2bg.pop(chore)) {
-            uint chore_num = chore >> 24;
-            byte chore_byte = chore & 0xFF;
-            switch (chore_num) {
-              case FG2BG_PUTCHAR:
-                if (chore_byte) putbyte(chore_byte);
-                break;
-              case FG2BG_WRITE: {
-                unsigned char pkt[4] = {C_RAM2_WRITE,
-                    (unsigned char)(chore >> 16),
-                    (unsigned char)(chore >> 8),
-                    (unsigned char)chore};
-                CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
-                break;
-              }
-              default:
-                break;
-            }
-          }
+        while (!foreground_running.load(std::memory_order_acquire)) {
           sleep_ms(1);
         }
 
@@ -184,31 +163,10 @@ void IN_RAM tfr911_background() {
       coro_resume(&drain_coro);
       PumpUsbCobs();
 
-      // Deliver terminal input to 6309 ACIA / GEP9 emulator
+      // Deliver terminal input to the active engine's RX hook
       PollTermInput();
-      if (current_engine == ENGINE_MULTICOMP09) {
-        if (!mc_rx_has_char && term_input.NumBuffered() > 0) {
-          mc_rx_char = term_input.Take();
-          mc_rx_has_char = true;
-        }
-      } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
-        if (!gep9_rx_has_char && term_input.NumBuffered() > 0) {
-          gep9_rx_char = term_input.Take();
-          gep9_rx_has_char = true;
-          gep9_io.reg_stat |= 0x02; // Set Term.RxReady
-          gep9_update_irq_pin();
-        }
-      } else if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
-        if (!flat65280_rx_has_char && term_input.NumBuffered() > 0) {
-          flat65280_rx_char = term_input.Take();
-          flat65280_rx_has_char = true;
-        }
-      } else {
-        if (Engine::Turbo9sim_CanRx()) {
-          if (term_input.NumBuffered() > 0) {
-            Engine::Turbo9sim_SetRx(term_input.Take());
-          }
-        }
+      if (g_rx_poll_fn) {
+        g_rx_poll_fn();
       }
 
       periodic_status();

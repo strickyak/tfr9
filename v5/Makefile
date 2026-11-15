@@ -46,7 +46,7 @@ check-io:
 	@sh scripts/check-no-lambda-io.sh
 
 check-core1:
-	@sh scripts/check-core1-sram.sh build/tfr911h/tfr911h_v4.elf
+	@V5=$(CURDIR); . scripts/env.sh; sh scripts/check-core1-sram.sh -s build/tfr911h/tfr911h_v4.elf
 
 check-sh:
 	@sh scripts/check-sh.sh
@@ -59,6 +59,8 @@ tfr911h: gen-ports
 	  || { tail -20 build/logs/tfr911h-cmake.log; exit 1; }; \
 	cmake --build build/tfr911h -j $(JOBS) >build/logs/tfr911h-make.log 2>&1 \
 	  || { grep -n -E 'error|Error' build/logs/tfr911h-make.log | head -30; exit 1; }; \
+	sh scripts/check-flash-size.sh build/tfr911h/tfr911h_v4.elf; \
+	sh scripts/check-core1-sram.sh -s build/tfr911h/tfr911h_v4.elf; \
 	cp build/tfr911h/tfr911h_v4.uf2 build/tfr911h.uf2; \
 	arm-none-eabi-size build/tfr911h/tfr911h_v4.elf; ls -l build/tfr911h.uf2
 

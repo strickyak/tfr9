@@ -201,26 +201,26 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
             return TCL_ERROR;
         }
         const char* arr = argv[2];
-        centipede_config.SetAll(false);
+        g_config.SetAll(false);
         const char* val;
         
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"ram_64k", 0);
-        if (val && atoi(val) != 0) centipede_config.ram_64k = true;
+        if (val && atoi(val) != 0) g_config.ram_64k = true;
         
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"rom_disk11", 0);
-        if (val && atoi(val) != 0) centipede_config.rom_disk11 = true;
+        if (val && atoi(val) != 0) g_config.rom_disk11 = true;
         
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"floppy_fd", 0);
-        if (val && atoi(val) != 0) centipede_config.floppy_fd = true;
+        if (val && atoi(val) != 0) g_config.floppy_fd = true;
 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"floppy_pc", 0);
-        if (val && atoi(val) != 0) centipede_config.floppy_pc = true;
+        if (val && atoi(val) != 0) g_config.floppy_pc = true;
 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"trace_writes", 0);
-        if (val && atoi(val) != 0) centipede_config.trace_writes = true;
+        if (val && atoi(val) != 0) g_config.trace_writes = true;
         
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"trace_reads", 0);
-        if (val && atoi(val) != 0) centipede_config.trace_reads = true;
+        if (val && atoi(val) != 0) g_config.trace_reads = true;
 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"engine", 0);
         if (val && val[0]) {
@@ -229,38 +229,38 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"flat_img", 0);
         if (val) {
-            strncpy((char*)centipede_config.flat_img, val, sizeof(centipede_config.flat_img)-1);
-            centipede_config.flat_img[sizeof(centipede_config.flat_img)-1] = 0;
+            strncpy((char*)g_config.flat_img, val, sizeof(g_config.flat_img)-1);
+            g_config.flat_img[sizeof(g_config.flat_img)-1] = 0;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive0", 0);
         if (val) {
-            strncpy((char*)centipede_config.drive0, val, sizeof(centipede_config.drive0)-1);
-            centipede_config.drive0[sizeof(centipede_config.drive0)-1] = 0;
+            strncpy((char*)g_config.drive0, val, sizeof(g_config.drive0)-1);
+            g_config.drive0[sizeof(g_config.drive0)-1] = 0;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive1", 0);
         if (val) {
-            strncpy((char*)centipede_config.drive1, val, sizeof(centipede_config.drive1)-1);
-            centipede_config.drive1[sizeof(centipede_config.drive1)-1] = 0;
+            strncpy((char*)g_config.drive1, val, sizeof(g_config.drive1)-1);
+            g_config.drive1[sizeof(g_config.drive1)-1] = 0;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive2", 0);
         if (val) {
-            strncpy((char*)centipede_config.drive2, val, sizeof(centipede_config.drive2)-1);
-            centipede_config.drive2[sizeof(centipede_config.drive2)-1] = 0;
+            strncpy((char*)g_config.drive2, val, sizeof(g_config.drive2)-1);
+            g_config.drive2[sizeof(g_config.drive2)-1] = 0;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"drive3", 0);
         if (val) {
-            strncpy((char*)centipede_config.drive3, val, sizeof(centipede_config.drive3)-1);
-            centipede_config.drive3[sizeof(centipede_config.drive3)-1] = 0;
+            strncpy((char*)g_config.drive3, val, sizeof(g_config.drive3)-1);
+            g_config.drive3[sizeof(g_config.drive3)-1] = 0;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"task1", 0);
         if (val) {
-            strncpy((char*)centipede_config.task1, val, sizeof(centipede_config.task1)-1);
-            centipede_config.task1[sizeof(centipede_config.task1)-1] = 0;
+            strncpy((char*)g_config.task1, val, sizeof(g_config.task1)-1);
+            g_config.task1[sizeof(g_config.task1)-1] = 0;
         }
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"task2", 0);
         if (val) {
-            strncpy((char*)centipede_config.task2, val, sizeof(centipede_config.task2)-1);
-            centipede_config.task2[sizeof(centipede_config.task2)-1] = 0;
+            strncpy((char*)g_config.task2, val, sizeof(g_config.task2)-1);
+            g_config.task2[sizeof(g_config.task2)-1] = 0;
         }
 
         set_floppy_names();
@@ -271,19 +271,19 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
             return TCL_ERROR;
         }
         const char* arr = argv[2];
-        Tcl_SetVar2(interp, (char*)arr, (char*)"ram_64k", (char*)(centipede_config.ram_64k ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"rom_disk11", (char*)(centipede_config.rom_disk11 ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_fd", (char*)(centipede_config.floppy_fd ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_pc", (char*)(centipede_config.floppy_pc ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(centipede_config.trace_writes ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(centipede_config.trace_reads ? "1" : "0"), 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"flat_img", (char*)centipede_config.flat_img, 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"drive0", (char*)centipede_config.drive0, 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"drive1", (char*)centipede_config.drive1, 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"drive2", (char*)centipede_config.drive2, 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"drive3", (char*)centipede_config.drive3, 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"task1", (char*)centipede_config.task1, 0);
-        Tcl_SetVar2(interp, (char*)arr, (char*)"task2", (char*)centipede_config.task2, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"ram_64k", (char*)(g_config.ram_64k ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"rom_disk11", (char*)(g_config.rom_disk11 ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_fd", (char*)(g_config.floppy_fd ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_pc", (char*)(g_config.floppy_pc ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(g_config.trace_writes ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(g_config.trace_reads ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"flat_img", (char*)g_config.flat_img, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive0", (char*)g_config.drive0, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive1", (char*)g_config.drive1, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive2", (char*)g_config.drive2, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"drive3", (char*)g_config.drive3, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"task1", (char*)g_config.task1, 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"task2", (char*)g_config.task2, 0);
     } else if (sub == "just-exit") {
         g_menu.active = false;
     } else if (sub == "save-and-exit") {

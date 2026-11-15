@@ -64,6 +64,7 @@ struct DeepMmu {       // MMU task 0 and task 1 registers, 8 + 8 at $FFA0..$FFAF
   static void Install(uint16_t base = kDefaultBase) {
     IoClaim(base, base + 15, "mmu");
     for (int i = 0; i < 16; i++) IoSet(base + i, deep65280_read_mmu, deep65280_write_mmu);
+    g_deep_mmu_active = true;
   }
 };
 
@@ -87,11 +88,11 @@ void Install_Deep65280_IO() {
 }
 
 void setup_deep65280() {
-  current_engine = ENGINE_DEEP65280;
+  is_an_os9 = true;
 
   // 1. Open drive nodes if configured
   for (int d = 0; d < 2; d++) {
-    const char* path = (d == 0) ? centipede_config.drive0 : centipede_config.drive1;
+    const char* path = (d == 0) ? g_config.drive0 : g_config.drive1;
     if (path && path[0]) {
       g_drive_nodes[d] = vfs_resolve(path);
       if (g_drive_nodes[d]) {
@@ -131,7 +132,7 @@ void setup_deep65280() {
 #if DEEP_256K
   memset(ram, 0, sizeof(ram)); // 262144 bytes (256KB) zeroed
 
-  const char* img_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/deep65280.img";
+  const char* img_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/deep65280.img";
   auto img_node = vfs_resolve(img_path);
   if (img_node) {
     int err = img_node->open_file(LFS_O_RDONLY);
@@ -173,7 +174,7 @@ void setup_deep65280() {
 #else
   memset(ram, 0, sizeof(ram)); // 131072 bytes (128KB) zeroed
 
-  const char* img_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/deep65280.img";
+  const char* img_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/deep65280.img";
   auto img_node = vfs_resolve(img_path);
   if (img_node) {
     int err = img_node->open_file(LFS_O_RDONLY);

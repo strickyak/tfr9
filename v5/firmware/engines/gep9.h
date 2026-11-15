@@ -112,7 +112,7 @@ static bool gep9_load_decb_into_task(uint8_t task, const char* path) {
 }
 
 void setup_gep9() {
-  current_engine = ENGINE_GEP9;
+  is_an_os9 = true;
 
   // 1. Initialize gep9 MMU & memory pool
   gep9_mmu.Init();
@@ -121,16 +121,16 @@ void setup_gep9() {
   for (int d = 0; d < 4; d++) {
     const char* path = "";
     if (d == 0) {
-      if (centipede_config.drive0[0]) {
-        path = centipede_config.drive0;
+      if (g_config.drive0[0]) {
+        path = g_config.drive0;
       } else {
         auto hnode = vfs_resolve("/pc/hatvan0.dsk");
         path = hnode ? "/pc/hatvan0.dsk" : "/pc/disk0.dsk";
       }
     }
-    else if (d == 1) path = centipede_config.drive1;
-    else if (d == 2) path = centipede_config.drive2;
-    else if (d == 3) path = centipede_config.drive3;
+    else if (d == 1) path = g_config.drive1;
+    else if (d == 2) path = g_config.drive2;
+    else if (d == 3) path = g_config.drive3;
 
     if (path && path[0]) {
       g_drive_nodes[d] = vfs_resolve(path);
@@ -158,15 +158,15 @@ void setup_gep9() {
 
   // 3. Load tasks into memory:
   // Task 0: Kernel (flat_img or /pc/kernel_6809.decb)
-  const char* t0_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/kernel_6809.decb";
+  const char* t0_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/kernel_6809.decb";
   gep9_load_decb_into_task(0, t0_path);
 
   // Task 1: RBF disk driver (task1 or /pc/rbf_6809.decb)
-  const char* t1_path = centipede_config.task1[0] ? centipede_config.task1 : "/pc/rbf_6809.decb";
+  const char* t1_path = g_config.task1[0] ? g_config.task1 : "/pc/rbf_6809.decb";
   gep9_load_decb_into_task(1, t1_path);
 
   // Task 2: ProcFS driver (task2 or /pc/procfs_6809.decb)
-  const char* t2_path = centipede_config.task2[0] ? centipede_config.task2 : "/pc/procfs_6809.decb";
+  const char* t2_path = g_config.task2[0] ? g_config.task2 : "/pc/procfs_6809.decb";
   gep9_load_decb_into_task(2, t2_path);
 
   // 4. Install IO handlers
@@ -179,7 +179,7 @@ void setup_gep9() {
 }
 
 void setup_gep9big() {
-  current_engine = ENGINE_GEP9BIG;
+  is_an_os9 = true;
 
   // 1. Initialize gep9 MMU with EMBIGGEN active
   gep9_mmu.Init();
@@ -189,16 +189,16 @@ void setup_gep9big() {
   for (int d = 0; d < 4; d++) {
     const char* path = "";
     if (d == 0) {
-      if (centipede_config.drive0[0]) {
-        path = centipede_config.drive0;
+      if (g_config.drive0[0]) {
+        path = g_config.drive0;
       } else {
         auto hnode = vfs_resolve("/pc/hatvan0.dsk");
         path = hnode ? "/pc/hatvan0.dsk" : "/pc/disk0.dsk";
       }
     }
-    else if (d == 1) path = centipede_config.drive1;
-    else if (d == 2) path = centipede_config.drive2;
-    else if (d == 3) path = centipede_config.drive3;
+    else if (d == 1) path = g_config.drive1;
+    else if (d == 2) path = g_config.drive2;
+    else if (d == 3) path = g_config.drive3;
 
     if (path && path[0]) {
       g_drive_nodes[d] = vfs_resolve(path);
@@ -225,14 +225,14 @@ void setup_gep9big() {
   }
 
   // 3. Load tasks into memory:
-  const char* t0_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/kernel_6809.decb";
+  const char* t0_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/kernel_6809.decb";
   gep9_load_decb_into_task(0, t0_path);
 
-  if (centipede_config.task1[0]) {
-    gep9_load_decb_into_task(1, centipede_config.task1);
+  if (g_config.task1[0]) {
+    gep9_load_decb_into_task(1, g_config.task1);
   }
-  if (centipede_config.task2[0]) {
-    gep9_load_decb_into_task(2, centipede_config.task2);
+  if (g_config.task2[0]) {
+    gep9_load_decb_into_task(2, g_config.task2);
   }
 
   // 4. Install IO handlers (including 0xff40..0xff47 or 0xffe0..0xffe7 MMAP vector)

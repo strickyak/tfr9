@@ -55,23 +55,39 @@ void IN_RAM mc_dispatch_sd_cmd(uint8_t cmd) {
   }
 }
 
-// multicomp09fuzix decodes $FFD0..$FFDF itself (mc_read_io / mc_write_io in the bus loop), not through the dispatch
-// tables, so here we only record the claims and check them against ports.tsv.  Note: the tables are NOT cleared,
-// so the Turbo9Sim ACIA handlers installed at startup at $FF00..$FF03 are still in them (v4 behavior).
+inline void mc_poll_rx() {
+  if (!mc_rx_has_char && term_input.NumBuffered() > 0) {
+    mc_rx_char = term_input.Take();
+    mc_rx_has_char = true;
+  }
+}
+
+void IN_RAM mc_tick_60hz() {
+  if (mc_timer_en) {
+    mc_timer_pending = true;
+  }
+}
+
+// multicomp09 decodes $FFD0..$FFDF directly in hamster_multicomp (mc_read_io / mc_write_io), while consulting
+// IOReaders/IOWriters for any optional enhancement ports claimed outside $FFD0..$FFDF.  IoReset() clears any
+// startup handlers (such as Turbo9Sim ACIA at $FF00..$FF03) so $FF00..$FFCF and $FFE0..$FFFF map cleanly to
+// banked RAM unless an enhancement device claims them.
 struct MulticompIo {
   static void Claim() {
-    IoResetOwners();
+    IoReset();
     IoClaim(0xFFD0, 0xFFD1, "acia");
     IoClaim(0xFFD2, 0xFFD5, "uart_stubs");
     IoClaim(0xFFD8, 0xFFDC, "sd");
     IoClaim(0xFFDD, 0xFFDD, "timer");
     IoClaim(0xFFDE, 0xFFDF, "mmu");
+    g_rx_poll_fn = mc_poll_rx;
+    g_timer_60hz_fn = mc_tick_60hz;
     IoFinish();
   }
 };
 
 void setup_multicomp09() {
-  current_engine = ENGINE_MULTICOMP09;
+  is_an_os9 = true;
   MulticompIo::Claim();
 
   // 1. Initialize RAM and MMU
@@ -92,7 +108,7 @@ void setup_multicomp09() {
   mc_sd_idx = 0;
 
   // 2. Open drive 0 (SD card image)
-  const char* disk_path = centipede_config.drive0[0] ? centipede_config.drive0 : "/pc/disk.img";
+  const char* disk_path = g_config.drive0[0] ? g_config.drive0 : "/pc/disk.img";
   g_drive_nodes[0] = vfs_resolve(disk_path);
   if (g_drive_nodes[0]) {
     int err = g_drive_nodes[0]->open_file(LFS_O_RDWR);
@@ -113,7 +129,7 @@ void setup_multicomp09() {
   }
 
   // 3. Load fuzix kernel (Extended DECB) into physical RAM
-  const char* kernel_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/fuzix.bin";
+  const char* kernel_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/fuzix.bin";
   auto img_node = vfs_resolve(kernel_path);
   if (!img_node) {
     cobs_printf("[multicomp09fuzix: could not resolve kernel %s]\n", kernel_path);

@@ -97,18 +97,36 @@ static void drain_task(Coro& self) {
             break;
           }
           uint16_t buf_addr = g_emudsk_req.buffer_addr;
-          uint32_t phys_buf = (current_engine == ENGINE_DEEP65280) ? translate_deep_addr(buf_addr) : buf_addr;
+          byte sec_buf[256];
           if (g_emudsk_req.command == 0) {
-            // Read sector
-            lfs_ssize_t n = node->read(&ram[phys_buf], 256);
+            // Read sector (translate per byte when deep MMU is active so 8 KB block boundaries are safe)
+            lfs_ssize_t n = node->read(sec_buf, 256);
             if (n == 256) {
+              if (g_deep_mmu_active) {
+                for (int i = 0; i < 256; i++) {
+                  ram[translate_deep_addr((uint16_t)(buf_addr + i))] = sec_buf[i];
+                }
+              } else {
+                for (int i = 0; i < 256; i++) {
+                  ram[(uint16_t)(buf_addr + i)] = sec_buf[i];
+                }
+              }
               g_emudsk_req.status.store(0, std::memory_order_release);
             } else {
               g_emudsk_req.status.store(6, std::memory_order_release);
             }
           } else if (g_emudsk_req.command == 1) {
             // Write sector
-            lfs_ssize_t n = node->write(&ram[phys_buf], 256);
+            if (g_deep_mmu_active) {
+              for (int i = 0; i < 256; i++) {
+                sec_buf[i] = ram[translate_deep_addr((uint16_t)(buf_addr + i))];
+              }
+            } else {
+              for (int i = 0; i < 256; i++) {
+                sec_buf[i] = ram[(uint16_t)(buf_addr + i)];
+              }
+            }
+            lfs_ssize_t n = node->write(sec_buf, 256);
             if (n == 256) {
               g_emudsk_req.status.store(0, std::memory_order_release);
             } else {

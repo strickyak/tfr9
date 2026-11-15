@@ -9,8 +9,8 @@ byte IN_RAM ram_vector_reader(uint addr) {
   return ram[0xFF00 | (addr & 0xFF)];
 }
 
-// IRQ check for flat65280
-bool IN_RAM flat65280_irq_needed() {
+// IRQ check for flat65280 / deep65280
+FORCE_INLINE bool IN_RAM flat65280_irq_needed() {
   bool clock_irq = (clock_and_stop_reg & 0x01) && (clock_and_stop_reg & 0x02);
   bool acia_irq = ((flat65280_acia_ctrl & 0x80) != 0) && flat65280_rx_has_char;
   return clock_irq || acia_irq;
@@ -34,11 +34,13 @@ void Install_Flat65280_IO() {
 }
 
 void setup_flat65280() {
-  current_engine = ENGINE_FLAT65280;
+  is_an_os9 = true;
+  sim_status_reg = 0;
+  sim_control_reg = 0;
 
   // 1. Open drive nodes if configured
   for (int d = 0; d < 2; d++) {
-    const char* path = (d == 0) ? centipede_config.drive0 : centipede_config.drive1;
+    const char* path = (d == 0) ? g_config.drive0 : g_config.drive1;
     if (path && path[0]) {
       g_drive_nodes[d] = vfs_resolve(path);
       if (g_drive_nodes[d]) {
@@ -65,7 +67,7 @@ void setup_flat65280() {
 
   // 2. Load flat65280 image into ram[]
   memset(ram, 0, sizeof(ram));
-  const char* img_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/flat65280.img";
+  const char* img_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/flat65280.img";
   auto img_node = vfs_resolve(img_path);
   if (img_node) {
     int err = img_node->open_file(LFS_O_RDONLY);

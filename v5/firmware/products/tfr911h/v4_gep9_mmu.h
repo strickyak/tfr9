@@ -135,7 +135,7 @@ struct Gep9MMU {
     task_flags_target = 1;
   }
 
-  FrameId* AllocBlockTable(uint8_t slot_idx, uint8_t block) {
+  FrameId* __not_in_flash("gep9_alloc_blk") AllocBlockTable(uint8_t slot_idx, uint8_t block) {
     if (task_blocks[slot_idx][block] != nullptr) {
       return task_blocks[slot_idx][block];
     }
@@ -152,7 +152,7 @@ struct Gep9MMU {
     return tbl;
   }
 
-  void FreeBlockTable(uint8_t slot_idx, uint8_t block) {
+  void __not_in_flash("gep9_free_blk") FreeBlockTable(uint8_t slot_idx, uint8_t block) {
     FrameId* tbl = task_blocks[slot_idx][block];
     if (!tbl) return;
     for (int p = 0; p < GEP9_PAGES_PER_BLOCK; p++) {
@@ -166,18 +166,21 @@ struct Gep9MMU {
     task_blocks[slot_idx][block] = nullptr;
   }
 
-  FrameId AllocFrame() {
+  FrameId __not_in_flash("gep9_alloc_frm") AllocFrame() {
     if (free_head == 0) {
       Say('['); Say('O'); Say('O'); Say('M'); Say(']');
       return GEP9_INVALID_FRAME; // Out of frames
     }
     FrameId f = free_frames[--free_head];
     allocated_count++;
-    memset(&ram[f << 8], 0, GEP9_PAGE_SIZE);
+    uint32_t* zp = reinterpret_cast<uint32_t*>(&ram[f << 8]);
+    for (int w = 0; w < GEP9_PAGE_SIZE / 4; w++) {
+      zp[w] = 0;
+    }
     return f;
   }
 
-  void FreeFrame(FrameId f) {
+  void __not_in_flash("gep9_free_frm") FreeFrame(FrameId f) {
     if (f == GEP9_ZERO_FRAME || f == GEP9_INVALID_FRAME || f >= GEP9_PHYS_FRAMES) {
       return;
     }
@@ -187,7 +190,7 @@ struct Gep9MMU {
     }
   }
 
-  FrameId* AllocTaskTable(uint8_t task) {
+  FrameId* __not_in_flash("gep9_alloc_tsk") AllocTaskTable(uint8_t task) {
     if (task_tables[task] != nullptr) {
       return task_tables[task];
     }
@@ -206,7 +209,7 @@ struct Gep9MMU {
     return nullptr; // No table slots available
   }
 
-  void FreeTaskTable(uint8_t task) {
+  void __not_in_flash("gep9_free_tsk") FreeTaskTable(uint8_t task) {
     if (task == 0) return; // Never free Task 0
     FrameId* tbl = task_tables[task];
     if (!tbl) return;
@@ -226,7 +229,7 @@ struct Gep9MMU {
     task_to_slot[task] = 0xFF;
   }
 
-  void PurgeTask(uint8_t task) {
+  void __not_in_flash("gep9_purge_tsk") PurgeTask(uint8_t task) {
     if (task == 0) return; // Protected kernel task
     if (!task_tables[task]) return; // Nothing allocated for this task
     if (embiggen) {

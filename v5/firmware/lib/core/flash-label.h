@@ -1,8 +1,8 @@
-#include "cobs_tx.h"
 #ifndef _FIRMWARE_FLASH_LABEL_H_
 #define _FIRMWARE_FLASH_LABEL_H_
 
 #include <string>
+#include "cobs_tx.h"
 
 struct FlashLabel {
   static const uint32_t LABEL_MAX_LEN = 256;
@@ -105,6 +105,6 @@ struct FlashLabel {
 
 };  // FlashLabel
 
-char FlashLabel::Label[LABEL_MAX_LEN + 2];
+inline char FlashLabel::Label[LABEL_MAX_LEN + 2];
 
 #endif  // _FIRMWARE_FLASH_LABEL_H_

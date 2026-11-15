@@ -272,16 +272,6 @@ FORCE_INLINE void IN_RAM TransmitCycle(uint cy, byte flags, byte kind, byte data
   TransmitMessage(C_CYCLE, 8, r);
 }
 
-FORCE_INLINE void IN_RAM TransmitWrite(uint addr, byte data) {
-  // Push through fg2bg FIFO instead of calling putchar_raw directly.
-  // This is safe from core 1 (Install_OS) because the background
-  // drains the FIFO while waiting for foreground_running.
-  uint word = ((uint)FG2BG_WRITE << 24) | ((addr & 0xFFFF) << 8) | data;
-  while (!fg2bg.push(word)) {
-    tight_loop_contents();  // Spin until space available
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // CircBuf + USB/COBS pipeline (PumpUsbCobs compatible)
 // ═══════════════════════════════════════════════════════════════════
@@ -422,28 +412,15 @@ void PollTermInput() {
 
 #include "io_install.h"   // IoReset/IoClaim/IoSet: how devices fill the I/O dispatch tables
 #include "acia_tfr.h"   // TFR911 ACIA 6850 IN_RAM callbacks (term port)
-#include "turbo9os.h"
 #include "v4_gep9_mmu.h"
 #include "v4_gep9_io.h"
 #include "v4_multicomp09.h"
-
-// ═══════════════════════════════════════════════════════════════════
-
-
-enum EngineType {
-  ENGINE_TURBO9OS = 0,
-  ENGINE_FLAT65280 = 1,
-  ENGINE_DEEP65280 = 2,
-  ENGINE_GEP9 = 3,
-  ENGINE_GEP9BIG = 4,
-  ENGINE_MULTICOMP09 = 5,
-};
-static EngineType current_engine = ENGINE_TURBO9OS;
 
 #include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
 #include "deep_mmu.h"   // Deep65280 MMU state and address translation
 #include "clock_stop.h"   // CLOCK_AND_STOP register (60 Hz clock enable, stop/exit command)
 #include "acia_term.h"   // terminal ACIA 6850 ($FF88/$FF89) for the NitrOS-9 engines
+#include "turbo9os.h"   // Engine turbo9os: built-in Turbo9OS ROM + setup
 #include "flat65280.h"   // Engine flat65280: NitrOS-9 Level 1 I/O and setup
 #include "deep65280.h"   // Engine deep65280: NitrOS-9 Level 2 I/O and setup
 #include "gep9.h"   // Engines gep9 / gep9big: Hatvan 6309 support
@@ -464,25 +441,7 @@ bool TimerCallback(repeating_timer_t* rt) {
 }
 #endif
 
-#include "guts.h"   // Guts<T>: the bus-cycle engine (core 1 foreground)
-// ═══════════════════════════════════════════════════════════════════
-// Engine — CRTP composition
-// ═══════════════════════════════════════════════════════════════════
-struct Engine : public DoTurbo9os<Engine,
-#if TRY_AX_ROM
-                    RomList<Turbo9os_Rom, Ax_Rom>>,
-#else
-                    RomList<Turbo9os_Rom, Basic09_Rom>>,
-#endif
-                public DoTurbo9sim<Engine>,
-                public Guts<Engine> {};
-
-// This IN_RAM Engine Launcher will contain the inlined Engine::Foreground,
-// so that method will effectively be IN_RAM as well.
-void IN_RAM Engine__Foreground() {
-    Engine::Foreground();
-}
-
+#include "guts.h"   // Hamster policy-template engines (4 IN_RAM core-1 foreground loops)
 #include "timers.h"   // 60 Hz timer callback and flash-speed adjustment
 #include "repl.h"   // Tcl REPL coroutine (core 0, before the 6309 starts)
 #include "drain.h"   // USB drain coroutines (characters and events)

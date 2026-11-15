@@ -23,39 +23,58 @@ const byte Ax_Rom[] = {
 #include "ax.mod.h"
 };
 
-template <typename T, typename ROMLIST>
-struct DoTurbo9os {
-  static void Install_OS() {
-    cobs_printf("DoTurbo9os Install_OS...\n");
-    is_an_os9 = true;
-    // Copy 7 Vectors;  Reset vector comes later.
-    for (uint i = 0; i < 7; i++) {
-      InstallVector(i, Turbo9os_Vectors[i]);
-    }
+#if TRY_AX_ROM
+using Turbo9osActiveRoms = RomList<Turbo9os_Rom, Ax_Rom>;
+#else
+using Turbo9osActiveRoms = RomList<Turbo9os_Rom, Basic09_Rom>;
+#endif
 
-    // Copy ROM to RAM, ending just before 0xFF00.
-    constexpr uint n = ROMLIST::total_size;
-    constexpr uint begin = 0xFF00 - n;  // beginning addr of ROM
-    cobs_printf("DoTurbo9os Install_OS... n=%04x begin=%04x\n", n, begin);
-    for (uint i = 0; i < n; i++) {
-      T::Poke(begin + i, ROMLIST::data[i]);
-      TransmitWrite(begin + i, ROMLIST::data[i]);
-    }
+// Core-0 setup for built-in Turbo9OS (`on tfr9 run turbo9os for turbo9sim`).
+// Runs before core 1 launches, so core 1 never calls cobs_printf or touches flash ROM tables.
+inline void setup_turbo9os() {
+  clock_and_stop_reg = 0;
+  flat65280_acia_ctrl = 0;
+  flat65280_rx_has_char = false;
 
-    assert(T::Peek2(begin) == 0x87CD);  // OS9 module magic number
+  Install_Turbo9os_IO();
 
-    uint name = T::Peek2(begin + 4);  // OS9 module name offset is 4
-    char expect[7] = "kernel";
-    expect[5] |= 0x80;  // OS9 string termination bit overlays final 'l'
-    assert(0 == memcmp(ROMLIST::data + name, expect, 6));
-
-    uint entry = T::Peek2(begin + 9);  // OS9 module entry offset is 9
-    cobs_printf("DoTurbo9os Install_OS... begin=%04x entry=%04x\n", begin,
-           begin + entry);
-    InstallVector(7, begin + entry);
-
-    // T::DumpRam();
+  cobs_printf("DoTurbo9os Install_OS...\n");
+  is_an_os9 = true;
+  for (uint i = 0; i < 7; i++) {
+    InstallVector(i, Turbo9os_Vectors[i]);
   }
-};
+
+  constexpr uint n = Turbo9osActiveRoms::total_size;
+  constexpr uint begin = 0xFF00 - n;
+  cobs_printf("DoTurbo9os Install_OS... n=%04x begin=%04x\n", n, begin);
+  for (uint i = 0; i < n; i++) {
+    uint addr = begin + i;
+    byte b = Turbo9osActiveRoms::data[i];
+    ram[addr & 0xFFFF] = b;
+    if (usb_tether_ok()) {
+      unsigned char pkt[4] = {
+          C_RAM2_WRITE,
+          (unsigned char)((addr >> 8) & 0xFF),
+          (unsigned char)(addr & 0xFF),
+          b,
+      };
+      CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+    }
+  }
+
+  uint magic = (((uint)ram[begin]) << 8) | ram[begin + 1];
+  assert(magic == 0x87CD);  // OS9 module magic number
+
+  uint name = (((uint)ram[begin + 4]) << 8) | ram[begin + 5];
+  char expect[7] = "kernel";
+  expect[5] |= 0x80;  // OS9 string termination bit overlays final 'l'
+  assert(0 == memcmp(Turbo9osActiveRoms::data + name, expect, 6));
+
+  uint entry = (((uint)ram[begin + 9]) << 8) | ram[begin + 10];
+  cobs_printf("DoTurbo9os Install_OS... begin=%04x entry=%04x\n", begin, begin + entry);
+  InstallVector(7, begin + entry);
+
+  IoFinish();
+}
 
 #endif  // _TURBO9OS_H_

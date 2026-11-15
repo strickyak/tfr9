@@ -18,12 +18,17 @@
 static IoMap g_io_map;      // who owns what, for the engine being set up
 static IoMap g_io_scratch;  // working copy for checks (`ports check`, IoFinish): one shared map, RAM is scarce
 
-// Forget who owns what (not the handlers).  For engines that decode some addresses themselves, outside the tables.
-static inline void IoResetOwners() { g_io_map.Reset(); }
+// Core-0 runtime hooks installed alongside devices (replaces the old `current_engine` switch chains):
+static void (*g_rx_poll_fn)() = nullptr;      // core-0 Phase 2 terminal RX delivery
+static void (*g_timer_60hz_fn)() = nullptr;   // core-0 60 Hz timer callback (targets MUST be IN_RAM)
+static bool g_deep_mmu_active = false;        // core-0 EmuDsk / $FE panic dump translates via deep_mmu
 
 static inline void IoReset() {
   g_io_map.Reset();
   for (int i = 0; i < 256; i++) { IOReaders[i] = nullptr; IOWriters[i] = nullptr; }
+  g_rx_poll_fn = nullptr;
+  g_timer_60hz_fn = nullptr;
+  g_deep_mmu_active = false;
 }
 
 static void IoClaim(uint16_t first, uint16_t last, const char* name) {
