@@ -78,6 +78,11 @@ run_tether() {
   return 0
 }
 
+assert_equal() {   # expected actual description
+  if [ -n "$1" ] && [ "$1" = "$2" ]; then pass "$3"
+  else fail "$3 (expected '$1', got '$2')"; fi
+}
+
 assert_contains() {   # haystack needle description
   if printf '%s\n' "$1" | grep -q -- "$2"; then pass "$3"
   else fail "$3 (expected to find '$2')"; printf '  --- output ---\n%s\n  ---------------\n' "$1" >&2; fi

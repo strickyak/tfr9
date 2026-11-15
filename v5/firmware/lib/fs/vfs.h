@@ -55,6 +55,11 @@ public:
   virtual int remove() { return -1; }
   virtual int mkdir() { return -1; }
   
+  // A fresh node for the same path, with its own (unopened) file handle, or nullptr if this kind of node
+  // cannot do that.  A zip entry that stays open holds its own parent handle (spec S38), so two entries of
+  // one archive can be open at once without fighting over the parent's single file position.
+  virtual std::shared_ptr<VfsNode> clone_for_open() { return nullptr; }
+
   // For ZipFS miniz callback (optional)
   virtual lfs_ssize_t _zip_read_internal(void* buffer, lfs_size_t size) { return read(buffer, size); }
   virtual lfs_soff_t _zip_seek_internal(lfs_soff_t offset, int whence) { return seek(offset, whence, nullptr); }
@@ -510,11 +515,37 @@ class ZipArchiveNode : public VfsNode {
   
   mz_uint64 file_offset = 0;
   mz_uint64 uncomp_size = 0;
-  void* file_data = nullptr;
+  void* file_data = nullptr;       // fallback only: whole entry in memory (parent cannot be cloned)
+
+  // Streaming an open entry (spec S38).  The entry is never held whole in memory:
+  //   stored   : bytes are read straight from the parent at data_ofs + position (seekable, no buffers);
+  //   deflated : a miniz iterator inflates sequentially (about 40 KB of working memory); seeking backwards
+  //              restarts it.  Big entries that must be random-access should be STORED in the archive.
+  std::shared_ptr<VfsNode> zp;     // our own handle on the archive file, open while the entry is open
+  bool zip_inited = false;         // `zip` is a live miniz reader (deflated entries)
+  mz_zip_reader_extract_iter_state* iter = nullptr;
+  mz_uint file_idx = 0;
+  bool stored = false;
+  mz_uint64 data_ofs = 0;          // stored: where the entry's bytes start in the archive file
+  mz_uint64 zp_pos = (mz_uint64)-1;  // stored: parent's current position, to skip needless seeks
+
+  void release_stream() {
+    if (iter) { mz_zip_reader_extract_iter_free(iter); iter = nullptr; }
+    if (zip_inited) { mz_zip_reader_end(&zip); zip_inited = false; }
+    if (zp) { zp->close_file(nullptr); zp.reset(); }
+    stored = false;
+  }
+  bool start_iter() {
+    if (iter) { mz_zip_reader_extract_iter_free(iter); iter = nullptr; }
+    iter = mz_zip_reader_extract_iter_new(&zip, file_idx, 0);
+    file_offset = 0;
+    return iter != nullptr;
+  }
 
 public:
   ZipArchiveNode(std::shared_ptr<VfsNode> p, const std::string& sp) : parent(p), sub_path(sp) {}
   ~ZipArchiveNode() {
+    release_stream();
     if (file_data) free(file_data);
   }
 
@@ -677,71 +708,122 @@ public:
   
   int open_file(int flags) override {
     if (sub_path.empty()) return -1;
-    if (parent->open_file(LFS_O_RDONLY) < 0) return -1;
+    release_stream();
+    if (file_data) { free(file_data); file_data = nullptr; }
+    file_offset = 0;
+
+    // Streaming needs our own handle on the archive; a parent that cannot be cloned falls back to
+    // extracting the whole entry to the heap (old behavior; fails cleanly if it does not fit).
+    std::shared_ptr<VfsNode> own = parent->clone_for_open();
+    VfsNode* p = own ? own.get() : parent.get();
+    if (p->open_file(LFS_O_RDONLY) < 0) return -1;
     struct vfs_info pinfo;
-    if (parent->stat(&pinfo) < 0) {
-        parent->close_file(nullptr);
-        return -1;
-    }
-    
+    if (p->stat(&pinfo) < 0) { p->close_file(nullptr); return -1; }
+
     mz_zip_zero_struct(&zip);
     zip.m_pRead = littlefs_zip_read_func;
-    zip.m_pIO_opaque = parent.get();
-    
-    if (!mz_zip_reader_init(&zip, pinfo.size, 0)) {
-        parent->close_file(nullptr);
-        return -1;
-    }
-    
+    zip.m_pIO_opaque = p;
+    if (!mz_zip_reader_init(&zip, pinfo.size, 0)) { p->close_file(nullptr); return -1; }
+
     int mz_loc = mz_zip_reader_locate_file(&zip, sub_path.c_str(), nullptr, 0);
-    if (mz_loc < 0) {
-      mz_zip_reader_end(&zip);
-      parent->close_file(nullptr);
-      return -1;
-    }
-    
+    if (mz_loc < 0) { mz_zip_reader_end(&zip); p->close_file(nullptr); return -1; }
     mz_zip_archive_file_stat file_stat;
     mz_zip_reader_file_stat(&zip, mz_loc, &file_stat);
     uncomp_size = file_stat.m_uncomp_size;
-    file_data = mz_zip_reader_extract_to_heap(&zip, mz_loc, (size_t*)&uncomp_size, 0);
-    
-    mz_zip_reader_end(&zip);
-    parent->close_file(nullptr);
-    
-    if (!file_data) return -1;
-    file_offset = 0;
+    file_idx = (mz_uint)mz_loc;
+
+    if (!own) {                                       // fallback: whole entry in memory
+      file_data = mz_zip_reader_extract_to_heap(&zip, mz_loc, (size_t*)&uncomp_size, 0);
+      mz_zip_reader_end(&zip);
+      p->close_file(nullptr);
+      return file_data ? 0 : -1;
+    }
+
+    if (file_stat.m_method == 0 && !file_stat.m_is_encrypted) {
+      // Stored: find the data after the local header (30 fixed bytes + name + extra), then forget the
+      // zip reader entirely: reads go straight to the archive file.
+      uint8_t lh[30];
+      bool ok = littlefs_zip_read_func(p, file_stat.m_local_header_ofs, lh, sizeof lh) == sizeof lh &&
+                lh[0] == 'P' && lh[1] == 'K' && lh[2] == 3 && lh[3] == 4;
+      mz_zip_reader_end(&zip);
+      if (!ok) { p->close_file(nullptr); return -1; }
+      data_ofs = file_stat.m_local_header_ofs + 30 + (lh[26] | (lh[27] << 8)) + (lh[28] | (lh[29] << 8));
+      stored = true;
+      zp = own;
+      zp_pos = (mz_uint64)-1;
+      return 0;
+    }
+
+    // Deflated (or anything else miniz can extract): sequential inflate.
+    zip_inited = true;
+    zp = own;
+    if (!start_iter()) { release_stream(); return -1; }
     return 0;
   }
-  
+
   lfs_ssize_t read(void* buffer, lfs_size_t size) override {
-    if (!file_data) return -1;
-    if (file_offset >= uncomp_size) return 0;
-    lfs_size_t read_size = size;
-    if (file_offset + read_size > uncomp_size) {
-      read_size = uncomp_size - file_offset;
+    if (file_data) {
+      if (file_offset >= uncomp_size) return 0;
+      lfs_size_t read_size = size;
+      if (file_offset + read_size > uncomp_size) read_size = uncomp_size - file_offset;
+      memcpy(buffer, (uint8_t*)file_data + file_offset, read_size);
+      file_offset += read_size;
+      return read_size;
     }
-    memcpy(buffer, (uint8_t*)file_data + file_offset, read_size);
-    file_offset += read_size;
-    return read_size;
+    if (stored) {
+      if (file_offset >= uncomp_size) return 0;
+      mz_uint64 want = size;
+      if (file_offset + want > uncomp_size) want = uncomp_size - file_offset;
+      mz_uint64 at = data_ofs + file_offset;
+      if (zp_pos != at) {
+        if (zp->seek((lfs_soff_t)at, LFS_SEEK_SET, nullptr) < 0) { zp_pos = (mz_uint64)-1; return -1; }
+      }
+      lfs_ssize_t n = zp->read(buffer, (lfs_size_t)want);
+      if (n < 0) { zp_pos = (mz_uint64)-1; return -1; }
+      zp_pos = at + n;
+      file_offset += n;
+      return n;
+    }
+    if (iter) {
+      size_t n = mz_zip_reader_extract_iter_read(iter, buffer, size);
+      file_offset += n;
+      return (lfs_ssize_t)n;       // 0 at end of entry
+    }
+    return -1;
   }
-  
+
   lfs_soff_t seek(lfs_soff_t offset, int whence, Coro* self) override {
-    if (!file_data) return -1;
-    if (whence == LFS_SEEK_SET) file_offset = offset;
-    else if (whence == LFS_SEEK_CUR) file_offset += offset;
-    else if (whence == LFS_SEEK_END) file_offset = uncomp_size + offset;
-    if (file_offset > uncomp_size) file_offset = uncomp_size;
-    return file_offset;
+    if (!file_data && !stored && !iter) return -1;
+    mz_uint64 target;
+    if (whence == LFS_SEEK_SET) target = offset;
+    else if (whence == LFS_SEEK_CUR) target = file_offset + offset;
+    else if (whence == LFS_SEEK_END) target = uncomp_size + offset;
+    else return -1;
+    if ((lfs_soff_t)target < 0) target = 0;
+    if (target > uncomp_size) target = uncomp_size;
+    if (file_data || stored) { file_offset = target; return (lfs_soff_t)file_offset; }
+    // Deflated: forward = inflate and discard; backward = restart from the beginning.
+    if (target < file_offset && !start_iter()) return -1;
+    uint8_t scratch[256];
+    while (file_offset < target) {
+      size_t want = target - file_offset;
+      if (want > sizeof scratch) want = sizeof scratch;
+      size_t n = mz_zip_reader_extract_iter_read(iter, scratch, want);
+      if (n == 0) break;
+      file_offset += n;
+    }
+    return (lfs_soff_t)file_offset;
   }
-  
+
   int close_file(Coro* self) override {
+    release_stream();
     if (file_data) {
       free(file_data);
       file_data = nullptr;
     }
     return 0;
   }
-  
+
   std::string get_name() const override {
     if (sub_path.empty()) return parent->get_name();
     size_t last_slash = sub_path.find_last_of('/');
@@ -756,6 +838,7 @@ class TetherFsNode : public VfsNode {
   int dir_fd = -1;
 public:
   TetherFsNode(const std::string& p) : path(p) {}
+  std::shared_ptr<VfsNode> clone_for_open() override { return std::make_shared<TetherFsNode>(path); }
   
   std::shared_ptr<VfsNode> lookup(const std::string& token) override {
     if (token.empty()) {
@@ -918,6 +1001,7 @@ class LittleFsNode : public VfsNode {
   bool virtual_pc_returned = false;
 public:
   LittleFsNode(const std::string& p) : path(p) {}
+  std::shared_ptr<VfsNode> clone_for_open() override { return std::make_shared<LittleFsNode>(path); }
   
   std::shared_ptr<VfsNode> lookup(const std::string& token) override {
     if (path.empty() && token == "pc") {

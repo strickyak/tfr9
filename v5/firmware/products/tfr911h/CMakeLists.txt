@@ -81,6 +81,8 @@ pico_enable_stdio_uart(${PROJECT} 0)
 
 # Compile definitions (TCL_MEM_DEBUG stays on for now: spec section 13 Q10)
 add_compile_definitions(TCL_MEM_DEBUG=1)
+# miniz extraction buffers: 4 KB instead of 64 KB (spec S38; only ~68 KB of heap is free)
+add_compile_definitions(MZ_ZIP_IO_BUF_SIZE=4096)
 add_compile_definitions(TCL_GENERIC_ONLY=1)
 
 ### pico_set_binary_type(${PROJECT} copy_to_ram)

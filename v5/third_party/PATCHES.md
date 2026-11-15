@@ -23,6 +23,9 @@ as originally released).  To do: diff each against its upstream release and list
   `ckalloc` panic.  The firmware sets it (in `register_tcl_commands`) to `HeapIsLow()` from `firmware/lib/core/heap.h`.
   Test: `tests/host/tcl_lowmem_test.cpp` (host) and `tests/systests/04_heap_test.sh` (board).
 
+* **`miniz/miniz.h`: `MZ_ZIP_MAX_IO_BUF_SIZE` is overridable** with `-DMZ_ZIP_IO_BUF_SIZE=N` (spec S38).  The
+  firmware builds with 4096 instead of 64 KB because only ~68 KB of heap is free.
+
 ## Rules
 
 * Do not edit files here casually.  A change needs a line in this file saying what and why.

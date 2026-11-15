@@ -1070,7 +1070,12 @@ extern "C"
     enum
     {
         /* Note: These enums can be reduced as needed to save memory or stack space - they are pretty conservative. */
+        /* v5 patch (spec S38): overridable with -DMZ_ZIP_IO_BUF_SIZE=N; the firmware uses 4096 because only ~68 KB of heap is free. */
+#ifdef MZ_ZIP_IO_BUF_SIZE
+        MZ_ZIP_MAX_IO_BUF_SIZE = MZ_ZIP_IO_BUF_SIZE,
+#else
         MZ_ZIP_MAX_IO_BUF_SIZE = 64 * 1024,
+#endif
         MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE = 512,
         MZ_ZIP_MAX_ARCHIVE_FILE_COMMENT_SIZE = 512
     };
