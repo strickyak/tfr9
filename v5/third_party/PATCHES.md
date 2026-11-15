@@ -16,6 +16,13 @@ v5 has one.
 as originally released).  To do: diff each against its upstream release and list every difference here
 (this matters for the licensing questions in the spec, section 4 S22).
 
+## v5 patches (known)
+
+* **`tcl6.7c/tclBasic.c`, `tcl.h`: `Tcl_LowMemoryHook`** (spec S49).  A function pointer tested before each command
+  runs; nonzero makes `Tcl_Eval` return `TCL_ERROR "out of memory: heap nearly exhausted"` instead of letting
+  `ckalloc` panic.  The firmware sets it (in `register_tcl_commands`) to `HeapIsLow()` from `firmware/lib/core/heap.h`.
+  Test: `tests/host/tcl_lowmem_test.cpp` (host) and `tests/systests/04_heap_test.sh` (board).
+
 ## Rules
 
 * Do not edit files here casually.  A change needs a line in this file saying what and why.

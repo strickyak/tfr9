@@ -280,6 +280,12 @@ EXTERN void		Tcl_DeleteTrace _ANSI_ARGS_((Tcl_Interp *interp,
 			    Tcl_Trace trace));
 EXTERN void		Tcl_DetachPids _ANSI_ARGS_((int numPids, int *pidPtr));
 EXTERN char *		Tcl_ErrnoId _ANSI_ARGS_((void));
+/*
+ * v5 patch (spec S49): optional hook, tested before every command is run.  If it returns nonzero the
+ * command is NOT run and Tcl_Eval returns TCL_ERROR "out of memory".  The firmware sets it to "heap
+ * nearly exhausted"; ckalloc itself cannot fail gracefully (Tcl 6.7 assumes it never returns NULL).
+ */
+EXTERN int		(*Tcl_LowMemoryHook) _ANSI_ARGS_((void));
 EXTERN int		Tcl_Eval _ANSI_ARGS_((Tcl_Interp *interp, char *cmd,
 			    int flags, char **termPtr));
 EXTERN int		Tcl_EvalFile _ANSI_ARGS_((Tcl_Interp *interp,

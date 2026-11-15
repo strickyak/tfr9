@@ -22,6 +22,7 @@ extern "C" {
 #include "keyboard_injector.h"
 #include "md5.h"
 #include "tcl_stream.h"
+#include "heap.h"
 
 static int dummy_traverse_cb(void *data, lfs_block_t block) {
   int* count = (int*)data;
@@ -132,6 +133,10 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
     while (1) {
         coro_yield(gspoon::g_spoon_coro);
     }
+  } else if (strcmp(argv[1], "heap-free") == 0) {
+    char tmp[24];
+    snprintf(tmp, sizeof tmp, "%u", (unsigned)HeapFreeBytes());
+    Tcl_AppendResult(interp, tmp, NULL);
   } else if (strcmp(argv[1], "debug-call-panic") == 0) {
     panic("debug-call-panic");
   } else if (strcmp(argv[1], "debug-call-abort") == 0) {
@@ -148,7 +153,7 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
   } else {
     Tcl_AppendResult(interp, "bad option \"", argv[1],
                      "\": must be restart, reflash, reformat-flash-filesystem, "
-                     "flash-filesystem-stats, debug-call-panic, debug-call-abort"
+                     "flash-filesystem-stats, heap-free, debug-call-panic, debug-call-abort"
 #ifdef TCL_MEM_DEBUG
                      ", debug-malloc-oom"
 #endif
@@ -1110,6 +1115,9 @@ int sleep_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[])
 }
 
 void register_tcl_commands(Tcl_Interp* interp) {
+  // Spec S49: a script that eats the heap gets a Tcl error ("out of memory") at its next command,
+  // instead of ckalloc panicking and the board rebooting.
+  Tcl_LowMemoryHook = []() -> int { return HeapIsLow() ? 1 : 0; };
   // Register commands from littlefs.h
   Tcl_CreateCommand(interp, (char*)"menu", menu_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"clock", clock_cmd, NULL, NULL);

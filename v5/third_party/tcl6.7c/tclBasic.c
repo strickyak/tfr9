@@ -17,6 +17,9 @@
 
 #include "tclInt.h"
 
+/* v5 patch (spec S49): see tcl.h. */
+int (*Tcl_LowMemoryHook) _ANSI_ARGS_((void)) = NULL;
+
 /*
  * The following structure defines all of the commands in the Tcl core,
  * and the C procedures that execute them.
@@ -700,6 +703,12 @@ Tcl_Eval(interp, cmd, flags, termPtr)
 	Tcl_FreeResult(iPtr);
 	iPtr->result = iPtr->resultSpace;
 	iPtr->resultSpace[0] = 0;
+	if (Tcl_LowMemoryHook != NULL && (*Tcl_LowMemoryHook)()) {
+	    /* v5 patch (spec S49): refuse to run the command rather than let ckalloc panic. */
+	    Tcl_AppendResult(interp, "out of memory: heap nearly exhausted", (char *) NULL);
+	    result = TCL_ERROR;
+	    break;
+	}
 	result = (*cmdPtr->proc)(cmdPtr->clientData, interp, argc, argv);
 	if (result != TCL_OK) {
 	    break;
