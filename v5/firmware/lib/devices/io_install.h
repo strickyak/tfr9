@@ -17,6 +17,9 @@
 
 static IoMap g_io_map;      // who owns what, for the engine being set up
 
+// Forget who owns what (not the handlers).  For engines that decode some addresses themselves, outside the tables.
+static inline void IoResetOwners() { g_io_map.Reset(); }
+
 static inline void IoReset() {
   g_io_map.Reset();
   for (int i = 0; i < 256; i++) { IOReaders[i] = nullptr; IOWriters[i] = nullptr; }
@@ -37,7 +40,9 @@ static inline void IoSet(uint16_t addr, IOReader r, IOWriter w) {
 
 // Compare the installed ownership map with the plan in ports.tsv (profile TFR4, the v4 addresses).  A mismatch
 // is printed, not fatal: it means the code and the plan disagree and one of them needs fixing.
-static void IoVerifyPlan(const char* engine, const char* profile = "TFR4") {
+// `tolerated`: a device the code installs although ports.tsv has no row for it in this engine (v4 behavior kept);
+// it is reported as a note instead of a mismatch.
+static void IoVerifyPlan(const char* engine, const char* profile = "TFR4", const char* tolerated = nullptr) {
   int rows = 0, bad = 0;
   uint8_t covered[256] = {0};
   for (size_t i = 0; i < kNumPorts; i++) {
@@ -53,7 +58,13 @@ static void IoVerifyPlan(const char* engine, const char* profile = "TFR4") {
       }
     }
   }
+  bool noted = false;
   for (uint32_t a = 0xFF00; a <= 0xFFFF; a++) {
+    const char* o = g_io_map.OwnerOf((uint16_t)a);
+    if (o && !covered[a & 0xFF] && tolerated && !strcmp(o, tolerated)) {
+      if (!noted) { cobs_printf("[io-map: note: %s also installs %s (v4 behavior; not in ports.tsv)]\n", engine, tolerated); noted = true; }
+      continue;
+    }
     if (g_io_map.OwnerOf((uint16_t)a) && !covered[a & 0xFF]) {
       cobs_printf("[io-map: %s $%04X is %s but ports.tsv has no row for it]\n", engine, (unsigned)a, g_io_map.OwnerOf((uint16_t)a));
       bad++;

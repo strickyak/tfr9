@@ -34,3 +34,18 @@ void IN_RAM acia_write_status(uint addr, byte data) {
 void IN_RAM acia_write_control(uint addr, byte data) {
   sim_control_reg = data;
 }
+
+struct Turbo9SimAcia {   // Turbo9Sim's ACIA: tx data, rx data, status, control at $FF00..$FF03
+  static constexpr uint16_t kDefaultBase = 0xFF00;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base + 3, "turbo9sim_acia");
+    IoSet(base + 0, acia_read_tx,      acia_write_tx);
+    IoSet(base + 1, acia_read_rx,      acia_write_rx);
+    IoSet(base + 2, acia_read_status,  acia_write_status);
+    IoSet(base + 3, acia_read_control, acia_write_control);
+  }
+};
+
+struct RamVectors {      // $FFF0..$FFFF belong to the engine's RAM; nothing in the tables, only the claim
+  static void Claim(uint16_t base = 0xFFF0) { IoClaim(base, base + 15, "vectors"); }
+};

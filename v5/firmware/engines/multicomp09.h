@@ -55,8 +55,24 @@ void IN_RAM mc_dispatch_sd_cmd(uint8_t cmd) {
   }
 }
 
+// multicomp09 decodes $FFD0..$FFDF itself (mc_read_io / mc_write_io in the bus loop), not through the dispatch
+// tables, so here we only record the claims and check them against ports.tsv.  Note: the tables are NOT cleared,
+// so the Turbo9Sim ACIA handlers installed at startup at $FF00..$FF03 are still in them (v4 behavior).
+struct MulticompIo {
+  static void Claim() {
+    IoResetOwners();
+    IoClaim(0xFFD0, 0xFFD1, "acia");
+    IoClaim(0xFFD2, 0xFFD5, "uart_stubs");
+    IoClaim(0xFFD8, 0xFFDC, "sd");
+    IoClaim(0xFFDD, 0xFFDD, "timer");
+    IoClaim(0xFFDE, 0xFFDF, "mmu");
+    IoVerifyPlan("multicomp09");
+  }
+};
+
 void setup_multicomp09() {
   current_engine = ENGINE_MULTICOMP09;
+  MulticompIo::Claim();
 
   // 1. Initialize RAM and MMU
   memset(ram, 0, sizeof(ram)); // Zero physical RAM (256 KB)

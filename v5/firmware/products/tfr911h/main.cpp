@@ -420,6 +420,7 @@ void PollTermInput() {
   }
 }
 
+#include "io_install.h"   // IoReset/IoClaim/IoSet: how devices fill the I/O dispatch tables
 #include "acia_tfr.h"   // TFR911 ACIA 6850 IN_RAM callbacks (term port)
 #include "turbo9os.h"
 #include "v4_gep9_mmu.h"
@@ -439,7 +440,6 @@ enum EngineType {
 };
 static EngineType current_engine = ENGINE_TURBO9OS;
 
-#include "io_install.h"   // IoReset/IoClaim/IoSet: how devices fill the I/O dispatch tables
 #include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
 #include "deep_mmu.h"   // Deep65280 MMU state and address translation
 #include "clock_stop.h"   // CLOCK_AND_STOP register (60 Hz clock enable, stop/exit command)
@@ -516,18 +516,10 @@ int main() {
   hamster_program_init(pio0, 0, offset_t911);
 
   cobs_printf(":g:\n");
-  Engine::Turbo9sim_Install(0xFF00);
-
-  // Override turbo9sim's flash-resident lambda IOReaders/IOWriters with
-  // IN_RAM versions. This prevents XIP stalls during PIO bus cycles.
-  IOReaders[0x00] = acia_read_tx;
-  IOReaders[0x01] = acia_read_rx;
-  IOReaders[0x02] = acia_read_status;
-  IOReaders[0x03] = acia_read_control;
-  IOWriters[0x00] = acia_write_tx;
-  IOWriters[0x01] = acia_write_rx;
-  IOWriters[0x02] = acia_write_status;
-  IOWriters[0x03] = acia_write_control;
+  // Turbo9OS's I/O: the Turbo9Sim ACIA at $FF00..$FF03, handlers IN_RAM so the bus is never stalled by flash.
+  IoReset();
+  Turbo9SimAcia::Install();
+  RamVectors::Claim();   // (checked against ports.tsv when `bye` launches turbo9os: nobody is listening yet)
 
   // DON'T launch core 1 here — the Tcl REPL runs first on core 0.
   // After Tcl says "bye", tfr911_background() resets the 6309 and

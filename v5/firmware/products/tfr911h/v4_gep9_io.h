@@ -309,98 +309,80 @@ void IN_RAM gep9_write_vector(uint addr, byte d) {
   *gep9_mmu.TranslateWrite(0, addr) = d;
 }
 
-// ── Register Table Installer ──
-void Install_Gep9_IO(IOReader* readers, IOWriter* writers) {
-  for (int i = 0; i < 256; i++) {
-    readers[i] = nullptr;
-    writers[i] = nullptr;
+// ── Devices and the register table installer ──
+// Each device claims its range in the IoMap and stores NAMED IN_RAM handlers (see lib/devices/io_install.h).
+
+struct GepConsole {     // console and diagnostics, $FF00..$FF05
+  static void Install(uint16_t base = 0xFF00) {
+    IoClaim(base, base + 5, "console");
+    IoSet(base + 0, gep9_read_term_out, gep9_write_term_out);
+    IoSet(base + 1, gep9_read_term_in,  gep9_write_term_in);
+    IoSet(base + 2, gep9_read_reg_stat, gep9_write_reg_stat);
+    IoSet(base + 3, gep9_read_reg_ctrl, gep9_write_reg_ctrl);
+    IoSet(base + 4, gep9_read_logchar,  gep9_write_logchar);
+    IoSet(base + 5, gep9_read_exit,     gep9_write_exit);
   }
+};
 
-  // Console & Diag ($FF00..$FF05)
-  readers[0x00] = gep9_read_term_out;
-  writers[0x00] = gep9_write_term_out;
-  readers[0x01] = gep9_read_term_in;
-  writers[0x01] = gep9_write_term_in;
-  readers[0x02] = gep9_read_reg_stat;
-  writers[0x02] = gep9_write_reg_stat;
-  readers[0x03] = gep9_read_reg_ctrl;
-  writers[0x03] = gep9_write_reg_ctrl;
-  readers[0x04] = gep9_read_logchar;
-  writers[0x04] = gep9_write_logchar;
-  readers[0x05] = gep9_read_exit;
-  writers[0x05] = gep9_write_exit;
-
-  // Disk Controller ($FF10..$FF17)
-  readers[0x10] = gep9_read_disk_drive;
-  writers[0x10] = gep9_write_disk_drive;
-  readers[0x11] = gep9_read_disk_sec0;
-  writers[0x11] = gep9_write_disk_sec0;
-  readers[0x12] = gep9_read_disk_sec1;
-  writers[0x12] = gep9_write_disk_sec1;
-  readers[0x13] = gep9_read_disk_sec2;
-  writers[0x13] = gep9_write_disk_sec2;
-  readers[0x14] = gep9_read_disk_task;
-  writers[0x14] = gep9_write_disk_task;
-  readers[0x15] = gep9_read_disk_addr_hi;
-  writers[0x15] = gep9_write_disk_addr_hi;
-  readers[0x16] = gep9_read_disk_addr_lo;
-  writers[0x16] = gep9_write_disk_addr_lo;
-  readers[0x17] = gep9_read_disk_cmdst;
-  writers[0x17] = gep9_write_disk_cmdst;
-
-  // TaskFuse ($FF20)
-  readers[0x20] = gep9_read_task_fuse;
-  writers[0x20] = gep9_write_task_fuse;
-
-  // Fast DMA ($FF21..$FF2A)
-  readers[0x21] = gep9_read_dma_src_task;
-  writers[0x21] = gep9_write_dma_src_task;
-  readers[0x22] = gep9_read_dma_src_page;
-  writers[0x22] = gep9_write_dma_src_page;
-  readers[0x23] = gep9_read_dma_src_hi;
-  writers[0x23] = gep9_write_dma_src_hi;
-  readers[0x24] = gep9_read_dma_src_lo;
-  writers[0x24] = gep9_write_dma_src_lo;
-  readers[0x25] = gep9_read_dma_dst_task;
-  writers[0x25] = gep9_write_dma_dst_task;
-  readers[0x26] = gep9_read_dma_dst_page;
-  writers[0x26] = gep9_write_dma_dst_page;
-  readers[0x27] = gep9_read_dma_dst_hi;
-  writers[0x27] = gep9_write_dma_dst_hi;
-  readers[0x28] = gep9_read_dma_dst_lo;
-  writers[0x28] = gep9_write_dma_dst_lo;
-  readers[0x29] = gep9_read_dma_count;
-  writers[0x29] = gep9_write_dma_count;
-  readers[0x2A] = gep9_read_dma_status;
-  writers[0x2A] = gep9_write_dma_status;
-
-  // Shared Memory Curtain ($FF2B..$FF2C)
-  readers[0x2B] = gep9_read_curtain_hi;
-  writers[0x2B] = gep9_write_curtain_hi;
-  readers[0x2C] = gep9_read_curtain_lo;
-  writers[0x2C] = gep9_write_curtain_lo;
-
-  // TaskFlags ($FF2D..$FF2E)
-  readers[0x2D] = gep9_read_flags_target;
-  writers[0x2D] = gep9_write_flags_target;
-  readers[0x2E] = gep9_read_flags_reg;
-  writers[0x2E] = gep9_write_flags_reg;
-
-  // PurgeTaskMem ($FF2F)
-  readers[0x2F] = gep9_read_purge;
-  writers[0x2F] = gep9_write_purge;
-
-  // EMBIGGEN MMAP Vector ($FF40..$FF47)
-  for (int i = 0x40; i <= 0x47; i++) {
-    readers[i] = gep9_read_mmap;
-    writers[i] = gep9_write_mmap;
+struct GepDisk {        // disk controller, $FF10..$FF17
+  static void Install(uint16_t base = 0xFF10) {
+    IoClaim(base, base + 7, "disk");
+    IoSet(base + 0, gep9_read_disk_drive,   gep9_write_disk_drive);
+    IoSet(base + 1, gep9_read_disk_sec0,    gep9_write_disk_sec0);
+    IoSet(base + 2, gep9_read_disk_sec1,    gep9_write_disk_sec1);
+    IoSet(base + 3, gep9_read_disk_sec2,    gep9_write_disk_sec2);
+    IoSet(base + 4, gep9_read_disk_task,    gep9_write_disk_task);
+    IoSet(base + 5, gep9_read_disk_addr_hi, gep9_write_disk_addr_hi);
+    IoSet(base + 6, gep9_read_disk_addr_lo, gep9_write_disk_addr_lo);
+    IoSet(base + 7, gep9_read_disk_cmdst,   gep9_write_disk_cmdst);
   }
+};
 
-  // System Vectors ($FFF0..$FFFF)
-  for (int i = 0xF0; i <= 0xFF; i++) {
-    readers[i] = gep9_read_vector;
-    writers[i] = gep9_write_vector;
+struct GepFuseDma {     // TaskFuse, fast DMA, shared-memory curtain, task flags, purge: $FF20..$FF2F
+  static void Install(uint16_t base = 0xFF20) {
+    IoClaim(base, base + 15, "fuse_dma");
+    IoSet(base + 0x0, gep9_read_task_fuse,    gep9_write_task_fuse);
+    IoSet(base + 0x1, gep9_read_dma_src_task, gep9_write_dma_src_task);
+    IoSet(base + 0x2, gep9_read_dma_src_page, gep9_write_dma_src_page);
+    IoSet(base + 0x3, gep9_read_dma_src_hi,   gep9_write_dma_src_hi);
+    IoSet(base + 0x4, gep9_read_dma_src_lo,   gep9_write_dma_src_lo);
+    IoSet(base + 0x5, gep9_read_dma_dst_task, gep9_write_dma_dst_task);
+    IoSet(base + 0x6, gep9_read_dma_dst_page, gep9_write_dma_dst_page);
+    IoSet(base + 0x7, gep9_read_dma_dst_hi,   gep9_write_dma_dst_hi);
+    IoSet(base + 0x8, gep9_read_dma_dst_lo,   gep9_write_dma_dst_lo);
+    IoSet(base + 0x9, gep9_read_dma_count,    gep9_write_dma_count);
+    IoSet(base + 0xA, gep9_read_dma_status,   gep9_write_dma_status);
+    IoSet(base + 0xB, gep9_read_curtain_hi,   gep9_write_curtain_hi);
+    IoSet(base + 0xC, gep9_read_curtain_lo,   gep9_write_curtain_lo);
+    IoSet(base + 0xD, gep9_read_flags_target, gep9_write_flags_target);
+    IoSet(base + 0xE, gep9_read_flags_reg,    gep9_write_flags_reg);
+    IoSet(base + 0xF, gep9_read_purge,        gep9_write_purge);
   }
+};
+
+struct GepEmbiggen {    // EMBIGGEN MMAP vector, eight registers at $FF40..$FF47
+  static void Install(uint16_t base = 0xFF40) {
+    IoClaim(base, base + 7, "embiggen_mmu");
+    for (int i = 0; i < 8; i++) IoSet(base + i, gep9_read_mmap, gep9_write_mmap);
+  }
+};
+
+struct GepVectors {     // system vectors $FFF0..$FFFF, through the paged memory
+  static void Install(uint16_t base = 0xFFF0) {
+    IoClaim(base, base + 15, "vectors");
+    for (int i = 0; i < 16; i++) IoSet(base + i, gep9_read_vector, gep9_write_vector);
+  }
+};
+
+// Both gep9 and gep9big install the EMBIGGEN range (v4 behavior); ports.tsv lists it only for gep9big.
+void Install_Gep9_IO(const char* engine) {
+  IoReset();
+  GepConsole::Install();
+  GepDisk::Install();
+  GepFuseDma::Install();
+  GepEmbiggen::Install();
+  GepVectors::Install();
+  IoVerifyPlan(engine, "TFR4", "embiggen_mmu");
 }
 
 #endif  // V4_GEP9_IO_H_

@@ -112,8 +112,12 @@ void IN_RAM tfr911_background() {
         hamster_program_init(pio0, 0, offset);
 
         // Look the engine up by name (canonical or alias); unknown names and "turbo9os" run no setup.
-        if (const EngineSpec* spec = FindEngine(centipede_config.engine)) {
-          if (spec->setup) spec->setup();
+        const EngineSpec* spec = FindEngine(centipede_config.engine);
+        if (spec && spec->setup) {
+          spec->setup();
+        } else {
+          // Turbo9OS (built in): its I/O was installed at startup; report it like the other engines do.
+          IoVerifyPlan("turbo9os");
         }
 
         foreground_running = false;
