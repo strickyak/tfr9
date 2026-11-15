@@ -1,0 +1,40 @@
+# common.exp -- shared pieces for the engine suites (expect).  Environment from engines.sh:
+#   TETHER=path to tether, PC_DIR=temporary /pc directory, WIRE=serial device of the board under test.
+set tether_bin $env(TETHER)
+set pc_dir $env(PC_DIR)
+set wire $env(WIRE)
+
+proc fail_and_exit {msg} {
+    puts stderr "  FAIL: $msg"
+    catch {exec kill -INT [exp_pid]}
+    catch {close}
+    catch {wait}
+    after 1000
+    exit 1
+}
+
+# Start tether on the right board; with a bootmode the firmware restarts into that mode first.
+proc start_tether {{bootmode ""}} {
+    global tether_bin pc_dir wire spawn_id
+    if {$bootmode eq ""} {
+        spawn $tether_bin -bind= -wire $wire -pc $pc_dir
+    } else {
+        spawn $tether_bin -bind= -wire $wire -pc $pc_dir -bootmode=$bootmode
+    }
+}
+
+# expect_pass pattern description: wait for a glob pattern or fail
+proc expect_pass {pattern desc} {
+    expect {
+        $pattern { puts "  PASS: $desc" }
+        timeout  { fail_and_exit "Timed out: $desc" }
+    }
+}
+
+proc finish {title} {
+    catch wait result
+    puts "\n========================================================"
+    puts " Summary for $title: ALL PASSED"
+    puts "========================================================"
+    exit 0
+}

@@ -1,0 +1,19 @@
+#!/usr/bin/expect -f
+# turbo9os.exp -- built-in Turbo9OS (Turbo9Sim) engine on the 6309E.  Ported from v4 systest 03.
+set timeout 20
+source [file join [file dirname [file normalize [info script]]] common.exp]
+puts "Engine 0: Turbo9Sim / Turbo9OS (built-in ROMs)"
+start_tether 0
+expect_pass "TCL>" "Reached the TCL> prompt"
+send "set Config(engine) turbo9os ; menu store Config ; bye\r"
+expect_pass "TOS:" "Booted the 6309E into the Turbo9OS shell"
+send "mfree\r";   expect_pass "Total pages free" "'mfree' reported free pages"; expect "TOS:"
+send "procs\r"
+expect { -re "(?i)shell" { puts "  PASS: 'procs' listed the shell" } timeout { fail_and_exit "Timed out: procs" } }
+expect "TOS:"
+send "mdir -e\r"
+expect { -re "(?i)kernel" { puts "  PASS: 'mdir -e' listed the kernel module" } timeout { fail_and_exit "Timed out: mdir -e" } }
+expect "TOS:"
+exec kill -INT [exp_pid]
+expect { "SIGINT" { puts "  PASS: tether interrupted cleanly" } eof { puts "  PASS: tether closed" } }
+finish "Engine turbo9os"

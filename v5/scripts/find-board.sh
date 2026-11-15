@@ -6,6 +6,9 @@
 #     scripts/find-board.sh id=uks               # one particular board
 # Prints the device and exits 0 on the first match; prints nothing and exits 1 if none.
 # With no args, lists every device with its label (waits for all probes).
+# On Linux the answer is the stable /dev/serial/by-id/... name of that device when there is one (it follows the
+# board through re-enumeration after a restart/reflash, where /dev/ttyACMn may change or be taken by another
+# board); FIND_BOARD_PLAIN=1 asks for the plain /dev name.
 # All devices are probed in PARALLEL, so one board that does not answer (a hung board, or a CoCo that
 # is busy) cannot delay finding another.  A probe that has not answered after FIND_BOARD_WAIT seconds
 # (default 8) is abandoned.  Needs build/tether (make tether).  POSIX sh.
@@ -23,6 +26,15 @@ for d in /dev/ttyACM* /dev/cu.usbmodem*; do
   "$TETHER" -n -bind="" -quick-get-label -wire="$d" > "$tmp/$n.out" 2>/dev/null < /dev/null &
   pids="$pids $!"
 done
+byid() {   # byid /dev/ttyACMn : its stable by-id name, or itself
+  if [ -z "$FIND_BOARD_PLAIN" ]; then
+    for l in /dev/serial/by-id/*; do
+      [ -L "$l" ] || continue
+      if [ "$(basename "$(readlink "$l")")" = "$(basename "$1")" ]; then echo "$l"; return; fi
+    done
+  fi
+  echo "$1"
+}
 cleanup() { for p in $pids; do kill "$p" 2>/dev/null; done; rm -rf "$tmp"; }
 trap cleanup EXIT
 
@@ -40,7 +52,7 @@ while [ $i -lt $((WAIT * 5)) ]; do
             case ",$label," in *",$kv,"*) ;; *) ok=0 ;; esac
           done
           : > "$tmp/$k.done"
-          if [ $ok -eq 1 ]; then cat "$tmp/$k.dev"; exit 0; fi
+          if [ $ok -eq 1 ]; then byid "$(cat "$tmp/$k.dev")"; exit 0; fi
         fi ;;
       *) ;;           # no label yet
     esac

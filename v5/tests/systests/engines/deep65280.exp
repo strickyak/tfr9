@@ -1,0 +1,20 @@
+#!/usr/bin/expect -f
+# deep65280.exp -- NitrOS-9 engine deep65280 (boot mode 8).  Ported from v4 systests 04/05.
+set timeout 30
+source [file join [file dirname [file normalize [info script]]] common.exp]
+puts "Engine deep65280"
+start_tether 8
+expect_pass {loaded 8192 + 57344 = 65536 bytes into RAM (256KB)} "Loaded the boot image into RAM"
+expect_pass "OS9:" "Reached the NitrOS-9 'OS9:' prompt"
+send "mfree\r";  expect_pass "Total" "'mfree' reported free memory";  expect "OS9:"
+send "procs\r";  expect_pass "Shell" "'procs' listed Shell";          expect "OS9:"
+send "mdir\r";   expect_pass "Krn" "'mdir' listed the kernel";        expect "OS9:"
+send "echo HELLO_DEEP65280\r"
+expect "echo HELLO_DEEP65280"
+expect_pass "HELLO_DEEP65280" "'echo' printed the expected string"
+expect "OS9:"
+send "stop 0\r"
+expect_pass "target shutdown OK (0)" "'stop 0' shut the target down cleanly"
+# the board reboots after the target stops
+after 3000
+finish "Engine deep65280"

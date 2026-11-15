@@ -1,0 +1,20 @@
+#!/usr/bin/expect -f
+# flat65280.exp -- NitrOS-9 engine flat65280 (boot mode 84).  Ported from v4 systests 04/05.
+set timeout 30
+source [file join [file dirname [file normalize [info script]]] common.exp]
+puts "Engine flat65280"
+start_tether 84
+expect_pass {loaded 65536 bytes into RAM} "Loaded the boot image into RAM"
+expect_pass "OS9:" "Reached the NitrOS-9 'OS9:' prompt"
+send "mfree\r";  expect_pass "Total" "'mfree' reported free memory";  expect "OS9:"
+send "procs\r";  expect_pass "Shell" "'procs' listed Shell";          expect "OS9:"
+send "mdir\r";   expect_pass "Krn" "'mdir' listed the kernel";        expect "OS9:"
+send "echo HELLO_FLAT65280\r"
+expect "echo HELLO_FLAT65280"
+expect_pass "HELLO_FLAT65280" "'echo' printed the expected string"
+expect "OS9:"
+send "stop 0\r"
+expect_pass "target shutdown OK (0)" "'stop 0' shut the target down cleanly"
+# the board reboots after the target stops
+after 3000
+finish "Engine flat65280"

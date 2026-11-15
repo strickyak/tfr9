@@ -1,0 +1,25 @@
+#!/usr/bin/expect -f
+# fuzix.exp -- Fuzix 6809 on the multicomp09fuzix engine (boot mode 1170).  Ported from v4 systest 06.
+set timeout 60
+source [file join [file dirname [file normalize [info script]]] common.exp]
+puts "Engine multicomp09fuzix: Fuzix 6809, 256 KB MMU"
+start_tether 1170
+expect_pass "FUZIX version" "Booted the Fuzix 6809 kernel"
+expect_pass "256KiB total RAM" "Detected 256 KiB of RAM"
+expect_pass "Starting /init" "Mounted the root filesystem over SD SPI emulation"
+expect {
+    "Continue? "      { send "n\r"; exp_continue }
+    "Enter new date: " { send "\r";  exp_continue }
+    "Enter new time: " { send "\r";  exp_continue }
+    "login: "         { puts "  PASS: Reached the login prompt"; send "root\r" }
+    "# "              { puts "  PASS: Reached a root shell" }
+    timeout           { fail_and_exit "Timed out waiting for the Fuzix login/shell prompt" }
+}
+expect_pass "# " "Logged in as root"
+send "echo HELLO_FUZIX_6809\r"
+expect "echo HELLO_FUZIX_6809"
+expect_pass "HELLO_FUZIX_6809" "'echo' printed the expected string"
+expect "# "
+exec kill -INT [exp_pid]
+expect { "SIGINT" { puts "  PASS: tether interrupted cleanly" } eof { puts "  PASS: tether closed" } }
+finish "Engine multicomp09fuzix"

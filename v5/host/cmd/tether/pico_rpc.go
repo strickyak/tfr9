@@ -336,7 +336,10 @@ func RunQuickRestart(bootMode uint32, shouldExit bool) {
 	// /dev/ttyACM0 if the Pico reboots.
 	disconnect()
 	time.Sleep(3 * time.Second)
-	if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
+	if strings.HasPrefix(*WIRE, "/dev/serial/by-id/") {
+		// A by-id name follows the board through re-enumeration: keep it, never guess another device.
+	} else if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
+		// Legacy guess ("the last /dev/ttyACM*") -- wrong when more than one board is attached.
 		*WIRE = matches[len(matches)-1]
 	}
 	fmt.Printf("%s: OK\n", label)
