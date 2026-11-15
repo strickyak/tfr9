@@ -50,57 +50,40 @@ void IN_RAM deep65280_vector_writer(uint addr, byte d) {
   vector_ram[addr & 0x0F] = d;
 }
 
+struct DeepGime {      // the two GIME registers NitrOS-9 Level 2 touches: init0 ($FF90, read) and the task register ($FF91)
+  static constexpr uint16_t kDefaultBase = 0xFF90;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base + 1, "gime");
+    IoSet(base + 0, deep65280_read_gime_init0, nullptr);
+    IoSet(base + 1, deep65280_read_task, deep65280_write_task);
+  }
+};
+
+struct DeepMmu {       // MMU task 0 and task 1 registers, 8 + 8 at $FFA0..$FFAF
+  static constexpr uint16_t kDefaultBase = 0xFFA0;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base + 15, "mmu");
+    for (int i = 0; i < 16; i++) IoSet(base + i, deep65280_read_mmu, deep65280_write_mmu);
+  }
+};
+
+struct DeepVectors {   // $FFF0..$FFFF: a small RAM of its own
+  static constexpr uint16_t kDefaultBase = 0xFFF0;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base + 15, "vectors");
+    for (int i = 0; i < 16; i++) IoSet(base + i, deep65280_vector_reader, deep65280_vector_writer);
+  }
+};
+
 void Install_Deep65280_IO() {
-  for (int i = 0; i < 256; i++) {
-    IOReaders[i] = nullptr;
-    IOWriters[i] = nullptr;
-  }
-
-  // EMUDSK ($FF80..$FF86)
-  IOReaders[0x80] = emudsk_read_lsn0;
-  IOReaders[0x81] = emudsk_read_lsn1;
-  IOReaders[0x82] = emudsk_read_lsn2;
-  IOReaders[0x83] = emudsk_read_cmd;
-  IOReaders[0x84] = emudsk_read_buf0;
-  IOReaders[0x85] = emudsk_read_buf1;
-  IOReaders[0x86] = emudsk_read_drv;
-
-  IOWriters[0x80] = emudsk_write_lsn0;
-  IOWriters[0x81] = emudsk_write_lsn1;
-  IOWriters[0x82] = emudsk_write_lsn2;
-  IOWriters[0x83] = emudsk_write_command;
-  IOWriters[0x84] = emudsk_write_buf0;
-  IOWriters[0x85] = emudsk_write_buf1;
-  IOWriters[0x86] = emudsk_write_drv;
-
-  // CLOCK_AND_STOP ($FF87)
-  IOReaders[0x87] = clock_and_stop_reader;
-  IOWriters[0x87] = clock_and_stop_writer;
-
-  // ACIA 6850 ($FF88..$FF89)
-  IOReaders[0x88] = flat65280_acia_read_status;
-  IOReaders[0x89] = flat65280_acia_read_rx;
-  IOWriters[0x88] = flat65280_acia_write_ctrl;
-  IOWriters[0x89] = flat65280_acia_write_tx;
-
-  // GIME Init0 ($FF90)
-  IOReaders[0x90] = deep65280_read_gime_init0;
-
-  // Task Switch Register ($FF91)
-  IOReaders[0x91] = deep65280_read_task;
-  IOWriters[0x91] = deep65280_write_task;
-
-  // MMU Task 0 & 1 Registers ($FFA0..$FFAF)
-  for (int i = 0xA0; i <= 0xAF; i++) {
-    IOReaders[i] = deep65280_read_mmu;
-    IOWriters[i] = deep65280_write_mmu;
-  }
-
-  // System Vectors ($FFF0..$FFFF)
-  for (int i = 0xF0; i <= 0xFF; i++) {
-    IOReaders[i] = deep65280_vector_reader;
-    IOWriters[i] = deep65280_vector_writer;
-  }
+  IoReset();
+  EmuDsk::Install();
+  ClockStop::Install();
+  TermAcia::Install();
+  DeepGime::Install();
+  DeepMmu::Install();
+  DeepVectors::Install();
+  IoVerifyPlan("deep65280");
 }
 
 void setup_deep65280() {

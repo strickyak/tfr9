@@ -62,6 +62,7 @@ target_include_directories(${PROJECT} PRIVATE
     ${LIB}/devices
     ${LIB}/mem
     ${V5_ROOT}/firmware/engines
+    ${V5_ROOT}/build/generated
     ${THIRD}
     ${THIRD}/littlefs
     ${THIRD}/tcl6.7c

@@ -51,3 +51,11 @@ void IN_RAM clock_and_stop_writer(uint, byte data) {
   }
 }
 
+
+struct ClockStop {   // one register: bit 0/1 = 60 Hz clock status/enable, writing $FC = stop the target with status 0
+  static constexpr uint16_t kDefaultBase = 0xFF87;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base, "clockstop");
+    IoSet(base, clock_and_stop_reader, clock_and_stop_writer);
+  }
+};

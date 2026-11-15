@@ -439,9 +439,11 @@ enum EngineType {
 };
 static EngineType current_engine = ENGINE_TURBO9OS;
 
+#include "io_install.h"   // IoReset/IoClaim/IoSet: how devices fill the I/O dispatch tables
 #include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
 #include "deep_mmu.h"   // Deep65280 MMU state and address translation
 #include "clock_stop.h"   // CLOCK_AND_STOP register (60 Hz clock enable, stop/exit command)
+#include "acia_term.h"   // terminal ACIA 6850 ($FF88/$FF89) for the NitrOS-9 engines
 #include "flat65280.h"   // Engine flat65280: NitrOS-9 Level 1 I/O and setup
 #include "deep65280.h"   // Engine deep65280: NitrOS-9 Level 2 I/O and setup
 #include "gep9.h"   // Engines gep9 / gep9big: Hatvan 6309 support

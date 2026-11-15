@@ -64,3 +64,17 @@ void IN_RAM emudsk_write_command(uint, byte data) {
   emudsk_status = (byte)g_emudsk_req.status.load(std::memory_order_acquire);
 }
 
+
+struct EmuDsk {   // 7 registers: LSN (3), command/status, buffer address (2), drive
+  static constexpr uint16_t kDefaultBase = 0xFF80;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base + 6, "emudsk");
+    IoSet(base + 0, emudsk_read_lsn0, emudsk_write_lsn0);
+    IoSet(base + 1, emudsk_read_lsn1, emudsk_write_lsn1);
+    IoSet(base + 2, emudsk_read_lsn2, emudsk_write_lsn2);
+    IoSet(base + 3, emudsk_read_cmd,  emudsk_write_command);
+    IoSet(base + 4, emudsk_read_buf0, emudsk_write_buf0);
+    IoSet(base + 5, emudsk_read_buf1, emudsk_write_buf1);
+    IoSet(base + 6, emudsk_read_drv,  emudsk_write_drv);
+  }
+};

@@ -4,31 +4,6 @@
 // in behavior; the object code was compared before and after).  Included once, by main.cpp, at the
 // point where this code used to be, so it relies on the declarations above that include.
 
-// IN_RAM ACIA 6850 callbacks
-byte IN_RAM flat65280_acia_read_status(uint) {
-  byte s = 0x02; // TDRE is always 1 (transmit empty)
-  if (flat65280_rx_has_char) {
-    s |= 0x01; // RDRF = 1 (receive full)
-    if (flat65280_acia_ctrl & 0x80) {
-      s |= 0x80; // IRQ
-    }
-  }
-  return s;
-}
-
-byte IN_RAM flat65280_acia_read_rx(uint) {
-  flat65280_rx_has_char = false;
-  return flat65280_rx_char;
-}
-
-void IN_RAM flat65280_acia_write_ctrl(uint, byte d) {
-  flat65280_acia_ctrl = d;
-}
-
-void IN_RAM flat65280_acia_write_tx(uint, byte d) {
-  Say(d);
-}
-
 // IN_RAM RAM vector reader for FFF0..FFFF
 byte IN_RAM ram_vector_reader(uint addr) {
   return ram[0xFF00 | (addr & 0xFF)];
@@ -41,42 +16,21 @@ bool IN_RAM flat65280_irq_needed() {
   return clock_irq || acia_irq;
 }
 
+struct FlatVectors {   // $FFF0..$FFFF read from RAM (the 6809 vectors live in the top of RAM)
+  static constexpr uint16_t kDefaultBase = 0xFFF0;
+  static void Install(uint16_t base = kDefaultBase) {
+    IoClaim(base, base + 15, "vectors");
+    for (int i = 0; i < 16; i++) IoSet(base + i, ram_vector_reader, nullptr);
+  }
+};
+
 void Install_Flat65280_IO() {
-  for (int i = 0; i < 256; i++) {
-    IOReaders[i] = nullptr;
-    IOWriters[i] = nullptr;
-  }
-  // EMUDSK
-  IOReaders[0x80] = emudsk_read_lsn0;
-  IOReaders[0x81] = emudsk_read_lsn1;
-  IOReaders[0x82] = emudsk_read_lsn2;
-  IOReaders[0x83] = emudsk_read_cmd;
-  IOReaders[0x84] = emudsk_read_buf0;
-  IOReaders[0x85] = emudsk_read_buf1;
-  IOReaders[0x86] = emudsk_read_drv;
-
-  IOWriters[0x80] = emudsk_write_lsn0;
-  IOWriters[0x81] = emudsk_write_lsn1;
-  IOWriters[0x82] = emudsk_write_lsn2;
-  IOWriters[0x83] = emudsk_write_command;
-  IOWriters[0x84] = emudsk_write_buf0;
-  IOWriters[0x85] = emudsk_write_buf1;
-  IOWriters[0x86] = emudsk_write_drv;
-
-  // CLOCK_AND_STOP
-  IOReaders[0x87] = clock_and_stop_reader;
-  IOWriters[0x87] = clock_and_stop_writer;
-
-  // ACIA 6850
-  IOReaders[0x88] = flat65280_acia_read_status;
-  IOReaders[0x89] = flat65280_acia_read_rx;
-  IOWriters[0x88] = flat65280_acia_write_ctrl;
-  IOWriters[0x89] = flat65280_acia_write_tx;
-
-  // System Vectors (0xFFF0..0xFFFF)
-  for (int i = 0xF0; i <= 0xFF; i++) {
-    IOReaders[i] = ram_vector_reader;
-  }
+  IoReset();
+  EmuDsk::Install();
+  ClockStop::Install();
+  TermAcia::Install();
+  FlatVectors::Install();
+  IoVerifyPlan("flat65280");
 }
 
 void setup_flat65280() {
