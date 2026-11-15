@@ -5,7 +5,7 @@
 // The configuration is FLAT KEY-VALUE PAIRS, one value per key (spec 15.x):
 //     profile = TFR4 | COCO          which column of ports.tsv the engine's core devices come from
 //     <device> = 0xFF48 | off        move a device to a base address, or (enhancements only) leave it out
-// Tcl shortcuts (`ports COCO`, `enhance becker 0xFF48`, see products/tfr911h/ports_cmd.h) just set keys.
+// Tcl shortcuts (`ports profile COCO`, `enhance becker 0xFF48`, see products/tfr911h/ports_cmd.h) just set keys.
 // It lives in RAM only and is written every boot by Tcl; nothing is stored in flash.
 //
 // PortsValidate() is the gatekeeper: it resolves the placement of every device of an engine and claims the
@@ -72,7 +72,7 @@ inline bool IsKnownProfile(const char* p) {
 }
 
 // Some engines decode their ports inside the bus loop and cannot be moved.
-inline bool EngineHasFixedPorts(const char* engine) { return !strcmp(engine, "multicomp09"); }
+inline bool EngineHasFixedPorts(const char* engine) { return !strcmp(engine, "multicomp09fuzix"); }
 
 // Base address of a core device of `engine` under the current settings.  Falls back to `dflt` if ports.tsv has
 // no such row (a code/plan mismatch, reported separately by IoFinish).

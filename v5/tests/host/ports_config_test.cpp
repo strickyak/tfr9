@@ -41,8 +41,8 @@ int main() {
   // 5. Things that are refused outright.
   { PortsCheck c = Run("flat65280", {{"vectors", "0xFFE0"}}); CHECK(!c.ok && Has(c, "vectors"), "vectors fixed: '%s'", c.msg); }
   { PortsCheck c = Run("flat65280", {{"emudsk", "off"}}); CHECK(!c.ok && Has(c, "cannot be turned off"), "core off: '%s'", c.msg); }
-  { PortsCheck c = Run("multicomp09", {{"acia", "0xFF20"}}); CHECK(!c.ok && Has(c, "cannot be moved"), "multicomp fixed: '%s'", c.msg); }
-  { PortsCheck c = Run("multicomp09", {{"profile", "COCO"}}); CHECK(!c.ok && Has(c, "no ports in profile COCO"), "multicomp has no COCO: '%s'", c.msg); }
+  { PortsCheck c = Run("multicomp09fuzix", {{"acia", "0xFF20"}}); CHECK(!c.ok && Has(c, "cannot be moved"), "multicomp fixed: '%s'", c.msg); }
+  { PortsCheck c = Run("multicomp09fuzix", {{"profile", "COCO"}}); CHECK(!c.ok && Has(c, "no ports in profile COCO"), "multicomp has no COCO: '%s'", c.msg); }
   { PortsCheck c = Run("flat65280", {{"profile", "Bogus"}}); CHECK(!c.ok && Has(c, "unknown profile"), "bad profile: '%s'", c.msg); }
   { PortsCheck c = Run("flat65280", {{"profile", "E1"}}); CHECK(!c.ok && Has(c, "unknown profile"), "E1 is not a profile: '%s'", c.msg); }
   { PortsCheck c = Run("flat65280", {{"gizmo", "0xFF48"}}); CHECK(!c.ok && Has(c, "gizmo"), "unknown device: '%s'", c.msg); }

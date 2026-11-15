@@ -51,12 +51,12 @@ COCO	gep9big	disk	0xFF68	0xFF6F
 COCO	gep9big	fuse_dma	0xFF80	0xFF8F
 COCO	gep9big	embiggen_mmu	0xFFE0	0xFFE7
 COCO	gep9big	vectors	0xFFF0	0xFFFF
-# --- multicomp09 (Fuzix for the TFR; the port ABI is fixed, so TFR4 only) ------------------------
-TFR4	multicomp09	acia	0xFFD0	0xFFD1
-TFR4	multicomp09	uart_stubs	0xFFD2	0xFFD5
-TFR4	multicomp09	sd	0xFFD8	0xFFDC
-TFR4	multicomp09	timer	0xFFDD	0xFFDD
-TFR4	multicomp09	mmu	0xFFDE	0xFFDF
+# --- multicomp09fuzix (Fuzix for the TFR; the port ABI is fixed, so TFR4 only) ------------------------
+TFR4	multicomp09fuzix	acia	0xFFD0	0xFFD1
+TFR4	multicomp09fuzix	uart_stubs	0xFFD2	0xFFD5
+TFR4	multicomp09fuzix	sd	0xFFD8	0xFFDC
+TFR4	multicomp09fuzix	timer	0xFFDD	0xFFDD
+TFR4	multicomp09fuzix	mmu	0xFFDE	0xFFDF
 # --- enhancement map E1 (same in every profile; draft addresses marked in the spec) --------------
 E1	*	becker	0xFF41	0xFF42
 E1	*	audio	0xFF70	0xFF71

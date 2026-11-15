@@ -12,13 +12,15 @@ all_out() { printf '%s\n%s\n' "$TETHER_STDOUT" "$TETHER_STDERR"; }
 run_tether --quick-restart=0 > /dev/null            # a clean boot: the settings are RAM only
 
 log_test "profile and key-value basics"
-inj "ports clear; ports"
+inj "ports clear; ports profile"
 assert_contains "$TETHER_STDOUT" "TFR4" "default profile is TFR4"
-inj "ports COCO; ports"
-assert_contains "$TETHER_STDOUT" "COCO" "ports COCO sets the profile"
+inj "ports profile COCO; ports profile"
+assert_contains "$TETHER_STDOUT" "COCO" "ports profile COCO sets the profile"
+inj "ports COCO"
+assert_exit_code 1 "$TETHER_EXIT" "the old shortcut ports COCO is gone: ports is an ensemble"
 inj "ports show"
 assert_contains "$TETHER_STDOUT" "profile COCO" "ports show lists flat key value pairs"
-inj "ports Bogus"
+inj "ports profile Bogus"
 assert_exit_code 1 "$TETHER_EXIT" "an unknown profile is an error"
 inj "ports set becker banana"
 assert_exit_code 1 "$TETHER_EXIT" "a value that is not an address is an error"
@@ -32,7 +34,7 @@ inj "enhance nonesuch"
 assert_exit_code 1 "$TETHER_EXIT" "an unknown enhancement is an error"
 
 log_test "the default placement is valid for each engine"
-for e in turbo9os flat65280 deep65280 gep9 gep9big multicomp09; do
+for e in turbo9os flat65280 deep65280 gep9 gep9big multicomp09fuzix; do
   engine $e; inj "ports check"
   assert_contains "$TETHER_STDOUT" "ok" "$e on TFR4"
 done
@@ -44,7 +46,7 @@ assert_contains "$(all_out)" "becker" "the message names becker"
 assert_contains "$(all_out)" "embiggen_mmu" "the message names embiggen_mmu"
 inj "enhance becker 0xFF48; ports check"
 assert_contains "$TETHER_STDOUT" "ok" "moving Becker to 0xFF48 fixes it"
-inj "ports clear; ports COCO; enhance becker; ports check"
+inj "ports clear; ports profile COCO; enhance becker; ports check"
 assert_contains "$TETHER_STDOUT" "ok" "the COCO profile has no clash at the default Becker address"
 
 log_test "bye refuses a bad placement and leaves the board at TCL>"
@@ -71,10 +73,22 @@ engine flat65280; inj "ports set vectors 0xFFE0; ports check"
 assert_exit_code 1 "$TETHER_EXIT" "the vectors cannot be moved"
 
 log_test "profiles an engine does not have"
-engine multicomp09; inj "ports COCO; ports check"
-assert_exit_code 1 "$TETHER_EXIT" "multicomp09 has no COCO profile"
-engine gep9; inj "ports COCO; ports check"
+engine multicomp09fuzix; inj "ports profile COCO; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "multicomp09fuzix has no COCO profile"
+engine gep9; inj "ports profile COCO; ports check"
 assert_contains "$TETHER_STDOUT" "ok" "gep9 on COCO"
+
+log_test "engine names: the full name only; a name that is not an engine is refused"
+engine multicomp09; inj "ports check"
+assert_exit_code 1 "$TETHER_EXIT" "the old alias multicomp09 is gone"
+assert_contains "$(all_out)" "unknown engine" "the message says so"
+assert_contains "$(all_out)" "multicomp09fuzix" "and lists the real names"
+inj "bye"
+assert_exit_code 1 "$TETHER_EXIT" "bye refuses an unknown engine instead of running Turbo9OS"
+run_tether --quick-ping=8
+assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=8)" "the board did not restart"
+engine multicomp09fuzix; inj "ports check"
+assert_contains "$TETHER_STDOUT" "ok" "multicomp09fuzix is accepted"
 
 engine turbo9os                                               # leave the board tidy
 print_summary "Suite 7 (ports)"

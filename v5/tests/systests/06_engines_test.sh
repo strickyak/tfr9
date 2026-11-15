@@ -6,7 +6,7 @@
 #     V5_IMG_FLAT_DISK  (default $SHELF/nitros9/recipes/flat65280/flat0.dsk)
 #     V5_IMG_DEEP_BOOT  (default $SHELF/nitros9/recipes/deep65280/deep65280.img)   NitrOS-9 L2 boot image
 #     V5_IMG_DEEP_DISK  (default $SHELF/nitros9/recipes/deep65280/deep0.dsk)
-#     V5_IMG_FUZIX_BIN, V5_IMG_FUZIX_DISK  (no default)  Fuzix kernel and root disk for the multicomp09 engine
+#     V5_IMG_FUZIX_BIN, V5_IMG_FUZIX_DISK  (no default)  Fuzix kernel and root disk for the multicomp09fuzix engine
 #   Images are COPIED into a temporary /pc (tether refuses symlinks there).  ENGINES="turbo9os flat65280" selects.
 . "$(dirname "$0")/common.sh"
 echo "Running Suite 6: guest operating systems (engines)"
@@ -66,6 +66,6 @@ run_engine() {   # run_engine NAME DESCRIPTION [source:dest ...]
 run_engine turbo9os  "Engine 0: Turbo9OS (built-in)"
 run_engine flat65280 "Engine 1: Flat65280 (NitrOS-9 Level 1)" "$F_BOOT:flat65280.img" "$F_DISK:flat0.dsk" "$F_DISK:disk0.dsk"
 run_engine deep65280 "Engine 2: Deep65280 (NitrOS-9 Level 2, 256 KB MMU)" "$D_BOOT:deep65280.img" "$D_DISK:deep0.dsk" "$D_DISK:disk0.dsk"
-run_engine fuzix     "Engine 3: multicomp09 Fuzix 6809" "$X_BIN:fuzix.bin" "$X_DISK:disk.img"
+run_engine fuzix     "Engine 3: multicomp09fuzix (Fuzix 6809)" "$X_BIN:fuzix.bin" "$X_DISK:disk.img"
 
 print_summary "Suite 6 (engines)"

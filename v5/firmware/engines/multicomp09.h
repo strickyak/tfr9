@@ -1,5 +1,5 @@
 #pragma once
-// multicomp09.h -- Engine multicomp09: Fuzix 6809 support.
+// multicomp09.h -- Engine multicomp09fuzix: Fuzix 6809 support.
 // Moved VERBATIM out of products/tfr911h/main.cpp (v5 Phase 3 step 1: pure code motion, no change
 // in behavior; the object code was compared before and after).  Included once, by main.cpp, at the
 // point where this code used to be, so it relies on the declarations above that include.
@@ -55,7 +55,7 @@ void IN_RAM mc_dispatch_sd_cmd(uint8_t cmd) {
   }
 }
 
-// multicomp09 decodes $FFD0..$FFDF itself (mc_read_io / mc_write_io in the bus loop), not through the dispatch
+// multicomp09fuzix decodes $FFD0..$FFDF itself (mc_read_io / mc_write_io in the bus loop), not through the dispatch
 // tables, so here we only record the claims and check them against ports.tsv.  Note: the tables are NOT cleared,
 // so the Turbo9Sim ACIA handlers installed at startup at $FF00..$FF03 are still in them (v4 behavior).
 struct MulticompIo {
@@ -66,7 +66,7 @@ struct MulticompIo {
     IoClaim(0xFFD8, 0xFFDC, "sd");
     IoClaim(0xFFDD, 0xFFDD, "timer");
     IoClaim(0xFFDE, 0xFFDF, "mmu");
-    IoFinish("multicomp09");
+    IoFinish("multicomp09fuzix");
   }
 };
 
@@ -97,34 +97,34 @@ void setup_multicomp09() {
   if (g_drive_nodes[0]) {
     int err = g_drive_nodes[0]->open_file(LFS_O_RDWR);
     if (err < 0) {
-      cobs_printf("[multicomp09: disk open RDWR failed (err %d), trying RDONLY: %s]\n", err, disk_path);
+      cobs_printf("[multicomp09fuzix: disk open RDWR failed (err %d), trying RDONLY: %s]\n", err, disk_path);
       err = g_drive_nodes[0]->open_file(LFS_O_RDONLY);
       if (err >= 0) {
-        cobs_printf("[multicomp09: opened disk read-only: %s]\n", disk_path);
+        cobs_printf("[multicomp09fuzix: opened disk read-only: %s]\n", disk_path);
       } else {
-        cobs_printf("[multicomp09: disk open failed: %s]\n", disk_path);
+        cobs_printf("[multicomp09fuzix: disk open failed: %s]\n", disk_path);
         g_drive_nodes[0] = nullptr;
       }
     } else {
-      cobs_printf("[multicomp09: opened disk: %s]\n", disk_path);
+      cobs_printf("[multicomp09fuzix: opened disk: %s]\n", disk_path);
     }
   } else {
-    cobs_printf("[multicomp09: could not resolve disk path: %s]\n", disk_path);
+    cobs_printf("[multicomp09fuzix: could not resolve disk path: %s]\n", disk_path);
   }
 
   // 3. Load fuzix kernel (Extended DECB) into physical RAM
   const char* kernel_path = centipede_config.flat_img[0] ? centipede_config.flat_img : "/pc/fuzix.bin";
   auto img_node = vfs_resolve(kernel_path);
   if (!img_node) {
-    cobs_printf("[multicomp09: could not resolve kernel %s]\n", kernel_path);
+    cobs_printf("[multicomp09fuzix: could not resolve kernel %s]\n", kernel_path);
     return;
   }
   int err = img_node->open_file(LFS_O_RDONLY);
   if (err < 0) {
-    cobs_printf("[multicomp09: failed to open kernel %s (err %d)]\n", kernel_path, err);
+    cobs_printf("[multicomp09fuzix: failed to open kernel %s (err %d)]\n", kernel_path, err);
     return;
   }
-  cobs_printf("[multicomp09: loading kernel %s into RAM...]\n", kernel_path);
+  cobs_printf("[multicomp09fuzix: loading kernel %s into RAM...]\n", kernel_path);
 
   byte hdr[5];
   uint16_t high16 = 0;
@@ -157,7 +157,7 @@ void setup_multicomp09() {
       }
     } else if (chunk_type == 0xFF) { // Exec trailer
       exec_addr = addr;
-      cobs_printf("[multicomp09: DECB execution address $%04X]\n", exec_addr);
+      cobs_printf("[multicomp09fuzix: DECB execution address $%04X]\n", exec_addr);
       break;
     } else {
       if (length > 0) img_node->seek(length, LFS_SEEK_CUR, nullptr);
@@ -170,6 +170,6 @@ void setup_multicomp09() {
   ram[0xFFFF] = exec_addr & 0xFF;
   memcpy(vector_ram, &ram[0xFFF0], 16);
 
-  cobs_printf("[multicomp09: loaded kernel, reset vector $%02X%02X]\n", ram[0xFFFE], ram[0xFFFF]);
+  cobs_printf("[multicomp09fuzix: loaded kernel, reset vector $%02X%02X]\n", ram[0xFFFE], ram[0xFFFF]);
 }
 

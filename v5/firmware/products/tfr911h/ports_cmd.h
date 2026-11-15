@@ -1,8 +1,8 @@
 #pragma once
 // ports_cmd.h -- Tcl commands for choosing the I/O port placement, and the `bye` that checks it first.
 //
-//   ports                      the current profile (TFR4 or COCO)
-//   ports COCO                 shortcut: set profile=COCO
+//   ports profile              the current profile (TFR4 or COCO)
+//   ports profile COCO         set profile=COCO
 //   ports show                 the whole configuration as flat key-value pairs ("profile COCO becker 0xFF48 ...")
 //   ports set KEY VALUE        set one key: `profile` or a device name; VALUE is 0xFF48, $FF48, or `off`
 //   ports unset KEY            remove a key (back to the profile's default)
@@ -16,12 +16,20 @@
 // overlaps another device, or uses $FF7F, makes `bye` fail with a message and leaves the board at TCL>.
 // Included by main.cpp after registry.h (FindEngine) and before background.h (which registers the commands).
 
+// The engine `bye` would launch.  An empty Config(engine) means the built-in Turbo9OS; a name that is not an
+// engine is refused (it used to run Turbo9OS silently, which hides typos).
 static const char* CurrentEngineName() {
   const EngineSpec* spec = FindEngine(centipede_config.engine);
-  return spec ? spec->ports_name : "turbo9os";    // the name ports.tsv uses; an unknown or empty name runs the built-in Turbo9OS
+  return spec ? spec->name : "turbo9os";
 }
 
 static int ports_check_now(Tcl_Interp* interp, const char* who) {
+  if (centipede_config.engine[0] && !FindEngine(centipede_config.engine)) {
+    Tcl_AppendResult(interp, who, ": unknown engine \"", centipede_config.engine, "\" (engines:", (char*)NULL);
+    for (const EngineSpec& e : kEngines) Tcl_AppendResult(interp, " ", e.name, (char*)NULL);
+    Tcl_AppendResult(interp, ")", (char*)NULL);
+    return TCL_ERROR;
+  }
   PortsCheck pc = PortsValidate(CurrentEngineName(), g_port_settings, g_io_scratch);
   if (pc.ok) return TCL_OK;
   Tcl_AppendResult(interp, who, ": ", CurrentEngineName(), " on ", g_port_settings.Profile(), ": ", pc.msg, (char*)NULL);
@@ -31,8 +39,18 @@ static int ports_check_now(Tcl_Interp* interp, const char* who) {
 static bool ports_value_ok(const char* v) { uint16_t a; return !strcmp(v, "off") || ParsePortAddr(v, &a); }
 
 static int ports_cmd(ClientData, Tcl_Interp* interp, int argc, char** argv) {
-  if (argc == 1) { Tcl_SetResult(interp, (char*)g_port_settings.Profile(), TCL_VOLATILE); return TCL_OK; }
+  if (argc == 1) {
+    Tcl_AppendResult(interp, "wrong # args: should be \"ports profile|show|set|unset|clear|check ...\"", (char*)NULL);
+    return TCL_ERROR;
+  }
   const char* sub = argv[1];
+  if (!strcmp(sub, "profile")) {
+    if (argc == 2) { Tcl_SetResult(interp, (char*)g_port_settings.Profile(), TCL_VOLATILE); return TCL_OK; }
+    if (argc != 3) { Tcl_AppendResult(interp, "usage: ports profile ?TFR4|COCO?", (char*)NULL); return TCL_ERROR; }
+    if (!IsKnownProfile(argv[2])) { Tcl_AppendResult(interp, "unknown profile \"", argv[2], "\" (known: TFR4, COCO)", (char*)NULL); return TCL_ERROR; }
+    g_port_settings.Set("profile", argv[2]);
+    return TCL_OK;
+  }
   if (!strcmp(sub, "show")) {
     Tcl_AppendElement(interp, (char*)"profile", 0); Tcl_AppendElement(interp, (char*)g_port_settings.Profile(), 0);
     for (int i = 0; i < g_port_settings.n_; i++) {
@@ -62,12 +80,7 @@ static int ports_cmd(ClientData, Tcl_Interp* interp, int argc, char** argv) {
     if (!g_port_settings.Set(argv[2], argv[3])) { Tcl_AppendResult(interp, "too many settings, or a name that is too long", (char*)NULL); return TCL_ERROR; }
     return TCL_OK;
   }
-  if (argc == 2) {                        // `ports COCO`
-    if (!IsKnownProfile(sub)) { Tcl_AppendResult(interp, "unknown profile or subcommand \"", sub, "\": use TFR4, COCO, show, set, unset, clear or check", (char*)NULL); return TCL_ERROR; }
-    g_port_settings.Set("profile", sub);
-    return TCL_OK;
-  }
-  Tcl_AppendResult(interp, "usage: ports ?PROFILE|show|set KEY VALUE|unset KEY|clear|check?", (char*)NULL);
+  Tcl_AppendResult(interp, "unknown subcommand \"", sub, "\": use profile, show, set, unset, clear or check", (char*)NULL);
   return TCL_ERROR;
 }
 

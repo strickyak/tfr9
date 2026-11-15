@@ -98,7 +98,7 @@ static void TestTfr4MatchesV4() {
     {"deep65280", "emudsk", 0xFF80, 0xFF86}, {"deep65280", "acia", 0xFF88, 0xFF89}, {"deep65280", "gime", 0xFF90, 0xFF91},
     {"deep65280", "mmu", 0xFFA0, 0xFFAF}, {"turbo9os", "turbo9sim_acia", 0xFF00, 0xFF03},
     {"gep9", "console", 0xFF00, 0xFF05}, {"gep9", "disk", 0xFF10, 0xFF17}, {"gep9", "fuse_dma", 0xFF20, 0xFF2F},
-    {"multicomp09", "acia", 0xFFD0, 0xFFD1}, {"multicomp09", "sd", 0xFFD8, 0xFFDC}, {"multicomp09", "mmu", 0xFFDE, 0xFFDF},
+    {"multicomp09fuzix", "acia", 0xFFD0, 0xFFD1}, {"multicomp09fuzix", "sd", 0xFFD8, 0xFFDC}, {"multicomp09fuzix", "mmu", 0xFFDE, 0xFFDF},
   };
   for (auto& g : golden) {
     bool found = false;
