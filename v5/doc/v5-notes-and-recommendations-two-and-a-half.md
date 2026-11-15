@@ -799,6 +799,14 @@ Honest accounting (original draft → now):
 
 ---
 
+### 15.x Port configuration: decisions of 2026-11-14 (Strick)
+
+* **`Config` is RAM only and is not a persistence problem.**  `centipede_config` is a global in RAM; it is not written to flash and does not survive a restart.  Configuration is *written every time*, normally by Tcl (`/rc/init.tcl`, `/rc/modeN.tcl`, a `.pak`'s script).  (An earlier remark in this log that a stored-`Config` layout change might invalidate users' stored settings was wrong.)
+* **Mechanism: Tcl commands that set RAM state, applied when the engine launches** — for example `ports COCO` and `enhance becker 0xFF48` — not new fields in the `Config` struct (which the Centipede also shares).
+* **The final configuration is flat key-value pairs**, one value per key, no multi-valued keys (never `"becker=FF48 audio=off"` in one value).  Human-friendly shortcuts are welcome — a command that sets many keys, or a named group (a profile) with a few overrides on top — as long as they **flatten into plain key-value pairs** that can be listed (`ports show`).  Sketch (details to be fixed when built): a RAM-only array `Ports` with `Ports(profile)` = `TFR4`/`COCO` and `Ports(<device>)` = a base address, or `off`; `ports COCO` is a shortcut that sets `profile`; `enhance becker 0xFF48` sets `Ports(becker)`.
+* **A placement conflict is a Tcl error, not a hang.**  If a requested placement overlaps another device, or uses `$FF7F`, the engine is **not launched**: the message names both devices and the board stays at `TCL>` so the user can fix the setting.  (Today `IoClaim` stops the board with `ABORT`; that is acceptable only for errors in our own built-in tables, and must change before users can set addresses.)
+* **Becker moves, embiggen does not.**  On `TFR4`, `gep9big`'s EMBIGGEN MMU stays at `$FF40..$FF47` (it is part of the Hatvan guest interface: hatvan-os, minigolf and every built big6809 binary hard-code it).  The Becker enhancement (default `$FF41/$FF42`) is the one that is overridden — e.g. to `$FF48/$FF49` — when both are wanted; no Hatvan guest uses Becker today.  The `COCO` profile avoids the clash anyway (embiggen at `$FFE0`).
+
 ## 16. Revisions to the spec after acceptance — for your review
 
 Format: *what I changed or reinterpreted → why → where*.  None silently reverses a decision; items marked **needs your OK** depart from the literal wording of an answer.
