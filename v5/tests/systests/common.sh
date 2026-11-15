@@ -1,7 +1,9 @@
 # common.sh -- shared harness for the v5 hardware system tests.  POSIX sh (works with dash and macOS sh).
 # Source it:  . "$(dirname "$0")/common.sh"
 # Environment:  TETHER=/path/to/tether (default: build/tether, built by `make tether`)
-#               WIRE=/dev/ttyACM0  (passed to tether as -wire if set)
+#               WIRE=/dev/ttyACM1  (passed to tether as -wire if set; overrides label search)
+#               BOARD_MATCH="b=tfr9 v=911h"  (default) label fields used to find the board when
+#               WIRE is unset.  /dev/ttyACM* numbers are NOT stable; boards are found by label.
 
 SYSTEST_DIR=$(cd "$(dirname "$0")" && pwd)
 V5=$(cd "$SYSTEST_DIR/../.." && pwd)
@@ -26,12 +28,14 @@ pass() { TESTS_PASSED=$((TESTS_PASSED + 1)); printf '  %sPASS:%s %s\n' "$GREEN" 
 fail() { TESTS_FAILED=$((TESTS_FAILED + 1)); printf '  %sFAIL:%s %s\n' "$RED" "$NC" "$1" >&2; }
 skip() { TESTS_SKIPPED=$((TESTS_SKIPPED + 1)); printf '  %sSKIP:%s %s\n' "$YELLOW" "$NC" "$1"; }
 
-# board_present: is a Pico visible as a USB serial device?
-board_present() {
-  [ -n "${WIRE:-}" ] && [ -e "$WIRE" ] && return 0
-  for d in /dev/ttyACM* /dev/cu.usbmodem*; do [ -e "$d" ] && return 0; done
-  return 1
-}
+# Resolve WIRE by label unless the caller fixed it.  Never fall back to "any /dev/ttyACM*":
+# with several boards attached that could run a test against the wrong one.
+if [ -z "${WIRE:-}" ]; then
+  # shellcheck disable=SC2086
+  WIRE=$("$V5/scripts/find-board.sh" ${BOARD_MATCH:-b=tfr9 v=911h}) || WIRE=
+fi
+# board_present: did we find the board we are testing?
+board_present() { [ -n "${WIRE:-}" ] && [ -e "$WIRE" ]; }
 # need_board "description": skip (and return 1) when no board is attached
 need_board() {
   if board_present; then return 0; fi
