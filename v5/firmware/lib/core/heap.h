@@ -4,15 +4,16 @@
 //   MustAlloc(n)  -- never returns NULL: out of memory is a panic (the board reboots with a dump).
 //                    Use it where failure cannot be handled.  This is what Tcl's ckalloc() does:
 //                    Tcl 6.7 assumes ckalloc never fails, so it cannot be changed to return NULL.
-//   TryAlloc(n)   -- returns NULL when the request would not leave HEAP_RESERVE bytes free (or when
-//                    malloc fails).  Use it ONLY where the caller checks and reports an error, e.g.
-//                    "extract this zip entry": a big request fails politely and the board lives.
+//   TryAlloc(n)   -- returns NULL when the request would not leave HEAP_RESERVE bytes free, or when malloc
+//                    fails.  Use it where the caller CHECKS for NULL and reports an error, e.g. "read this
+//                    file into a buffer": a big request fails politely and the board lives.
 //   HeapIsLow()   -- true when free heap < HEAP_RESERVE.  Tcl_LowMemoryHook (third_party/tcl6.7c) is set
 //                    to this, so a runaway script gets "out of memory" at its next command instead of a
 //                    reboot.  The reserve is what lets the error message, and one more small command, run.
 //
-// C++ note: `new`, std::string and std::vector are NOT covered; with exceptions disabled their
-// failure is an abort.  Code that can hold O(file size) data should use TryAlloc or, better, stream.
+// C++ note: `new`, std::string and std::vector are NOT covered: with exceptions disabled a failed `new`
+// panics (core/oom_abort.h prints the message), which is the intended behavior for `new`.  Code that can hold
+// O(file size) data must use TryAlloc and check, or (better) stream.
 #include <cstddef>
 #include <cstdlib>
 
@@ -44,15 +45,14 @@ inline size_t HeapFreeBytes() { return (size_t)-1 / 2; }
 
 inline bool HeapIsLow() { return HeapFreeBytes() < HEAP_RESERVE; }
 
-// Would `bytes` more still leave HEAP_RESERVE free?  Use before building a std::string/vector of a size taken
-// from a file or from the PC, where the C++ containers would otherwise abort the board.
-inline bool HeapCanHold(size_t bytes) {
-  size_t free_now = HeapFreeBytes();
-  return bytes <= free_now && free_now - bytes >= HEAP_RESERVE;
-}
-
+// TryAlloc: malloc that also refuses to dip into the HEAP_RESERVE.  It is the ONLY way to ask "is there room":
+// ask for the memory and CHECK FOR NULL.  Never decide from HeapFreeBytes() that an allocation will succeed:
+// the heap fragments (free memory is not one block), and other allocations happen in between.  A size
+// check can only refuse early; it can never promise success.  Callers must handle NULL (malloc returns NULL
+// on this platform: PICO_MALLOC_PANIC=0, spec S51).
 inline void* TryAlloc(size_t n) {
-  if (!HeapCanHold(n)) return nullptr;
+  size_t free_now = HeapFreeBytes();
+  if (n > free_now || free_now - n < HEAP_RESERVE) return nullptr;
   return malloc(n);
 }
 

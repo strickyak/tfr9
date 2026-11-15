@@ -768,6 +768,9 @@ int lzip_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
 
 
 
+// Free proc for result buffers obtained from plain malloc/TryAlloc (see the note at the call site).
+static void tcl_free_malloced(char* p) { free(p); }
+
 int minizip_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) {
   if (argc < 3) {
     Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0],
@@ -827,21 +830,24 @@ int minizip_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[
       if (idx < 0 || !mz_zip_reader_file_stat(&zip, idx, &st)) {
         Tcl_AppendResult(interp, "zip: failed to extract member ", membername, (char *) NULL);
         return_code = TCL_ERROR;
-      } else if (!HeapCanHold((size_t)st.m_uncomp_size + 1 + 4096)) {
-        char msg[96];
-        snprintf(msg, sizeof msg, " is %u bytes, too big for the %u bytes of free memory; use cat/md5/source on name.zip!/member",
-                 (unsigned)st.m_uncomp_size, (unsigned)HeapFreeBytes());
-        Tcl_AppendResult(interp, "zip: member ", membername, msg, (char *) NULL);
-        return_code = TCL_ERROR;
       } else {
-        char* tcl_buf = (char*)ckalloc((unsigned)st.m_uncomp_size + 1);
-        if (!mz_zip_reader_extract_to_mem(&zip, idx, tcl_buf, (size_t)st.m_uncomp_size, 0)) {
-          ckfree(tcl_buf);
+        // Allocate and CHECK (never trust a free-memory estimate); on this platform malloc returns NULL.
+        char* buf = (char*)TryAlloc((size_t)st.m_uncomp_size + 1);
+        if (!buf) {
+          char msg[96];
+          snprintf(msg, sizeof msg, " (%u bytes) is too big for memory; use cat/md5/source on name.zip!/member",
+                   (unsigned)st.m_uncomp_size);
+          Tcl_AppendResult(interp, "zip: member ", membername, msg, (char *) NULL);
+          return_code = TCL_ERROR;
+        } else if (!mz_zip_reader_extract_to_mem(&zip, idx, buf, (size_t)st.m_uncomp_size, 0)) {
+          free(buf);
           Tcl_AppendResult(interp, "zip: failed to extract member ", membername, (char *) NULL);
           return_code = TCL_ERROR;
         } else {
-          tcl_buf[st.m_uncomp_size] = '\0';
-          Tcl_SetResult(interp, tcl_buf, TCL_DYNAMIC);   // Tcl now owns (and frees) the buffer
+          buf[st.m_uncomp_size] = '\0';
+          // NOT (Tcl_FreeProc*)free: Tcl treats exactly that value as TCL_DYNAMIC ("ckfree it"), and under
+          // TCL_MEM_DEBUG ckfree would read a debug header our malloc buffer does not have (heap corruption).
+          Tcl_SetResult(interp, buf, tcl_free_malloced);
         }
       }
     }
@@ -973,6 +979,8 @@ static inline void trim_string(std::string &s) {
     s.erase(end.base(), s.end());
 }
 
+static const size_t kMultifileMaxBytes = 16 * 1024;   // policy limit; see multifile_cmd
+
 int multifile_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) {
   if (argc < 5) {
     Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0],
@@ -1002,10 +1010,11 @@ int multifile_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* arg
     return TCL_ERROR;
   }
   
-  // content + the line vector below is about 3x the file size; refuse rather than abort the board.
-  if (!HeapCanHold((size_t)info.size * 3 + 4096)) {
+  // multifile is for small text documents.  The std::string/std::vector below panic (with a message) if memory
+  // runs out, so refuse anything beyond a fixed policy limit instead of relying on a free-memory estimate.
+  if (info.size > kMultifileMaxBytes) {
     vfs_file_close(&file);
-    Tcl_AppendResult(interp, "multifile: ", filename, " is too big for the free memory", (char *) NULL);
+    Tcl_AppendResult(interp, "multifile: ", filename, " is too big (limit 16384 bytes)", (char *) NULL);
     return TCL_ERROR;
   }
   std::string content(info.size, '\0');

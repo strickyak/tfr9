@@ -227,11 +227,10 @@ class Os9DirNode : public Os9Node {
   
   void parse_directory() {
     if (image_node->open_file(LFS_O_RDONLY) < 0) return;
-    // file_size comes from the disk image (untrusted): a corrupt directory must not exhaust the heap.
-    if (file_size > 64 * 1024 || !HeapCanHold(file_size)) { image_node->close_file(nullptr); return; }
-    
-    std::vector<uint8_t> dir_data(file_size);
-    if (read_file_data(0, dir_data.data(), file_size) == (lfs_ssize_t)file_size) {
+    // file_size comes from the disk image (untrusted): allocate and check; a corrupt size just fails.
+    uint8_t* dir_data = file_size ? (uint8_t*)TryAlloc(file_size) : nullptr;
+    if (!dir_data) { image_node->close_file(nullptr); return; }
+    if (read_file_data(0, dir_data, file_size) == (lfs_ssize_t)file_size) {
       for (uint32_t i = 0; i + 32 <= file_size; i += 32) {
         if (dir_data[i] == 0x00) continue; 
         
@@ -256,7 +255,7 @@ class Os9DirNode : public Os9Node {
         }
       }
     }
-    
+    free(dir_data);
     image_node->close_file(nullptr);
   }
   

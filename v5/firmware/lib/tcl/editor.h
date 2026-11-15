@@ -88,10 +88,10 @@ static int editor_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char*
   // Read file
   struct vfs_info info;
   if (vfs_stat(filename, &info) == 0) {
-    // The whole file is held as lines (about 4x its size with std::string overhead): refuse a file that
-    // would not leave room, instead of aborting the board.
-    if (!HeapCanHold((size_t)info.size * 4 + 8192)) {
-      Tcl_AppendResult(interp, "edit: ", filename, " is too big for the free memory", (char*)NULL);
+    // The editor holds the whole file as std::string lines; those panic (with a message) if memory runs
+    // out, so refuse a file beyond a fixed policy limit rather than trusting a free-memory estimate.
+    if (info.size > 12 * 1024) {
+      Tcl_AppendResult(interp, "edit: ", filename, " is too big (limit 12288 bytes)", (char*)NULL);
       return TCL_ERROR;
     }
     vfs_file_t file;
