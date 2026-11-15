@@ -1,0 +1,228 @@
+#pragma once
+// background.h -- periodic_status and the background loop (core 0 scheduler).
+// Moved VERBATIM out of products/tfr911h/main.cpp (v5 Phase 3 step 1: pure code motion, no change
+// in behavior; the object code was compared before and after).  Included once, by main.cpp, at the
+// point where this code used to be, so it relies on the declarations above that include.
+
+// ═══════════════════════════════════════════════════════════════════
+// periodic_status — print diagnostics every 5 seconds (inline)
+// ═══════════════════════════════════════════════════════════════════
+static uint64_t last_status_time = 0;
+static uint32_t last_chars_drained = 0;
+static uint32_t last_events_drained = 0;
+#if SPEED_STATS
+static uint64_t last_idle = 0;
+static uint64_t last_active = 0;
+#endif
+
+inline void periodic_status() {
+  uint64_t now = time_us_64();
+  if (now - last_status_time < 5000000) return;
+  last_status_time = now;
+
+  uint32_t chars_delta = bg_chars_drained - last_chars_drained;
+  uint32_t events_delta = bg_events_drained - last_events_drained;
+  last_chars_drained = bg_chars_drained;
+  last_events_drained = bg_events_drained;
+
+#if SPEED_STATS
+  uint64_t idle_delta = fg_idle_cycles - last_idle;
+  uint64_t active_delta = fg_active_cycles - last_active;
+  last_idle = fg_idle_cycles;
+  last_active = fg_active_cycles;
+  cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u idle=%uM active=%uM halt=%d bg_halt=%d]\n",
+              (int)fg2bg_chars.size(), 8192,
+              (int)fg2bg.size(), 8192,
+              chars_delta, events_delta,
+              (unsigned)(idle_delta / 1000000),
+              (unsigned)(active_delta / 1000000),
+              666, //== (int)fg_wants_halt,
+              (int)bg_wants_halt);
+#else
+  if (0) cobs_printf("\n[bg: chars=%d/%d events=%d/%d ch_d=%u ev_d=%u halt=%d bg_halt=%d]\n",
+              (int)fg2bg_chars.size(), 8192,
+              (int)fg2bg.size(), 8192,
+              chars_delta, events_delta,
+              666, //== (int)fg_wants_halt,
+              (int)bg_wants_halt);
+#endif
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Background loop (core 0) — Unified Cooperative Scheduler
+//
+// Phase 1: Tcl REPL (6309 idle, core 1 not launched)
+// Phase 2: Bus operation (6309 running, coroutine-based drain)
+//
+// The scheduler pumps USB between every coroutine resume, exactly
+// like the Centipede.  drain_chars() runs inline at the top of
+// every iteration so console output is never delayed.
+// ═══════════════════════════════════════════════════════════════════
+void IN_RAM tfr911_background() {
+  // ── Initialize ──────────────────────────────────────────────────
+  init_lfs();
+  global_tcl_interp = Tcl_CreateInterp();
+  register_tcl_commands(global_tcl_interp);
+
+  // Create all coroutines upfront
+  Coro tcl_repl_coro;
+  coro_create(&tcl_repl_coro, tcl_repl_task, tcl_stack, sizeof(tcl_stack));
+
+  Coro drain_coro;
+  coro_create(&drain_coro, drain_task, drain_stack, sizeof(drain_stack));
+
+  bool phase2 = false;
+
+  // ── Unified Scheduler Loop ─────────────────────────────────────
+  while (true) {
+    // HIGH PRIORITY: drain console characters first (inline, fast)
+    drain_chars();
+
+    if (!phase2) {
+      // ── Phase 1: Tcl REPL ──────────────────────────────────────
+      coro_resume(&tcl_repl_coro);
+      PumpUsbCobs();
+
+      if (tcl_repl_done) {
+        // ── Transition to Phase 2 ────────────────────────────────
+        //
+        // The 6309 is CMOS but not fully static — it needs continuous
+        // E/Q clocks or it loses state.  During the Tcl REPL, no
+        // clocks were generated.  So we must do the reset WITH the
+        // PIO/foreground running:
+        //
+        //   1. Assert RESET + HALT (open-drain) from background
+        //   2. Re-init PIO and launch foreground on core 1
+        //   3. Foreground generates E/Q; 6309 sees IDLE cycles
+        //   4. Background waits for foreground to be running
+        //   5. Hold RESET for ~10ms (~28K E cycles)
+        //   6. Release RESET (still HALTed)
+        //   7. Wait ~5ms for 6309 to see RESET de-assert
+        //   8. Release HALT → 6309 fetches reset vector
+        //
+        cobs_printf("[bye: asserting RESET+HALT...]\n");
+        gpio_set_dir(RESET, GPIO_OUT);
+        // bg_wants_halt.store(true, std::memory_order_relaxed); //== HaltOn();
+        //== HaltOn();
+
+        pio_sm_set_enabled(pio0, 0, false);
+        pio_sm_restart(pio0, 0);
+        pio_clear_instruction_memory(pio0);
+        uint offset = pio_add_program(pio0, &hamster_program);
+        hamster_program_init(pio0, 0, offset);
+
+        if (strcmp(centipede_config.engine, "multicomp09fuzix") == 0 ||
+            strcmp(centipede_config.engine, "multicomp09fuxiz") == 0 ||
+            strcmp(centipede_config.engine, "multicomp09") == 0 ||
+            strcmp(centipede_config.engine, "fuzix") == 0) {
+          setup_multicomp09();
+        } else if (strcmp(centipede_config.engine, "gep9big") == 0 ||
+            strcmp(centipede_config.engine, "gep9+") == 0 ||
+            strcmp(centipede_config.engine, "big6809") == 0 ||
+            strcmp(centipede_config.engine, "hatvanbig") == 0) {
+          setup_gep9big();
+        } else if (strcmp(centipede_config.engine, "gep9") == 0 ||
+            strcmp(centipede_config.engine, "hatvan") == 0) {
+          setup_gep9();
+        } else if (strcmp(centipede_config.engine, "flat65280") == 0 ||
+                   strcmp(centipede_config.engine, "flat") == 0) {
+          setup_flat65280();
+        } else if (strcmp(centipede_config.engine, "deep65280") == 0 ||
+                   strcmp(centipede_config.engine, "deep64280") == 0 ||
+                   strcmp(centipede_config.engine, "deep") == 0) {
+          setup_deep65280();
+        }
+
+        foreground_running = false;
+        cobs_printf("[bye: launching core1...]\n");
+        multicore_launch_core1(Engine__Foreground);
+
+        // Drain ROM writes from fg2bg while waiting for foreground.
+        // Install_OS pushes ~34K FG2BG_WRITE entries.
+        // sleep_ms(1) gives Core 1 time to grab USB mutex for prints.
+        while (!foreground_running) {
+          uint chore = 0;
+          while (fg2bg.pop(chore)) {
+            uint chore_num = chore >> 24;
+            byte chore_byte = chore & 0xFF;
+            switch (chore_num) {
+              case FG2BG_PUTCHAR:
+                if (chore_byte) putbyte(chore_byte);
+                break;
+              case FG2BG_WRITE: {
+                unsigned char pkt[4] = {C_RAM2_WRITE,
+                    (unsigned char)(chore >> 16),
+                    (unsigned char)(chore >> 8),
+                    (unsigned char)chore};
+                CobsEncodeAndTransmit(pkt, 4, [](int ch) { putchar_raw(ch); });
+                break;
+              }
+              default:
+                break;
+            }
+          }
+          sleep_ms(1);
+        }
+
+        cobs_printf("[bye: foreground running, holding RESET...]\n");
+        sleep_ms(10);
+        gpio_set_dir(RESET, GPIO_IN);
+        cobs_printf("[bye: RESET released, holding HALT...]\n");
+        sleep_ms(5);
+        // bg_wants_halt.store(false, std::memory_order_relaxed); //== HaltOff();
+        //== HaltOff();
+        cobs_printf("[bye: HALT released, 6309 booting]\n");
+
+        alarm_pool_init_default();
+#if SPEED_STATS
+        add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
+#endif
+#if CLOCK_IRQ
+#if TRACE
+        add_repeating_timer_ms(5000, Timer60HzCallback, nullptr, &Timer60HzData);
+#else
+        add_repeating_timer_us(16667, Timer60HzCallback, nullptr, &Timer60HzData);
+#endif
+#endif
+        last_status_time = time_us_64();
+        cobs_printf("[bye: Phase 2 started]\n");
+        phase2 = true;
+      }
+    } else {
+      // ── Phase 2: 6309 running ──────────────────────────────────
+      coro_resume(&drain_coro);
+      PumpUsbCobs();
+
+      // Deliver terminal input to 6309 ACIA / GEP9 emulator
+      PollTermInput();
+      if (current_engine == ENGINE_MULTICOMP09) {
+        if (!mc_rx_has_char && term_input.NumBuffered() > 0) {
+          mc_rx_char = term_input.Take();
+          mc_rx_has_char = true;
+        }
+      } else if (current_engine == ENGINE_GEP9 || current_engine == ENGINE_GEP9BIG) {
+        if (!gep9_rx_has_char && term_input.NumBuffered() > 0) {
+          gep9_rx_char = term_input.Take();
+          gep9_rx_has_char = true;
+          gep9_io.reg_stat |= 0x02; // Set Term.RxReady
+          gep9_update_irq_pin();
+        }
+      } else if (current_engine == ENGINE_FLAT65280 || current_engine == ENGINE_DEEP65280) {
+        if (!flat65280_rx_has_char && term_input.NumBuffered() > 0) {
+          flat65280_rx_char = term_input.Take();
+          flat65280_rx_has_char = true;
+        }
+      } else {
+        if (Engine::Turbo9sim_CanRx()) {
+          if (term_input.NumBuffered() > 0) {
+            Engine::Turbo9sim_SetRx(term_input.Take());
+          }
+        }
+      }
+
+      periodic_status();
+    }
+  }
+}
+
+
