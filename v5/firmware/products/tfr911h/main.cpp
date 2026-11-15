@@ -487,6 +487,7 @@ void IN_RAM Engine__Foreground() {
 #include "repl.h"   // Tcl REPL coroutine (core 0, before the 6309 starts)
 #include "drain.h"   // USB drain coroutines (characters and events)
 #include "registry.h"   // engine names -> setup functions
+#include "ports_cmd.h"   // ports / enhance commands and the checked `bye`
 #include "background.h"   // periodic_status and the background loop (core 0 scheduler)
 // ═══════════════════════════════════════════════════════════════════
 // main()
@@ -516,10 +517,7 @@ int main() {
   hamster_program_init(pio0, 0, offset_t911);
 
   cobs_printf(":g:\n");
-  // Turbo9OS's I/O: the Turbo9Sim ACIA at $FF00..$FF03, handlers IN_RAM so the bus is never stalled by flash.
-  IoReset();
-  Turbo9SimAcia::Install();
-  RamVectors::Claim();   // (checked against ports.tsv when `bye` launches turbo9os: nobody is listening yet)
+  Install_Turbo9os_IO();   // (installed again, and checked against the plan, when `bye` launches turbo9os)
 
   // DON'T launch core 1 here — the Tcl REPL runs first on core 0.
   // After Tcl says "bye", tfr911_background() resets the 6309 and

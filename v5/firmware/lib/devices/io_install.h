@@ -5,7 +5,7 @@
 //   IoClaim(first, last, name)     record who owns an address range; an overlap, or $FF7F (Multi-Pak select),
 //                                  is a configuration error: say which devices clash and stop (see iomap.h)
 //   IoSet(addr, reader, writer)    store the handlers for one address (nullptr = none)
-//   IoVerifyPlan(engine)           after setup, check what was installed against firmware/engines/ports.tsv
+//   IoFinish(engine)               after setup: reserve user-requested enhancements, check the result against the plan
 //
 // RULE: handlers are NAMED functions marked IN_RAM -- never lambdas.  A lambda cannot be IN_RAM, so it would
 // run from flash and stall the bus (spec 5.1; enforced by scripts/check-no-lambda-io.sh).  Install() itself runs
@@ -13,9 +13,10 @@
 //
 // Requires IOReader/IOWriter/IOReaders/IOWriters (main.cpp), cobs_printf and centipede_abort.
 #include "iomap.h"
-#include "ports_gen.h"      // generated from engines/ports.tsv by scripts/gen-ports.sh
+#include "ports_config.h"   // profile/overrides (PortBase, PortsValidate); includes the generated ports.tsv table
 
 static IoMap g_io_map;      // who owns what, for the engine being set up
+static IoMap g_io_scratch;  // working copy for checks (`ports check`, IoFinish): one shared map, RAM is scarce
 
 // Forget who owns what (not the handlers).  For engines that decode some addresses themselves, outside the tables.
 static inline void IoResetOwners() { g_io_map.Reset(); }
@@ -38,38 +39,51 @@ static inline void IoSet(uint16_t addr, IOReader r, IOWriter w) {
   IOWriters[addr & 0xFF] = w;
 }
 
-// Compare the installed ownership map with the plan in ports.tsv (profile TFR4, the v4 addresses).  A mismatch
-// is printed, not fatal: it means the code and the plan disagree and one of them needs fixing.
-// `tolerated`: a device the code installs although ports.tsv has no row for it in this engine (v4 behavior kept);
-// it is reported as a note instead of a mismatch.
-static void IoVerifyPlan(const char* engine, const char* profile = "TFR4", const char* tolerated = nullptr) {
-  int rows = 0, bad = 0;
-  uint8_t covered[256] = {0};
-  for (size_t i = 0; i < kNumPorts; i++) {
-    const PortRange& p = kPorts[i];
-    if (strcmp(p.profile, profile) || strcmp(p.engine, engine)) continue;
-    rows++;
-    for (uint32_t a = p.first; a <= p.last; a++) {
-      covered[a & 0xFF] = 1;
-      const char* o = g_io_map.OwnerOf((uint16_t)a);
-      if (!o || strcmp(o, p.device)) {
-        cobs_printf("[io-map: %s $%04X should be %s (ports.tsv) but is %s]\n", engine, (unsigned)a, p.device, o ? o : "unclaimed");
-        bad++;
-      }
-    }
+// Enhancement devices the user asked for (`enhance becker 0xFF48`) are not implemented yet: reserve their ranges
+// (so they are checked and shown like any device) and say so, once per device.
+static void IoClaimEnhancements(const char* engine) {
+  const char* profile = g_port_settings.Profile(); (void)profile;
+  for (int k = 0; k < g_port_settings.n_; k++) {
+    const char* key = g_port_settings.key_[k];
+    const char* val = g_port_settings.val_[k];
+    if (!strcmp(val, "off")) continue;
+    const PortRange* e = nullptr;
+    for (size_t i = 0; i < kNumPorts; i++)
+      if (!strcmp(kPorts[i].profile, "E1") && !strcmp(kPorts[i].device, key)) e = &kPorts[i];
+    if (!e) continue;                       // not an enhancement (a core device override, or "profile")
+    uint16_t base;
+    if (!ParsePortAddr(val, &base)) continue;
+    uint16_t last = (uint16_t)(base + (e->last - e->first));
+    IoClaim(base, last, key);
+    cobs_printf("[io-map: %s reserved at $%04X-$%04X for %s: no handler in this firmware yet]\n", key, base, last, engine);
   }
+}
+
+// After an engine's devices are installed: reserve the enhancements, then compare the ownership map with what the
+// configuration says it should be (profile + overrides, resolved by the same code that `bye` used to approve it).
+// A mismatch is printed, not fatal: it means the code and the plan disagree and one of them needs fixing.
+// `tolerated`: a device the code installs although the plan has no row for it in this engine (v4 behavior kept);
+// it is reported as a note instead of a mismatch.
+static void IoFinish(const char* engine, const char* tolerated = nullptr) {
+  IoClaimEnhancements(engine);
+  IoMap& expect = g_io_scratch;
+  PortsCheck pc = PortsValidate(engine, g_port_settings, expect);
+  if (!pc.ok) { cobs_printf("[io-map: %s: configuration problem: %s]\n", engine, pc.msg); return; }
+  int bad = 0, ranges = 0;
+  const char* prev = nullptr;
   bool noted = false;
   for (uint32_t a = 0xFF00; a <= 0xFFFF; a++) {
-    const char* o = g_io_map.OwnerOf((uint16_t)a);
-    if (o && !covered[a & 0xFF] && tolerated && !strcmp(o, tolerated)) {
+    const char* want = expect.OwnerOf((uint16_t)a);
+    const char* have = g_io_map.OwnerOf((uint16_t)a);
+    if (have && (!prev || strcmp(prev, have))) ranges++;
+    prev = have;
+    if ((want == nullptr) == (have == nullptr) && (!want || !strcmp(want, have))) continue;
+    if (!want && have && tolerated && !strcmp(have, tolerated)) {
       if (!noted) { cobs_printf("[io-map: note: %s also installs %s (v4 behavior; not in ports.tsv)]\n", engine, tolerated); noted = true; }
       continue;
     }
-    if (g_io_map.OwnerOf((uint16_t)a) && !covered[a & 0xFF]) {
-      cobs_printf("[io-map: %s $%04X is %s but ports.tsv has no row for it]\n", engine, (unsigned)a, g_io_map.OwnerOf((uint16_t)a));
-      bad++;
-    }
+    cobs_printf("[io-map: %s $%04X should be %s but is %s]\n", engine, (unsigned)a, want ? want : "unclaimed", have ? have : "unclaimed");
+    bad++;
   }
-  if (!rows) cobs_printf("[io-map: %s has no rows for profile %s in ports.tsv]\n", engine, profile);
-  else if (!bad) cobs_printf("[io-map: %s matches ports.tsv (%d ranges)]\n", engine, rows);
+  if (!bad) cobs_printf("[io-map: %s matches the plan (profile %s, %d ranges, %d settings)]\n", engine, g_port_settings.Profile(), ranges, g_port_settings.n_);
 }

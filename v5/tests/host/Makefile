@@ -15,6 +15,9 @@ $(OUT)/iomap_test: iomap_test.cpp $(DEV)/iomap.h $(GEN)/ports_gen.h | $(OUT)
 	$(CXX) $(CXXFLAGS) -I$(DEV) -I$(GEN) -o $@ iomap_test.cpp
 .PHONY: all test
 
+$(OUT)/ports_config_test: ports_config_test.cpp $(DEV)/ports_config.h $(DEV)/iomap.h $(GEN)/ports_gen.h | $(OUT)
+	$(CXX) $(CXXFLAGS) -I$(DEV) -I$(GEN) -o $@ ports_config_test.cpp
+
 # ---- tcl_stream_test: the real Tcl 6.7c sources compiled for the PC ----
 TCLDIR = ../../third_party/tcl6.7c
 TCLSRCS = panic regexp tclAssem tclBasic tclCkalloc tclCmdAH tclCmdIL tclCmdMZ tclEnv tclExpr tclGet tclGlob tclHash tclHistory tclParse tclProc tclUtil tclVar
@@ -31,6 +34,6 @@ $(OUT)/tcl_lowmem_test: tcl_lowmem_test.cpp $(CORE)/heap.h $(TCLOBJS) | $(OUT)
 	$(CXX) -std=gnu++17 -O1 -g -Wall -Wextra -I$(CORE) -I../../third_party -I$(TCLDIR) -fsanitize=address,undefined -o $@ tcl_lowmem_test.cpp $(TCLOBJS)
 
 # ONE `test` rule: a Makefile keeps only the LAST recipe for a target, so earlier test rules would silently not run.
-TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
+TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
 test: $(TESTS)
 	@for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done

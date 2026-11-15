@@ -63,6 +63,7 @@ void IN_RAM tfr911_background() {
   init_lfs();
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
+  register_ports_commands(global_tcl_interp);   // after the library: it replaces `bye`
 
   // Create all coroutines upfront
   Coro tcl_repl_coro;
@@ -116,8 +117,9 @@ void IN_RAM tfr911_background() {
         if (spec && spec->setup) {
           spec->setup();
         } else {
-          // Turbo9OS (built in): its I/O was installed at startup; report it like the other engines do.
-          IoVerifyPlan("turbo9os");
+          // Turbo9OS (built in): install its I/O now (settings may have changed since startup) and report it.
+          Install_Turbo9os_IO();
+          IoFinish("turbo9os");
         }
 
         foreground_running = false;

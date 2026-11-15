@@ -46,6 +46,15 @@ struct Turbo9SimAcia {   // Turbo9Sim's ACIA: tx data, rx data, status, control 
   }
 };
 
+// (Install_Turbo9os_IO below, after RamVectors)
 struct RamVectors {      // $FFF0..$FFFF belong to the engine's RAM; nothing in the tables, only the claim
   static void Claim(uint16_t base = 0xFFF0) { IoClaim(base, base + 15, "vectors"); }
 };
+
+// Turbo9OS's I/O: the Turbo9Sim ACIA, handlers IN_RAM so the bus is never stalled by flash.  Run at startup and
+// again when `bye` launches Turbo9OS, so that port settings made in the meantime take effect.
+void Install_Turbo9os_IO() {
+  IoReset();
+  Turbo9SimAcia::Install(PortBase("turbo9os", "turbo9sim_acia", Turbo9SimAcia::kDefaultBase));
+  RamVectors::Claim();
+}

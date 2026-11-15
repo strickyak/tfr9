@@ -240,7 +240,7 @@ struct Guts {
                 }
                 value = *gep9_mmu.TranslateRead(0, addr);
               } else {
-                if (gep9_mmu.current_task == 0 || (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0 || (addr >= 0xFF40 && addr <= 0xFF47)) {
+                if (gep9_mmu.current_task == 0 || (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0 || ((uint16_t)(addr - gep9_embiggen_base) < 8)) {
                   IOReader fn = IOReaders[addr & 0xFF];
                   value = fn ? fn(addr) : 0;
                 } else {
@@ -299,7 +299,7 @@ struct Guts {
               if (addr >= 0xFFF0) {
                 *gep9_mmu.TranslateWrite(0, addr) = value;
               } else {
-                if (gep9_mmu.current_task == 0 || (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0 || (addr >= 0xFF40 && addr <= 0xFF47)) {
+                if (gep9_mmu.current_task == 0 || (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0 || ((uint16_t)(addr - gep9_embiggen_base) < 8)) {
                   IOWriter fn = IOWriters[addr & 0xFF];
                   if (fn) fn(addr, value);
                 }

@@ -360,8 +360,12 @@ struct GepFuseDma {     // TaskFuse, fast DMA, shared-memory curtain, task flags
   }
 };
 
-struct GepEmbiggen {    // EMBIGGEN MMAP vector, eight registers at $FF40..$FF47
+// Where the EMBIGGEN MMAP vector is: the bus loop (guts.h) lets every task reach it without a trap.
+volatile uint16_t gep9_embiggen_base = 0xFF40;
+
+struct GepEmbiggen {    // EMBIGGEN MMAP vector, eight registers (default $FF40..$FF47)
   static void Install(uint16_t base = 0xFF40) {
+    gep9_embiggen_base = base;
     IoClaim(base, base + 7, "embiggen_mmu");
     for (int i = 0; i < 8; i++) IoSet(base + i, gep9_read_mmap, gep9_write_mmap);
   }
@@ -377,12 +381,12 @@ struct GepVectors {     // system vectors $FFF0..$FFFF, through the paged memory
 // Both gep9 and gep9big install the EMBIGGEN range (v4 behavior); ports.tsv lists it only for gep9big.
 void Install_Gep9_IO(const char* engine) {
   IoReset();
-  GepConsole::Install();
-  GepDisk::Install();
-  GepFuseDma::Install();
-  GepEmbiggen::Install();
+  GepConsole::Install(PortBase(engine, "console", 0xFF00));
+  GepDisk::Install(PortBase(engine, "disk", 0xFF10));
+  GepFuseDma::Install(PortBase(engine, "fuse_dma", 0xFF20));
+  GepEmbiggen::Install(PortBase(engine, "embiggen_mmu", 0xFF40));
   GepVectors::Install();
-  IoVerifyPlan(engine, "TFR4", "embiggen_mmu");
+  IoFinish(engine, "embiggen_mmu");
 }
 
 #endif  // V4_GEP9_IO_H_
