@@ -44,9 +44,15 @@ inline size_t HeapFreeBytes() { return (size_t)-1 / 2; }
 
 inline bool HeapIsLow() { return HeapFreeBytes() < HEAP_RESERVE; }
 
-inline void* TryAlloc(size_t n) {
+// Would `bytes` more still leave HEAP_RESERVE free?  Use before building a std::string/vector of a size taken
+// from a file or from the PC, where the C++ containers would otherwise abort the board.
+inline bool HeapCanHold(size_t bytes) {
   size_t free_now = HeapFreeBytes();
-  if (n > free_now || free_now - n < HEAP_RESERVE) return nullptr;
+  return bytes <= free_now && free_now - bytes >= HEAP_RESERVE;
+}
+
+inline void* TryAlloc(size_t n) {
+  if (!HeapCanHold(n)) return nullptr;
   return malloc(n);
 }
 

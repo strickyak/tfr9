@@ -8,6 +8,7 @@
 
 #include "pico/stdlib.h"
 #include "vfs.h"
+#include "heap.h"
 #include "tcl6.7c/tcl.h"
 
 struct VisualLine {
@@ -87,6 +88,12 @@ static int editor_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char*
   // Read file
   struct vfs_info info;
   if (vfs_stat(filename, &info) == 0) {
+    // The whole file is held as lines (about 4x its size with std::string overhead): refuse a file that
+    // would not leave room, instead of aborting the board.
+    if (!HeapCanHold((size_t)info.size * 4 + 8192)) {
+      Tcl_AppendResult(interp, "edit: ", filename, " is too big for the free memory", (char*)NULL);
+      return TCL_ERROR;
+    }
     vfs_file_t file;
     if (vfs_file_open(&file, filename, LFS_O_RDONLY) == 0) {
       std::string current_line;

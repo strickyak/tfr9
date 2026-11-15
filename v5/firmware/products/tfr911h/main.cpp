@@ -325,6 +325,7 @@ bool prev_irq_needed;
 
 // Abort handler
 #include "abort.h"
+#include "oom_abort.h"   // new/abort() failures print "*** ABORT" (spec S49)
 
 // PCB (protobuf-like encoding for RPC)
 #include "pcb.h"

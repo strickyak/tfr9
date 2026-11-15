@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "cobs_tx.h"
+#include "heap.h"
 
 extern "C" {
 #include "littlefs/lfs.h"
@@ -226,6 +227,8 @@ class Os9DirNode : public Os9Node {
   
   void parse_directory() {
     if (image_node->open_file(LFS_O_RDONLY) < 0) return;
+    // file_size comes from the disk image (untrusted): a corrupt directory must not exhaust the heap.
+    if (file_size > 64 * 1024 || !HeapCanHold(file_size)) { image_node->close_file(nullptr); return; }
     
     std::vector<uint8_t> dir_data(file_size);
     if (read_file_data(0, dir_data.data(), file_size) == (lfs_ssize_t)file_size) {

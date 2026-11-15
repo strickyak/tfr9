@@ -12,6 +12,8 @@ if ! command -v zip > /dev/null 2>&1; then
 fi
 TMP_PC=$(mktemp -d "${TMPDIR:-/tmp}/systest_pc.XXXXXX")
 trap 'rm -rf "$TMP_PC"' EXIT INT TERM
+# Start from a freshly booted board: a deflated entry needs ~47 KB of heap, which a fragmented heap cannot give.
+run_tether --quick-restart=0 > /dev/null
 
 # A STORED 200 KB entry of incompressible-looking bytes, a DEFLATED 100 KB text entry, and a small one.
 mkdir "$TMP_PC/src"
@@ -47,9 +49,35 @@ printf 'set fromzip 99\n' > "$TMP_PC/src/s.tcl"
 run_tether -pc "$TMP_PC" --quick-inject="source /pc/pack.zip!/s.tcl; set fromzip"
 assert_contains "$TETHER_STDOUT" "99" "source of a stored zip entry"
 
+log_test "the Tcl zip command: small member works, big member is a polite error"
+run_tether -pc "$TMP_PC" --quick-inject="zip get /pc/pack.zip small.txt"
+assert_contains "$TETHER_STDOUT" "hello from a zip" "zip get of a small member"
+run_tether -pc "$TMP_PC" --quick-inject="zip names /pc/pack.zip"
+assert_contains "$TETHER_STDOUT" "big.bin" "zip names lists the members"
+run_tether -pc "$TMP_PC" --quick-inject="zip get /pc/pack.zip big.bin"
+assert_exit_code 1 "$TETHER_EXIT" "zip get of a 200 KB member reports an error (no reboot)"
+assert_contains "$TETHER_STDOUT$TETHER_STDERR" "too big" "error says the member is too big"
+run_tether --quick-ping=5
+assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=5)" "board still answers"
+
+log_test "multifile on a file too big for memory is refused"
+run_tether -pc "$TMP_PC" --quick-inject="multifile names {[} {]} /pc/src/big.bin"
+assert_exit_code 1 "$TETHER_EXIT" "multifile refuses a 200 KB file"
+assert_contains "$TETHER_STDOUT$TETHER_STDERR" "too big" "error says too big"
+
 log_test "no memory is left allocated afterwards"
 run_tether -pc "$TMP_PC" --quick-inject="centipede heap-free"
 FREE1=$(heapnum "$TETHER_STDOUT")
 if [ -n "$FREE0" ] && [ -n "$FREE1" ] && [ "$FREE1" -gt $((FREE0 - 2048)) ]; then pass "free heap $FREE0 -> $FREE1"; else fail "heap leaked: $FREE0 -> $FREE1"; fi
+
+log_test "after the heap is fragmented, a deflated entry fails CLEANLY (S51), the board survives"
+# v4/early v5: malloc failure called panic() ("Out of memory") and the board hung until reset.  Now malloc
+# returns NULL and the open simply fails.  Either outcome (works / clean error) is fine; a hang is not.
+run_tether -pc "$TMP_PC" --quick-inject="proc eat {} { for {set i 0} {1} {incr i} { set v\$i \$i } }; catch {eat} msg; set msg"
+assert_contains "$TETHER_STDOUT" "out of memory" "heap exhausted on purpose"
+run_tether -pc "$TMP_PC" --quick-inject="md5 /pc/pack.zip!/text.txt"
+case "$TETHER_EXIT" in 0|1) pass "deflated read after exhaustion returned (exit $TETHER_EXIT), no hang" ;; *) fail "deflated read after exhaustion: exit $TETHER_EXIT" ;; esac
+run_tether --quick-ping=9
+assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=9)" "board still answers after a failed deflated open"
 
 print_summary "Suite 5 (zip streaming)"

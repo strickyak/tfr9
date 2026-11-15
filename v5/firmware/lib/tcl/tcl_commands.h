@@ -137,6 +137,31 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
     char tmp[24];
     snprintf(tmp, sizeof tmp, "%u", (unsigned)HeapFreeBytes());
     Tcl_AppendResult(interp, tmp, NULL);
+  } else if (strcmp(argv[1], "heap-info") == 0) {
+    // free = what heap-free reports; arena = bytes taken from the system so far; free_blocks = number of free
+    // chunks (fragmentation); top = free bytes at the top of the heap (can be returned to the system);
+    // limit = bytes between the heap's end and the stack limit.
+    char tmp[160];
+#ifdef HEAP_ON_DEVICE
+    struct mallinfo mi = mallinfo();
+    snprintf(tmp, sizeof tmp, "free=%u arena=%u inuse=%u free_blocks=%u top=%u limit=%u",
+             (unsigned)HeapFreeBytes(), (unsigned)mi.arena, (unsigned)mi.uordblks, (unsigned)mi.ordblks,
+             (unsigned)mi.keepcost, (unsigned)(&__StackLimit - (char*)sbrk(0)));
+#else
+    snprintf(tmp, sizeof tmp, "free=%u", (unsigned)HeapFreeBytes());
+#endif
+    Tcl_AppendResult(interp, tmp, NULL);
+  } else if (strcmp(argv[1], "heap-probe") == 0) {
+    // Largest single block malloc can give right now (binary search; each probe is freed at once).
+    size_t lo = 0, hi = 128 * 1024;
+    while (hi - lo > 256) {
+      size_t mid = (lo + hi) / 2;
+      void* p = malloc(mid);
+      if (p) { free(p); lo = mid; } else { hi = mid; }
+    }
+    char tmp[40];
+    snprintf(tmp, sizeof tmp, "%u", (unsigned)lo);
+    Tcl_AppendResult(interp, tmp, NULL);
   } else if (strcmp(argv[1], "debug-call-panic") == 0) {
     panic("debug-call-panic");
   } else if (strcmp(argv[1], "debug-call-abort") == 0) {
@@ -153,7 +178,7 @@ int centipede_cmd(ClientData clientData, Tcl_Interp* interp, int argc,
   } else {
     Tcl_AppendResult(interp, "bad option \"", argv[1],
                      "\": must be restart, reflash, reformat-flash-filesystem, "
-                     "flash-filesystem-stats, heap-free, debug-call-panic, debug-call-abort"
+                     "flash-filesystem-stats, heap-free, heap-info, heap-probe, debug-call-panic, debug-call-abort"
 #ifdef TCL_MEM_DEBUG
                      ", debug-malloc-oom"
 #endif
@@ -795,18 +820,29 @@ int minizip_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[
       return_code = TCL_ERROR;
     } else {
       const char* membername = argv[3];
-      size_t uncomp_size = 0;
-      void* pBuf = mz_zip_reader_extract_file_to_heap(&zip, membername, &uncomp_size, 0);
-      if (!pBuf) {
+      // The result of `zip get` is a Tcl string, so the member must fit in memory (once, not three times
+      // as in v4).  Big members: stream them with cat/md5/source on  name.zip!/member  instead.
+      int idx = mz_zip_reader_locate_file(&zip, membername, nullptr, 0);
+      mz_zip_archive_file_stat st;
+      if (idx < 0 || !mz_zip_reader_file_stat(&zip, idx, &st)) {
         Tcl_AppendResult(interp, "zip: failed to extract member ", membername, (char *) NULL);
         return_code = TCL_ERROR;
+      } else if (!HeapCanHold((size_t)st.m_uncomp_size + 1 + 4096)) {
+        char msg[96];
+        snprintf(msg, sizeof msg, " is %u bytes, too big for the %u bytes of free memory; use cat/md5/source on name.zip!/member",
+                 (unsigned)st.m_uncomp_size, (unsigned)HeapFreeBytes());
+        Tcl_AppendResult(interp, "zip: member ", membername, msg, (char *) NULL);
+        return_code = TCL_ERROR;
       } else {
-        char* tcl_buf = (char*)ckalloc(uncomp_size + 1);
-        memcpy(tcl_buf, pBuf, uncomp_size);
-        tcl_buf[uncomp_size] = '\0';
-        Tcl_SetResult(interp, tcl_buf, TCL_VOLATILE);
-        ckfree(tcl_buf);
-        mz_free(pBuf);
+        char* tcl_buf = (char*)ckalloc((unsigned)st.m_uncomp_size + 1);
+        if (!mz_zip_reader_extract_to_mem(&zip, idx, tcl_buf, (size_t)st.m_uncomp_size, 0)) {
+          ckfree(tcl_buf);
+          Tcl_AppendResult(interp, "zip: failed to extract member ", membername, (char *) NULL);
+          return_code = TCL_ERROR;
+        } else {
+          tcl_buf[st.m_uncomp_size] = '\0';
+          Tcl_SetResult(interp, tcl_buf, TCL_DYNAMIC);   // Tcl now owns (and frees) the buffer
+        }
       }
     }
   } else {
@@ -966,6 +1002,12 @@ int multifile_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* arg
     return TCL_ERROR;
   }
   
+  // content + the line vector below is about 3x the file size; refuse rather than abort the board.
+  if (!HeapCanHold((size_t)info.size * 3 + 4096)) {
+    vfs_file_close(&file);
+    Tcl_AppendResult(interp, "multifile: ", filename, " is too big for the free memory", (char *) NULL);
+    return TCL_ERROR;
+  }
   std::string content(info.size, '\0');
   lfs_ssize_t read_res = vfs_file_read(&file, &content[0], info.size);
   vfs_file_close(&file);

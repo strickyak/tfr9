@@ -83,6 +83,14 @@ pico_enable_stdio_uart(${PROJECT} 0)
 add_compile_definitions(TCL_MEM_DEBUG=1)
 # miniz extraction buffers: 4 KB instead of 64 KB (spec S38; only ~68 KB of heap is free)
 add_compile_definitions(MZ_ZIP_IO_BUF_SIZE=4096)
+# The SDK's operator new is just malloc(): with exceptions off, a failed `new` returns NULL and the caller then
+# writes through it (silent hang).  We supply our own (core/oom_abort.h) that aborts with a message.  Spec S49.
+add_compile_definitions(PICO_CXX_DISABLE_ALLOCATION_OVERRIDES=1)
+# By default the SDK's malloc wrapper calls panic("Out of memory") when malloc fails, so malloc NEVER returns
+# NULL and no caller's failure handling can run (miniz, TryAlloc, lfs ...); the board prints ABORT and hangs.
+# With 0, malloc returns NULL as in standard C.  Unchecked callers: Tcl's ckalloc and our operator new
+# already check and abort with a message.  Spec S49/S51.
+add_compile_definitions(PICO_MALLOC_PANIC=0)
 add_compile_definitions(TCL_GENERIC_ONLY=1)
 
 ### pico_set_binary_type(${PROJECT} copy_to_ram)
