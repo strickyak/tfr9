@@ -111,26 +111,9 @@ void IN_RAM tfr911_background() {
         uint offset = pio_add_program(pio0, &hamster_program);
         hamster_program_init(pio0, 0, offset);
 
-        if (strcmp(centipede_config.engine, "multicomp09fuzix") == 0 ||
-            strcmp(centipede_config.engine, "multicomp09fuxiz") == 0 ||
-            strcmp(centipede_config.engine, "multicomp09") == 0 ||
-            strcmp(centipede_config.engine, "fuzix") == 0) {
-          setup_multicomp09();
-        } else if (strcmp(centipede_config.engine, "gep9big") == 0 ||
-            strcmp(centipede_config.engine, "gep9+") == 0 ||
-            strcmp(centipede_config.engine, "big6809") == 0 ||
-            strcmp(centipede_config.engine, "hatvanbig") == 0) {
-          setup_gep9big();
-        } else if (strcmp(centipede_config.engine, "gep9") == 0 ||
-            strcmp(centipede_config.engine, "hatvan") == 0) {
-          setup_gep9();
-        } else if (strcmp(centipede_config.engine, "flat65280") == 0 ||
-                   strcmp(centipede_config.engine, "flat") == 0) {
-          setup_flat65280();
-        } else if (strcmp(centipede_config.engine, "deep65280") == 0 ||
-                   strcmp(centipede_config.engine, "deep64280") == 0 ||
-                   strcmp(centipede_config.engine, "deep") == 0) {
-          setup_deep65280();
+        // Look the engine up by name (canonical or alias); unknown names and "turbo9os" run no setup.
+        if (const EngineSpec* spec = FindEngine(centipede_config.engine)) {
+          if (spec->setup) spec->setup();
         }
 
         foreground_running = false;
