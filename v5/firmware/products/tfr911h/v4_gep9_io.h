@@ -291,13 +291,14 @@ void IN_RAM gep9_write_purge(uint, byte d) {
   }
 }
 
-// ── EMBIGGEN MMAP Vector ($FF40..$FF47) ──
+// ── EMBIGGEN MMAP Vector ($FF40..$FF47 by default; see gep9_embiggen_base) ──
+extern volatile uint16_t gep9_embiggen_base;
 byte IN_RAM gep9_read_mmap(uint addr) {
-  uint8_t slot = addr & 0x07;
+  uint8_t slot = (addr - gep9_embiggen_base) & 0x07;
   return gep9_mmu.task_mmap[gep9_mmu.current_task][slot];
 }
 void IN_RAM gep9_write_mmap(uint addr, byte d) {
-  uint8_t slot = addr & 0x07;
+  uint8_t slot = (addr - gep9_embiggen_base) & 0x07;
   gep9_mmu.task_mmap[gep9_mmu.current_task][slot] = d;
 }
 
@@ -378,7 +379,7 @@ struct GepVectors {     // system vectors $FFF0..$FFFF, through the paged memory
   }
 };
 
-// Both gep9 and gep9big install the EMBIGGEN range (v4 behavior); ports.tsv lists it only for gep9big.
+// Both gep9 and gep9big install the EMBIGGEN range ($FF40..$FF47 on TFR4, $FFE0..$FFE7 on COCO).
 void Install_Gep9_IO(const char* engine) {
   IoReset();
   GepConsole::Install(PortBase(engine, "console", 0xFF00));
@@ -386,7 +387,7 @@ void Install_Gep9_IO(const char* engine) {
   GepFuseDma::Install(PortBase(engine, "fuse_dma", 0xFF20));
   GepEmbiggen::Install(PortBase(engine, "embiggen_mmu", 0xFF40));
   GepVectors::Install();
-  IoFinish(engine, "embiggen_mmu");
+  IoFinish(engine);
 }
 
 #endif  // V4_GEP9_IO_H_

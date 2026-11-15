@@ -11,7 +11,7 @@ see §1).  Time of writing: 2026-11-14 ≈ 23:45.
 
 v5 is a copy-then-modify of v4 (`../v4/`, never touched).  The TFR/911H firmware, a unified Go `tether`, the test
 harness and a new device/port architecture are in place and **verified on real hardware**: seven system-test suites
-(110 checks) pass, and the engines Turbo9OS, Flat65280 (NitrOS-9 L1), Deep65280 (NitrOS-9 L2) and Fuzix boot and
+(122 checks) pass, and the engines Turbo9OS, Flat65280 (NitrOS-9 L1), Deep65280 (NitrOS-9 L2) and Fuzix boot and
 talk.  Along the way we fixed a pile of latent v4 bugs (hangs, memory, restart races).  **Not done:** the Centipede
 product, FujiNet/Becker/audio devices, TurboLab, the flash-free core-1 work, policy-template foregrounds, and —
 important — **gep9/gep9big have not been re-verified at run time since the port-configuration change** (§5.1).
@@ -115,7 +115,8 @@ make systest </dev/null > build/systest.log 2>&1; grep -E "FAIL|Total:|Suites|SU
 1. **`main.cpp` split** (2 619 → 533 lines) by pure code motion into `engines/*.h`, `lib/devices/*.h`,
    `lib/mem/deep_mmu.h`, `products/tfr911h/*.h`.  The flat firmware binary was **byte-identical** before and after.
    `scripts/elf-parity.sh BEFORE.elf AFTER.elf` is the tool for proving any pure refactor.
-2. **Engine registry** `engines/registry.h` (`EngineSpec{name, aliases, setup}`, `FindEngine`).
+2. **Engine registry** `engines/registry.h` (`EngineSpec{name, setup}`, `FindEngine`; canonical names only, all
+   aliases removed on 2026-11-15).
 3. **Devices as structs with `Install(base)`** (`EmuDsk`, `ClockStop`, `TermAcia`, `Turbo9SimAcia`, `Deep*`, `Gep*`,
    `FlatVectors`, …): each claims its range in an `IoMap` and stores *named `IN_RAM`* handlers.  `IoFinish()` prints
    `[io-map: <engine> matches the plan (profile P, N ranges, M settings)]` at every launch.  Old-vs-new dispatch
@@ -126,8 +127,9 @@ make systest </dev/null > build/systest.log 2>&1; grep -E "FAIL|Total:|Suites|SU
    `enhance ?DEVICE ?BASE|off??`; `bye` validates the placement first — a conflict, `$FF7F`, an unknown device or
    profile, or an unknown engine name makes `bye` fail with a message naming both devices and **leaves the board at
    `TCL>`**.  Engines install at the configured addresses; the embiggen test in the bus loop uses the variable
-   `gep9_embiggen_base`.
-6. **Naming:** the Fuzix engine is **`multicomp09fuzix`** everywhere, no aliases.
+   `gep9_embiggen_base` (and both `gep9` and `gep9big` include `embiggen_mmu` in `ports.tsv`).
+6. **Naming:** canonical engine names only (`turbo9os`, `flat65280`, `deep65280`, `gep9`, `gep9big`,
+   `multicomp09fuzix`), no aliases.
 
 ### 3.5 Commits (newest first, v5-related)
 `3d7f886` names/ensemble · `401796a` ports commands · `7a81bfe` spec §15.x · `c26a59b` engines converted ·
@@ -155,7 +157,7 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 | 04 heap | 9 | `heap-free`, runaway loop → catchable "out of memory", memory returns, no reboot |
 | 05 zip | 17 | stored 200 KB + deflated 207 KB entries (md5 equals PC), `source` from zip, `zip get` limits, `multifile` refusal, fragmentation survival |
 | 06 engines (expect) | 4 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Fuzix boot and run commands |
-| 07 ports | 39 | profile/keys, enhancements, gep9big+Becker clash and fixes, `bye` refusal keeps `TCL>`, `$FF7F`, core overlap, unsupported profile, unknown engine |
+| 07 ports | 51 | profile/keys, enhancements, gep9/gep9big+Becker clash and fixes, `bye` refusal keeps `TCL>`, `$FF7F`, core overlap, unsupported profile, canonical engine names (all old aliases refused) |
 
 Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing image **skips** that engine):
 `V5_IMG_FLAT_BOOT/DISK` (`nitros9/recipes/flat65280/…`), `V5_IMG_DEEP_BOOT/DISK` (`…/deep65280/…`),
@@ -183,8 +185,6 @@ and running a guest on it.
    hang).  Big pak entries should be stored.
 
 ### 5.2 Known quirks (understood, not fixed)
-* **Plain `gep9` also installs the EMBIGGEN range `$FF40–47`** (v4 behavior kept; `ports.tsv` lists it only for
-  `gep9big`; `IoFinish` prints a note).  Decide whether plain gep9 should lose it.
 * **`multicomp09fuzix` leaves the Turbo9Sim ACIA handlers installed at `$FF00–03`** (it never clears the tables).
   Harmless today; a stale claim for any future device at `$FF00`.
 * **Heap is small:** ~64 KB free after boot (`centipede heap-info`: free=63 928 on 2026-11-14; was 68 496 before the
@@ -213,12 +213,14 @@ and running a guest on it.
 
 ## 6. Open questions for Strick (unanswered or awaiting OK)
 
-1. **Spec §16 items marked "needs your OK":** R1 (`term.c` direct store `$FF15` → `$FF89`), R2 (not adopting
-   Diller's L2 *engine*; his devices become enhancements), R3 (the draft enhancement addresses `E1`: audio
-   `$FF70/71`, RTC `$FF72–79`, Orchestra-90 `$FF7A/7B`, info `$FF7C/7D`; Becker stays `$FF41/42`), R15 (defer
-   `l2fn`).  Check §16 for the current status column.
-2. **Plain `gep9` and EMBIGGEN:** remove the `$FF40–47` install from plain gep9, or keep v4's behavior?
-3. **Other engine aliases** (`flat`, `deep`, `deep64280`, `hatvan`, `gep9+`, `big6809`, `hatvanbig`): drop them too?
+1. **Spec §16 items (updated 2026-11-15):** R1 approved (`$FF89`, do not use `$FF15`); R3 approved (`E1` =
+   "Enhancement map 1": audio `$FF70/71`, RTC `$FF72–79`, Orchestra-90 `$FF7A/7B`, info `$FF7C/7D`; Becker stays
+   `$FF41/42`); **R15 (`l2fn`) deferred and open to discussion**; **R2 open** — Strick wants both an engine/profile
+   with Diller's I/O addresses (`$FF14`, `$FF41–46`, `$FFC0–C7`) and one with our CoCo-compatible addresses.
+2. **Plain `gep9` and EMBIGGEN:** *Resolved 2026-11-15* — plain `gep9` keeps `$FF40–47` (`$FFE0–E7` on `COCO`), now
+   in `ports.tsv`, since all `gep*` machines will eventually embiggen by default.
+3. **Other engine aliases:** *Resolved 2026-11-15* — all engine aliases (`flat`, `deep`, `deep64280`, `hatvan`,
+   `gep9+`, `big6809`, `hatvanbig`) removed.
 4. **Rename C++ identifiers/files** that still say `multicomp09`?  And `CentipedeConfig` → `Config`?
 5. **Fold `enhance` into the `ports` ensemble** (`ports enhance becker 0xFF48`) for consistency?
 6. **Hatvan `COCO` profile (R4)** needs `strickyak/hatvan-os` (kernel *and* `gep9` emulator) built per profile; the

@@ -1,36 +1,32 @@
 #pragma once
-// registry.h -- the engines the TFR911H firmware can launch, by name.  Replaces the strcmp() chain that used to
-// live in the background loop's `bye` handler (spec section 5.1: an engine = {name, aliases, setup}).
+// registry.h -- the engines the TFR911H firmware can launch, by canonical name.  Replaces the strcmp() chain that
+// used to live in the background loop's `bye` handler (spec section 5.1: an engine = {name, setup}).
 //
-// `bye` looks up Config(engine) here.  A name that is not in the table (or "turbo9os") runs no setup function:
-// the built-in Turbo9OS/Turbo9Sim is the default engine.  Aliases are spellings v4 accepted (including the
-// misspelling "deep64280"), kept so existing Config values keep working; multicomp09fuzix has none: use its full name.
+// `bye` and `ports check` look up Config(engine) here.  Only canonical names are accepted (aliases were removed on
+// 2026-11-15 to avoid confusion); an empty Config(engine) means the built-in default "turbo9os", and any unknown
+// non-empty name is refused at `bye` / `ports check`.
 //
 // Included by main.cpp after all the engines/*.h headers, because it names their setup functions.
 #include <cstring>
 
 struct EngineSpec {
-  const char* name;            // canonical name (what `menu` shows)
-  const char* aliases[4];      // other accepted spellings, nullptr-terminated
+  const char* name;            // canonical name (what `Config(engine)` and `ports.tsv` use)
   void (*setup)();             // nullptr: nothing to set up (Turbo9OS is built in)
 };
 
 static const EngineSpec kEngines[] = {
-  {"turbo9os",         {nullptr},                                  nullptr},
-  {"flat65280",        {"flat", nullptr},                          setup_flat65280},
-  {"deep65280",        {"deep64280", "deep", nullptr},             setup_deep65280},
-  {"gep9",             {"hatvan", nullptr},                        setup_gep9},
-  {"gep9big",          {"gep9+", "big6809", "hatvanbig", nullptr}, setup_gep9big},
-  {"multicomp09fuzix", {nullptr},                                  setup_multicomp09},   // full name only
+  {"turbo9os",         nullptr},
+  {"flat65280",        setup_flat65280},
+  {"deep65280",        setup_deep65280},
+  {"gep9",             setup_gep9},
+  {"gep9big",          setup_gep9big},
+  {"multicomp09fuzix", setup_multicomp09},
 };
 
-// The spec for `name` (canonical or alias), or nullptr if there is no such engine.
+// The spec for `name`, or nullptr if there is no such engine.
 static inline const EngineSpec* FindEngine(const char* name) {
   for (const EngineSpec& e : kEngines) {
     if (strcmp(name, e.name) == 0) return &e;
-    for (int i = 0; e.aliases[i]; i++) {
-      if (strcmp(name, e.aliases[i]) == 0) return &e;
-    }
   }
   return nullptr;
 }

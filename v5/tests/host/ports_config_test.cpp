@@ -23,12 +23,14 @@ int main() {
     CHECK(c.ok, "default %s/%s should validate: %s", kPorts[i].engine, kPorts[i].profile, c.msg);
   }
 
-  // 2. The known conflict: gep9big on TFR4 has embiggen_mmu at $FF40-47; Becker's default is $FF41-42.
-  { PortsCheck c = Run("gep9big", {{"becker", "0xFF41"}});
-    CHECK(!c.ok && Has(c, "becker") && Has(c, "embiggen_mmu"), "expected a becker/embiggen_mmu conflict, got ok=%d '%s'", c.ok, c.msg); }
-  // ...and the fix chosen in spec 15.x: move Becker.
-  { PortsCheck c = Run("gep9big", {{"becker", "0xFF48"}}); CHECK(c.ok, "becker at $FF48 should be fine: %s", c.msg); }
-  { PortsCheck c = Run("gep9big", {{"profile", "COCO"}, {"becker", "0xFF41"}}); CHECK(c.ok, "COCO profile has no clash at $FF41: %s", c.msg); }
+  // 2. The known conflict: gep9 and gep9big on TFR4 have embiggen_mmu at $FF40-47; Becker's default is $FF41-42.
+  for (const char* eng : {"gep9", "gep9big"}) {
+    { PortsCheck c = Run(eng, {{"becker", "0xFF41"}});
+      CHECK(!c.ok && Has(c, "becker") && Has(c, "embiggen_mmu"), "%s: expected a becker/embiggen_mmu conflict, got ok=%d '%s'", eng, c.ok, c.msg); }
+    // ...and the fix chosen in spec 15.x: move Becker (or use COCO).
+    { PortsCheck c = Run(eng, {{"becker", "0xFF48"}}); CHECK(c.ok, "%s: becker at $FF48 should be fine: %s", eng, c.msg); }
+    { PortsCheck c = Run(eng, {{"profile", "COCO"}, {"becker", "0xFF41"}}); CHECK(c.ok, "%s: COCO profile has no clash at $FF41: %s", eng, c.msg); }
+  }
 
   // 3. $FF7F is never allowed.
   { PortsCheck c = Run("flat65280", {{"becker", "0xFF7F"}}); CHECK(!c.ok && Has(c, "Multi-Pak"), "$FF7F must be refused: '%s'", c.msg); }
@@ -79,7 +81,7 @@ int main() {
   CHECK(st.Set("a", "1") && st.Set("a", "2") && !strcmp(st.Get("a"), "2") && st.n_ == 1, "replace");
   CHECK(st.Unset("a") && !st.Get("a") && st.n_ == 0 && !st.Unset("a"), "unset");
   CHECK(!st.Set("this_key_is_far_too_long_for_the_table", "1"), "long key rejected");
-  for (int i = 0; i < PortSettings::kMax; i++) { char k[8]; snprintf(k, sizeof k, "k%d", i); CHECK(st.Set(k, "1"), "fill %d", i); }
+  for (int i = 0; i < PortSettings::kMax; i++) { char k[16]; snprintf(k, sizeof k, "k%d", i); CHECK(st.Set(k, "1"), "fill %d", i); }
   CHECK(!st.Set("one_more", "1"), "full table");
 
   if (failures) { printf("%d FAILURES\n", failures); return 1; }

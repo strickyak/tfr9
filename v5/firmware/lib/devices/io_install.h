@@ -62,26 +62,19 @@ static void IoClaimEnhancements(const char* engine) {
 // After an engine's devices are installed: reserve the enhancements, then compare the ownership map with what the
 // configuration says it should be (profile + overrides, resolved by the same code that `bye` used to approve it).
 // A mismatch is printed, not fatal: it means the code and the plan disagree and one of them needs fixing.
-// `tolerated`: a device the code installs although the plan has no row for it in this engine (v4 behavior kept);
-// it is reported as a note instead of a mismatch.
-static void IoFinish(const char* engine, const char* tolerated = nullptr) {
+static void IoFinish(const char* engine) {
   IoClaimEnhancements(engine);
   IoMap& expect = g_io_scratch;
   PortsCheck pc = PortsValidate(engine, g_port_settings, expect);
   if (!pc.ok) { cobs_printf("[io-map: %s: configuration problem: %s]\n", engine, pc.msg); return; }
   int bad = 0, ranges = 0;
   const char* prev = nullptr;
-  bool noted = false;
   for (uint32_t a = 0xFF00; a <= 0xFFFF; a++) {
     const char* want = expect.OwnerOf((uint16_t)a);
     const char* have = g_io_map.OwnerOf((uint16_t)a);
     if (have && (!prev || strcmp(prev, have))) ranges++;
     prev = have;
     if ((want == nullptr) == (have == nullptr) && (!want || !strcmp(want, have))) continue;
-    if (!want && have && tolerated && !strcmp(have, tolerated)) {
-      if (!noted) { cobs_printf("[io-map: note: %s also installs %s (v4 behavior; not in ports.tsv)]\n", engine, tolerated); noted = true; }
-      continue;
-    }
     cobs_printf("[io-map: %s $%04X should be %s but is %s]\n", engine, (unsigned)a, want ? want : "unclaimed", have ? have : "unclaimed");
     bad++;
   }

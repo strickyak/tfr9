@@ -54,7 +54,7 @@ static void TestCoreNeverOverlaps() {
     }
 }
 
-// Enhancements: the ONLY allowed conflict is gep9big/TFR4 (embiggen MMU $FF40-47) vs becker ($FF41/42).
+// Enhancements: the ONLY allowed conflicts are gep9/TFR4 and gep9big/TFR4 (embiggen MMU $FF40-47) vs becker ($FF41/42).
 static void TestEnhancementsFitEverywhere() {
   int conflicts = 0;
   for (auto& e : Engines())
@@ -66,12 +66,13 @@ static void TestEnhancementsFitEverywhere() {
         ClaimReport r = ClaimEnhancement(m, kPorts, kNumPorts, "E1", enh);
         if (!r.ok) {
           conflicts++;
-          bool expected = !strcmp(e.c_str(), "gep9big") && !strcmp(p, "TFR4") && !strcmp(enh, "becker");
+          bool is_gep = !strcmp(e.c_str(), "gep9") || !strcmp(e.c_str(), "gep9big");
+          bool expected = is_gep && !strcmp(p, "TFR4") && !strcmp(enh, "becker");
           CHECK(expected, "unexpected conflict: %s/%s + %s at $%04X (owner %s)", e.c_str(), p, enh, r.addr, r.owner ? r.owner : "?");
         }
       }
     }
-  CHECK(conflicts == 1, "expected exactly 1 known conflict (gep9big/TFR4 + becker), saw %d", conflicts);
+  CHECK(conflicts == 2, "expected exactly 2 known conflicts (gep9/TFR4 and gep9big/TFR4 + becker), saw %d", conflicts);
 }
 
 // The COCO profile must stay off hardware a real CoCo owns (spec 7.2 rule 3), except for devices that
@@ -98,6 +99,7 @@ static void TestTfr4MatchesV4() {
     {"deep65280", "emudsk", 0xFF80, 0xFF86}, {"deep65280", "acia", 0xFF88, 0xFF89}, {"deep65280", "gime", 0xFF90, 0xFF91},
     {"deep65280", "mmu", 0xFFA0, 0xFFAF}, {"turbo9os", "turbo9sim_acia", 0xFF00, 0xFF03},
     {"gep9", "console", 0xFF00, 0xFF05}, {"gep9", "disk", 0xFF10, 0xFF17}, {"gep9", "fuse_dma", 0xFF20, 0xFF2F},
+    {"gep9", "embiggen_mmu", 0xFF40, 0xFF47}, {"gep9big", "embiggen_mmu", 0xFF40, 0xFF47},
     {"multicomp09fuzix", "acia", 0xFFD0, 0xFFD1}, {"multicomp09fuzix", "sd", 0xFFD8, 0xFFDC}, {"multicomp09fuzix", "mmu", 0xFFDE, 0xFFDF},
   };
   for (auto& g : golden) {
