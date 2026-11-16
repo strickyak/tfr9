@@ -1,10 +1,10 @@
 #!/bin/sh
-# run_gep9.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
+# run_tfr911h_gep9.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 HB=${V5_IMG_HATVAN_DIR:-$HOME/github.com/strickyak/hatvan-os/build}
 
-exec "$DIR/scripts/run-demo.sh" gep9 80 \
+exec "$DIR/scripts/run-tfr911h-demo.sh" gep9 9040 \
   'on tfr911h run hatvan for gep9
 set Config(flat_img) "/pc/kernel_6809.decb"
 set Config(task1) "/pc/rbf_6809.decb"

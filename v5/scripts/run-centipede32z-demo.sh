@@ -1,6 +1,6 @@
 #!/bin/sh
-# run-centipede-demo.sh -- shared launcher for v5/run_coco*.sh demo scripts on Centipede 32z.
-# Usage: run-centipede-demo.sh <name> <tcl_cmd> [-- <extra tether args...>]
+# run-centipede32z-demo.sh -- shared launcher for v5/run_centipede32z_*.sh demo scripts on Centipede 32z.
+# Usage: run-centipede32z-demo.sh <name> <tcl_cmd> [-- <extra tether args...>]
 set -eu
 
 if [ "$#" -lt 2 ]; then

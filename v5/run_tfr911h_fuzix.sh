@@ -1,11 +1,11 @@
 #!/bin/sh
-# run_fuzix.sh - Launch Fuzix 6809 (multicomp09) on TFR911H SBC (Hitachi 6309E CPU)
+# run_tfr911h_fuzix.sh - Launch Fuzix 6809 (multicomp09) on TFR911H SBC (Hitachi 6309E CPU)
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 BIN=${V5_IMG_FUZIX_BIN:-$HOME/nand/github.com/EtchedPixels/FUZIX/Kernel/fuzix.bin}
 DISK=${V5_IMG_FUZIX_DISK:-$HOME/nand/github.com/EtchedPixels/FUZIX/Images/multicomp09/disk.img}
 
-exec "$DIR/scripts/run-demo.sh" fuzix 1170 \
+exec "$DIR/scripts/run-tfr911h-demo.sh" fuzix 9050 \
   'on tfr911h run fuzix for multicomp09
 set Config(flat_img) "/pc/fuzix.bin"
 set Config(drive0) "/pc/disk.img"

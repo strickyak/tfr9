@@ -40,7 +40,7 @@ v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware product
 ## 2. The hardware and how to work with it
 
 * **TFR/911H SBC** (RP2350B + Hitachi 63C09E): label `p=1,b=tfr9,v=911h,mhz=250,h=pizga.net,id=uks,…`.  *(Note: physical UF2 flash label is `b=tfr9,v=911h`; Tcl host name is `tfr911h`.)*
-* **Centipede-32z** on a CoCo2 (16 KB): label `b=centipede,v=32z,…,name=Vinelix,id=z10`.  Flashed and verified with `build/centipede32z.uf2` (`09_centipede_coco2_test.sh`, `run_coco2_basic.sh`, `run_coco3_basic.sh`).
+* **Centipede-32z** on a CoCo2 (16 KB): label `b=centipede,v=32z,…,name=Vinelix,id=z10`.  Flashed and verified with `build/centipede32z.uf2` (`09_centipede_coco2_test.sh`, `run_centipede32z_coco2_basic.sh`, `run_centipede32z_coco3_basic.sh`).
 * A CH340 USB-serial adapter (`/dev/ttyUSB0`) appeared during the session; not ours.
 * `/dev/ttyACM*` numbers change.  **Find boards by label:** `scripts/find-board.sh b=tfr9 v=911h` prints the stable
   `/dev/serial/by-id/usb-Raspberry_Pi_Pico_<serial>-if00` name (Linux).  With no arguments it lists every board.
@@ -236,7 +236,7 @@ and running a guest on it.
    * `third_party/PATCHES.md` upstream audit; Linux `openat2` (`RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`) fast path for `/pc`.
 2. **Phase 4 — Centipede 32z product:** *Completed 2026-11-15* (`firmware/products/centipede32z` -> `build/centipede32z.uf2`, `boards/centipede32z.h`, 4 `IN_RAM` Gerbil engines in `firmware/engines/gerbil_guts.h`, 13 target launchers, `g_io_drive_mask`, shared library merge, flashed & verified live on the 16 KB CoCo 2 in `09_centipede_coco2_test.sh`).
 3. **Phase 5 — enhancement devices:** *Completed 2026-11-15* (`becker`, `audio`, `rtc`, `orchestra90`, `info` in `firmware/lib/devices/` via repeated `with e1 with ...`; remaining: FujiNet guest kit under `os/fujinet/`).
-4. **Phase 6 — TurboLab:** *Completed 2026-11-16* (unified into `tfr911h.uf2` + `build/tether` per `R21` as `on tfr911h run turbolab [with ...]`, `hamster_turbolab` in `firmware/engines/turbolab.h`, `turbolab.go` in `host/cmd/tether/`, `run_turbolab.sh`, verified in `10_turbolab_test.sh`).
+4. **Phase 6 — TurboLab:** *Completed 2026-11-16* (unified into `tfr911h.uf2` + `build/tether` per `R21` as `on tfr911h run turbolab [with ...]`, `hamster_turbolab` in `firmware/engines/turbolab.h`, `turbolab.go` in `host/cmd/tether/`, `run_tfr911h_turbolab.sh`, verified in `10_turbolab_test.sh`).
 5. **Phase 7** — docs, CI, release notes, `.pak` loader.
 6. The remaining S38 item: nothing O(file size) in the Tcl `zip`/`multifile`/`edit` paths beyond the policy limits
    (acceptable as is).
@@ -260,7 +260,7 @@ v5/
   firmware/products/centipede32z  main.cpp, centipede_targets.h, gerbil.pio, floppy.h, gspoon.h, compress.h, …
   host/cmd/tether       the Go tether (pcfs.go = /pc confinement; pico_rpc.go; turbolab.go; tconsole.go)
   tests/host  tests/systests (common.sh, 01..10, engines/*.exp, pcfix/, testdata/)
-  scripts   find-board.sh gen-ports.sh run-demo.sh run-centipede-demo.sh elf-parity.sh check-*.sh doctor.sh env.sh import-from-v4.sh
+  scripts   find-board.sh gen-ports.sh run-tfr911h-demo.sh run-centipede32z-demo.sh elf-parity.sh check-*.sh doctor.sh env.sh import-from-v4.sh
   build/    generated/ports_gen.h, io-map.md · tfr911h.uf2 · centipede32z.uf2 · tether · systest-logs/ · host-tests/   (git-ignored)
 ```
 

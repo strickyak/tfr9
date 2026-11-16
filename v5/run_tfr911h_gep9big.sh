@@ -1,10 +1,10 @@
 #!/bin/sh
-# run_gep9big.sh - Launch Hatvan OS (gep9big / EMBIGGEN 2-level MMU) on TFR911H SBC
+# run_tfr911h_gep9big.sh - Launch Hatvan OS (gep9big / EMBIGGEN 2-level MMU) on TFR911H SBC
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 HB=${V5_IMG_HATVAN_DIR:-$HOME/github.com/strickyak/hatvan-os/build}
 
-exec "$DIR/scripts/run-demo.sh" gep9big 81 \
+exec "$DIR/scripts/run-tfr911h-demo.sh" gep9big 9041 \
   'on tfr911h run hatvan for gep9big
 set Config(flat_img) "/pc/kernel_6809.decb"
 set Config(task1) "/pc/rbf_6809.decb"
