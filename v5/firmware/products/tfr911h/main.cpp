@@ -381,6 +381,7 @@ inline void set_floppy_names() {}
 // USB packet dispatch — delivers typed chars to term_input
 // ═══════════════════════════════════════════════════════════════════
 static bool g_term_acia_arrow_keys = false;
+inline void turbolab_on_sigint();
 
 void PollTermInput() {
   // Take non-RPC, non-PicoRPC, non-WallTime packets from usb_packet_buf as terminal input
@@ -403,6 +404,9 @@ void PollTermInput() {
         break;
       case C_REBOOT:
         reset_usb_boot(0, 0);
+        break;
+      case 183:  // T_SIGINT (host Ctrl-C interrupt for turbolab)
+        turbolab_on_sigint();
         break;
       default:
         if (cmd >= 1 && cmd <= 127) {
@@ -460,6 +464,7 @@ bool TimerCallback(repeating_timer_t* rt) {
 #include "timers.h"   // 60 Hz timer callback and flash-speed adjustment
 #include "repl.h"   // Tcl REPL coroutine (core 0, before the 6309 starts)
 #include "drain.h"   // USB drain coroutines (characters and events)
+#include "turbolab.h"   // Engine turbolab: 4-phase cycle tracer, watchpoints & SWI register dump
 #include "registry.h"   // (run_os, for_hw) target launchers
 #include "ports_cmd.h"   // `on` / `run`, `ports list|check`, and the checked `bye`
 #include "background.h"   // periodic_status and the background loop (core 0 scheduler)

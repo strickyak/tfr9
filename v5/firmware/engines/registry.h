@@ -15,6 +15,7 @@ struct TargetLauncher {
 
 static const TargetLauncher kLaunchers[] = {
   {"turbo9os",  "turbo9sim",   setup_turbo9os},
+  {"turbolab",  "turbo9sim",   setup_turbolab},
   {"nitros9l1", "flat65280",   setup_flat65280},
   {"nitros9l2", "deep65280",   setup_deep65280},
   {"nitros9l2", "jamesbrown",  setup_jamesbrown},

@@ -115,6 +115,7 @@ void IN_RAM tfr911_background() {
         hamster_program_init(pio0, 0, offset);
 
         // Resolve the active (on, run, for) target approved by `bye` and run its core-0 setup.
+        turbolab_rt::g_active = false;
         const TargetSpec* active_tgt = nullptr;
         ResolveActiveTarget(g_port_settings, &active_tgt, kBoardHost);
         const TargetLauncher* launcher = active_tgt ? FindLauncher(active_tgt->run_os, active_tgt->for_hw) : nullptr;
@@ -122,6 +123,10 @@ void IN_RAM tfr911_background() {
           centipede_abort("bye: missing target launcher");
         }
         launcher->setup();
+
+        if (turbolab_rt::g_active) {
+          gpio_set_dir(HALT, GPIO_OUT);  // Hold 6309 in HALT until RESET releases cleanly
+        }
 
         ForegroundFn fg = FindHamsterEngine(active_tgt->engine);
         if (!fg) {
@@ -141,6 +146,10 @@ void IN_RAM tfr911_background() {
         gpio_set_dir(RESET, GPIO_IN);
         cobs_printf("[bye: RESET released, holding HALT...]\n");
         sleep_ms(5);
+        if (turbolab_rt::g_active) {
+          turbolab_rt::g_cpu_started.store(true, std::memory_order_release);
+          gpio_set_dir(HALT, GPIO_IN);
+        }
         // bg_wants_halt.store(false, std::memory_order_relaxed); //== HaltOff();
         //== HaltOff();
         cobs_printf("[bye: HALT released, 6309 booting]\n");
@@ -166,6 +175,7 @@ void IN_RAM tfr911_background() {
       coro_resume(&drain_coro);
       PumpUsbCobs();
       Phase2PollEnhancements();
+      turbolab_poll_core0();
 
       // Deliver terminal input to the active engine's RX hook
       PollTermInput();

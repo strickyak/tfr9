@@ -5,7 +5,7 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 HB=${V5_IMG_HATVAN_DIR:-$HOME/github.com/strickyak/hatvan-os/build}
 
 exec "$DIR/scripts/run-demo.sh" gep9 80 \
-  'on tfr9 run hatvan for gep9
+  'on tfr911h run hatvan for gep9
 set Config(flat_img) "/pc/kernel_6809.decb"
 set Config(task1) "/pc/rbf_6809.decb"
 set Config(task2) "/pc/procfs_6809.decb"

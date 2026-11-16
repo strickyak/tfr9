@@ -200,7 +200,7 @@ EOF
 cat > "$PC_DIR/mode91.tcl" << 'EOF'
 set Config(flat_img) /pc/e1_flat.img
 menu store Config
-on tfr9 run nitros9l1 for flat65280 with e1, becker, audio, rtc, orchestra90, info
+on tfr911h run nitros9l1 for flat65280 with e1 with becker with audio with rtc with orchestra90 with info
 bye
 EOF
 
@@ -220,7 +220,7 @@ assert_contains "$out" "AUD=82,03" "AudioSn76489 control register R/W"
 assert_contains "$out" "ORCH=5A,A5" "Orchestra90 stereo DAC R/W"
 assert_contains "$out" "BECK=00,FF" "BeckerPort idle status and empty read"
 assert_contains "$out" "RTC=14," "RtcPort century=20 (0x14) from T_WALLTIME"
-assert_contains "$out" "Target	tfr9/nitros9l1/flat65280 (engine hamster_flat)" "InfoPort reports target & engine"
+assert_contains "$out" "Target	tfr911h/nitros9l1/flat65280 (engine hamster_flat)" "InfoPort reports target & engine"
 assert_contains "$out" "Sound	SN76489 at 0xff70 (4 writes)" "InfoPort reports 4 SN76489 writes processed by ISR"
 assert_contains "$out" "Clock	set from PC via tether" "InfoPort confirms T_WALLTIME clock sync"
 assert_contains "$out" "E1_FLAT_OK" "e1_flat 6309 test reached completion"
@@ -344,7 +344,7 @@ EOF
 cat > "$PC_DIR/mode92.tcl" << 'EOF'
 set Config(flat_img) /pc/coco3_test.t35
 menu store Config
-on tfr9 run nitros9l2 for coco3 with e1, info
+on tfr911h run nitros9l2 for coco3 with e1 with info
 bye
 EOF
 
@@ -362,7 +362,7 @@ mkdir -p "$BUILD_DIR/systest-logs" && printf '%s\n' "$out" > "$BUILD_DIR/systest
 assert_exit_code 0 "$rc" "nitros9l2 for coco3 (.t35) booted and completed"
 assert_contains "$out" "PAL=35,2A,77" "Coco3Palette 6-bit mask and GIME shadow readback"
 assert_contains "$out" "GIME_IRQ=08,00" "60 Hz GIME VBORD hardware IRQ fired and cleared on read"
-assert_contains "$out" "Target	tfr9/nitros9l2/coco3 (engine hamster_gime)" "InfoPort reports coco3 target"
+assert_contains "$out" "Target	tfr911h/nitros9l2/coco3 (engine hamster_gime)" "InfoPort reports coco3 target"
 
 run_tether --quick-restart=0 > /dev/null
 wait_board_ready || { fail "board did not recover after coco3 test"; print_summary "Suite 8 (enhancements)"; exit 1; }
@@ -466,7 +466,7 @@ dd if="$PC_DIR/jb_t34.bin" of="$PC_DIR/jb.dsk" bs=256 seek=612 conv=notrunc 2>/d
 
 cat > "$PC_DIR/mode93.tcl" << 'EOF'
 set Config(drive0) /pc/jb.dsk
-on tfr9 run nitros9l2 for jamesbrown
+on tfr911h run nitros9l2 for jamesbrown
 bye
 EOF
 
@@ -483,7 +483,7 @@ rc=$?
 mkdir -p "$BUILD_DIR/systest-logs" && printf '%s\n' "$out" > "$BUILD_DIR/systest-logs/enh-jamesbrown.log"
 assert_exit_code 0 "$rc" "nitros9l2 for jamesbrown booted from Track 34 on drive 0"
 assert_contains "$out" "JB=83,00,14" "JamesBrown Audio (\$FF42), Becker (\$FF45), and RTC (\$FFC0)"
-assert_contains "$out" "Target	tfr9/nitros9l2/jamesbrown (engine hamster_gime)" "JamesBrown InfoPort (\$FF43/\$FF44)"
+assert_contains "$out" "Target	tfr911h/nitros9l2/jamesbrown (engine hamster_gime)" "JamesBrown InfoPort (\$FF43/\$FF44)"
 assert_contains "$out" "FujiNet	becker at 0xff45" "JamesBrown Becker reported at 0xff45"
 assert_contains "$out" "Sound	SN76489 at 0xff41" "JamesBrown SN76489 reported at 0xff41"
 

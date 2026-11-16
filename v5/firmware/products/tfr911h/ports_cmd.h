@@ -2,7 +2,7 @@
 // ports_cmd.h -- Tcl commands `on` / `run`, `ports list|check`, and the `bye` that validates before launch.
 //
 //   on <host> run <os> ?for <target>? ?with ...?   compile target + options into flat lowercase key-value pairs
-//   run <os> ?for <target>? ?with ...?             same, keeping the active `on <host>` (default: tfr9)
+//   run <os> ?for <target>? ?with ...?             same, keeping the active `on <host>` (default: tfr911h)
 //   on ?<host>?                                    query or set the active `on <host>`
 //   ports list                                     list the compiled flat key-value pairs
 //   ports check                                    validate the configuration ("ok", or an error naming the clash)
@@ -11,7 +11,7 @@
 // Uppercase in `on`, `run` and `ports` commands is converted to lowercase (spec 15.y).
 // Included by main.cpp after registry.h (FindLauncher) and before background.h.
 
-static constexpr const char* kBoardHost = "tfr9";
+static constexpr const char* kBoardHost = "tfr911h";
 
 static int ports_check_now(Tcl_Interp* interp, const char* who, bool for_launch) {
   const char* legacy_eng = Tcl_GetVar2(interp, (char*)"Config", (char*)"engine", TCL_GLOBAL_ONLY);
@@ -122,6 +122,18 @@ static void sync_tcl_config_paths(Tcl_Interp* interp) {
 static int bye_checked_cmd(ClientData, Tcl_Interp* interp, int argc, char** argv) {
   if (ports_check_now(interp, "bye", /*for_launch=*/true) != TCL_OK) return TCL_ERROR;
   sync_tcl_config_paths(interp);
+  const char* run_os = g_port_settings.Get("run");
+  if (run_os && !strcmp(run_os, "turbolab")) {
+    const char* img = g_port_settings.Get("image");
+    if (!img || !img[0]) img = g_config.flat_img[0] ? g_config.flat_img : nullptr;
+    if (img && img[0]) {
+      struct vfs_info st;
+      if (vfs_stat(img, &st) != 0 || st.type == LFS_TYPE_DIR) {
+        Tcl_AppendResult(interp, "bye: turbolab cannot open image \"", img, "\"", (char*)NULL);
+        return TCL_ERROR;
+      }
+    }
+  }
   if (argc > 1) Tcl_SetResult(interp, argv[1], TCL_VOLATILE);
   return TCL_BYE;
 }

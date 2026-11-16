@@ -5,7 +5,7 @@ source [file join [file dirname [file normalize [info script]]] common.exp]
 puts "Engine 0: Turbo9Sim / Turbo9OS (built-in ROMs)"
 start_tether 0
 expect_pass "TCL>" "Reached the TCL> prompt"
-send "on tfr9 run turbo9os for turbo9sim ; bye\r"
+send "on tfr911h run turbo9os for turbo9sim ; bye\r"
 expect_pass "TOS:" "Booted the 6309E into the Turbo9OS shell"
 send "mfree\r";   expect_pass "Total pages free" "'mfree' reported free pages"; expect "TOS:"
 send "procs\r"

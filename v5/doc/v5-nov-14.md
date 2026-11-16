@@ -9,15 +9,7 @@ see §1).  Time of writing: 2026-11-14 ≈ 23:45.
 
 ## 0. One-paragraph summary
 
-v5 is a copy-then-modify of v4 (`../v4/`, never touched).  The TFR/911H firmware, a unified Go `tether`, the test
-harness, the `on/run/for/with` device/port architecture, the **4 policy-template `IN_RAM` Hamster foregrounds**
-(`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`), **0 core-1 SRAM→flash calls** (`make check-core1`
-strict), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all
-9 `tfr9` targets** (including `nitros9l2 for jamesbrown` and `nitros9l2 for coco3` with `Coco3Gime` 60 Hz VBORD IRQ &
-`Coco3Palette`), shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and
-**verified on real hardware**: **eight** system-test suites pass, including 6309 hardware tests of every enhancement
-device and target.  **Not done:** the Centipede product (Phase 4), guest kit (`os/fujinet`, generated `.d`/`.go` port
-headers), and TurboLab (Phase 6).
+v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware products (`tfr911h.uf2` and `centipede32z.uf2`), a unified Go `tether` (including full TurboLab cycle-accurate trace decoding, `.list` relocation, OS-9 `SWI2`/`RTI` API decoding, and CoCo 2/3 VDG/GIME screen capture), the test harness, the `on <tfr911h|coco2|coco3> run <os> ?for <target>? ?with ...?` (repeated `with`) device/port architecture, the **5 `IN_RAM` Hamster foregrounds** (`hamster_flat`, `hamster_turbolab`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and **4 `IN_RAM` Gerbil foregrounds** (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`), **0 core-1 SRAM→flash calls** (`make check-core1` strict on both products), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all 23 `(on, run, for)` targets** in `ports.tsv`, shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on real hardware**: **ten** system-test suites pass across both live boards (TFR/911H and Centipede 32z + 16 KB CoCo 2).  **Remaining:** guest kit (`os/fujinet`, generated `.d`/`.go` port headers), `run_gep9.sh` guest debugging, and `.pak` loader (Phase 7).
 
 ---
 
@@ -47,9 +39,8 @@ headers), and TurboLab (Phase 6).
 
 ## 2. The hardware and how to work with it
 
-* **TFR/911H SBC** (RP2350B + Hitachi 63C09E): label `p=1,b=tfr9,v=911h,mhz=250,h=pizga.net,id=uks,…`.
-* **Centipede-32z** on a CoCo2 (16 KB): label `b=centipede,v=32z,…,name=Vinelix,id=z10`.  **Untouched by v5 so far**
-  (we never flash it).  Note `scripts/find-board.sh` *probes* it with a label request on every call.
+* **TFR/911H SBC** (RP2350B + Hitachi 63C09E): label `p=1,b=tfr9,v=911h,mhz=250,h=pizga.net,id=uks,…`.  *(Note: physical UF2 flash label is `b=tfr9,v=911h`; Tcl host name is `tfr911h`.)*
+* **Centipede-32z** on a CoCo2 (16 KB): label `b=centipede,v=32z,…,name=Vinelix,id=z10`.  Flashed and verified with `build/centipede32z.uf2` (`09_centipede_coco2_test.sh`, `run_coco2_basic.sh`, `run_coco3_basic.sh`).
 * A CH340 USB-serial adapter (`/dev/ttyUSB0`) appeared during the session; not ours.
 * `/dev/ttyACM*` numbers change.  **Find boards by label:** `scripts/find-board.sh b=tfr9 v=911h` prints the stable
   `/dev/serial/by-id/usb-Raspberry_Pi_Pico_<serial>-if00` name (Linux).  With no arguments it lists every board.
@@ -148,7 +139,7 @@ source · `d1f6e02` ports.tsv · `e95c7d0` tether · `9ec70b1` import · `0325ad
 
 ## 4. Tests — what exists and what each proves
 
-`make test-host` (no board): `cobs_test`, `iomap_test`, `ports_config_test`, `tcl_stream_test`, `tcl_lowmem_test`
+`make test-host` (no board): `cobs_test`, `iomap_test`, `ports_config_test`, `test_pio_assembler`, `tcl_stream_test`, `tcl_lowmem_test`
 (C++, built against the real Tcl 6.7c) + `go test ./...`.  The host Makefile has **one** `test:` rule on purpose
 (make keeps only the last recipe per target — this once silently disabled tests).
 
@@ -163,9 +154,10 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 | 04 heap | 9 | `heap-free`, runaway loop → catchable "out of memory", memory returns, no reboot |
 | 05 zip | 17 | stored 200 KB + deflated 207 KB entries (md5 equals PC), `source` from zip, `zip get` limits, `multifile` refusal, fragmentation survival |
 | 06 engines (expect) | 4 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Fuzix boot and run commands |
-| 07 ports | 56 | `on/run/for/with` uppercase folding & key-value digestion, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal (conflict, wrong host, obsolete `Config(engine)`) keeps `TCL>` |
+| 07 ports | 66 | `on/run/for/with` (host `tfr911h`, repeated `with`, `,` & `tfr9` rejection), `turbolab` `key = value` validation, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal keeps `TCL>` |
 | 08 enhancements | 23 | Tcl `click`/`beep`/`fujinet stats`; 6309 `flat65280+e1` (SN76489, Orchestra-90, Becker, `T_WALLTIME` RTC, InfoPort); 6309 `nitros9l2 for coco3` (`.t35` launcher, 60 Hz GIME VBORD IRQ, Palette); 6309 `nitros9l2 for jamesbrown` (Track-34 disk boot + Diller I/O map) |
 | 09 centipede32z + CoCo 2 | 30 | live Centipede 32z (`b=centipede v=32z`) on 16 KB CoCo 2: label/ping/heap, `on`/`run`/`ports` PIA/SAM/GIME/host guards, `gerbil_sam64k` Disk Extended Color BASIC 1.1 (`MEM=22823`) + `e1` `InfoPort`, `gerbil_gime` "Become CoCo 3" Super Extended BASIC 2.1 + `HSCREEN 2` PNG capture, and 6809E `centipede run-decb` preload |
+| 10 turbolab | 36 | live TFR/911H `ON tfr911h RUN turbolab WITH ...`: `r/0xFFFE` + `trace_count = 15` + 64 KB `/tmp/fault.img`, `trigger = r/0xFFE8` Red-Page fault + `SWI` registers, `pi.decb` `.list` annotations + `x/0x1019/3`, repeated `WITH watch = ...`, built-in `Turbo9OS` `@kernel+0x1B` + `SWI2` `F$Link "Init"` / `RTI`, and 6309 native `LDMD #1` `BRA *` + 14-byte `D`/`W` (`E`/`F`) `NMI` register capture |
 
 Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing image **skips** that engine):
 `V5_IMG_FLAT_BOOT/DISK` (`nitros9/recipes/flat65280/…`), `V5_IMG_DEEP_BOOT/DISK` (`…/deep65280/…`),
@@ -247,8 +239,9 @@ and running a guest on it.
    * `third_party/PATCHES.md` upstream audit; Linux `openat2` (`RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`) fast path for `/pc`;
    * debug `run_gep9.sh` past `--  Hatvan OS` when ready and add an automated `hatvan` systest.
 2. **Phase 4 — Centipede 32z product:** *Completed 2026-11-15* (`firmware/products/centipede32z` -> `build/centipede32z.uf2`, `boards/centipede32z.h`, 4 `IN_RAM` Gerbil engines in `firmware/engines/gerbil_guts.h`, 13 target launchers, `g_io_drive_mask`, shared library merge, flashed & verified live on the 16 KB CoCo 2 in `09_centipede_coco2_test.sh`).
-3. **Phase 5 — enhancement devices:** *Completed 2026-11-15* (`becker`, `audio`, `rtc`, `orchestra90`, `info` in `firmware/lib/devices/` via `with e1, ...`; remaining: FujiNet guest kit under `os/fujinet/`).
-4. **Phase 6 — TurboLab** as a separate UF2.  **Phase 7** — docs, CI, release notes, generated io-map, `.pak` loader.
+3. **Phase 5 — enhancement devices:** *Completed 2026-11-15* (`becker`, `audio`, `rtc`, `orchestra90`, `info` in `firmware/lib/devices/` via repeated `with e1 with ...`; remaining: FujiNet guest kit under `os/fujinet/`).
+4. **Phase 6 — TurboLab:** *Completed 2026-11-16* (unified into `tfr911h.uf2` + `build/tether` per `R21` as `on tfr911h run turbolab [with ...]`, `hamster_turbolab` in `firmware/engines/turbolab.h`, `turbolab.go` in `host/cmd/tether/`, `run_turbolab.sh`, verified in `10_turbolab_test.sh`).
+5. **Phase 7** — docs, CI, release notes, `.pak` loader.
 6. The remaining S38 item: nothing O(file size) in the Tcl `zip`/`multifile`/`edit` paths beyond the policy limits
    (acceptable as is).
 7. Keep the spec current: log every finding as an `Sxx`, every deviation in §16, and update Appendix G.
@@ -259,18 +252,20 @@ and running a guest on it.
 
 ```
 v5/
-  AGENTS.md  README.md  Makefile  doc/  boards/  cmake/  rc/  os/  third_party/  scripts/  tests/  host/  firmware/
-  firmware/lib/core     cobs, heap.h, oom_abort.h, abort.h, config.h (CentipedeConfig), usb pipeline, coro, …
+  AGENTS.md  README.md  Makefile  run_*.sh  doc/  boards/  cmake/  rc/  os/  third_party/  scripts/  tests/  host/  firmware/
+  firmware/lib/core     cobs, heap.h, oom_abort.h, abort.h, config.h (Config), usb pipeline, coro, …
   firmware/lib/fs       VFS (vfs.h), littlefs glue, vfs_rpc.h
   firmware/lib/tcl      tcl_commands.h, tcl_stream.h, menu.h, pico_rpc.h, editor.h, md5.h
-  firmware/lib/devices  iomap.h, io_install.h, ports_config.h, emudsk.h, clock_stop.h, acia_term.h, acia_tfr.h
-  firmware/lib/mem      deep_mmu.h
-  firmware/engines      ports.tsv (the plan), registry.h, flat65280.h, deep65280.h, gep9.h, multicomp09.h, guts.h
-  firmware/products/tfr911h  main.cpp, background.h, repl.h, drain.h, timers.h, pins.h, ports_cmd.h, v4_gep9_*.h, …
-  host/cmd/tether       the Go tether (pcfs.go = /pc confinement; pico_rpc.go; open_linux.go; tconsole.go)
-  tests/host  tests/systests (common.sh, 01..07, engines/*.exp, pcfix/)
-  scripts   find-board.sh gen-ports.sh elf-parity.sh check-*.sh doctor.sh env.sh import-from-v4.sh build-tethers.sh
-  build/    generated/ports_gen.h, io-map.md · tfr911h.uf2 · tether · systest-logs/ · host-tests/   (git-ignored)
+  firmware/lib/bus      pio_assembler.h, hamster.h
+  firmware/lib/devices  iomap.h, io_install.h, ports_config.h, turbolab_config.h, enhancements.h, emudsk.h, gime.h, …
+  firmware/lib/mem      deep_mmu.h, gep9_mmu.h
+  firmware/engines      ports.tsv, registry.h, flat65280.h, deep65280.h, gep9.h, multicomp09.h, turbolab.h, guts.h, gerbil_guts.h
+  firmware/products/tfr911h       main.cpp, background.h, repl.h, drain.h, timers.h, pins.h, ports_cmd.h, hamster.pio, …
+  firmware/products/centipede32z  main.cpp, centipede_targets.h, gerbil.pio, floppy.h, gspoon.h, compress.h, …
+  host/cmd/tether       the Go tether (pcfs.go = /pc confinement; pico_rpc.go; turbolab.go; tconsole.go)
+  tests/host  tests/systests (common.sh, 01..10, engines/*.exp, pcfix/, testdata/)
+  scripts   find-board.sh gen-ports.sh run-demo.sh run-centipede-demo.sh elf-parity.sh check-*.sh doctor.sh env.sh import-from-v4.sh
+  build/    generated/ports_gen.h, io-map.md · tfr911h.uf2 · centipede32z.uf2 · tether · systest-logs/ · host-tests/   (git-ignored)
 ```
 
 Tcl commands added in v5: `centipede heap-free|heap-info|heap-probe`, `on`/`run`, `ports list|check`, checked `bye`.

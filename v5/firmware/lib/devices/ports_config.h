@@ -1,27 +1,33 @@
 #pragma once
-// ports_config.h -- target selection (`on ... run ... for ... with ...`) and flat key-value I/O port configuration.
+// ports_config.h -- target selection (`on ... run ... for ... with ...`) and flat key-value configuration.
 // Pure C++17, no Pico SDK, no heap: it compiles on the PC for tests (tests/host/ports_config_test.cpp).
 //
 // User-facing grammar (spec 7.1, 15.y):
-//   on <host> run <os> [for <target>] [with <options...>]
-//   run <os> [for <target>] [with <options...>]
-// Any uppercase in `on`/`run` commands is converted to lowercase.  It compiles down into flat key-value pairs:
-//   on = tfr9 | coco2 | coco3
-//   run = turbo9os | nitros9l1 | nitros9l2 | hatvan | fuzix | rsbasic
+//   on <host> run <os> [for <target>] [with <option>] [with <option>] ...
+//   run <os> [for <target>] [with <option>] [with <option>] ...
+// Multiple options repeat `with` (commas are not used).  Grammar keywords and device/port settings are
+// converted to lowercase; file paths (`image = ...`) and SI/binary suffixes (`10k` vs `16K`) keep case.
+//
+// Compiles down into flat key-value pairs (`ports list`):
+//   on = tfr911h | coco2 | coco3
+//   run = turbo9os | turbolab | nitros9l1 | nitros9l2 | hatvan | fuzix | rsbasic
 //   for = turbo9sim | flat65280 | deep65280 | jamesbrown | coco3 | coco2 | gep9 | gep9big | multicomp09
-//   engine = hamster_flat | hamster_gime | hamster_gep9 | hamster_multicomp | gerbil_io | ...
+//   engine = hamster_flat | hamster_turbolab | hamster_gime | hamster_gep9 | hamster_multicomp | gerbil_*
 //   with = e1
 //   <device> = on | off
 //   <device>.<param> = <value>    (e.g. becker.at = 0xff41, dw.over = bitbang, dw.baud = 9600)
+//   trigger / trace_count / trace / stop / max_cycles / max_time / watch.N / image = <value>  (turbolab)
 //
-// PortsValidate() is the gatekeeper: it resolves every core device, motherboard reserved range, and enhancement,
-// claiming ranges in an IoMap so an overlap or 0xff7f ($FF7F) is caught BEFORE launching core 1.
+// PortsValidate() is the gatekeeper: it resolves every core device, motherboard reserved range, enhancement,
+// and turbolab option, claiming ranges in an IoMap so any overlap, 0xff7f ($FF7F), or bad option is caught
+// BEFORE launching core 1.
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include "iomap.h"
 #include "ports_gen.h"      // kTargets, kCorePorts, kHostReserved, kMapPorts (from engines/ports.tsv)
+#include "turbolab_config.h"
 
 inline bool LowerCopy(char* dst, size_t cap, const char* src) {
   if (!src || cap == 0) return false;
@@ -35,10 +41,18 @@ inline bool LowerCopy(char* dst, size_t cap, const char* src) {
   return true;
 }
 
+inline bool ExactCopy(char* dst, size_t cap, const char* src) {
+  if (!src || cap == 0) return false;
+  size_t n = strlen(src);
+  if (n + 1 > cap) return false;
+  memcpy(dst, src, n + 1);
+  return true;
+}
+
 struct PortSettings {
-  static constexpr int kMax = 32, kLen = 24;
+  static constexpr int kMax = 32, kLen = 24, kValLen = 80;
   char key_[kMax][kLen];
-  char val_[kMax][kLen];
+  char val_[kMax][kValLen];
   int n_ = 0;
 
   void Clear() { n_ = 0; }
@@ -48,14 +62,31 @@ struct PortSettings {
     for (int i = 0; i < n_; i++) if (!strcmp(key_[i], kbuf)) return val_[i];
     return nullptr;
   }
-  // Stores lowercase key and value; returns false if the table is full or key/value is too long.
+  // Stores lowercase key and lowercase value; returns false if full or key/value is too long.
   bool Set(const char* key, const char* val) {
-    char kbuf[kLen], vbuf[kLen];
+    char kbuf[kLen], vbuf[kValLen];
     if (!LowerCopy(kbuf, sizeof kbuf, key) || !LowerCopy(vbuf, sizeof vbuf, val)) return false;
     for (int i = 0; i < n_; i++) if (!strcmp(key_[i], kbuf)) { strcpy(val_[i], vbuf); return true; }
     if (n_ >= kMax) return false;
     strcpy(key_[n_], kbuf); strcpy(val_[n_], vbuf); n_++;
     return true;
+  }
+  // Stores lowercase key and case-preserved value (for file paths and k/K/m/M/g/G suffixes).
+  bool SetExactVal(const char* key, const char* val) {
+    char kbuf[kLen], vbuf[kValLen];
+    if (!LowerCopy(kbuf, sizeof kbuf, key) || !ExactCopy(vbuf, sizeof vbuf, val)) return false;
+    for (int i = 0; i < n_; i++) if (!strcmp(key_[i], kbuf)) { strcpy(val_[i], vbuf); return true; }
+    if (n_ >= kMax) return false;
+    strcpy(key_[n_], kbuf); strcpy(val_[n_], vbuf); n_++;
+    return true;
+  }
+  bool AppendWatch(const char* val) {
+    for (int idx = 0; idx < turbolab::kMaxWatches; idx++) {
+      char kbuf[kLen];
+      snprintf(kbuf, sizeof kbuf, "watch.%d", idx);
+      if (!Get(kbuf)) return SetExactVal(kbuf, val);
+    }
+    return false;
   }
   bool Unset(const char* key) {
     char kbuf[kLen];
@@ -82,7 +113,7 @@ struct PortSettings {
     }
     n_ = out;
   }
-  const char* Host(const char* dflt = "tfr9") const {
+  const char* Host(const char* dflt = "tfr911h") const {
     const char* h = Get("on");
     return h ? h : dflt;
   }
@@ -231,16 +262,60 @@ inline PortsCheck ExplainMissingTarget(const char* on_host, const char* run_os, 
   return PortsFail("unknown target '%s for %s' on '%s'", run_os, for_hw, on_host);
 }
 
-inline PortsCheck ApplyWithItem(const char words[][PortSettings::kLen], int m, PortSettings& st) {
+inline PortsCheck ApplyWithItem(const char words_lc[][PortSettings::kValLen],
+                                const char words_raw[][PortSettings::kValLen],
+                                int m, PortSettings& st) {
   if (m <= 0) return PortsOk();
-  if (m == 1 && IsMapTagToken(words[0])) {
-    if (!st.Set("with", words[0])) return PortsFail("too many settings");
+  // Form 1: enhancement map tag (`WITH e1`)
+  if (m == 1 && IsMapTagToken(words_lc[0])) {
+    if (!st.Set("with", words_lc[0])) return PortsFail("too many settings");
     return PortsOk();
   }
-  const char* dev = words[0];
+  // Form 2: `key = value` (both `key = value` and `key=value` tokenize into m == 3 with words_lc[1] == "=")
+  if (m >= 2 && !strcmp(words_lc[1], "=")) {
+    if (m != 3) return PortsFail("in 'with': expected '<key> = <value>' (got %s tokens)", m < 3 ? "too few" : "extra");
+    const char* key = words_lc[0];
+    const char* val_lc = words_lc[2];
+    const char* val_raw = words_raw[2];
+    if (!*val_raw) return PortsFail("missing value after '=' for '%s'", key);
+    if (turbolab::IsTurbolabOptionKey(key)) {
+      if (!strcmp(key, "watch")) {
+        if (!st.AppendWatch(val_raw)) return PortsFail("too many 'watch' options (max %s)", "16");
+        return PortsOk();
+      }
+      if (!st.SetExactVal(key, val_raw)) return PortsFail("too many settings or value too long for '%s'", key);
+      return PortsOk();
+    }
+    const char* dot = strchr(key, '.');
+    if (dot) {
+      char dev[PortSettings::kLen];
+      size_t dlen = (size_t)(dot - key);
+      if (dlen == 0 || dlen >= sizeof(dev) || !dot[1]) return PortsFail("invalid setting key '%s'", key);
+      memcpy(dev, key, dlen); dev[dlen] = 0;
+      if (!IsSimpleIdent(dev) || IsReservedGrammarWord(dev) || !IsSimpleIdent(dot + 1))
+        return PortsFail("invalid setting key '%s'", key);
+      if (!st.Get(dev)) {
+        if (!st.Set(dev, "on")) return PortsFail("too many settings");
+      }
+      if (!st.Set(key, val_lc)) return PortsFail("too many settings or value too long for '%s'", key);
+      return PortsOk();
+    }
+    return PortsFail("unknown option '%s' in 'with'", key);
+  }
+  // Reject stray '=' anywhere else in the clause
+  for (int i = 0; i < m; i++) {
+    if (!strcmp(words_lc[i], "="))
+      return PortsFail("unexpected '=' in 'with' clause starting at '%s'", words_lc[0]);
+  }
+  // Helpful hint if a turbolab option was written without '='
+  if (turbolab::IsTurbolabOptionKey(words_lc[0])) {
+    return PortsFail("option '%s' expects '= <value>' (e.g. 'with %s = ...')", words_lc[0], words_lc[0]);
+  }
+  // Form 3: device clause (`WITH becker`, `WITH becker off`, `WITH becker at 0xff41`, `WITH dw over bitbang baud 9600`)
+  const char* dev = words_lc[0];
   if (!IsSimpleIdent(dev) || IsReservedGrammarWord(dev))
     return PortsFail("invalid device name '%s' in 'with'", dev);
-  if (m == 2 && !strcmp(words[1], "off")) {
+  if (m == 2 && !strcmp(words_lc[1], "off")) {
     st.UnsetDevice(dev);
     if (!st.Set(dev, "off")) return PortsFail("too many settings");
     return PortsOk();
@@ -250,8 +325,8 @@ inline PortsCheck ApplyWithItem(const char words[][PortSettings::kLen], int m, P
   st.UnsetDevice(dev);
   if (!st.Set(dev, "on")) return PortsFail("too many settings");
   for (int i = 1; i < m; i += 2) {
-    const char* param = words[i];
-    const char* val = words[i + 1];
+    const char* param = words_lc[i];
+    const char* val = words_lc[i + 1];
     if (!IsSimpleIdent(param) || !strcmp(param, "off"))
       return PortsFail("invalid parameter '%s' for device '%s'", param, dev);
     char kbuf[PortSettings::kLen];
@@ -278,9 +353,9 @@ inline PortsCheck ParseOnRunCommand(int argc, const char* const* argv, const cha
   int idx = 1;
 
   if (!strcmp(cmd, "on")) {
-    if (argc < 2) return PortsFail("usage: on <tfr9|coco2|coco3> [run <os> [for <target>] [with ...]]");
+    if (argc < 2) return PortsFail("usage: on <tfr911h|coco2|coco3> [run <os> [for <target>] [with ...]]");
     if (!LowerCopy(host_buf, sizeof host_buf, argv[1])) return PortsFail("host name '%s' is too long", argv[1]);
-    if (!IsKnownHost(host_buf)) return PortsFail("unknown host '%s' (known: tfr9, coco2, coco3)", host_buf);
+    if (!IsKnownHost(host_buf)) return PortsFail("unknown host '%s' (known: tfr911h, coco2, coco3)", host_buf);
     if (argc == 2) {
       st.Clear();
       st.Set("on", host_buf);
@@ -294,7 +369,7 @@ inline PortsCheck ParseOnRunCommand(int argc, const char* const* argv, const cha
   } else if (!strcmp(cmd, "run")) {
     if (argc < 2) return PortsFail("usage: run <os> [for <target>] [with ...]");
     if (!LowerCopy(host_buf, sizeof host_buf, st.Host(board_host))) return PortsFail("invalid host");
-    if (!IsKnownHost(host_buf)) return PortsFail("unknown host '%s' (known: tfr9, coco2, coco3)", host_buf);
+    if (!IsKnownHost(host_buf)) return PortsFail("unknown host '%s' (known: tfr911h, coco2, coco3)", host_buf);
     if (!LowerCopy(os_buf, sizeof os_buf, argv[1])) return PortsFail("os name '%s' is too long", argv[1]);
     idx = 2;
   } else {
@@ -331,39 +406,55 @@ inline PortsCheck ParseOnRunCommand(int argc, const char* const* argv, const cha
     if (!LowerCopy(kw, sizeof kw, argv[idx]) || strcmp(kw, "with") != 0)
       return PortsFail("unexpected '%s': expected 'with'", argv[idx]);
     idx++;
-    char words[16][PortSettings::kLen];
+    char words_lc[16][PortSettings::kValLen];
+    char words_raw[16][PortSettings::kValLen];
     int m = 0, items = 0;
     for (int a = idx; a < argc; a++) {
       const char* p = argv[a];
       while (*p) {
         while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
         if (*p == ',') {
-          if (m > 0) {
-            PortsCheck rc = ApplyWithItem(words, m, tmp);
-            if (!rc.ok) return rc;
-            m = 0; items++;
-          }
+          return PortsFail("unexpected ',': repeat 'with' to connect multiple options");
+        }
+        if (m >= 16) return PortsFail("too many tokens in one 'with' clause");
+        size_t wlen = 0;
+        if (*p == '=') {
+          words_raw[m][0] = '='; words_raw[m][1] = 0;
+          words_lc[m][0] = '=';  words_lc[m][1] = 0;
           p++;
+          m++;
           continue;
         }
-        if (!*p) break;
-        if (m >= 16) return PortsFail("too many tokens in one 'with' item");
-        size_t wlen = 0;
-        while (*p && *p != ' ' && *p != '\t' && *p != ',') {
-          if (wlen + 1 >= PortSettings::kLen) return PortsFail("token in 'with' is too long");
+        while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ',') {
+          if (wlen + 1 >= PortSettings::kValLen) return PortsFail("token in 'with' is too long");
           char c = *p++;
-          words[m][wlen++] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+          words_raw[m][wlen] = c;
+          words_lc[m][wlen] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+          wlen++;
         }
-        words[m][wlen] = 0;
+        words_raw[m][wlen] = 0;
+        words_lc[m][wlen] = 0;
+        if (*p == ',') {
+          return PortsFail("unexpected ',': repeat 'with' to connect multiple options");
+        }
+        // Repeated `WITH` begins the next option clause!
+        if (!strcmp(words_lc[m], "with")) {
+          if (m == 0) return PortsFail("expected option after 'with'");
+          PortsCheck rc = ApplyWithItem(words_lc, words_raw, m, tmp);
+          if (!rc.ok) return rc;
+          m = 0;
+          items++;
+          continue;
+        }
         m++;
       }
     }
-    if (m > 0) {
-      PortsCheck rc = ApplyWithItem(words, m, tmp);
-      if (!rc.ok) return rc;
-      items++;
-    }
-    if (items == 0) return PortsFail("expected options after 'with'");
+    if (m == 0) return PortsFail("expected option after 'with'");
+    PortsCheck rc = ApplyWithItem(words_lc, words_raw, m, tmp);
+    if (!rc.ok) return rc;
+    items++;
+    (void)items;
   }
 
   st = tmp;
@@ -371,14 +462,70 @@ inline PortsCheck ParseOnRunCommand(int argc, const char* const* argv, const cha
   return PortsOk();
 }
 
-// Resolve the active TargetSpec of `st` (defaulting to turbo9os on tfr9, rsbasic on coco2/coco3 when `run` was not set).
-inline PortsCheck ResolveActiveTarget(const PortSettings& st, const TargetSpec** out_tgt, const char* default_host = "tfr9") {
+// Compile and validate TurboLab options from `st` into `plan`.
+inline PortsCheck CompileTurbolabPlan(const PortSettings& st, turbolab::TurbolabPlan& plan) {
+  plan = turbolab::TurbolabPlan{};
+
+  if (const char* v = st.Get("trace")) {
+    plan.trace_explicit = true;
+    if (!turbolab::ParseTraceFlags(v, &plan.trace_flags))
+      return PortsFail("invalid trace='%s' (expected 1/all, 0/none, or flags from x+rwit-)", v);
+  }
+  if (const char* v = st.Get("trigger")) {
+    if (!turbolab::ParseTriggerSpec(v, plan))
+      return PortsFail("invalid trigger='%s' (expected r/0xADDR[/N], w/0xADDR[/N], x/0xADDR[/N], @mod+off, c/N, or s/T)", v);
+  }
+  if (const char* v = st.Get("trace_count")) {
+    if (!turbolab::ParseCount(v, &plan.trace_count))
+      return PortsFail("invalid trace_count='%s' (expected positive integer or k/K/m/M suffix)", v);
+  }
+  if (const char* v = st.Get("stop")) {
+    if (!turbolab::ParseStopSpec(v, plan))
+      return PortsFail("invalid stop='%s' (expected c/N, t/DUR, r/0xADDR[/N], w/0xADDR[/N], x/0xADDR[/N], or @mod+off)", v);
+  }
+  if (const char* v = st.Get("max_cycles")) {
+    if (!turbolab::ParseCount(v, &plan.max_cycles))
+      return PortsFail("invalid max_cycles='%s' (expected positive integer or k/K/m/M suffix)", v);
+  }
+  if (const char* v = st.Get("max_time")) {
+    if (!turbolab::ParseDurationUs(v, &plan.max_time_us, /*allow_bare_seconds=*/true))
+      return PortsFail("invalid max_time='%s' (expected duration like 500ms, 2s, or 100us)", v);
+  }
+  if (const char* v = st.Get("image")) {
+    if (!v[0] || !ExactCopy(plan.image, sizeof(plan.image), v))
+      return PortsFail("invalid image='%s'", v ? v : "");
+  }
+  for (int i = 0; i < st.n_; i++) {
+    const char* key = st.key_[i];
+    const char* val = st.val_[i];
+    if (!strcmp(key, "watch") || (!strncmp(key, "watch.", 6) && key[6] >= '0' && key[6] <= '9')) {
+      if (plan.num_watches >= turbolab::kMaxWatches)
+        return PortsFail("too many watchpoints (max 16)");
+      turbolab::WatchSpec wp;
+      if (!turbolab::ParseWatchExpr(val, /*allow_untyped=*/true, /*untyped_default_type=*/0, /*default_count=*/0, &wp))
+        return PortsFail("invalid watch='%s' (expected [r/|w/|x/]0xADDR[/N] or @mod+off)", val);
+      plan.watches[plan.num_watches++] = wp;
+    }
+  }
+
+  // Default trace flags: if `trigger` or `trace_count` was requested and `trace` was omitted,
+  // automatically enable all standard trace kinds (`x+rwit`) so traces emit immediately on trigger.
+  if (!plan.trace_explicit) {
+    bool wants_trace = (plan.trigger_cycle > 0 || plan.trigger_time_us > 0 ||
+                        plan.has_trigger_wp || plan.trace_count > 0);
+    plan.trace_flags = wants_trace ? turbolab::kTraceAllNoIdle : 0;
+  }
+  return PortsOk();
+}
+
+// Resolve the active TargetSpec of `st` (defaulting to turbo9os on tfr911h, rsbasic on coco2/coco3 when `run` was not set).
+inline PortsCheck ResolveActiveTarget(const PortSettings& st, const TargetSpec** out_tgt, const char* default_host = "tfr911h") {
   const char* on_h = st.Host(default_host);
-  if (!IsKnownHost(on_h)) return PortsFail("unknown host '%s' (known: tfr9, coco2, coco3)", on_h);
+  if (!IsKnownHost(on_h)) return PortsFail("unknown host '%s' (known: tfr911h, coco2, coco3)", on_h);
   const char* run_o = st.Get("run");
   const char* for_t = st.Get("for");
   if (!run_o) {
-    if (!strcmp(on_h, "tfr9"))       { run_o = "turbo9os"; if (!for_t) for_t = "turbo9sim"; }
+    if (!strcmp(on_h, "tfr911h"))    { run_o = "turbo9os"; if (!for_t) for_t = "turbo9sim"; }
     else if (!strcmp(on_h, "coco2")) { run_o = "rsbasic";  if (!for_t) for_t = "coco2"; }
     else if (!strcmp(on_h, "coco3")) { run_o = "rsbasic";  if (!for_t) for_t = "coco3"; }
     else return PortsFail("no 'run <os>' configured for host '%s'", on_h);
@@ -396,7 +543,7 @@ inline PortsCheck ResolveActiveTarget(const PortSettings& st, const TargetSpec**
 }
 
 #ifndef DEFAULT_BOARD_HOST
-#define DEFAULT_BOARD_HOST "tfr9"
+#define DEFAULT_BOARD_HOST "tfr911h"
 #endif
 
 // Base address of a core device of the active target under `st`.  Falls back to `dflt` if ports.tsv has no row.
@@ -450,7 +597,7 @@ inline PortsCheck FormatClaimFailure(const char* dev, uint16_t base, uint16_t la
 // CoCo motherboard reserved ranges are claimed first so collisions with PIA/SAM/CoCo3-GIME are caught.
 // When false (used by IoFinish), `map` contains only the ranges the RP2350 itself installs in IOReaders/IOWriters.
 inline PortsCheck PortsValidate(const PortSettings& st, IoMap& map, bool include_host_reserved = true,
-                                const char* default_host = "tfr9") {
+                                const char* default_host = "tfr911h") {
   map.Reset();
   const TargetSpec* tgt = nullptr;
   PortsCheck rc = ResolveActiveTarget(st, &tgt, default_host);
@@ -458,6 +605,8 @@ inline PortsCheck PortsValidate(const PortSettings& st, IoMap& map, bool include
 
   const char* wmap = st.WithMap();
   if (!IsKnownEnhancementMap(wmap)) return PortsFail("unknown enhancement map '%s' (known: e1)", wmap);
+
+  bool is_turbolab = !strcmp(tgt->engine, "hamster_turbolab");
 
   // 1. Host motherboard reserved ranges (coco2 PIA/SAM; coco3 PIA/SAM + GIME/vectors under gerbil_io).
   if (include_host_reserved) {
@@ -497,6 +646,12 @@ inline PortsCheck PortsValidate(const PortSettings& st, IoMap& map, bool include
     if (!strcmp(key, "on") || !strcmp(key, "run") || !strcmp(key, "for") ||
         !strcmp(key, "engine") || !strcmp(key, "with"))
       continue;
+    if (turbolab::IsTurbolabOptionKey(key)) {
+      if (!is_turbolab) {
+        return PortsFail("option '%s' is only valid with 'run turbolab'", key);
+      }
+      continue;
+    }
     char dev[PortSettings::kLen];
     const char* dot = strchr(key, '.');
     const char* param = nullptr;
@@ -530,7 +685,14 @@ inline PortsCheck PortsValidate(const PortSettings& st, IoMap& map, bool include
     if (!prc.ok) return prc;
   }
 
-  // 4. Claim enabled memory-mapped enhancements from `wmap` (skipping any device that is already core on `tgt`).
+  // 4. Validate TurboLab options when active.
+  if (is_turbolab) {
+    turbolab::TurbolabPlan tl_plan;
+    PortsCheck trc = CompileTurbolabPlan(st, tl_plan);
+    if (!trc.ok) return trc;
+  }
+
+  // 5. Claim enabled memory-mapped enhancements from `wmap` (skipping any device that is already core on `tgt`).
   for (size_t i = 0; i < kNumMapPorts; i++) {
     const MapPortRange& e = kMapPorts[i];
     if (strcmp(e.map_name, wmap)) continue;

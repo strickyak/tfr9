@@ -82,6 +82,7 @@ void hamster_program_init(PIO pio, uint sm, uint offset) {
    pio_sm_set_consecutive_pindirs(pio, sm, 29, 2, true/*out*/);
    pio_gpio_init(pio, 31);
    pio_sm_set_consecutive_pindirs(pio, sm, 31, 1, false/*in*/);
+   gpio_pull_up(31);  // S30: pull up R/W so floating bus during HALT/RESET stays Read
 
    pio_sm_config cf = hamster_program_get_default_config(offset);
    sm_config_set_jmp_pin(&cf, 31);  // R/W

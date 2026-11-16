@@ -23,7 +23,7 @@ static IoMap g_io_scratch;  // working copy for checks (`ports check`, IoFinish)
 // letting the CoCo motherboard's real PIA/SAM/GIME drive unclaimed $FFxx ports without bus contention.
 static uint32_t g_io_drive_mask[8];
 
-inline bool IoIsDriven(uint8_t lo) {
+FORCE_INLINE bool IN_RAM IoIsDriven(uint8_t lo) {
   return (g_io_drive_mask[lo >> 5] & (1u << (lo & 31))) != 0;
 }
 

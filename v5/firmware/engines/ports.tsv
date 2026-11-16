@@ -10,16 +10,17 @@
 # Generated from this file (scripts/gen-ports.sh): build/generated/{ports_gen.h,io-map.md}.
 
 # === 1. Valid (on, run, for) targets -> implied C++ IN_RAM engine ===
-# --- tfr9 (TFR/911H: Hamster PIO, RP2350B owns the entire 64K bus) ---
-target	tfr9	turbo9os	turbo9sim	hamster_flat
-target	tfr9	nitros9l1	flat65280	hamster_flat
-target	tfr9	nitros9l2	deep65280	hamster_gime
-target	tfr9	nitros9l2	jamesbrown	hamster_gime
-target	tfr9	nitros9l2	coco3	hamster_gime
-target	tfr9	hatvan	gep9	hamster_gep9
-target	tfr9	hatvan	gep9big	hamster_gep9
-target	tfr9	hatvan	coco2	hamster_gep9
-target	tfr9	fuzix	multicomp09	hamster_multicomp
+# --- tfr911h (TFR/911H: Hamster PIO, RP2350B owns the entire 64K bus) ---
+target	tfr911h	turbo9os	turbo9sim	hamster_flat
+target	tfr911h	turbolab	turbo9sim	hamster_turbolab
+target	tfr911h	nitros9l1	flat65280	hamster_flat
+target	tfr911h	nitros9l2	deep65280	hamster_gime
+target	tfr911h	nitros9l2	jamesbrown	hamster_gime
+target	tfr911h	nitros9l2	coco3	hamster_gime
+target	tfr911h	hatvan	gep9	hamster_gep9
+target	tfr911h	hatvan	gep9big	hamster_gep9
+target	tfr911h	hatvan	coco2	hamster_gep9
+target	tfr911h	fuzix	multicomp09	hamster_multicomp
 
 # --- coco2 (Centipede 32z in a CoCo 1 or CoCo 2: Gerbil PIO, no motherboard GIME/MMU) ---
 target	coco2	nitros9l1	flat65280	gerbil_sam64k
@@ -47,66 +48,68 @@ host	coco3	gerbil_io	coco3_gime	0xff90	0xffbf
 host	coco3	gerbil_io	coco3_vectors	0xfff0	0xffff
 
 # === 3. Core RP2350-claimed I/O register ranges per (on, run, for) ===
-# --- tfr9: turbo9os for turbo9sim ---
-port	tfr9	turbo9os	turbo9sim	turbo9sim_acia	0xff00	0xff03
-port	tfr9	turbo9os	turbo9sim	vectors	0xfff0	0xffff
+# --- tfr911h: turbo9os / turbolab for turbo9sim ---
+port	tfr911h	turbo9os	turbo9sim	turbo9sim_acia	0xff00	0xff03
+port	tfr911h	turbo9os	turbo9sim	vectors	0xfff0	0xffff
+port	tfr911h	turbolab	turbo9sim	turbo9sim_acia	0xff00	0xff03
+port	tfr911h	turbolab	turbo9sim	vectors	0xfff0	0xffff
 
-# --- tfr9: nitros9l1 for flat65280 ---
-port	tfr9	nitros9l1	flat65280	emudsk	0xff80	0xff86
-port	tfr9	nitros9l1	flat65280	clockstop	0xff87	0xff87
-port	tfr9	nitros9l1	flat65280	acia	0xff88	0xff89
-port	tfr9	nitros9l1	flat65280	vectors	0xfff0	0xffff
+# --- tfr911h: nitros9l1 for flat65280 ---
+port	tfr911h	nitros9l1	flat65280	emudsk	0xff80	0xff86
+port	tfr911h	nitros9l1	flat65280	clockstop	0xff87	0xff87
+port	tfr911h	nitros9l1	flat65280	acia	0xff88	0xff89
+port	tfr911h	nitros9l1	flat65280	vectors	0xfff0	0xffff
 
-# --- tfr9: nitros9l2 for deep65280 ---
-port	tfr9	nitros9l2	deep65280	emudsk	0xff80	0xff86
-port	tfr9	nitros9l2	deep65280	clockstop	0xff87	0xff87
-port	tfr9	nitros9l2	deep65280	acia	0xff88	0xff89
-port	tfr9	nitros9l2	deep65280	gime	0xff90	0xff91
-port	tfr9	nitros9l2	deep65280	mmu	0xffa0	0xffaf
-port	tfr9	nitros9l2	deep65280	vectors	0xfff0	0xffff
+# --- tfr911h: nitros9l2 for deep65280 ---
+port	tfr911h	nitros9l2	deep65280	emudsk	0xff80	0xff86
+port	tfr911h	nitros9l2	deep65280	clockstop	0xff87	0xff87
+port	tfr911h	nitros9l2	deep65280	acia	0xff88	0xff89
+port	tfr911h	nitros9l2	deep65280	gime	0xff90	0xff91
+port	tfr911h	nitros9l2	deep65280	mmu	0xffa0	0xffaf
+port	tfr911h	nitros9l2	deep65280	vectors	0xfff0	0xffff
 
-# --- tfr9: nitros9l2 for jamesbrown (Andrew Diller's L2 I/O addresses; tfr9 only) ---
-port	tfr9	nitros9l2	jamesbrown	acia	0xff14	0xff15
-port	tfr9	nitros9l2	jamesbrown	audio	0xff41	0xff42
-port	tfr9	nitros9l2	jamesbrown	info	0xff43	0xff44
-port	tfr9	nitros9l2	jamesbrown	becker	0xff45	0xff46
-port	tfr9	nitros9l2	jamesbrown	emudsk	0xff80	0xff86
-port	tfr9	nitros9l2	jamesbrown	gime	0xff90	0xff93
-port	tfr9	nitros9l2	jamesbrown	mmu	0xffa0	0xffaf
-port	tfr9	nitros9l2	jamesbrown	rtc	0xffc0	0xffc7
-port	tfr9	nitros9l2	jamesbrown	vectors	0xfff0	0xffff
+# --- tfr911h: nitros9l2 for jamesbrown (Andrew Diller's L2 I/O addresses; tfr911h only) ---
+port	tfr911h	nitros9l2	jamesbrown	acia	0xff14	0xff15
+port	tfr911h	nitros9l2	jamesbrown	audio	0xff41	0xff42
+port	tfr911h	nitros9l2	jamesbrown	info	0xff43	0xff44
+port	tfr911h	nitros9l2	jamesbrown	becker	0xff45	0xff46
+port	tfr911h	nitros9l2	jamesbrown	emudsk	0xff80	0xff86
+port	tfr911h	nitros9l2	jamesbrown	gime	0xff90	0xff93
+port	tfr911h	nitros9l2	jamesbrown	mmu	0xffa0	0xffaf
+port	tfr911h	nitros9l2	jamesbrown	rtc	0xffc0	0xffc7
+port	tfr911h	nitros9l2	jamesbrown	vectors	0xfff0	0xffff
 
-# --- tfr9: nitros9l2 for coco3 (CoCo-3-compatible L2 on TFR/911H) ---
-port	tfr9	nitros9l2	coco3	emudsk	0xff80	0xff86
-port	tfr9	nitros9l2	coco3	acia	0xff88	0xff89
-port	tfr9	nitros9l2	coco3	gime	0xff90	0xff9f
-port	tfr9	nitros9l2	coco3	mmu	0xffa0	0xffaf
-port	tfr9	nitros9l2	coco3	palette	0xffb0	0xffbf
-port	tfr9	nitros9l2	coco3	vectors	0xfff0	0xffff
+# --- tfr911h: nitros9l2 for coco3 (CoCo-3-compatible L2 on TFR/911H) ---
+port	tfr911h	nitros9l2	coco3	emudsk	0xff80	0xff86
+port	tfr911h	nitros9l2	coco3	acia	0xff88	0xff89
+port	tfr911h	nitros9l2	coco3	gime	0xff90	0xff9f
+port	tfr911h	nitros9l2	coco3	mmu	0xffa0	0xffaf
+port	tfr911h	nitros9l2	coco3	palette	0xffb0	0xffbf
+port	tfr911h	nitros9l2	coco3	vectors	0xfff0	0xffff
 
-# --- tfr9: hatvan for gep9 / gep9big / coco2 ---
-port	tfr9	hatvan	gep9	console	0xff00	0xff05
-port	tfr9	hatvan	gep9	disk	0xff10	0xff17
-port	tfr9	hatvan	gep9	fuse_dma	0xff20	0xff2f
-port	tfr9	hatvan	gep9	embiggen_mmu	0xff40	0xff47
-port	tfr9	hatvan	gep9	vectors	0xfff0	0xffff
-port	tfr9	hatvan	gep9big	console	0xff00	0xff05
-port	tfr9	hatvan	gep9big	disk	0xff10	0xff17
-port	tfr9	hatvan	gep9big	fuse_dma	0xff20	0xff2f
-port	tfr9	hatvan	gep9big	embiggen_mmu	0xff40	0xff47
-port	tfr9	hatvan	gep9big	vectors	0xfff0	0xffff
-port	tfr9	hatvan	coco2	console	0xff60	0xff65
-port	tfr9	hatvan	coco2	disk	0xff68	0xff6f
-port	tfr9	hatvan	coco2	fuse_dma	0xff80	0xff8f
-port	tfr9	hatvan	coco2	embiggen_mmu	0xffe0	0xffe7
-port	tfr9	hatvan	coco2	vectors	0xfff0	0xffff
+# --- tfr911h: hatvan for gep9 / gep9big / coco2 ---
+port	tfr911h	hatvan	gep9	console	0xff00	0xff05
+port	tfr911h	hatvan	gep9	disk	0xff10	0xff17
+port	tfr911h	hatvan	gep9	fuse_dma	0xff20	0xff2f
+port	tfr911h	hatvan	gep9	embiggen_mmu	0xff40	0xff47
+port	tfr911h	hatvan	gep9	vectors	0xfff0	0xffff
+port	tfr911h	hatvan	gep9big	console	0xff00	0xff05
+port	tfr911h	hatvan	gep9big	disk	0xff10	0xff17
+port	tfr911h	hatvan	gep9big	fuse_dma	0xff20	0xff2f
+port	tfr911h	hatvan	gep9big	embiggen_mmu	0xff40	0xff47
+port	tfr911h	hatvan	gep9big	vectors	0xfff0	0xffff
+port	tfr911h	hatvan	coco2	console	0xff60	0xff65
+port	tfr911h	hatvan	coco2	disk	0xff68	0xff6f
+port	tfr911h	hatvan	coco2	fuse_dma	0xff80	0xff8f
+port	tfr911h	hatvan	coco2	embiggen_mmu	0xffe0	0xffe7
+port	tfr911h	hatvan	coco2	vectors	0xfff0	0xffff
 
-# --- tfr9: fuzix for multicomp09 (port ABI decoded directly by hamster_multicomp) ---
-port	tfr9	fuzix	multicomp09	acia	0xffd0	0xffd1
-port	tfr9	fuzix	multicomp09	uart_stubs	0xffd2	0xffd5
-port	tfr9	fuzix	multicomp09	sd	0xffd8	0xffdc
-port	tfr9	fuzix	multicomp09	timer	0xffdd	0xffdd
-port	tfr9	fuzix	multicomp09	mmu	0xffde	0xffdf
+# --- tfr911h: fuzix for multicomp09 (port ABI decoded directly by hamster_multicomp) ---
+port	tfr911h	fuzix	multicomp09	acia	0xffd0	0xffd1
+port	tfr911h	fuzix	multicomp09	uart_stubs	0xffd2	0xffd5
+port	tfr911h	fuzix	multicomp09	sd	0xffd8	0xffdc
+port	tfr911h	fuzix	multicomp09	timer	0xffdd	0xffdd
+port	tfr911h	fuzix	multicomp09	mmu	0xffde	0xffdf
 
 # --- coco2: nitros9l1 / nitros9l2 / hatvan / fuzix / rsbasic ---
 port	coco2	nitros9l1	flat65280	emudsk	0xff80	0xff86

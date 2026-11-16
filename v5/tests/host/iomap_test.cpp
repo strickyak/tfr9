@@ -52,8 +52,8 @@ static void TestCoreAndHostNeverOverlap() {
   }
 }
 
-// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clashes across all 22
-// targets are tfr9/hatvan/gep9 and tfr9/hatvan/gep9big (embiggen_mmu 0xff40-47) vs becker (0xff41-42).
+// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clashes across all 23
+// targets are tfr911h/hatvan/gep9 and tfr911h/hatvan/gep9big (embiggen_mmu 0xff40-47) vs becker (0xff41-42).
 static void TestEnhancementsFitEverywhere() {
   int conflicts = 0;
   for (size_t i = 0; i < kNumTargets; i++) {
@@ -72,7 +72,7 @@ static void TestEnhancementsFitEverywhere() {
       ClaimReport r = ClaimEnhancement(m, kMapPorts, kNumMapPorts, "e1", enh);
       if (!r.ok) {
         conflicts++;
-        bool is_gep = !strcmp(t.on_host, "tfr9") && !strcmp(t.run_os, "hatvan") &&
+        bool is_gep = !strcmp(t.on_host, "tfr911h") && !strcmp(t.run_os, "hatvan") &&
                       (!strcmp(t.for_hw, "gep9") || !strcmp(t.for_hw, "gep9big"));
         bool expected = is_gep && !strcmp(enh, "becker");
         CHECK(expected, "unexpected conflict: %s/%s/%s + %s at 0x%04x (owner %s)",
@@ -103,28 +103,30 @@ static void TestCoco2VsCoco3GimeOwnership() {
 static void TestGoldenAddresses() {
   struct G { const char* on_h; const char* run_o; const char* for_t; const char* dev; uint16_t first, last; };
   static const G golden[] = {
-    {"tfr9", "turbo9os",  "turbo9sim",   "turbo9sim_acia", 0xFF00, 0xFF03},
-    {"tfr9", "nitros9l1", "flat65280",   "emudsk",         0xFF80, 0xFF86},
-    {"tfr9", "nitros9l1", "flat65280",   "clockstop",      0xFF87, 0xFF87},
-    {"tfr9", "nitros9l1", "flat65280",   "acia",           0xFF88, 0xFF89},
-    {"tfr9", "nitros9l2", "deep65280",   "gime",           0xFF90, 0xFF91},
-    {"tfr9", "nitros9l2", "deep65280",   "mmu",            0xFFA0, 0xFFAF},
-    {"tfr9", "nitros9l2", "jamesbrown",  "acia",           0xFF14, 0xFF15},
-    {"tfr9", "nitros9l2", "jamesbrown",  "audio",          0xFF41, 0xFF42},
-    {"tfr9", "nitros9l2", "jamesbrown",  "info",           0xFF43, 0xFF44},
-    {"tfr9", "nitros9l2", "jamesbrown",  "becker",         0xFF45, 0xFF46},
-    {"tfr9", "nitros9l2", "jamesbrown",  "emudsk",         0xFF80, 0xFF86},
-    {"tfr9", "nitros9l2", "jamesbrown",  "gime",           0xFF90, 0xFF93},
-    {"tfr9", "nitros9l2", "jamesbrown",  "mmu",            0xFFA0, 0xFFAF},
-    {"tfr9", "nitros9l2", "jamesbrown",  "rtc",            0xFFC0, 0xFFC7},
-    {"tfr9", "hatvan",    "gep9",        "console",        0xFF00, 0xFF05},
-    {"tfr9", "hatvan",    "gep9",        "embiggen_mmu",   0xFF40, 0xFF47},
-    {"tfr9", "hatvan",    "gep9big",     "embiggen_mmu",   0xFF40, 0xFF47},
-    {"tfr9", "hatvan",    "coco2",       "console",        0xFF60, 0xFF65},
-    {"tfr9", "hatvan",    "coco2",       "embiggen_mmu",   0xFFE0, 0xFFE7},
-    {"tfr9", "fuzix",     "multicomp09", "acia",           0xFFD0, 0xFFD1},
-    {"tfr9", "fuzix",     "multicomp09", "sd",             0xFFD8, 0xFFDC},
-    {"tfr9", "fuzix",     "multicomp09", "mmu",            0xFFDE, 0xFFDF},
+    {"tfr911h", "turbo9os",  "turbo9sim",   "turbo9sim_acia", 0xFF00, 0xFF03},
+    {"tfr911h", "turbolab",  "turbo9sim",   "turbo9sim_acia", 0xFF00, 0xFF03},
+    {"tfr911h", "turbolab",  "turbo9sim",   "vectors",        0xFFF0, 0xFFFF},
+    {"tfr911h", "nitros9l1", "flat65280",   "emudsk",         0xFF80, 0xFF86},
+    {"tfr911h", "nitros9l1", "flat65280",   "clockstop",      0xFF87, 0xFF87},
+    {"tfr911h", "nitros9l1", "flat65280",   "acia",           0xFF88, 0xFF89},
+    {"tfr911h", "nitros9l2", "deep65280",   "gime",           0xFF90, 0xFF91},
+    {"tfr911h", "nitros9l2", "deep65280",   "mmu",            0xFFA0, 0xFFAF},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "acia",           0xFF14, 0xFF15},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "audio",          0xFF41, 0xFF42},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "info",           0xFF43, 0xFF44},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "becker",         0xFF45, 0xFF46},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "emudsk",         0xFF80, 0xFF86},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "gime",           0xFF90, 0xFF93},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "mmu",            0xFFA0, 0xFFAF},
+    {"tfr911h", "nitros9l2", "jamesbrown",  "rtc",            0xFFC0, 0xFFC7},
+    {"tfr911h", "hatvan",    "gep9",        "console",        0xFF00, 0xFF05},
+    {"tfr911h", "hatvan",    "gep9",        "embiggen_mmu",   0xFF40, 0xFF47},
+    {"tfr911h", "hatvan",    "gep9big",     "embiggen_mmu",   0xFF40, 0xFF47},
+    {"tfr911h", "hatvan",    "coco2",       "console",        0xFF60, 0xFF65},
+    {"tfr911h", "hatvan",    "coco2",       "embiggen_mmu",   0xFFE0, 0xFFE7},
+    {"tfr911h", "fuzix",     "multicomp09", "acia",           0xFFD0, 0xFFD1},
+    {"tfr911h", "fuzix",     "multicomp09", "sd",             0xFFD8, 0xFFDC},
+    {"tfr911h", "fuzix",     "multicomp09", "mmu",            0xFFDE, 0xFFDF},
   };
   for (const auto& g : golden) {
     bool found = false;

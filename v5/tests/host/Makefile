@@ -2,6 +2,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=gnu++17 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer
 CORE = ../../firmware/lib/core
+BUS = ../../firmware/lib/bus
 DEV = ../../firmware/lib/devices
 GEN = ../../build/generated
 OUT = ../../build/host-tests
@@ -33,7 +34,11 @@ $(OUT)/tcl_stream_test: tcl_stream_test.cpp ../../firmware/lib/tcl/tcl_stream.h 
 $(OUT)/tcl_lowmem_test: tcl_lowmem_test.cpp $(CORE)/heap.h $(TCLOBJS) | $(OUT)
 	$(CXX) -std=gnu++17 -O1 -g -Wall -Wextra -I$(CORE) -I../../third_party -I$(TCLDIR) -fsanitize=address,undefined -o $@ tcl_lowmem_test.cpp $(TCLOBJS)
 
+# ---- test_pio_assembler: runtime PIO assembler & Hamster timing builder ----
+$(OUT)/test_pio_assembler: test_pio_assembler.cpp $(BUS)/pio_assembler.h $(BUS)/hamster.h | $(OUT)
+	$(CXX) $(CXXFLAGS) -I$(BUS) -o $@ test_pio_assembler.cpp
+
 # ONE `test` rule: a Makefile keeps only the LAST recipe for a target, so earlier test rules would silently not run.
-TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
+TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/test_pio_assembler $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
 test: $(TESTS)
 	@for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done

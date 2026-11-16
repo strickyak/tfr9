@@ -50,8 +50,8 @@ assert_contains "$TETHER_STDOUT" "ok" "default ports check is ok"
 
 # 2. Host & Motherboard Collision Checks (`on`/`run`/`ports`)
 log_test "2. Centipede host validation & CoCo motherboard PIA/SAM/GIME collision guards"
-run_tether --quick-inject="catch {on tfr9 run turbo9os; bye} e; set e"
-assert_contains "$TETHER_STDOUT" "Centipede cartridge" "on tfr9 refused at bye on Centipede"
+run_tether --quick-inject="catch {on tfr911h run turbo9os; bye} e; set e"
+assert_contains "$TETHER_STDOUT" "Centipede cartridge" "on tfr911h refused at bye on Centipede"
 
 run_tether --quick-inject="catch {on coco2 run nitros9l2 for coco3 with becker at 0xff14; ports check} e; set e"
 assert_contains "$TETHER_STDOUT" "coco_pia" "CoCo 2 PIA (\$FF00-\$FF3F) collision caught"
@@ -62,13 +62,13 @@ assert_contains "$TETHER_STDOUT" "coco_sam" "CoCo 2 SAM (\$FFC0-\$FFDF) collisio
 run_tether --quick-inject="catch {on coco3 run nitros9l2 for coco3 with rtc at 0xff90; ports check} e; set e"
 assert_contains "$TETHER_STDOUT" "coco3_gime" "CoCo 3 real GIME (\$FF90-\$FFBF) collision caught"
 
-run_tether --quick-inject="on coco2 run rsbasic for coco2 with e1, becker, audio, rtc, orchestra90, info; ports check"
+run_tether --quick-inject="on coco2 run rsbasic for coco2 with e1 with becker with audio with rtc with orchestra90 with info; ports check"
 assert_contains "$TETHER_STDOUT" "ok" "all 5 e1 enhancements validate cleanly on coco2/rsbasic"
 
 # 3. `gerbil_sam64k`: CoCo 2 64 KB RAM + Disk Extended Color BASIC 1.1 + InfoPort + RtcPort
 log_test "3. gerbil_sam64k: CoCo 2 Disk Extended Color BASIC 1.1 + 64K RAM + e1 InfoPort"
-run_tether --quick-inject="on coco2 run rsbasic for coco2 with e1, info, rtc; bye"
-assert_exit_code 0 "$TETHER_EXIT" "launch coco2/rsbasic/coco2 with e1, info, rtc"
+run_tether --quick-inject="on coco2 run rsbasic for coco2 with e1 with info with rtc; bye"
+assert_exit_code 0 "$TETHER_EXIT" "launch coco2/rsbasic/coco2 with e1 with info with rtc"
 sleep 2
 
 run_tether --quick-get-text=0x0400,32,16

@@ -1,5 +1,5 @@
-# boot_fuzix.tcl -- Fuzix 6809 (on tfr9 run fuzix for multicomp09).  Test fixture staged into temporary /pc.
-on tfr9 run fuzix for multicomp09
+# boot_fuzix.tcl -- Fuzix 6809 (on tfr911h run fuzix for multicomp09).  Test fixture staged into temporary /pc.
+on tfr911h run fuzix for multicomp09
 set Config(flat_img) "/pc/fuzix.bin"
 set Config(drive0) "/pc/disk.img"
 set Config(drive1) ""

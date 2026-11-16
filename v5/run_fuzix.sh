@@ -6,7 +6,7 @@ BIN=${V5_IMG_FUZIX_BIN:-$HOME/nand/github.com/EtchedPixels/FUZIX/Kernel/fuzix.bi
 DISK=${V5_IMG_FUZIX_DISK:-$HOME/nand/github.com/EtchedPixels/FUZIX/Images/multicomp09/disk.img}
 
 exec "$DIR/scripts/run-demo.sh" fuzix 1170 \
-  'on tfr9 run fuzix for multicomp09
+  'on tfr911h run fuzix for multicomp09
 set Config(flat_img) "/pc/fuzix.bin"
 set Config(drive0) "/pc/disk.img"
 set Config(drive1) ""

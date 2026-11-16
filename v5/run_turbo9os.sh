@@ -4,6 +4,6 @@ set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 
 exec "$DIR/scripts/run-demo.sh" turbo9os 81 \
-  'on tfr9 run turbo9os for turbo9sim
+  'on tfr911h run turbo9os for turbo9sim
 bye' \
   -- "$@"

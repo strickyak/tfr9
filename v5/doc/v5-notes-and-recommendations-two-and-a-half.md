@@ -588,15 +588,23 @@ Allocate wire IDs and FIFO tag ranges once, with a "reserved/never reuse" list (
 | **forbidden** | | **`0xff7f`** | Multi‑Pak |
 | `dw` *(transport)* | `over` (`bitbang`\|`uart`\|`usb`), `baud` (`9600`…) | *(no `$FFxx` ports)* | non‑memory‑mapped DriveWire backend option |
 
-Consequences: (a) an enhancement that overlaps a target's core ports or host motherboard ports is refused — e.g. `on tfr9 run hatvan for gep9 with e1, becker` clashes with `embiggen_mmu` at `0xff40‑47`; fix with `becker at 0xff48` or `for coco2`; (b) the ACIA's raw/translated arrow‑key switch is bit 7 of the audio‑control register (`0xff71` on `e1`, `0xff42` on `jamesbrown`), default clear when absent; (c) `hatvan for coco2` (`0xff60‑6f, 0xff80‑8f, 0xffe0‑e7`) and `e1` (`0xff41‑42, 0xff70‑7d`) do not overlap; (d) Becker at `0xff41‑42` conflicts with a *real* RS disk controller in the same CoCo [R11].
+Consequences: (a) an enhancement that overlaps a target's core ports or host motherboard ports is refused — e.g. `on tfr911h run hatvan for gep9 with e1 with becker` clashes with `embiggen_mmu` at `0xff40‑47`; fix with `with becker at 0xff48` or `for coco2`; (b) the ACIA's raw/translated arrow‑key switch is bit 7 of the audio‑control register (`0xff71` on `e1`, `0xff42` on `jamesbrown`), default clear when absent; (c) `hatvan for coco2` (`0xff60‑6f, 0xff80‑8f, 0xffe0‑e7`) and `e1` (`0xff41‑42, 0xff70‑7d`) do not overlap; (d) Becker at `0xff41‑42` conflicts with a *real* RS disk controller in the same CoCo [R11].
 
-### 7.5 Tcl configuration example
+### 7.5 Tcl configuration examples
 
 ```tcl
-ON coco2 RUN nitros9l2 FOR coco3 WITH E1, becker at 0xFF41, dw over bitbang baud 9600, rtc at 0xFFE0
+ON coco2 RUN nitros9l2 FOR coco3 WITH E1 WITH becker at 0xFF41 WITH dw over bitbang baud 9600 WITH rtc at 0xFFE0
 # Digests into flat key-value pairs (`ports list`):
 #   on coco2  run nitros9l2  for coco3  engine gerbil_gime  with e1
 #   becker on  becker.at 0xff41  dw on  dw.over bitbang  dw.baud 9600  rtc on  rtc.at 0xffe0
+bye
+```
+
+```tcl
+ON tfr911h RUN turbolab WITH trigger = r/0xFFE8 WITH trace_count = 10000
+# Digests into flat key-value pairs (`ports list`):
+#   on tfr911h  run turbolab  for turbo9sim  engine hamster_turbolab
+#   trigger r/0xFFE8  trace_count 10000
 bye
 ```
 Guest builds are tied to a tag: NitrOS‑9 recipes get `defs/ports_<TAG>.d` (e.g. `HwBASE=$FF88`) generated from the same data, so `term.c`'s direct store uses `ACIA_DATA` (R1).
@@ -815,15 +823,14 @@ Honest accounting (original draft → now):
 
 ### 15.y Engine vs Target separation and the `on ... run ... for ... with ...` grammar: decisions of 2026-11-15 (Strick)
 
-* **Engine = internal C++ `IN_RAM` foreground loop (pragmatic SRAM/speed split):** what is frozen in an Engine (bus PIO + MMU policy, costing zero runtime branches on core 1) vs variable (`IOReaders`/`IOWriters` tables) is an internal C++ choice: 4 Hamster engines on TFR/911H (`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and 4 Gerbil engines on Centipede (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`).  Users never have to pick a C++ engine directly.
-* **User-facing grammar:** `on <host> run <os> for <target> [with <options...>]` (plus `run <os> for <target> [...]` when `on <host>` is already set by the board or `/rc/init.tcl`).  Example:
-  `ON coco2 RUN nitros9l2 FOR coco3 WITH E1, becker at 0xFF41, dw over bitbang baud 9600, rtc at 0xFFE0`
+* **Engine = internal C++ `IN_RAM` foreground loop (pragmatic SRAM/speed split):** what is frozen in an Engine (bus PIO + MMU/tracer policy, costing zero runtime branches on core 1) vs variable (`IOReaders`/`IOWriters` tables) is an internal C++ choice: 5 Hamster engines on TFR/911H (`hamster_flat`, `hamster_turbolab`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and 4 Gerbil engines on Centipede (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`).  Users never have to pick a C++ engine directly.
+* **User-facing grammar (updated 2026-11-15):** `on <tfr911h|coco2|coco3> run <os> [for <target>] [with <option>] [with <option>] ...` (plus `run <os> ...` when `on <host>` is already set).  Host `tfr9` and comma `,` separators were retired in favor of `tfr911h` and repeated `WITH` clauses (`WITH ... WITH ...`), plus `<key> = <value>` options (e.g. `ON tfr911h RUN turbolab WITH trigger = r/0xFFE8 WITH trace_count = 10000`).
 * **Lowercase normalization:** any uppercase in `on`/`run` commands is converted to lowercase as a general rule (CoCo 1/2 keyboards are naturally uppercase-only / case-awkward).
 * **Hex barewords in Tcl:** prefer `0xffe0` / `0xFFE0` over `$FFE0` (unescaped `$` triggers Tcl variable substitution).
 * **Compile down to flat key-value pairs; retire `Config(engine)` and `enhance`:** `on`/`run` digests into flat key-value pairs in `g_port_settings` (`on`, `run`, `for`, `engine`, `with`, `<dev>=on|off`, `<dev>.<param>=<val>`).  `ports` has just two subcommands — **`ports list`** and **`ports check`**; `enhance` and `Config(engine)` are removed (`menu store` and `bye` refuse `Config(engine)` with a message pointing to `on <host> run <os> for <target>`).
 * **Both L2 address layouts kept (`jamesbrown` and `coco3`), and `coco2` vs `coco3` resolved:**
-  * `on tfr9 run nitros9l2 for jamesbrown` — Diller's L2 I/O addresses (`0xff14` acia, `0xff41` audio, `0xff43` info, `0xff45` becker, `0xff80` emudsk, `0xff90` gime, `0xffa0` mmu, `0xffc0` rtc).
-  * `on tfr9|coco2|coco3 run nitros9l2 for coco3` — CoCo-compatible L2 (`0xff80` emudsk, `0xff88` acia + `e1` enhancements); on `coco2` this implies `gerbil_gime` (simulates GIME/MMU/RAM), while on `coco3` it implies `gerbil_io` (uses the real CoCo 3 motherboard's GIME/MMU/RAM).
+  * `on tfr911h run nitros9l2 for jamesbrown` — Diller's L2 I/O addresses (`0xff14` acia, `0xff41` audio, `0xff43` info, `0xff45` becker, `0xff80` emudsk, `0xff90` gime, `0xffa0` mmu, `0xffc0` rtc).
+  * `on tfr911h|coco2|coco3 run nitros9l2 for coco3` — CoCo-compatible L2 (`0xff80` emudsk, `0xff88` acia + `e1` enhancements); on `coco2` this implies `gerbil_gime` (simulates GIME/MMU/RAM), while on `coco3` it implies `gerbil_io` (uses the real CoCo 3 motherboard's GIME/MMU/RAM).
 
 ## 16. Revisions to the spec after acceptance — for your review
 
@@ -850,7 +857,8 @@ Format: *what I changed or reinterpreted → why → where*.  None silently reve
 | R17 | **Tether refuses to see symlinks** below `--pc`; default `-pc /tmp/pc`; root verified on every request, all `/pc` operations fail if it is missing; only regular files/dirs served | Your 10‑30 notes; v4 follows symlinks (S39) | §11.13, S39 | applied; **side effect:** v4's absolute `misc/pc` symlinks stop working → staging by copy / `.pak` |
 | R18 | **Threat model**: no Tcl sandbox on the RP2350B (friendly community); PC exposed only to the `/pc` subdirectory; PC never executes user‑contributed code | Your 10‑30 note | §11.12, App. F | applied (dropped the sandbox item from App. F) |
 | R19 | **Fix routines that map whole files into RAM** (S38) and add the "nothing allocates O(file size)" rule + test | Your 10‑30 note | S38, §11.14, §12 | applied as a work item |
-| R20 | **`on ... run ... for ... with ...` grammar + 8 C++ `IN_RAM` engines**: compiles to flat lowercase key‑value pairs (`ports list`, `ports check`); `0x...` hex barewords; uppercase converted to lowercase; `Config(engine)` and `enhance` removed | Separates internal C++ foreground loops (`hamster_*`, `gerbil_*`) from user‑facing host/OS/target configuration and resolves `coco2` vs `coco3` | §7.1–7.5, §15.y | **decided** (2026‑11‑15) |
+| R20 | **`on ... run ... for ... with ...` grammar + 9 C++ `IN_RAM` engines**: compiles to flat key‑value pairs (`ports list`, `ports check`); `0x...` hex barewords; uppercase converted to lowercase; `Config(engine)` and `enhance` removed | Separates internal C++ foreground loops (`hamster_*`, `gerbil_*`) from user‑facing host/OS/target configuration and resolves `coco2` vs `coco3` | §7.1–7.5, §15.y | **decided** (2026‑11‑15) |
+| R21 | **TurboLab unified into `tfr911h` as `ON tfr911h RUN turbolab [WITH ...]` (`hamster_turbolab`), host `tfr911h` canonical (`tfr9` retired), and repeated `WITH` (`","` retired)**: supersedes Q2 / §10 ("two UF2s, no Tcl/LFS") | Strick's 2026‑11‑15 design update: TurboLab follows the v5 `on`/`run`/`with` architecture inside `tfr911h.uf2` + single `build/tether`, gaining Tcl, VFS (`/pc` & `/lfs`), and `e1` enhancements | §7.5, §10, §15.y, App. G.9 | **decided** (2026‑11‑15) |
 
 **Follow‑up questions Q‑A, Q‑B, Q‑C — answered (2026‑10‑29):** Q‑A keep both Fuzix ports permanently; Q‑B make Hatvan's I/O base configurable (it will not fit in `$FF60‑7E` alone, so `$FF8x` and maybe `$FFEx` as well); Q‑C commit small log excerpts + copy the 0.5 MB TurboOS zip, full logs via `GOLDEN_LOG_DIR`.
 
@@ -1370,3 +1378,22 @@ The v4 expect suites 03–06 are ported as `tests/systests/06_engines_test.sh` (
   * **S61 (`HSCREEN` Block 0 scanlines 5..7 overwritten by `$0400–$05FF` text mirror):** Guarded the CoCo 3 Block 8 → `$0400–$05FF` text mirror with `(g_gime_regs[8] & 0x80) == 0` (`VMODE.BP == 0`) so printing `OK` in `HSCREEN 2` never touches Block 0 graphics memory.
   * **S62 (`--quick-inject` `TCL_BYE` race against `/pc/...` VFS reads):** Prepared the target launch (`centipede_prepare_launch_on_core0()`) *before* sending the `TCL_BYE` RPC response so `tether -pc=... --quick-inject="centipede run-decb /pc/..."` stays connected until all `/pc` VFS reads finish.
 * **Verification:** `make check-sh`, `make check-io`, `make check-core1` (`0` flash calls on both `tfr911h` and `centipede32z`), `make test-host`, and **all 9 hardware system-test suites across both live boards** (`01..08` on TFR/911H + new `09_centipede_coco2_test.sh` `30/30` on the live Centipede 32z + 16 KB CoCo 2: label/ping/heap, `on`/`run`/`ports` PIA/SAM/GIME/host checks, Disk Extended Color BASIC 1.1 + 64 KB RAM + `/fd/f0` floppy `DIR` + `e1` `InfoPort`, "Become CoCo 3" Disk Extended Color BASIC 2.1 + `HSCREEN 2` PNG capture, and 6809E DECB preload execution).
+
+### G.9 Phase 6: Unified TurboLab (`ON tfr911h RUN turbolab WITH ...`), host `tfr911h`, repeated `WITH`, and Centipede demo scripts (2026-11-16)
+
+* **Grammar & host-name revision (R21, confirmed with Strick):**
+  * Retired host alias `tfr9` in favor of **`tfr911h`** across `ports.tsv`, `ports_config.h`, firmware defaults, host tests, systests, and demo scripts (`b=tfr9 v=911h` remains only in `scripts/find-board.sh` because that is the physical flash label burned at `0x10FFF000`).
+  * Retired comma `,` separators inside `with` in favor of **repeated `WITH` clauses** (`WITH ... WITH ...`), supporting `<key> = <value>` and `<key>=<value>` options (`turbolab_config.h`, `ports_config.h`).
+  * Integrated TurboLab directly into `tfr911h.uf2` + `build/tether` as `on tfr911h run turbolab` (default `for turbo9sim`, engine `hamster_turbolab`, compatible with `e1` enhancements and VFS `/pc` & `/lfs`).
+* **Pure C++17 `turbolab_config.h` validator & symbol resolver:**
+  * Parses and validates `trace` (`a|x|r|w|i`), `trigger` / `stop` (`r|w|x/0xADDR[/N]`, `/0xADDR`, `@module+0xOFF[/N]`, `c/COUNT`, `s/SECS`), `trace_count`, `max_cycles`, `max_time`, repeatable `watch` (up to 16), and case-preserved `image` (`/pc/...` or `/lfs/...`, falling back to `Config(flat_img)` or built-in `Turbo9OS`), with SI (`k/m/g` = $10^3/10^6/10^9$) vs binary (`K/M/G` = $2^{10}/2^{20}/2^{30}$) suffixes and `ResolveModuleWatchpoint()` scanning OS-9 `$87CD` headers in `ram[0..65535]`.
+* **`IN_RAM` `hamster_turbolab` engine (`firmware/engines/turbolab.h`) & `S30` fix:**
+  * Imported `pio_assembler.h`, `hamster.h`, `test_pio_assembler.cpp`, and `pi.asm` via `scripts/import-from-v4.sh`; added `gpio_pull_up(31)` to `hamster.pio` (`S30`).
+  * Placed the 128 KB `UpperRamTraceFIFO` (`8192 × 16 B` `TraceRecord`) inside the unused upper 192 KB of `tfr911h`'s 256 KB `ram[]` (`&ram[65536]`), adding **0 bytes to `.bss`** (`400 620` B unchanged, preserving ~80 KB free heap for zip streaming and Tcl) and **0 flash calls** from SRAM (`make check-core1` strict `-s`).
+  * Implemented 4-phase core-1 loop: Phase 1 (`$FFFE`/`$FFFF` `BS=1` reset sync + zero-vector guard), Phase 2 (fast untraced run before trigger with active watchpoints), Phase 3 (cycle-accurate `x`/`+`/`r`/`w`/`-` classification, `SWI2`/`RTI` sparse fusion, `IoIsDriven` Red-Page trap, `BRA *` trap), and Phase 4 (`SWI`/`NMI` stack snarfing of 12-byte 6809 or 14-byte 6309 native registers + CPU halt), plus core-0 streaming of `C_TURBOLAB_START` (`186`), `C_TRACE_CYCLES` (`187`), `C_FAULT` (`188`), and 64 KB `C_CORE_DUMP` (`189`).
+* **Unified `tether` decoder (`host/cmd/tether/turbolab.go`) & demo scripts:**
+  * Added `-listings` (relocatable `.list` parser via OS-9 module header sync), initial 64 KB shadow RAM tracking, `SWI2 _N_` / `RTI  _N_` OS-9 syscall parameter & string decoding, fault & CPU register report formatting, `/tmp/fault.img` + `/tmp/turbolab-fault-<ts>.img` core-dump saving, and `SIGINT` → `T_SIGINT` (`183`) forwarding during active TurboLab sessions.
+  * Added portable POSIX `sh` demo scripts: `run_turbolab.sh`, `run_coco2_basic.sh`, `run_coco3_basic.sh`, and `scripts/run-centipede-demo.sh` (`make check-sh` clean).
+* **Snag found & fixed on live hardware:**
+  * **S63 (Hitachi HD63C09E native-mode `LDMD #1` prefetches the next opcode *during* the `LIC=1` cycle):** Cycle-by-cycle bus traces on the live TFR/911H 63C09E revealed that once `LDMD #$01` enables 6309 native mode (`MD.0 = 1`), the CPU fetches the first opcode byte of the next instruction *on* the cycle that asserts `LIC=1` (rather than the cycle *after* `LIC=1` as in 6809 emulation mode).  This had two consequences: (1) in a tight `BRA *` (`$20 $FE`) loop in native mode, `$20` is fetched on a cycle whose *preceding* cycle was the branch idle cycle (`LIC=0`) and asserts `LIC=1` at the end of `$20` itself; and (2) feeding `$3F` (`SWI`) on the cycle *after* `LIC=1` in Phase 4 replaced the **operand** of the already-prefetched instruction (`BRA $FE` → `BRA $3F`!) instead of executing `SWI`.  Fixed in `turbolab.h` by tracking consecutive `[A, A+1]` `$20 $FE` re-reads (`bra_fe_addr`) and asserting hardware `NMI#` in Phase 4 whenever `LDMD #1` (`$11 $3D <odd>`) was seen — `NMI#` finishes the current instruction cleanly, discards the 1-byte prefetch, pushes the exact unmodified 14-byte native register frame (`PC, U, Y, X, DP, F, E, B, A, CC`), and halts on `$FFFC` (`BS=1`).
+* **Verification:** `make check-sh`, `make check-io`, `make check-core1` (`0` flash calls on both products), `make test-host` (`test_pio_assembler`, `ports_config_test`, `iomap_test`, Go `turbolab_test.go`), live smoke tests of `run_turbolab.sh`, `run_coco2_basic.sh`, and `run_coco3_basic.sh`, and **all 10 hardware system-test suites across both live boards** (including Suite 10 `10_turbolab_test.sh` `36/36`: `r/0xFFFE` + `trace_count = 15` + `/tmp/fault.img`, `ON tfr911h RUN turbolab WITH trigger = r/0xFFE8 WITH trace_count = 10000` Red-Page trap + `SWI` registers, `pi.decb` `.list` annotations + `x/0x1019/3`, repeated `WITH watch = ...`, built-in `Turbo9OS` `@kernel+0x1B` + `SWI2` `F$Link "Init"` / `RTI`, and 6309 native `LDMD #1` `BRA *` + 14-byte `D`/`W` register capture).

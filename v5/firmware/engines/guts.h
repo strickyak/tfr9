@@ -369,6 +369,7 @@ void IN_RAM hamster_flat_foreground()      { HamsterForegroundLoop<HamsterFlatPo
 void IN_RAM hamster_gime_foreground()      { HamsterForegroundLoop<HamsterGimePolicy>(); }
 void IN_RAM hamster_gep9_foreground()      { HamsterForegroundLoop<HamsterGep9Policy>(); }
 void IN_RAM hamster_multicomp_foreground() { HamsterForegroundLoop<HamsterMulticompPolicy>(); }
+void IN_RAM hamster_turbolab_foreground();
 
 using ForegroundFn = void (*)();
 
@@ -382,6 +383,7 @@ static const HamsterEngineEntry kHamsterEngines[] = {
   {"hamster_gime",      hamster_gime_foreground},
   {"hamster_gep9",      hamster_gep9_foreground},
   {"hamster_multicomp", hamster_multicomp_foreground},
+  {"hamster_turbolab",  hamster_turbolab_foreground},
 };
 
 static inline ForegroundFn FindHamsterEngine(const char* name) {

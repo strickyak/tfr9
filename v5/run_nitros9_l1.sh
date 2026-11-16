@@ -7,7 +7,7 @@ BOOT=${V5_IMG_FLAT_BOOT:-$SHELF/nitros9/recipes/flat65280/flat65280.img}
 DISK=${V5_IMG_FLAT_DISK:-$SHELF/nitros9/recipes/flat65280/flat0.dsk}
 
 exec "$DIR/scripts/run-demo.sh" flat65280 84 \
-  'on tfr9 run nitros9l1 for flat65280
+  'on tfr911h run nitros9l1 for flat65280
 set Config(flat_img) "/pc/flat65280.img"
 set Config(drive0) "/pc/flat0.dsk"
 set Config(drive1) ""

@@ -7,7 +7,7 @@ BOOT=${V5_IMG_DEEP_BOOT:-$SHELF/nitros9/recipes/deep65280/deep65280.img}
 DISK=${V5_IMG_DEEP_DISK:-$SHELF/nitros9/recipes/deep65280/deep0.dsk}
 
 exec "$DIR/scripts/run-demo.sh" deep65280 85 \
-  'on tfr9 run nitros9l2 for deep65280
+  'on tfr911h run nitros9l2 for deep65280
 set Config(flat_img) "/pc/deep65280.img"
 set Config(drive0) "/pc/deep0.dsk"
 set Config(drive1) ""

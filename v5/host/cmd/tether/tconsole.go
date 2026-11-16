@@ -224,6 +224,11 @@ var CommandStrings = map[byte]string{
 	C_EVENT:    "C_EVENT",
 	EVENT_RTI:  "EVENT_RTI",
 	EVENT_SWI2: "EVENT_SWI2",
+
+	C_TURBOLAB_START: "C_TURBOLAB_START",
+	C_TRACE_CYCLES:   "C_TRACE_CYCLES",
+	C_FAULT:          "C_FAULT",
+	C_CORE_DUMP:      "C_CORE_DUMP",
 }
 
 var Swi2Num byte
@@ -579,16 +584,38 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		RestoreSttyState()
 		if sig == syscall.SIGINT {
 			fmt.Printf("\n[SIGINT]\n")
+			if turbolabActive.Load() {
+				if ch := GetChannelToPico(); ch != nil {
+					select {
+					case ch <- []byte{T_SIGINT}:
+					default:
+					}
+					select {
+					case <-turbolabDoneChan:
+						return
+					case <-sigChan:
+					case <-time.After(2500 * time.Millisecond):
+					}
+				}
+				if gTurbolab != nil && gTurbolab.Speed != nil {
+					gTurbolab.Speed.PrintReport()
+				}
+			}
+			RestoreSttyState()
 			fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
 			os.Exit(130)
 		} else if sig == syscall.SIGTERM {
+			if gTurbolab != nil && gTurbolab.Speed != nil {
+				gTurbolab.Speed.PrintReport()
+			}
+			RestoreSttyState()
 			fmt.Printf("\n[SIGTERM]\n")
 			fmt.Fprintf(os.Stderr, "Terminated by SIGTERM; tether exiting.\n")
 			os.Exit(143)
 		} else {
+			RestoreSttyState()
 			fmt.Fprintf(os.Stderr, "Terminated by signal %v; tether exiting.\n", sig)
 			os.Exit(1)
 		}
@@ -1795,6 +1822,15 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 					previousPutChar = ch
 				}
 
+			case C_TURBOLAB_START:
+				HandleTurbolabStart(pkt)
+
+			case C_TRACE_CYCLES:
+				HandleTurbolabTraceCycles(pkt)
+
+			case C_FAULT:
+				HandleTurbolabFault(pkt)
+
 			case C_CORE_DUMP:
 				if len(pkt) >= 258 {
 					chunk := uint(pkt[1])
@@ -1805,6 +1841,7 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 						the_ram.Poke1(chunk*256+i, pkt[2+i])
 					}
 					Logf("Received C_CORE_DUMP chunk %d/256", chunk)
+					HandleTurbolabCoreChunk(chunk, the_ram)
 				}
 
 			case C_SHUTDOWN:
@@ -1812,6 +1849,10 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				if len(pkt) > 1 {
 					exitStatus = pkt[1]
 				}
+				if gTurbolab != nil && gTurbolab.Speed != nil {
+					gTurbolab.Speed.PrintReport()
+				}
+				NotifyTurbolabDone()
 				switch exitStatus {
 				case 0:
 					fmt.Printf("\n[tether: target shutdown OK (0)]\n")
