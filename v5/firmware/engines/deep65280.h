@@ -35,11 +35,7 @@ void IN_RAM deep65280_write_mmu(uint addr, byte d) {
   deep65280_mmu[task][slot] = d;
   if (task == deep65280_active_task) {
     uint8_t blk = g_gime_mmu_enabled ? d : (uint8_t)(0x38 + slot);
-#if DEEP_256K
-    task_mmu_base[slot] = (uint32_t)(blk & 0x1F) << 13;
-#else
-    task_mmu_base[slot] = (uint32_t)(blk & 0x0F) << 13;
-#endif
+    task_mmu_base[slot] = (uint32_t)(blk & g_deep_mmu_mask) << 13;
   }
 }
 

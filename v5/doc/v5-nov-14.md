@@ -165,6 +165,7 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 | 06 engines (expect) | 4 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Fuzix boot and run commands |
 | 07 ports | 56 | `on/run/for/with` uppercase folding & key-value digestion, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal (conflict, wrong host, obsolete `Config(engine)`) keeps `TCL>` |
 | 08 enhancements | 23 | Tcl `click`/`beep`/`fujinet stats`; 6309 `flat65280+e1` (SN76489, Orchestra-90, Becker, `T_WALLTIME` RTC, InfoPort); 6309 `nitros9l2 for coco3` (`.t35` launcher, 60 Hz GIME VBORD IRQ, Palette); 6309 `nitros9l2 for jamesbrown` (Track-34 disk boot + Diller I/O map) |
+| 09 centipede32z + CoCo 2 | 30 | live Centipede 32z (`b=centipede v=32z`) on 16 KB CoCo 2: label/ping/heap, `on`/`run`/`ports` PIA/SAM/GIME/host guards, `gerbil_sam64k` Disk Extended Color BASIC 1.1 (`MEM=22823`) + `e1` `InfoPort`, `gerbil_gime` "Become CoCo 3" Super Extended BASIC 2.1 + `HSCREEN 2` PNG capture, and 6809E `centipede run-decb` preload |
 
 Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing image **skips** that engine):
 `V5_IMG_FLAT_BOOT/DISK` (`nitros9/recipes/flat65280/…`), `V5_IMG_DEEP_BOOT/DISK` (`…/deep65280/…`),
@@ -173,10 +174,10 @@ Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing
 when tether times out).
 
 Other checks: `make check-sh`, `make check-io`, `make check-core1` (strict `-s`: **0** flash calls from core-1 SRAM
-functions, enforced on every `make tfr911h`), `scripts/check-flash-size.sh` (`< 4 MB` LittleFS boundary, enforced on
-every `make tfr911h`), `scripts/elf-parity.sh`.
+functions, enforced on every `make tfr911h` and `make centipede32z`), `scripts/check-flash-size.sh` (`< 4 MB` LittleFS boundary, enforced on
+every `make tfr911h` and `make centipede32z`), `scripts/elf-parity.sh`.
 
-**Not covered by any automated test:** gep9/gep9big guests, Centipede, anything on a real CoCo, moving a core device
+**Not covered by any automated test:** gep9/gep9big guests, `gerbil_io` on a physical CoCo 3 motherboard, moving a core device
 and running a guest on it.
 
 ---
@@ -245,12 +246,9 @@ and running a guest on it.
    * generate the guest definitions (NitrOS-9 `.d`, Go `gep9` table) from `ports.tsv`;
    * `third_party/PATCHES.md` upstream audit; Linux `openat2` (`RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`) fast path for `/pc`;
    * debug `run_gep9.sh` past `--  Hatvan OS` when ready and add an automated `hatvan` systest.
-3. **Phase 4 — Centipede 32z product** (`firmware/products/centipede32z`, Gerbil bus, coco2/coco3/fuzix_coco2
-   engines, board header, centiscope fix S32, merge the S27–S29 hooks of `pico_rpc.h`/`tcl_commands.h`/
-   `keyboard_injector.h`/`rtc.h`).  The Centipede board is on `/dev/ttyACM0`; **never flash it without asking**.
-4. **Phase 5 — enhancement devices** (Becker, audio, RTC, Orchestra-90, info) as `Install(base)` devices claimed
-   through `enhance`; FujiNet kit under `os/fujinet/` (GPLv3, own LICENSE).
-5. **Phase 6 — TurboLab** as a separate UF2.  **Phase 7** — docs, CI, release notes, generated io-map.
+2. **Phase 4 — Centipede 32z product:** *Completed 2026-11-15* (`firmware/products/centipede32z` -> `build/centipede32z.uf2`, `boards/centipede32z.h`, 4 `IN_RAM` Gerbil engines in `firmware/engines/gerbil_guts.h`, 13 target launchers, `g_io_drive_mask`, shared library merge, flashed & verified live on the 16 KB CoCo 2 in `09_centipede_coco2_test.sh`).
+3. **Phase 5 — enhancement devices:** *Completed 2026-11-15* (`becker`, `audio`, `rtc`, `orchestra90`, `info` in `firmware/lib/devices/` via `with e1, ...`; remaining: FujiNet guest kit under `os/fujinet/`).
+4. **Phase 6 — TurboLab** as a separate UF2.  **Phase 7** — docs, CI, release notes, generated io-map, `.pak` loader.
 6. The remaining S38 item: nothing O(file size) in the Tcl `zip`/`multifile`/`edit` paths beyond the policy limits
    (acceptable as is).
 7. Keep the spec current: log every finding as an `Sxx`, every deviation in §16, and update Appendix G.

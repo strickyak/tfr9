@@ -2,6 +2,8 @@
 #define V5_LIB_CORE_CONFIG_H_
 
 struct Config {
+    volatile bool    become_coco3;
+    volatile bool    fuzix;
     volatile bool    ram_64k;
     volatile bool    rom_disk11;
     volatile bool    floppy_fd;
@@ -16,8 +18,11 @@ struct Config {
     char             drive3[64];
     char             task1[64];
     char             task2[64];
+    char             preload_decb[128];
 
     void SetAll(bool b) {
+        this->become_coco3 = false;
+        this->fuzix = false;
         this->ram_64k = b;
         this->rom_disk11 = b;
         this->floppy_fd = b;
@@ -31,6 +36,14 @@ struct Config {
         this->drive3[0] = 0;
         this->task1[0] = 0;
         this->task2[0] = 0;
+        this->preload_decb[0] = 0;
+    }
+
+    void SetStandard() {
+        this->SetAll(false);
+        this->ram_64k = true;
+        this->rom_disk11 = true;
+        this->floppy_fd = true;
     }
 };
 

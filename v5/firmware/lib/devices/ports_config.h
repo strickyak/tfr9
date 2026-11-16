@@ -371,14 +371,16 @@ inline PortsCheck ParseOnRunCommand(int argc, const char* const* argv, const cha
   return PortsOk();
 }
 
-// Resolve the active TargetSpec of `st` (defaulting to turbo9os on tfr9 when `run` was not set).
+// Resolve the active TargetSpec of `st` (defaulting to turbo9os on tfr9, rsbasic on coco2/coco3 when `run` was not set).
 inline PortsCheck ResolveActiveTarget(const PortSettings& st, const TargetSpec** out_tgt, const char* default_host = "tfr9") {
   const char* on_h = st.Host(default_host);
   if (!IsKnownHost(on_h)) return PortsFail("unknown host '%s' (known: tfr9, coco2, coco3)", on_h);
   const char* run_o = st.Get("run");
   const char* for_t = st.Get("for");
   if (!run_o) {
-    if (!strcmp(on_h, "tfr9")) { run_o = "turbo9os"; if (!for_t) for_t = "turbo9sim"; }
+    if (!strcmp(on_h, "tfr9"))       { run_o = "turbo9os"; if (!for_t) for_t = "turbo9sim"; }
+    else if (!strcmp(on_h, "coco2")) { run_o = "rsbasic";  if (!for_t) for_t = "coco2"; }
+    else if (!strcmp(on_h, "coco3")) { run_o = "rsbasic";  if (!for_t) for_t = "coco3"; }
     else return PortsFail("no 'run <os>' configured for host '%s'", on_h);
   } else if (!for_t) {
     PortsCheck rc = ResolveDefaultFor(on_h, run_o, &for_t);
@@ -393,15 +395,20 @@ inline PortsCheck ResolveActiveTarget(const PortSettings& st, const TargetSpec**
   return PortsOk();
 }
 
+#ifndef DEFAULT_BOARD_HOST
+#define DEFAULT_BOARD_HOST "tfr9"
+#endif
+
 // Base address of a core device of the active target under `st`.  Falls back to `dflt` if ports.tsv has no row.
-inline uint16_t PortBase(const char* device, uint16_t dflt, const PortSettings& st = g_port_settings) {
+inline uint16_t PortBase(const char* device, uint16_t dflt, const PortSettings& st = g_port_settings,
+                         const char* default_host = DEFAULT_BOARD_HOST) {
   char at_key[PortSettings::kLen];
   snprintf(at_key, sizeof at_key, "%s.at", device);
   const char* ov = st.Get(at_key);
   uint16_t a;
   if (ov && ParsePortAddr(ov, &a)) return a;
   const TargetSpec* tgt = nullptr;
-  if (ResolveActiveTarget(st, &tgt).ok && tgt) {
+  if (ResolveActiveTarget(st, &tgt, default_host).ok && tgt) {
     for (size_t i = 0; i < kNumCorePorts; i++) {
       const CorePortRange& p = kCorePorts[i];
       if (!strcmp(p.on_host, tgt->on_host) && !strcmp(p.run_os, tgt->run_os) &&

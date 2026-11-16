@@ -13,10 +13,16 @@
 
 #include "pcb.h"
 #include "cobs_tx.h"
+#include "keyboard_injector.h"
 
 extern "C" {
 extern int putchar_raw(int c);
 }
+
+extern unsigned char ram[256 * 1024];
+#ifndef PICO_RPC_RAM_SIZE
+#define PICO_RPC_RAM_SIZE (256 * 1024)
+#endif
 
 namespace pico_rpc {
 
@@ -35,8 +41,11 @@ inline void send_response(const pcb::RpcResponse& resp) {
 
 inline std::vector<pcb::RpcRequest> g_pending_injections;
 
+// Optional product-specific RPC handler (e.g. Centipede's get-status / get-cycles).
+inline bool (*g_product_rpc_hook)(const pcb::RpcRequest& req, pcb::RpcResponse& resp) = nullptr;
+
 // At global scope — matches the extern declaration in usb_pipeline.h.
-void handle_pico_rpc_request(std::string* pkt) {
+inline void handle_pico_rpc_request(std::string* pkt) {
   if (!pkt || pkt->length() < 2) return;
 
   // Skip T_PICO_RPC byte
@@ -51,31 +60,26 @@ void handle_pico_rpc_request(std::string* pkt) {
   resp.serial = req.serial;
 
   if (req.method == "ping") {
-    // Echo back the same data the caller sent.
     resp.status = 0;
     resp.data = req.data;
   } else if (req.method == "restart") {
     if (req.data.size() == 4) {
-      uint32_t mode = ((uint32_t)req.data[0] << 24) | 
-                      ((uint32_t)req.data[1] << 16) | 
-                      ((uint32_t)req.data[2] << 8) | 
+      uint32_t mode = ((uint32_t)req.data[0] << 24) |
+                      ((uint32_t)req.data[1] << 16) |
+                      ((uint32_t)req.data[2] << 8) |
                       (uint32_t)req.data[3];
       ::boot_mode = mode;
       ::boot_mode_check = mode + BOOT_MODE_CHECKER;
     }
-    // Send OK response before rebooting (reboot never returns).
     resp.status = 0;
     pico_rpc::send_response(resp);
     sleep_ms(100);  // Give USB time to flush
     rp2350_reset_standard();
-    // Never reaches here.
   } else if (req.method == "reflash") {
-    // Send OK response before entering BOOTSEL mode (never returns).
     resp.status = 0;
     pico_rpc::send_response(resp);
     sleep_ms(100);  // Give USB time to flush
     rp2350_reset_to_flash_mode();
-    // Never reaches here.
   } else if (req.method == "reformat") {
     lfs_unmount(&lfs_volume);
     lfs_format(&lfs_volume, &lfs);
@@ -86,12 +90,48 @@ void handle_pico_rpc_request(std::string* pkt) {
     } else {
       resp.status = 0;
     }
+  } else if (req.method == "get-ram") {
+    resp.status = 0;
+    resp.size = PICO_RPC_RAM_SIZE;
+    if (req.offset >= 0 && static_cast<size_t>(req.offset) < PICO_RPC_RAM_SIZE) {
+      size_t offset = static_cast<size_t>(req.offset);
+      size_t len = (req.length > 0) ? static_cast<size_t>(req.length) : 256;
+      if (offset + len > PICO_RPC_RAM_SIZE) {
+        len = PICO_RPC_RAM_SIZE - offset;
+      }
+      resp.data.assign(reinterpret_cast<const char*>(ram + offset), len);
+    } else {
+      resp.data.clear();
+    }
+  } else if (req.method == "put-ram") {
+    resp.status = 0;
+    resp.size = PICO_RPC_RAM_SIZE;
+    if (req.offset >= 0 && static_cast<size_t>(req.offset) < PICO_RPC_RAM_SIZE) {
+      size_t offset = static_cast<size_t>(req.offset);
+      size_t len = req.data.size();
+      if (offset + len > PICO_RPC_RAM_SIZE) {
+        len = PICO_RPC_RAM_SIZE - offset;
+      }
+      memcpy(ram + offset, req.data.data(), len);
+      resp.size = len;
+    } else {
+      resp.status = -1;
+      resp.message = "offset out of range";
+    }
+  } else if (req.method == "type") {
+    uint16_t down_ticks = (req.length > 0) ? (uint16_t)req.length : TYPING_DOWN_TICKS;
+    uint16_t up_ticks = (req.flags > 0) ? (uint16_t)req.flags : TYPING_UP_TICKS;
+    keyboard_injector::queue_string(req.data, down_ticks, up_ticks);
+    keyboard_injector::start_if_queued();
+    resp.status = 0;
   } else if (req.method == "get-label") {
     resp.status = 0;
     resp.data = FlashLabel::RawLabel();
   } else if (req.method == "inject") {
     g_pending_injections.push_back(req);
-    return; // Do not send response yet. The REPL will handle it.
+    return;  // REPL / menu will send the response after evaluating.
+  } else if (g_product_rpc_hook && g_product_rpc_hook(req, resp)) {
+    // Handled by product hook.
   } else {
     resp.status = -1;
     resp.message = "unknown PicoRPC method: " + req.method;

@@ -8,6 +8,8 @@
 //   Read  base+0         -> returns 1 once ready, 0 while pending.
 //   Read  base+1         -> streams report characters one per read, then 0 at EOF.
 
+#include "pico/unique_id.h"
+
 static char g_info_text[768];
 static volatile uint g_info_len = 0;
 static volatile uint g_info_pos = 0;

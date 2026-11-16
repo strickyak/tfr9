@@ -2,7 +2,7 @@
 #define V4_GEP9_IO_H_
 
 #include <atomic>
-#include "v4_gep9_mmu.h"
+#include "gep9_mmu.h"
 
 // ═══════════════════════════════════════════════════════════════════
 // gep9 Hardware I/O Registers ($FF00..$FFFF)
@@ -77,11 +77,13 @@ FORCE_INLINE bool IN_RAM gep9_irq_needed() {
 }
 
 FORCE_INLINE void IN_RAM gep9_update_irq_pin() {
+#ifndef G_CART
   if (gep9_irq_needed()) {
-    gpio_set_dir(22, GPIO_OUT);
+    gpio_set_dir(IRQ, GPIO_OUT);
   } else {
-    gpio_set_dir(22, GPIO_IN);
+    gpio_set_dir(IRQ, GPIO_IN);
   }
+#endif
 }
 
 // ── Console & Diagnostic Callbacks ($FF00..$FF05) ──
@@ -120,9 +122,9 @@ void IN_RAM gep9_write_logchar(uint, byte d) { Say(d); }
 
 byte IN_RAM gep9_read_exit(uint) { return 0; }
 void IN_RAM gep9_write_exit(uint, byte d) {
-  // Immediately assert RESET and HALT to stop 6309 bus activity
-  gpio_put(20, 0); gpio_set_dir(20, GPIO_OUT);
-  gpio_put(24, 0); gpio_set_dir(24, GPIO_OUT);
+  // Immediately assert RESET and HALT to stop 6809/6309 bus activity
+  gpio_put(RESET, 0); gpio_set_dir(RESET, GPIO_OUT);
+  gpio_put(HALT, 0);  gpio_set_dir(HALT, GPIO_OUT);
 
   // Wait for Core 0 to drain pending console characters
   while (fg2bg_chars.size() > 0) {

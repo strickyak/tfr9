@@ -18,6 +18,15 @@
 static IoMap g_io_map;      // who owns what, for the engine being set up
 static IoMap g_io_scratch;  // working copy for checks (`ports check`, IoFinish): one shared map, RAM is scarce
 
+// 256-bit bitmap of $FF00..$FFFF offsets owned by the RP2350 (built in IoFinish from g_io_map).
+// On Gerbil (Centipede), core 1 drives D0..D7 + SLENB# on $FFxx ONLY when the bit in g_io_drive_mask is 1,
+// letting the CoCo motherboard's real PIA/SAM/GIME drive unclaimed $FFxx ports without bus contention.
+static uint32_t g_io_drive_mask[8];
+
+inline bool IoIsDriven(uint8_t lo) {
+  return (g_io_drive_mask[lo >> 5] & (1u << (lo & 31))) != 0;
+}
+
 // Core-0 runtime hooks installed alongside devices (replaces the old `current_engine` switch chains):
 static void (*g_rx_poll_fn)() = nullptr;      // core-0 Phase 2 terminal RX delivery
 static void (*g_timer_60hz_fn)() = nullptr;   // core-0 60 Hz timer callback (targets MUST be IN_RAM)
@@ -28,6 +37,7 @@ inline void IoInstallEnhancementDevice(const char* dev, uint16_t base, uint16_t 
 
 static inline void IoReset() {
   g_io_map.Reset();
+  for (int i = 0; i < 8; i++) g_io_drive_mask[i] = 0;
   for (int i = 0; i < 256; i++) { IOReaders[i] = nullptr; IOWriters[i] = nullptr; }
   g_rx_poll_fn = nullptr;
   g_timer_60hz_fn = nullptr;
@@ -73,11 +83,18 @@ static void IoClaimEnhancements(const TargetSpec& tgt) {
 // what the configuration says it should be (resolved by the same code that `bye` used to approve it).
 static void IoFinish() {
   const TargetSpec* tgt = nullptr;
-  PortsCheck trc = ResolveActiveTarget(g_port_settings, &tgt);
+  PortsCheck trc = ResolveActiveTarget(g_port_settings, &tgt, DEFAULT_BOARD_HOST);
   if (!trc.ok || !tgt) { cobs_printf("[io-map: target resolution problem: %s]\n", trc.msg); return; }
   IoClaimEnhancements(*tgt);
+  for (int i = 0; i < 8; i++) g_io_drive_mask[i] = 0;
+  for (uint32_t a = 0xFF00; a <= 0xFFFF; a++) {
+    if (g_io_map.OwnerOf((uint16_t)a) != nullptr) {
+      uint8_t lo = (uint8_t)(a & 0xFF);
+      g_io_drive_mask[lo >> 5] |= (1u << (lo & 31));
+    }
+  }
   IoMap& expect = g_io_scratch;
-  PortsCheck pc = PortsValidate(g_port_settings, expect, /*include_host_reserved=*/false);
+  PortsCheck pc = PortsValidate(g_port_settings, expect, /*include_host_reserved=*/false, DEFAULT_BOARD_HOST);
   if (!pc.ok) { cobs_printf("[io-map: %s/%s: configuration problem: %s]\n", tgt->run_os, tgt->for_hw, pc.msg); return; }
   int bad = 0, ranges = 0;
   const char* prev = nullptr;

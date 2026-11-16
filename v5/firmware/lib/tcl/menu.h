@@ -9,6 +9,13 @@
 #include "tcl_io.h"
 #include "coro.h"
 #include "config.h"
+#include "pcb.h"
+
+extern std::vector<pcb::RpcRequest> g_pending_injections;
+inline void (*g_pre_bye_rpc_hook)() = nullptr;
+namespace pico_rpc {
+void send_response(const pcb::RpcResponse& resp);
+}
 
 enum class FieldType {
     CHECKBOX,
@@ -222,6 +229,19 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"trace_reads", 0);
         if (val && atoi(val) != 0) g_config.trace_reads = true;
 
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"become_coco3", 0);
+        if (val && atoi(val) != 0) g_config.become_coco3 = true;
+
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"fuzix", 0);
+        if (val && atoi(val) != 0) g_config.fuzix = true;
+
+        val = Tcl_GetVar2(interp, (char*)arr, (char*)"preload_decb", 0);
+        if (val && val[0] != '\0') {
+            strncpy(g_config.preload_decb, val, sizeof(g_config.preload_decb) - 1);
+            g_config.preload_decb[sizeof(g_config.preload_decb) - 1] = '\0';
+            g_config.ram_64k = true;
+        }
+
         val = Tcl_GetVar2(interp, (char*)arr, (char*)"engine", 0);
         if (val && val[0]) {
             Tcl_AppendResult(interp, "Config(engine) is no longer supported; use \"on <host> run <os> for <target>\"", (char*)NULL);
@@ -277,6 +297,9 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
         Tcl_SetVar2(interp, (char*)arr, (char*)"floppy_pc", (char*)(g_config.floppy_pc ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_writes", (char*)(g_config.trace_writes ? "1" : "0"), 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"trace_reads", (char*)(g_config.trace_reads ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"become_coco3", (char*)(g_config.become_coco3 ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"fuzix", (char*)(g_config.fuzix ? "1" : "0"), 0);
+        Tcl_SetVar2(interp, (char*)arr, (char*)"preload_decb", (char*)g_config.preload_decb, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"flat_img", (char*)g_config.flat_img, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"drive0", (char*)g_config.drive0, 0);
         Tcl_SetVar2(interp, (char*)arr, (char*)"drive1", (char*)g_config.drive1, 0);
@@ -313,6 +336,28 @@ int menu_cmd(ClientData clientData, Tcl_Interp* interp, int argc, char* argv[]) 
             menu_draw_screen();
             
             while (true) {
+                if (!g_pending_injections.empty()) {
+                    pcb::RpcRequest req = g_pending_injections.front();
+                    g_pending_injections.erase(g_pending_injections.begin());
+                    cobs_printf("\n[Menu Injecting: %s]\n", req.data.c_str());
+                    int rc = Tcl_Eval(interp, (char*)req.data.c_str(), 0, (char**)0);
+                    if (rc == TCL_BYE && g_pre_bye_rpc_hook) {
+                        g_pre_bye_rpc_hook();
+                    }
+                    pcb::RpcResponse resp;
+                    resp.serial = req.serial;
+                    resp.status = rc;
+                    if (interp->result && interp->result[0]) {
+                        resp.message = interp->result;
+                        resp.data = interp->result;
+                    }
+                    pico_rpc::send_response(resp);
+                    if (rc == TCL_BYE) {
+                        g_menu.active = false;
+                        return TCL_BYE;
+                    }
+                    break;
+                }
                 byte key = tcl_io::poll_key(&iks);
                 if (key == 0) {
                     uint64_t start = get_system_ticks_20ms();

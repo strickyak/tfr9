@@ -133,7 +133,7 @@ IOWriter IOWriters[256];
 // ═══════════════════════════════════════════════════════════════════
 // Cross-core FIFO: foreground (core 1) → background (core 0)
 // ═══════════════════════════════════════════════════════════════════
-CrossCoreFIFO<uint, 8192> fg2bg;        // Events: trace logs, MEGA_CYCLE, etc.
+CrossCoreFIFO<uint, 1024> fg2bg;        // Events: trace logs, MEGA_CYCLE, etc. (watermark is 50)
 CrossCoreFIFO<byte, 8192> fg2bg_chars;  // Characters: SAY output (high priority)
 
 // Same event tags as Centipede — shared for future background code reuse.
@@ -420,8 +420,8 @@ void PollTermInput() {
 
 #include "io_install.h"   // IoReset/IoClaim/IoSet: how devices fill the I/O dispatch tables
 #include "acia_tfr.h"   // TFR911 ACIA 6850 IN_RAM callbacks (term port)
-#include "v4_gep9_mmu.h"
-#include "v4_gep9_io.h"
+#include "gep9_mmu.h"
+#include "gep9_io.h"
 #include "v4_multicomp09.h"
 
 #include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
