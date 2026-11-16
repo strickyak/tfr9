@@ -71,6 +71,8 @@ target_include_directories(${PROJECT} PRIVATE
 target_link_libraries(${PROJECT} PRIVATE
     hardware_flash
     hardware_pio
+    hardware_pwm
+    hardware_uart
     hardware_watchdog
     pico_bootrom
     pico_multicore

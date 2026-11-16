@@ -99,9 +99,29 @@ static int ports_cmd(ClientData, Tcl_Interp* interp, int argc, char** argv) {
   return TCL_ERROR;
 }
 
+// Sync any Tcl `Config(...)` image/drive paths into `g_config` at `bye` so users who write
+// `set Config(drive0) /pc/foo.dsk; bye` without `menu store Config` get what they asked for.
+static void sync_tcl_config_paths(Tcl_Interp* interp) {
+  auto sync_one = [&](const char* key, char* dst, size_t cap) {
+    const char* v = Tcl_GetVar2(interp, (char*)"Config", (char*)key, TCL_GLOBAL_ONLY);
+    if (v) {
+      strncpy(dst, v, cap - 1);
+      dst[cap - 1] = 0;
+    }
+  };
+  sync_one("flat_img", g_config.flat_img, sizeof(g_config.flat_img));
+  sync_one("drive0",   g_config.drive0,   sizeof(g_config.drive0));
+  sync_one("drive1",   g_config.drive1,   sizeof(g_config.drive1));
+  sync_one("drive2",   g_config.drive2,   sizeof(g_config.drive2));
+  sync_one("drive3",   g_config.drive3,   sizeof(g_config.drive3));
+  sync_one("task1",    g_config.task1,    sizeof(g_config.task1));
+  sync_one("task2",    g_config.task2,    sizeof(g_config.task2));
+}
+
 // `bye` for this product: validates target, I/O map, host hardware, and launcher before starting the 6309.
 static int bye_checked_cmd(ClientData, Tcl_Interp* interp, int argc, char** argv) {
   if (ports_check_now(interp, "bye", /*for_launch=*/true) != TCL_OK) return TCL_ERROR;
+  sync_tcl_config_paths(interp);
   if (argc > 1) Tcl_SetResult(interp, argv[1], TCL_VOLATILE);
   return TCL_BYE;
 }

@@ -23,12 +23,17 @@ static void (*g_rx_poll_fn)() = nullptr;      // core-0 Phase 2 terminal RX deli
 static void (*g_timer_60hz_fn)() = nullptr;   // core-0 60 Hz timer callback (targets MUST be IN_RAM)
 static bool g_deep_mmu_active = false;        // core-0 EmuDsk / $FE panic dump translates via deep_mmu
 
+inline void IoResetEnhancementState();
+inline void IoInstallEnhancementDevice(const char* dev, uint16_t base, uint16_t last, const TargetSpec& tgt);
+
 static inline void IoReset() {
   g_io_map.Reset();
   for (int i = 0; i < 256; i++) { IOReaders[i] = nullptr; IOWriters[i] = nullptr; }
   g_rx_poll_fn = nullptr;
   g_timer_60hz_fn = nullptr;
   g_deep_mmu_active = false;
+  g_term_acia_arrow_keys = false;
+  IoResetEnhancementState();
 }
 
 static void IoClaim(uint16_t first, uint16_t last, const char* name) {
@@ -44,8 +49,7 @@ static inline void IoSet(uint16_t addr, IOReader r, IOWriter w) {
   IOWriters[addr & 0xFF] = w;
 }
 
-// Enhancement devices the user asked for (`with e1, becker at 0xff48`) are not implemented
-// yet (Phase 5): reserve their ranges so they are checked and shown like any device, and say so once per device.
+// Install user-requested `with ...` enhancement devices (`becker`, `audio`, `rtc`, `orchestra90`, `info`).
 static void IoClaimEnhancements(const TargetSpec& tgt) {
   const char* wmap = g_port_settings.WithMap();
   for (size_t i = 0; i < kNumMapPorts; i++) {
@@ -61,9 +65,7 @@ static void IoClaimEnhancements(const TargetSpec& tgt) {
     uint16_t base = e.first;
     if (ov && !ParsePortAddr(ov, &base)) continue;
     uint16_t last = (uint16_t)(base + (e.last - e.first));
-    IoClaim(base, last, e.device);
-    cobs_printf("[io-map: %s reserved at 0x%04x-0x%04x for %s/%s: no handler in this firmware yet]\n",
-                e.device, base, last, tgt.run_os, tgt.for_hw);
+    IoInstallEnhancementDevice(e.device, base, last, tgt);
   }
 }
 

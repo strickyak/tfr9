@@ -10,6 +10,16 @@ byte IN_RAM clock_and_stop_reader(uint) {
 }
 
 void IN_RAM clock_and_stop_writer(uint, byte data) {
+  if (data == 0xFC || data == 0xFD || data == 0xFE) {
+    // Stop 6309 bus activity and wait for core 0 to finish draining fg2bg_chars
+    // so core 1's cobs_printf / cobs_shutdown cannot interleave mid-COBS-frame with putbyte() (S57).
+    gpio_put(RESET, 0); gpio_set_dir(RESET, GPIO_OUT);
+    gpio_put(HALT, 0);  gpio_set_dir(HALT, GPIO_OUT);
+    while (fg2bg_chars.size() > 0) {
+      sleep_ms(2);
+    }
+    sleep_ms(30);
+  }
   if (data == 0xFC) {
     cobs_printf("\n *** Exiting with status 0 due to CLOCK_AND_STOP command $FC.\n");
     cobs_shutdown(0);
@@ -53,6 +63,7 @@ void IN_RAM clock_and_stop_writer(uint, byte data) {
 
 
 void IN_RAM clock_stop_tick_60hz() {
+  gime_tick_60hz();
   flat65280_timer_ticks++;
   uint8_t rate = (clock_and_stop_reg >> 4) & 3;
   bool fire = false;

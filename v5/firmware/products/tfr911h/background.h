@@ -64,6 +64,7 @@ void IN_RAM tfr911_background() {
   global_tcl_interp = Tcl_CreateInterp();
   register_tcl_commands(global_tcl_interp);
   register_ports_commands(global_tcl_interp);   // after the library: it replaces `bye`
+  RegisterEnhancementTclCommands(global_tcl_interp);
 
   // Create all coroutines upfront
   Coro tcl_repl_coro;
@@ -78,6 +79,7 @@ void IN_RAM tfr911_background() {
   while (true) {
     // HIGH PRIORITY: drain console characters first (inline, fast)
     drain_chars();
+    rtc_poll_walltime();
 
     if (!phase2) {
       // ── Phase 1: Tcl REPL ──────────────────────────────────────
@@ -155,6 +157,7 @@ void IN_RAM tfr911_background() {
 #endif
 #endif
         last_status_time = time_us_64();
+        g_guest_boot_us = last_status_time;
         cobs_printf("[bye: Phase 2 started]\n");
         phase2 = true;
       }
@@ -162,6 +165,7 @@ void IN_RAM tfr911_background() {
       // ── Phase 2: 6309 running ──────────────────────────────────
       coro_resume(&drain_coro);
       PumpUsbCobs();
+      Phase2PollEnhancements();
 
       // Deliver terminal input to the active engine's RX hook
       PollTermInput();

@@ -323,12 +323,15 @@ bool prev_irq_needed;
 // VFS RPC (must come before tcl_io/vfs/tcl_commands)
 #include "vfs_rpc.h"
 
-// Forward-define T_RPC and T_PICO_RPC before tcl_io.h needs them
+// Forward-define T_RPC, T_PICO_RPC, and T_WALLTIME before tcl_io.h needs them
 #ifndef T_RPC
 #define T_RPC 180
 #endif
 #ifndef T_PICO_RPC
 #define T_PICO_RPC 181
+#endif
+#ifndef T_WALLTIME
+#define T_WALLTIME 182
 #endif
 
 // Tcl I/O — TFR911 uses USB only (no CoCo2 screen)
@@ -377,13 +380,16 @@ inline void set_floppy_names() {}
 // ═══════════════════════════════════════════════════════════════════
 // USB packet dispatch — delivers typed chars to term_input
 // ═══════════════════════════════════════════════════════════════════
+static bool g_term_acia_arrow_keys = false;
+
 void PollTermInput() {
-  // Take non-RPC, non-PicoRPC packets from usb_packet_buf as terminal input
+  // Take non-RPC, non-PicoRPC, non-WallTime packets from usb_packet_buf as terminal input
   while (true) {
     std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
       return s && s->length() > 0 &&
              (unsigned char)(*s)[0] != T_RPC &&
-             (unsigned char)(*s)[0] != T_PICO_RPC;
+             (unsigned char)(*s)[0] != T_PICO_RPC &&
+             (unsigned char)(*s)[0] != T_WALLTIME;
     });
     if (!pkt) break;
     byte cmd = (byte)(*pkt)[0];
@@ -403,6 +409,8 @@ void PollTermInput() {
           byte c = cmd;
           if (c == 10) c = 13;
           term_input.Put(c);
+        } else if (g_term_acia_arrow_keys && cmd >= 128 && cmd <= 133) {
+          term_input.Put(cmd);
         }
         break;
     }
@@ -418,8 +426,15 @@ void PollTermInput() {
 
 #include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
 #include "deep_mmu.h"   // Deep65280 MMU state and address translation
+#include "gime.h"   // CoCo 3 GIME control/IRQ/shadow registers ($FF90..$FF9F) & palette ($FFB0..$FFBF)
+#include "rtc_port.h"   // RTC 8-register clock port + T_WALLTIME receiver
+#include "audio_sn76489.h"   // SN76489 sound generator + keyclick/bell/beep PWM mixer
+#include "orchestra90.h"   // Orchestra-90 stereo PWM DAC
+#include "becker.h"   // DriveWire / FujiNet Becker port over UART0
+#include "info_port.h"   // Firmware diagnostic report port
+#include "enhancements.h"   // Enhancement installer, reset, background service, Tcl commands
 #include "clock_stop.h"   // CLOCK_AND_STOP register (60 Hz clock enable, stop/exit command)
-#include "acia_term.h"   // terminal ACIA 6850 ($FF88/$FF89) for the NitrOS-9 engines
+#include "acia_term.h"   // terminal ACIA 6850 ($FF88/$FF89 or $FF14/$FF15) for NitrOS-9 engines
 #include "turbo9os.h"   // Engine turbo9os: built-in Turbo9OS ROM + setup
 #include "flat65280.h"   // Engine flat65280: NitrOS-9 Level 1 I/O and setup
 #include "deep65280.h"   // Engine deep65280: NitrOS-9 Level 2 I/O and setup

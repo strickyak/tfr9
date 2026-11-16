@@ -12,11 +12,12 @@ see §1).  Time of writing: 2026-11-14 ≈ 23:45.
 v5 is a copy-then-modify of v4 (`../v4/`, never touched).  The TFR/911H firmware, a unified Go `tether`, the test
 harness, the `on/run/for/with` device/port architecture, the **4 policy-template `IN_RAM` Hamster foregrounds**
 (`hamster_flat`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`), **0 core-1 SRAM→flash calls** (`make check-core1`
-strict), shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on
-real hardware**: seven system-test suites (129 checks) pass, and Turbo9OS, Flat65280 (NitrOS-9 L1), Deep65280
-(NitrOS-9 L2) and Fuzix boot and talk (`run_gep9.sh` reaches `--  Hatvan OS`, full interactive Hatvan recipe still to
-finish).  **Not done:** the Centipede product (Phase 4), FujiNet/Becker/audio enhancement devices (Phase 5), guest
-kit/generated port headers, and TurboLab (Phase 6).
+strict), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all
+9 `tfr9` targets** (including `nitros9l2 for jamesbrown` and `nitros9l2 for coco3` with `Coco3Gime` 60 Hz VBORD IRQ &
+`Coco3Palette`), shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and
+**verified on real hardware**: **eight** system-test suites pass, including 6309 hardware tests of every enhancement
+device and target.  **Not done:** the Centipede product (Phase 4), guest kit (`os/fujinet`, generated `.d`/`.go` port
+headers), and TurboLab (Phase 6).
 
 ---
 
@@ -162,7 +163,8 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 | 04 heap | 9 | `heap-free`, runaway loop → catchable "out of memory", memory returns, no reboot |
 | 05 zip | 17 | stored 200 KB + deflated 207 KB entries (md5 equals PC), `source` from zip, `zip get` limits, `multifile` refusal, fragmentation survival |
 | 06 engines (expect) | 4 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Fuzix boot and run commands |
-| 07 ports | 58 | `on/run/for/with` uppercase folding & key-value digestion, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal (conflict, wrong host, unimplemented target, obsolete `Config(engine)`) keeps `TCL>` |
+| 07 ports | 56 | `on/run/for/with` uppercase folding & key-value digestion, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal (conflict, wrong host, obsolete `Config(engine)`) keeps `TCL>` |
+| 08 enhancements | 23 | Tcl `click`/`beep`/`fujinet stats`; 6309 `flat65280+e1` (SN76489, Orchestra-90, Becker, `T_WALLTIME` RTC, InfoPort); 6309 `nitros9l2 for coco3` (`.t35` launcher, 60 Hz GIME VBORD IRQ, Palette); 6309 `nitros9l2 for jamesbrown` (Track-34 disk boot + Diller I/O map) |
 
 Engine-suite images (env vars, defaults under the coco-shelf checkout; a missing image **skips** that engine):
 `V5_IMG_FLAT_BOOT/DISK` (`nitros9/recipes/flat65280/…`), `V5_IMG_DEEP_BOOT/DISK` (`…/deep65280/…`),
@@ -191,12 +193,9 @@ and running a guest on it.
    hang).  Big pak entries should be stored.
 
 ### 5.2 Known quirks (understood, not fixed)
-* **Heap is small:** ~63.5 KB free after boot (`centipede heap-info`: `free=63528` on 2026-11-15 after placing all 4
-  `IN_RAM` Hamster foregrounds and `Gep9MMU` allocators in SRAM).  Heap fragments (largest block can be ~51 KB of 67 KB
-  free).  A single command that allocates more than the 16 KB reserve at once can still abort; C++ `new` failure aborts
-  with a message (intended).
-* **Enhancement devices are not implemented** (Becker, audio, RTC, Orchestra-90, info): `with e1, becker` only
-  *reserves* the range (and says so); the conflict checking is real.
+* **Heap is small:** ~55.4 KB free after boot (`centipede heap-info`: `free=55416` on 2026-11-15 after adding Becker
+  UART rings, SN76489 FIFO, InfoPort buffer, and GIME/Palette state in SRAM).  Heap fragments; a single command that
+  allocates more than the 16 KB reserve at once can still abort; C++ `new` failure aborts with a message (intended).
 * `on` / `run` / `ports` state is RAM only and must be re-set by Tcl every boot (by design).
 * **`IoClaim` still stops the board (`ABORT`)** — only reachable by an internal error that `PortsValidate` should
   have caught.

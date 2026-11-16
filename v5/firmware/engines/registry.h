@@ -17,6 +17,8 @@ static const TargetLauncher kLaunchers[] = {
   {"turbo9os",  "turbo9sim",   setup_turbo9os},
   {"nitros9l1", "flat65280",   setup_flat65280},
   {"nitros9l2", "deep65280",   setup_deep65280},
+  {"nitros9l2", "jamesbrown",  setup_jamesbrown},
+  {"nitros9l2", "coco3",       setup_nitros9l2_coco3},
   {"hatvan",    "gep9",        setup_gep9},
   {"hatvan",    "gep9big",     setup_gep9big},
   {"hatvan",    "coco2",       setup_hatvan_coco2},

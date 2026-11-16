@@ -16,6 +16,10 @@
 #include "cobs_tx.h"
 #include "vfs.h"
 
+#ifndef T_WALLTIME
+#define T_WALLTIME 182
+#endif
+
 namespace tcl_io {
 
 // I/O channel flags — can be combined
@@ -58,10 +62,11 @@ inline unsigned char poll_key(console::inkey_state* iks) {
   // Check USB CDC (non-blocking) — skip if USB is not connected
   if ((active_io & IO_USB) && usb_tether_ok()) {
     std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
-      // Anything that is not an RPC or PicoRPC packet is treated as keyboard input
+      // Anything that is not an RPC, PicoRPC, or WallTime packet is treated as keyboard input
       return s && s->length() > 0 &&
              (unsigned char)(*s)[0] != T_RPC &&
-             (unsigned char)(*s)[0] != T_PICO_RPC;
+             (unsigned char)(*s)[0] != T_PICO_RPC &&
+             (unsigned char)(*s)[0] != T_WALLTIME;
     });
     
     if (pkt) {

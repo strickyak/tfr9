@@ -9,16 +9,18 @@
 // ═══════════════════════════════════════════════════════════════════
 static uint8_t deep65280_mmu[2][8];
 static uint8_t deep65280_active_task = 0;
+static bool g_gime_mmu_enabled = true;
 static uint32_t task_mmu_base[8];
 
 static inline void IN_RAM update_task_mmu() {
   for (int s = 0; s < 8; s++) {
+    uint8_t blk = g_gime_mmu_enabled ? deep65280_mmu[deep65280_active_task][s] : (uint8_t)(0x38 + s);
 #if DEEP_256K
     // 256 KB physical RAM: 32 blocks ($00..$1F). MMU pages $00..$1F shadow $20..$3F.
-    task_mmu_base[s] = (uint32_t)(deep65280_mmu[deep65280_active_task][s] & 0x1F) << 13;
+    task_mmu_base[s] = (uint32_t)(blk & 0x1F) << 13;
 #else
     // 128 KB physical RAM: 16 blocks ($00..$0F).
-    task_mmu_base[s] = (uint32_t)(deep65280_mmu[deep65280_active_task][s] & 0x0F) << 13;
+    task_mmu_base[s] = (uint32_t)(blk & 0x0F) << 13;
 #endif
   }
 }

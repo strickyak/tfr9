@@ -78,10 +78,10 @@ struct HamsterFlatPolicy {
 };
 
 // 2. hamster_gime: 8 KB task MMU ($0000..$FDFF) + fixed $FE00..$FEFF trampoline + dispatch tables ($FF00..$FFFF).
-//    Serves `nitros9l2 for deep65280` (and future `jamesbrown` / `coco3` targets on TFR/911H).
+//    Serves `nitros9l2` for `deep65280`, `jamesbrown`, and `coco3` on TFR/911H.
 struct HamsterGimePolicy {
   static FORCE_INLINE bool IrqNeeded() {
-    return flat65280_irq_needed();
+    return flat65280_irq_needed() || gime_irq_needed();
   }
   static FORCE_INLINE byte Read(uint addr) {
     if (likely(addr < 0xFE00)) {

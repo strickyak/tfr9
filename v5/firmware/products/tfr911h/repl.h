@@ -131,7 +131,8 @@ static void tcl_repl_task(Coro& self) {
       std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
         return s && s->length() > 0 &&
                (unsigned char)(*s)[0] != T_RPC &&
-               (unsigned char)(*s)[0] != T_PICO_RPC;
+               (unsigned char)(*s)[0] != T_PICO_RPC &&
+               (unsigned char)(*s)[0] != T_WALLTIME;
       });
       if (pkt) {
         byte ch = (byte)(*pkt)[0];

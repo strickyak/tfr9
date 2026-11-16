@@ -34,10 +34,11 @@ void IN_RAM deep65280_write_mmu(uint addr, byte d) {
   uint slot = reg & 7;
   deep65280_mmu[task][slot] = d;
   if (task == deep65280_active_task) {
+    uint8_t blk = g_gime_mmu_enabled ? d : (uint8_t)(0x38 + slot);
 #if DEEP_256K
-    task_mmu_base[slot] = (uint32_t)(d & 0x1F) << 13;
+    task_mmu_base[slot] = (uint32_t)(blk & 0x1F) << 13;
 #else
-    task_mmu_base[slot] = (uint32_t)(d & 0x0F) << 13;
+    task_mmu_base[slot] = (uint32_t)(blk & 0x0F) << 13;
 #endif
   }
 }
@@ -216,5 +217,220 @@ void setup_deep65280() {
 
   // 4. Install IO handlers
   Install_Deep65280_IO();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CoCo-3 / JamesBrown NitrOS-9 Level 2 Targets (`hamster_gime`)
+// ═══════════════════════════════════════════════════════════════════
+
+static void install_coco3_dos_launcher(uint16_t reset_entry = 0x2500, bool write_stub = true) {
+  static const uint16_t kCoco3Vecs[8] = {
+    0x0000, 0xFEEE, 0xFEF1, 0xFEF4, 0xFEF7, 0xFEFA, 0xFEFD, 0x2500,
+  };
+  for (int i = 0; i < 7; i++) {
+    vector_ram[2 * i + 0] = (byte)(kCoco3Vecs[i] >> 8);
+    vector_ram[2 * i + 1] = (byte)(kCoco3Vecs[i] & 0xFF);
+  }
+  vector_ram[14] = (byte)(reset_entry >> 8);
+  vector_ram[15] = (byte)(reset_entry & 0xFF);
+
+  if (write_stub) {
+    // Disk BASIC `DOS` stub at $2500: orcc #$50; lds #$0500; jmp $2602
+    static const byte kDosStub[9] = {0x1A, 0x50, 0x10, 0xCE, 0x05, 0x00, 0x7E, 0x26, 0x02};
+    for (int i = 0; i < 9; i++) {
+      ram[translate_deep_addr((uint16_t)(0x2500 + i))] = kDosStub[i];
+    }
+  }
+}
+
+static void load_nitros9l2_common(const char* tag, byte* out_init1) {
+  is_an_os9 = true;
+  sim_status_reg = 0;
+  sim_control_reg = 0;
+  clock_and_stop_reg = 0;
+  *out_init1 = 0;
+
+  // 1. Open drive 0 & drive 1 (defaulting drive 0 to /pc/level2.dsk or /pc/deep0.dsk when unset)
+  for (int d = 0; d < 2; d++) {
+    const char* path = (d == 0) ? g_config.drive0 : g_config.drive1;
+    if (d == 0 && (!path || !path[0])) {
+      struct vfs_info st;
+      if (vfs_stat("/pc/level2.dsk", &st) == 0) path = "/pc/level2.dsk";
+      else if (vfs_stat("/pc/deep0.dsk", &st) == 0) path = "/pc/deep0.dsk";
+    }
+    if (path && path[0]) {
+      g_drive_nodes[d] = vfs_resolve(path);
+      if (g_drive_nodes[d]) {
+        int err = g_drive_nodes[d]->open_file(LFS_O_RDWR);
+        if (err < 0) {
+          err = g_drive_nodes[d]->open_file(LFS_O_RDONLY);
+          if (err >= 0) {
+            cobs_printf("[%s: opened drive %d read-only: %s]\n", tag, d, path);
+          } else {
+            cobs_printf("[%s: drive %d open failed: %s]\n", tag, d, path);
+            g_drive_nodes[d] = nullptr;
+          }
+        } else {
+          cobs_printf("[%s: opened drive %d: %s]\n", tag, d, path);
+        }
+      } else {
+        cobs_printf("[%s: could not resolve drive %d path: %s]\n", tag, d, path);
+      }
+    } else {
+      g_drive_nodes[d] = nullptr;
+    }
+  }
+
+  // 2. Initialize MMU defaults ($00, $39..$3F for Task 0 & Task 1) and zero RAM
+  for (int t = 0; t < 2; t++) {
+    deep65280_mmu[t][0] = 0x00;
+    for (int s = 1; s < 8; s++) {
+      deep65280_mmu[t][s] = 0x38 + s;
+    }
+  }
+  g_gime_mmu_enabled = true;
+  deep65280_active_task = 0;
+  update_task_mmu();
+  memset(ram, 0, sizeof(ram));
+
+  // 3. Load boot image:
+  //    (a) explicit Config(flat_img): supports Track-35 ('OS' at $2600), pre-launched ($1A $50 at $2500),
+  //        or 64 KB whole-RAM image (Slot 0 -> block 0, Slots 1..7 -> blocks 25..31 / 9..15);
+  //    (b) otherwise, if drive 0 has a Track-34 'OS' kernel (LSN 612..629), boot straight off drive 0;
+  //    (c) otherwise, fall back to /pc/deep65280.img if present.
+  const char* img_path = g_config.flat_img[0] ? g_config.flat_img : nullptr;
+  if (!img_path && g_drive_nodes[0]) {
+    byte sec[256];
+    if (g_drive_nodes[0]->seek(612 * 256, LFS_SEEK_SET, nullptr) == 612 * 256 &&
+        g_drive_nodes[0]->read(sec, 256) == 256 &&
+        sec[0] == 'O' && sec[1] == 'S') {
+      cobs_printf("[%s: booting Track-34 'OS' kernel from drive 0 (LSN 612..629)]\n", tag);
+      *out_init1 = 1;
+      deep65280_active_task = 1;
+      update_task_mmu();
+      install_coco3_dos_launcher(0x2500, /*write_stub=*/true);
+      for (int i = 0; i < 256; i++) {
+        ram[translate_deep_addr((uint16_t)(0x2600 + i))] = sec[i];
+      }
+      for (int s = 1; s < 18; s++) {
+        if (g_drive_nodes[0]->read(sec, 256) != 256) break;
+        uint16_t base_log = (uint16_t)(0x2600 + s * 256);
+        for (int i = 0; i < 256; i++) {
+          ram[translate_deep_addr((uint16_t)(base_log + i))] = sec[i];
+        }
+      }
+      return;
+    }
+  }
+  if (!img_path) img_path = "/pc/deep65280.img";
+
+  auto img_node = vfs_resolve(img_path);
+  if (!img_node) {
+    cobs_printf("[%s: could not resolve %s]\n", tag, img_path);
+    return;
+  }
+  int err = img_node->open_file(LFS_O_RDONLY);
+  if (err < 0) {
+    cobs_printf("[%s: failed to open %s (err %d)]\n", tag, img_path, err);
+    return;
+  }
+
+  byte first_chunk[256];
+  lfs_ssize_t n0 = img_node->read(first_chunk, 256);
+  if (n0 <= 0) {
+    img_node->close_file(nullptr);
+    return;
+  }
+
+  if (n0 >= 2 && ((first_chunk[0] == 'O' && first_chunk[1] == 'S') ||
+                  (first_chunk[0] == 0x1A && first_chunk[1] == 0x50))) {
+    bool is_raw_t35 = (first_chunk[0] == 'O' && first_chunk[1] == 'S');
+    uint16_t load_base = is_raw_t35 ? 0x2600 : 0x2500;
+    *out_init1 = 1;
+    deep65280_active_task = 1;
+    update_task_mmu();
+    install_coco3_dos_launcher(0x2500, /*write_stub=*/is_raw_t35);
+    size_t total = 0;
+    for (int i = 0; i < n0; i++) {
+      ram[translate_deep_addr((uint16_t)(load_base + total++))] = first_chunk[i];
+    }
+    while (total < 0xD800) {
+      lfs_ssize_t n = img_node->read(first_chunk, 256);
+      if (n <= 0) break;
+      for (int i = 0; i < n; i++) {
+        ram[translate_deep_addr((uint16_t)(load_base + total++))] = first_chunk[i];
+      }
+    }
+    img_node->close_file(nullptr);
+    cobs_printf("[%s: loaded %d-byte launcher/track image at $%04X]\n", tag, (int)total, load_base);
+    return;
+  }
+
+  // Whole 64 KB image (Slot 0 -> block 0, Slots 1..7 -> top 7 blocks)
+  memcpy(&ram[0], first_chunk, (size_t)n0);
+  size_t total0 = (size_t)n0;
+  while (total0 < 8192) {
+    size_t chunk = 8192 - total0;
+    if (chunk > 256) chunk = 256;
+    lfs_ssize_t n = img_node->read(&ram[total0], chunk);
+    if (n <= 0) break;
+    total0 += (size_t)n;
+  }
+#if DEEP_256K
+  constexpr uint32_t kUpperPhys = 0x32000;
+  constexpr uint32_t kVecPhys   = 0x3FFF0;
+#else
+  constexpr uint32_t kUpperPhys = 0x12000;
+  constexpr uint32_t kVecPhys   = 0x1FFF0;
+#endif
+  size_t total1 = 0;
+  while (total1 < 57344) {
+    size_t chunk = 57344 - total1;
+    if (chunk > 256) chunk = 256;
+    lfs_ssize_t n = img_node->read(&ram[kUpperPhys + total1], chunk);
+    if (n <= 0) break;
+    total1 += (size_t)n;
+  }
+  img_node->close_file(nullptr);
+  memcpy(vector_ram, &ram[kVecPhys], 16);
+  cobs_printf("[%s: loaded %d + %d = %d bytes into RAM]\n",
+              tag, (int)total0, (int)total1, (int)(total0 + total1));
+}
+
+void Install_JamesBrown_IO(byte init1) {
+  IoReset();
+  TermAcia::Install(PortBase("acia", 0xFF14));
+  AudioSn76489::Install(PortBase("audio", 0xFF41));
+  InfoPort::Install(PortBase("info", 0xFF43));
+  BeckerPort::Install(PortBase("becker", 0xFF45));
+  EmuDsk::Install(PortBase("emudsk", 0xFF80));
+  Coco3Gime::Install(PortBase("gime", 0xFF90), 4, /*init0=*/0x40, init1);
+  DeepMmu::Install(PortBase("mmu", 0xFFA0));
+  RtcPort::Install(PortBase("rtc", 0xFFC0));
+  DeepVectors::Install();
+  IoFinish();
+}
+
+void Install_Nitros9L2Coco3_IO(byte init1) {
+  IoReset();
+  EmuDsk::Install(PortBase("emudsk", 0xFF80));
+  TermAcia::Install(PortBase("acia", 0xFF88));
+  Coco3Gime::Install(PortBase("gime", 0xFF90), 16, /*init0=*/0x40, init1);
+  DeepMmu::Install(PortBase("mmu", 0xFFA0));
+  Coco3Palette::Install(PortBase("palette", 0xFFB0));
+  DeepVectors::Install();
+  IoFinish();
+}
+
+void setup_jamesbrown() {
+  byte init1 = 0;
+  load_nitros9l2_common("jamesbrown", &init1);
+  Install_JamesBrown_IO(init1);
+}
+
+void setup_nitros9l2_coco3() {
+  byte init1 = 0;
+  load_nitros9l2_common("nitros9l2/coco3", &init1);
+  Install_Nitros9L2Coco3_IO(init1);
 }
 

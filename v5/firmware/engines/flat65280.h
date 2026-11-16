@@ -9,11 +9,12 @@ byte IN_RAM ram_vector_reader(uint addr) {
   return ram[0xFF00 | (addr & 0xFF)];
 }
 
-// IRQ check for flat65280 / deep65280
+// IRQ check for flat65280 / deep65280 / jamesbrown / coco3
 FORCE_INLINE bool IN_RAM flat65280_irq_needed() {
   bool clock_irq = (clock_and_stop_reg & 0x01) && (clock_and_stop_reg & 0x02);
-  bool acia_irq = ((flat65280_acia_ctrl & 0x80) != 0) && flat65280_rx_has_char;
-  return clock_irq || acia_irq;
+  bool acia_rx_irq = ((flat65280_acia_ctrl & 0x80) != 0) && flat65280_rx_has_char;
+  bool acia_tx_irq = ((flat65280_acia_ctrl & 0x60) == 0x20);
+  return clock_irq || acia_rx_irq || acia_tx_irq;
 }
 
 struct FlatVectors {   // $FFF0..$FFFF read from RAM (the 6809 vectors live in the top of RAM)
