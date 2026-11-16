@@ -501,17 +501,17 @@ static void drain_task(Coro& self) {
               g_gep9_disk_req.status.store(3, std::memory_order_release);
             } else {
               uint8_t task = g_gep9_disk_req.mem_task;
-              uint16_t maddr = g_gep9_disk_req.mem_addr;
+              uint32_t maddr24 = g_gep9_disk_req.mem_addr24;
               byte sec_buf[256];
               if (g_gep9_disk_req.command == 1) {
                 if (node->read(sec_buf, 256) == 256) {
-                  for (int i = 0; i < 256; i++) *gep9_mmu.TranslateWrite(task, (uint16_t)(maddr + i)) = sec_buf[i];
+                  for (uint32_t i = 0; i < 256; i++) *gep9_mmu.TranslateWrite24(task, maddr24 + i) = sec_buf[i];
                   g_gep9_disk_req.status.store(1, std::memory_order_release);
                 } else {
                   g_gep9_disk_req.status.store(4, std::memory_order_release);
                 }
               } else if (g_gep9_disk_req.command == 2) {
-                for (int i = 0; i < 256; i++) sec_buf[i] = *gep9_mmu.TranslateRead(task, (uint16_t)(maddr + i));
+                for (uint32_t i = 0; i < 256; i++) sec_buf[i] = *gep9_mmu.TranslateRead24(task, maddr24 + i);
                 g_gep9_disk_req.status.store(node->write(sec_buf, 256) == 256 ? 1 : 4, std::memory_order_release);
               } else {
                 g_gep9_disk_req.status.store(4, std::memory_order_release);

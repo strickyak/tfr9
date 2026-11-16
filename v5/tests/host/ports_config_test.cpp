@@ -164,8 +164,10 @@ int main() {
     CHECK(ParseLine("on tfr911h run hatvan for coco2", g_port_settings).ok, "hatvan coco2");
     CHECK(PortBase("console", 0) == 0xFF60, "coco2 console 0xff60");
     CHECK(PortBase("embiggen_mmu", 0) == 0xFFE0, "coco2 embiggen 0xffe0");
-    CHECK(ParseLine("on tfr911h run hatvan for gep9 with console at 0xff30", g_port_settings).ok, "override");
-    CHECK(PortBase("console", 0) == 0xFF30, "override wins");
+    CHECK(ParseLine("on tfr911h run hatvan for gep9 with console at 0xff50", g_port_settings).ok, "override");
+    CHECK(PortBase("console", 0) == 0xFF50, "override wins");
+    IoMap mv;
+    CHECK(PortsValidate(g_port_settings, mv).ok, "override validates");
     CHECK(PortBase("nonesuch", 0x1234) == 0x1234, "fallback");
     g_port_settings.Clear();
   }

@@ -105,8 +105,7 @@ void IN_RAM tfr911_background() {
         //
         cobs_printf("[bye: asserting RESET+HALT...]\n");
         gpio_set_dir(RESET, GPIO_OUT);
-        // bg_wants_halt.store(true, std::memory_order_relaxed); //== HaltOn();
-        //== HaltOn();
+        HaltOn();
 
         pio_sm_set_enabled(pio0, 0, false);
         pio_sm_restart(pio0, 0);
@@ -124,16 +123,13 @@ void IN_RAM tfr911_background() {
         }
         launcher->setup();
 
-        if (turbolab_rt::g_active) {
-          gpio_set_dir(HALT, GPIO_OUT);  // Hold 6309 in HALT until RESET releases cleanly
-        }
-
         ForegroundFn fg = FindHamsterEngine(active_tgt->engine);
         if (!fg) {
           centipede_abort("bye: unknown hamster engine");
         }
 
         foreground_running.store(false, std::memory_order_relaxed);
+        hamster_cpu_released.store(false, std::memory_order_relaxed);
         cobs_printf("[bye: launching core1 (%s)...]\n", active_tgt->engine);
         multicore_launch_core1(fg);
 
@@ -146,12 +142,12 @@ void IN_RAM tfr911_background() {
         gpio_set_dir(RESET, GPIO_IN);
         cobs_printf("[bye: RESET released, holding HALT...]\n");
         sleep_ms(5);
+        hamster_cpu_released.store(true, std::memory_order_release);
         if (turbolab_rt::g_active) {
           turbolab_rt::g_cpu_started.store(true, std::memory_order_release);
-          gpio_set_dir(HALT, GPIO_IN);
         }
-        // bg_wants_halt.store(false, std::memory_order_relaxed); //== HaltOff();
-        //== HaltOff();
+        sleep_ms(1);
+        HaltOff();
         cobs_printf("[bye: HALT released, 6309 booting]\n");
 
         alarm_pool_init_default();

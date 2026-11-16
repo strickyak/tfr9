@@ -15,7 +15,8 @@
 #define FG2BG_HIGH_WATERMARK 50  // Throttle when fg2bg event FIFO exceeds this
 
 std::atomic<bool> bg_wants_halt;
-std::atomic<bool> foreground_running{false};  // Set by core 1 when inner loop starts
+std::atomic<bool> foreground_running{false};    // Set by core 1 when inner loop starts
+std::atomic<bool> hamster_cpu_released{false};  // S64: set by core 0 after RESET hold completes
 
 // LED is push-pull: Positive Logic (1 == ON)
 FORCE_INLINE void IN_RAM LedOn()  { gpio_put(LED, 1); }
@@ -138,7 +139,7 @@ struct HamsterGep9Policy {
         if (addr != 0xFFFF && (addr & 1) == 0) {
           gep9_mmu.current_task = 0;
         }
-        value = *gep9_mmu.TranslateRead(0, addr);
+        value = *gep9_mmu.TranslateVectorRead((uint16_t)addr);
       } else if (gep9_mmu.current_task == 0 ||
                  (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0 ||
                  ((uint16_t)(addr - gep9_embiggen_base) < 8)) {
@@ -149,11 +150,8 @@ struct HamsterGep9Policy {
       }
     } else {
       value = *gep9_mmu.TranslateRead(gep9_mmu.current_task, addr);
-    }
-
-    if (unlikely(gep9_mmu.task_fuse_armed && gep9_mmu.task_fuse_step == 0)) {
-      if (value == 0x3B) {  // RTI opcode fetched
-        gep9_mmu.task_fuse_step = 1;
+      if (unlikely(gep9_mmu.task_fuse_armed && gep9_mmu.task_fuse_step == 0 && value == 0x3B)) {
+        gep9_mmu.task_fuse_step = 1;  // RTI opcode fetched
       }
     }
     return value;
@@ -161,7 +159,9 @@ struct HamsterGep9Policy {
   static FORCE_INLINE void Write(uint addr, byte value) {
     if (unlikely(addr >= 0xFF00)) {
       if (addr >= 0xFFF0) {
-        *gep9_mmu.TranslateWrite(0, addr) = value;
+        if (gep9_mmu.current_task == 0) {
+          *gep9_mmu.TranslateVectorWrite((uint16_t)addr) = value;
+        }
       } else if (gep9_mmu.current_task == 0 ||
                  (gep9_mmu.task_flags[gep9_mmu.current_task] & 0x01) != 0 ||
                  ((uint16_t)(addr - gep9_embiggen_base) < 8)) {
@@ -234,6 +234,17 @@ FORCE_INLINE void HamsterForegroundLoop() {
 
   // Signal background that we've reached the bus loop before it releases RESET/HALT.
   foreground_running.store(true, std::memory_order_release);
+
+  // S64: Pump clean E/Q clocks while core 0 holds RESET + HALT, without invoking Policy::Read or
+  // Policy::Write so dynamic-CMOS 6309 wake-up glitches cannot corrupt preloaded RAM or $FFxx I/O!
+  while (!hamster_cpu_released.load(std::memory_order_acquire)) {
+    pio_sm_put(pio0, 0, 0);
+    uint ep = pio_sm_get_blocking(pio0, 0);
+    if (0 != (ep & (1 << R_W))) {
+      pio_sm_put(pio0, 0, 0);
+    }
+    (void)pio_sm_get_blocking(pio0, 0);
+  }
 
   uint prev_late_pins = 0;  // memory for delaying LIC one cycle => FIC.
 

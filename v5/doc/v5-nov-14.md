@@ -9,7 +9,7 @@ see §1).  Time of writing: 2026-11-14 ≈ 23:45.
 
 ## 0. One-paragraph summary
 
-v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware products (`tfr911h.uf2` and `centipede32z.uf2`), a unified Go `tether` (including full TurboLab cycle-accurate trace decoding, `.list` relocation, OS-9 `SWI2`/`RTI` API decoding, and CoCo 2/3 VDG/GIME screen capture), the test harness, the `on <tfr911h|coco2|coco3> run <os> ?for <target>? ?with ...?` (repeated `with`) device/port architecture, the **5 `IN_RAM` Hamster foregrounds** (`hamster_flat`, `hamster_turbolab`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and **4 `IN_RAM` Gerbil foregrounds** (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`), **0 core-1 SRAM→flash calls** (`make check-core1` strict on both products), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all 23 `(on, run, for)` targets** in `ports.tsv`, shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on real hardware**: **ten** system-test suites pass across both live boards (TFR/911H and Centipede 32z + 16 KB CoCo 2).  **Remaining:** guest kit (`os/fujinet`, generated `.d`/`.go` port headers), `run_gep9.sh` guest debugging, and `.pak` loader (Phase 7).
+v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware products (`tfr911h.uf2` and `centipede32z.uf2`), a unified Go `tether` (including full TurboLab cycle-accurate trace decoding, `.list` relocation, OS-9 `SWI2`/`RTI` API decoding, and CoCo 2/3 VDG/GIME screen capture), the test harness, the `on <tfr911h|coco2|coco3> run <os> ?for <target>? ?with ...?` (repeated `with`) device/port architecture, the **5 `IN_RAM` Hamster foregrounds** (`hamster_flat`, `hamster_turbolab`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and **4 `IN_RAM` Gerbil foregrounds** (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`), **0 core-1 SRAM→flash calls** (`make check-core1` strict on both products), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all 23 `(on, run, for)` targets** in `ports.tsv`, shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on real hardware**: **ten** system-test suites pass across both live boards (TFR/911H and Centipede 32z + 16 KB CoCo 2), including all 6 guest OS configurations on TFR/911H (`turbo9os`, `flat65280`, `deep65280`, `hatvan/gep9`, `hatvan/gep9big`, `fuzix`).  **Remaining:** guest kit (`os/fujinet`, generated `.d`/`.go` port headers) and `.pak` loader (Phase 7).
 
 ---
 
@@ -153,7 +153,7 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 | 03 streaming source | 9 | small, error stop, nested, 349 KB script, board alive |
 | 04 heap | 9 | `heap-free`, runaway loop → catchable "out of memory", memory returns, no reboot |
 | 05 zip | 17 | stored 200 KB + deflated 207 KB entries (md5 equals PC), `source` from zip, `zip get` limits, `multifile` refusal, fragmentation survival |
-| 06 engines (expect) | 4 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Fuzix boot and run commands |
+| 06 engines (expect) | 6 | Turbo9OS, Flat65280 (L1), Deep65280 (L2), Hatvan (`gep9` & `gep9big`), Fuzix boot and run commands |
 | 07 ports | 66 | `on/run/for/with` (host `tfr911h`, repeated `with`, `,` & `tfr9` rejection), `turbolab` `key = value` validation, `ports list\|check`, `gep9`/`gep9big`+Becker clash and fixes, `coco2` vs `coco3` motherboard checks, `bye` refusal keeps `TCL>` |
 | 08 enhancements | 23 | Tcl `click`/`beep`/`fujinet stats`; 6309 `flat65280+e1` (SN76489, Orchestra-90, Becker, `T_WALLTIME` RTC, InfoPort); 6309 `nitros9l2 for coco3` (`.t35` launcher, 60 Hz GIME VBORD IRQ, Palette); 6309 `nitros9l2 for jamesbrown` (Track-34 disk boot + Diller I/O map) |
 | 09 centipede32z + CoCo 2 | 30 | live Centipede 32z (`b=centipede v=32z`) on 16 KB CoCo 2: label/ping/heap, `on`/`run`/`ports` PIA/SAM/GIME/host guards, `gerbil_sam64k` Disk Extended Color BASIC 1.1 (`MEM=22823`) + `e1` `InfoPort`, `gerbil_gime` "Become CoCo 3" Super Extended BASIC 2.1 + `HSCREEN 2` PNG capture, and 6809E `centipede run-decb` preload |
@@ -169,7 +169,7 @@ Other checks: `make check-sh`, `make check-io`, `make check-core1` (strict `-s`:
 functions, enforced on every `make tfr911h` and `make centipede32z`), `scripts/check-flash-size.sh` (`< 4 MB` LittleFS boundary, enforced on
 every `make tfr911h` and `make centipede32z`), `scripts/elf-parity.sh`.
 
-**Not covered by any automated test:** gep9/gep9big guests, `gerbil_io` on a physical CoCo 3 motherboard, moving a core device
+**Not covered by any automated test:** `gerbil_gep9` / `gerbil_io` on physical CoCo 2/3 motherboards, moving a core device
 and running a guest on it.
 
 ---
@@ -177,13 +177,10 @@ and running a guest on it.
 ## 5. Known bugs and limitations
 
 ### 5.1 Highest risk — fix or verify first
-1. **gep9 / gep9big are unverified at run time since step 5.**  Their dispatch tables were proven identical to v4's
-   *before* the port-configuration change; afterwards `PortBase()` addresses, `IoFinish()` and the new
-   `gep9_embiggen_base` test in `guts.h` (hot loop, two places) have never run against a Hatvan guest.  There is no
-   automated gep9 test.  Needs: a boot recipe and expected prompts for hatvan-os (kernel/rbf/procfs `.decb` files),
-   or at least a smoke test that boots with the real files.
-2. **Deflated zip entries need ~47 KB of heap in a few blocks** and can fail on a fragmented heap (clean error, no
-   hang).  Big pak entries should be stored.
+1. **Deflated zip entries need ~47 KB of heap in a few blocks** and can fail on a fragmented heap (clean error, no
+   hang).  Big pak entries should be stored (`zip -0`).
+2. **Hatvan on Centipede 32z (`gerbil_gep9`) is unverified on hardware** — on a real CoCo motherboard, SAM drives `E`/`Q`
+   continuously at 0.89 MHz (`gerbil.pio` does not expose `BS`/`LIC` or stretch `E`/`Q` during disk VFS RPCs).
 
 ### 5.2 Known quirks (understood, not fixed)
 * **Heap is small:** ~55.4 KB free after boot (`centipede heap-info`: `free=55416` on 2026-11-15 after adding Becker
@@ -236,8 +233,7 @@ and running a guest on it.
 
 1. **Remaining Phase 3 items:**
    * generate the guest definitions (NitrOS-9 `.d`, Go `gep9` table) from `ports.tsv`;
-   * `third_party/PATCHES.md` upstream audit; Linux `openat2` (`RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`) fast path for `/pc`;
-   * debug `run_gep9.sh` past `--  Hatvan OS` when ready and add an automated `hatvan` systest.
+   * `third_party/PATCHES.md` upstream audit; Linux `openat2` (`RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`) fast path for `/pc`.
 2. **Phase 4 — Centipede 32z product:** *Completed 2026-11-15* (`firmware/products/centipede32z` -> `build/centipede32z.uf2`, `boards/centipede32z.h`, 4 `IN_RAM` Gerbil engines in `firmware/engines/gerbil_guts.h`, 13 target launchers, `g_io_drive_mask`, shared library merge, flashed & verified live on the 16 KB CoCo 2 in `09_centipede_coco2_test.sh`).
 3. **Phase 5 — enhancement devices:** *Completed 2026-11-15* (`becker`, `audio`, `rtc`, `orchestra90`, `info` in `firmware/lib/devices/` via repeated `with e1 with ...`; remaining: FujiNet guest kit under `os/fujinet/`).
 4. **Phase 6 — TurboLab:** *Completed 2026-11-16* (unified into `tfr911h.uf2` + `build/tether` per `R21` as `on tfr911h run turbolab [with ...]`, `hamster_turbolab` in `firmware/engines/turbolab.h`, `turbolab.go` in `host/cmd/tether/`, `run_turbolab.sh`, verified in `10_turbolab_test.sh`).

@@ -1,0 +1,34 @@
+#!/usr/bin/expect -f
+# gep9.exp -- Hatvan OS on TFR/911H (gep9, boot mode 80).
+set timeout 30
+set send_slow {1 0.03}
+source [file join [file dirname [file normalize [info script]]] common.exp]
+puts "Engine gep9"
+start_tether 80
+expect_pass "tfr911h/hatvan/gep9 matches the plan" "IoMap matched tfr911h/hatvan/gep9"
+expect_pass "Hatvan OS" "Hatvan OS kernel banner printed"
+expect_pass "SHELL:FORK:OK" "Hatvan OS forked initial shell"
+expect_pass "$ " "Reached Hatvan '$ ' prompt"
+
+send -s "echo HELLO_HATVAN_GEP9\r"
+expect "echo HELLO_HATVAN_GEP9"
+expect_pass "HELLO_HATVAN_GEP9" "'echo' printed HELLO_HATVAN_GEP9"
+expect "$ "
+
+send -s "dir\r"
+expect_pass "Cmds9" "'dir' listed Cmds9 via RBF Task 1"
+expect "$ "
+
+send -s "cat /proc/p\r"
+expect_pass "hatvan-kernel" "'cat /proc/p' listed hatvan-kernel via PROCFS Task 2"
+expect "$ "
+
+send -s "cat /proc/i\r"
+expect_pass "M6809" "'cat /proc/i' reported M6809 architecture"
+expect "$ "
+
+send -s "exit\r"
+expect_pass "target shutdown OK (0)" "'exit' shut Hatvan down cleanly with status 0"
+# the board reboots after the target stops
+after 3000
+finish "Engine gep9"

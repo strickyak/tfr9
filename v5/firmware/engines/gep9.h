@@ -12,7 +12,7 @@ void IN_RAM gep9_write_disk_cmdst(uint, byte d) {
   g_gep9_disk_req.drive = gep9_disk.drive;
   g_gep9_disk_req.sector = gep9_disk.sector;
   g_gep9_disk_req.mem_task = gep9_disk.mem_task;
-  g_gep9_disk_req.mem_addr = gep9_disk.mem_addr;
+  g_gep9_disk_req.mem_addr24 = gep9_disk.mem_addr24;
   g_gep9_disk_req.command = d;
   g_gep9_disk_req.status.store(-1, std::memory_order_release);
 
@@ -79,8 +79,8 @@ static bool gep9_load_decb_into_task(uint8_t task, const char* path) {
         }
       } else if (chunk_type == 0xFF) { // Exec trailer
         if (task == 0) {
-          *gep9_mmu.TranslateWrite(0, 0xFFFE) = (addr >> 8) & 0xFF;
-          *gep9_mmu.TranslateWrite(0, 0xFFFF) = addr & 0xFF;
+          *gep9_mmu.TranslateVectorWrite(0xFFFE) = (addr >> 8) & 0xFF;
+          *gep9_mmu.TranslateVectorWrite(0xFFFF) = addr & 0xFF;
           cobs_printf("[gep9: DECB execution address $%04X set in reset vector]\n", addr);
         }
         break;
@@ -230,9 +230,13 @@ void setup_gep9big() {
 
   if (g_config.task1[0]) {
     gep9_load_decb_into_task(1, g_config.task1);
+  } else if (vfs_resolve("/pc/rbf_6809.decb")) {
+    gep9_load_decb_into_task(1, "/pc/rbf_6809.decb");
   }
   if (g_config.task2[0]) {
     gep9_load_decb_into_task(2, g_config.task2);
+  } else if (vfs_resolve("/pc/procfs_6809.decb")) {
+    gep9_load_decb_into_task(2, "/pc/procfs_6809.decb");
   }
 
   // 4. Install IO handlers (including 0xff40..0xff47 or 0xffe0..0xffe7 MMAP vector)

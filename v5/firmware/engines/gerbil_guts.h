@@ -283,7 +283,7 @@ struct GerbilGep9Policy {
       if (abus != 0xFFFFu && (abus & 1u) == 0) {
         gep9_mmu.current_task = 0;
       }
-      dbus = *gep9_mmu.TranslateRead(0, (uint16_t)abus);
+      dbus = *gep9_mmu.TranslateVectorRead((uint16_t)abus);
       return true;
     }
     if (IoIsDriven(lo)) {
@@ -309,7 +309,7 @@ struct GerbilGep9Policy {
     uint8_t lo = (uint8_t)(abus & 0xFFu);
     if (lo >= 0xF0u) {
       if (gep9_mmu.current_task == 0) {
-        *gep9_mmu.TranslateWrite(0, (uint16_t)abus) = dbus;
+        *gep9_mmu.TranslateVectorWrite((uint16_t)abus) = dbus;
       }
       return;
     }

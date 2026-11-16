@@ -152,14 +152,14 @@ static void drain_task(Coro& self) {
             break;
           }
           uint8_t task = g_gep9_disk_req.mem_task;
-          uint16_t addr = g_gep9_disk_req.mem_addr;
+          uint32_t addr24 = g_gep9_disk_req.mem_addr24;
           byte sec_buf[256];
           if (g_gep9_disk_req.command == 1) {
             // Read sector
             lfs_ssize_t n = node->read(sec_buf, 256);
             if (n == 256) {
-              for (int i = 0; i < 256; i++) {
-                *gep9_mmu.TranslateWrite(task, addr + i) = sec_buf[i];
+              for (uint32_t i = 0; i < 256; i++) {
+                *gep9_mmu.TranslateWrite24(task, addr24 + i) = sec_buf[i];
               }
               g_gep9_disk_req.status.store(1, std::memory_order_release); // 1 = OKAY
             } else {
@@ -167,8 +167,8 @@ static void drain_task(Coro& self) {
             }
           } else if (g_gep9_disk_req.command == 2) {
             // Write sector
-            for (int i = 0; i < 256; i++) {
-              sec_buf[i] = *gep9_mmu.TranslateRead(task, addr + i);
+            for (uint32_t i = 0; i < 256; i++) {
+              sec_buf[i] = *gep9_mmu.TranslateRead24(task, addr24 + i);
             }
             lfs_ssize_t n = node->write(sec_buf, 256);
             if (n == 256) {

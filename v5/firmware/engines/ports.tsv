@@ -87,21 +87,24 @@ port	tfr911h	nitros9l2	coco3	mmu	0xffa0	0xffaf
 port	tfr911h	nitros9l2	coco3	palette	0xffb0	0xffbf
 port	tfr911h	nitros9l2	coco3	vectors	0xfff0	0xffff
 
-# --- tfr911h: hatvan for gep9 / gep9big / coco2 ---
+# --- tfr911h: hatvan for gep9 / gep9big / coco2 (Hatvan I/O Spec v2.0) ---
 port	tfr911h	hatvan	gep9	console	0xff00	0xff05
-port	tfr911h	hatvan	gep9	disk	0xff10	0xff17
+port	tfr911h	hatvan	gep9	disk	0xff10	0xff1b
 port	tfr911h	hatvan	gep9	fuse_dma	0xff20	0xff2f
+port	tfr911h	hatvan	gep9	task_sec	0xff30	0xff36
 port	tfr911h	hatvan	gep9	embiggen_mmu	0xff40	0xff47
 port	tfr911h	hatvan	gep9	vectors	0xfff0	0xffff
 port	tfr911h	hatvan	gep9big	console	0xff00	0xff05
-port	tfr911h	hatvan	gep9big	disk	0xff10	0xff17
+port	tfr911h	hatvan	gep9big	disk	0xff10	0xff1b
 port	tfr911h	hatvan	gep9big	fuse_dma	0xff20	0xff2f
+port	tfr911h	hatvan	gep9big	task_sec	0xff30	0xff36
 port	tfr911h	hatvan	gep9big	embiggen_mmu	0xff40	0xff47
 port	tfr911h	hatvan	gep9big	vectors	0xfff0	0xffff
+port	tfr911h	hatvan	coco2	disk	0xff50	0xff5b
 port	tfr911h	hatvan	coco2	console	0xff60	0xff65
-port	tfr911h	hatvan	coco2	disk	0xff68	0xff6f
 port	tfr911h	hatvan	coco2	fuse_dma	0xff80	0xff8f
 port	tfr911h	hatvan	coco2	embiggen_mmu	0xffe0	0xffe7
+port	tfr911h	hatvan	coco2	task_sec	0xffe8	0xffee
 port	tfr911h	hatvan	coco2	vectors	0xfff0	0xffff
 
 # --- tfr911h: fuzix for multicomp09 (port ABI decoded directly by hamster_multicomp) ---
@@ -128,10 +131,11 @@ port	coco2	nitros9l2	coco3	gime	0xff90	0xff9f
 port	coco2	nitros9l2	coco3	mmu	0xffa0	0xffaf
 port	coco2	nitros9l2	coco3	palette	0xffb0	0xffbf
 port	coco2	nitros9l2	coco3	vectors	0xfff0	0xffff
+port	coco2	hatvan	coco2	disk	0xff50	0xff5b
 port	coco2	hatvan	coco2	console	0xff60	0xff65
-port	coco2	hatvan	coco2	disk	0xff68	0xff6f
 port	coco2	hatvan	coco2	fuse_dma	0xff80	0xff8f
 port	coco2	hatvan	coco2	embiggen_mmu	0xffe0	0xffe7
+port	coco2	hatvan	coco2	task_sec	0xffe8	0xffee
 port	coco2	hatvan	coco2	vectors	0xfff0	0xffff
 port	coco2	fuzix	coco2	acia	0xff60	0xff61
 port	coco2	fuzix	coco2	uart_stubs	0xff62	0xff65
@@ -155,10 +159,11 @@ port	coco3	nitros9l2	deep65280	clockstop	0xff87	0xff87
 port	coco3	nitros9l2	deep65280	acia	0xff88	0xff89
 port	coco3	nitros9l2	coco3	emudsk	0xff80	0xff86
 port	coco3	nitros9l2	coco3	acia	0xff88	0xff89
+port	coco3	hatvan	coco2	disk	0xff50	0xff5b
 port	coco3	hatvan	coco2	console	0xff60	0xff65
-port	coco3	hatvan	coco2	disk	0xff68	0xff6f
 port	coco3	hatvan	coco2	fuse_dma	0xff80	0xff8f
 port	coco3	hatvan	coco2	embiggen_mmu	0xffe0	0xffe7
+port	coco3	hatvan	coco2	task_sec	0xffe8	0xffee
 port	coco3	hatvan	coco2	vectors	0xfff0	0xffff
 port	coco3	fuzix	coco2	acia	0xff60	0xff61
 port	coco3	fuzix	coco2	uart_stubs	0xff62	0xff65

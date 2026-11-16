@@ -77,12 +77,12 @@ struct Gep9MMU {
   uint8_t  task_fuse_target;
   uint8_t  task_fuse_step;
 
-  // Task capabilities & security flags ($FF2D..$FF2E)
+  // Task capabilities & security flags ($FF34..$FF35)
   uint8_t  task_flags_target;
   uint8_t  task_flags[GEP9_NUM_TASKS]; // Bit 0: TASK_FLAG_IO
 
-  // Shared memory curtain ($FF28..$FF29, default $E000)
-  uint16_t shared_curtain;
+  // Shared memory curtain ($FF30..$FF33, 32-bit Big-Endian, default $0000E000)
+  uint32_t shared_curtain;
 
   void Init() {
     // 1. Frame 0 is permanently zeroed
@@ -131,7 +131,7 @@ struct Gep9MMU {
     task_fuse_armed = false;
     task_fuse_target = 0;
     task_fuse_step = 0;
-    shared_curtain = 0xE000;
+    shared_curtain = 0x0000E000u;
     task_flags_target = 1;
   }
 
@@ -277,8 +277,11 @@ struct Gep9MMU {
 
   FORCE_INLINE byte* IN_RAM TranslateRead(uint8_t task, uint16_t addr) {
     // 1. Shared Memory Curtain (Tasks 0, 1, 2)
-    if (task <= 2 && addr >= shared_curtain && addr < 0xFF00) {
-      task = 0;
+    uint16_t curtain = (uint16_t)(shared_curtain & 0xFFFFu);
+    if (curtain > 0 && task <= 2 && addr >= curtain && addr < 0xFF00) {
+      if (!embiggen || task_mmap[task][addr >> 13] == (uint8_t)(addr >> 13)) {
+        task = 0;
+      }
     }
 
     if (embiggen) {
@@ -326,8 +329,11 @@ struct Gep9MMU {
 
   FORCE_INLINE byte* IN_RAM TranslateWrite(uint8_t task, uint16_t addr) {
     // 1. Shared Memory Curtain (Tasks 0, 1, 2)
-    if (task <= 2 && addr >= shared_curtain && addr < 0xFF00) {
-      task = 0;
+    uint16_t curtain = (uint16_t)(shared_curtain & 0xFFFFu);
+    if (curtain > 0 && task <= 2 && addr >= curtain && addr < 0xFF00) {
+      if (!embiggen || task_mmap[task][addr >> 13] == (uint8_t)(addr >> 13)) {
+        task = 0;
+      }
     }
 
     if (embiggen) {
@@ -441,34 +447,50 @@ struct Gep9MMU {
     return &ram[(f << 8) | b];
   }
 
-  FORCE_INLINE byte* IN_RAM TranslateReadPhys(uint8_t task, uint8_t page, uint16_t addr) {
-    if (page == 0) {
-      return TranslateRead(task, addr);
-    }
+  FORCE_INLINE byte* IN_RAM TranslateVectorRead(uint16_t addr) {
     if (embiggen) {
-      uint32_t phys = ((uint32_t)page << 16) | addr;
-      uint8_t blk = phys / 8192;
-      uint16_t off = phys % 8192;
-      if (blk < GEP9_NUM_BLOCKS) {
-        return TranslateBlockRead(task, blk, off);
-      }
+      return TranslateBlockRead(0, 7, (uint16_t)(addr & 0x1FFFu));
     }
-    return &ram[addr & 0xFF];
+    return TranslateRead(0, addr);
+  }
+
+  FORCE_INLINE byte* IN_RAM TranslateVectorWrite(uint16_t addr) {
+    if (embiggen) {
+      return TranslateBlockWrite(0, 7, (uint16_t)(addr & 0x1FFFu));
+    }
+    return TranslateWrite(0, addr);
+  }
+
+  FORCE_INLINE byte* IN_RAM TranslateRead24(uint8_t task, uint32_t addr24) {
+    if (embiggen && (addr24 >> 16) > 0) {
+      uint32_t blk = addr24 >> 13;
+      uint16_t off = (uint16_t)(addr24 & 0x1FFFu);
+      if (blk < GEP9_NUM_BLOCKS) {
+        return TranslateBlockRead(task, (uint8_t)blk, off);
+      }
+      return &ram[addr24 & 0xFFu];
+    }
+    return TranslateRead(task, (uint16_t)addr24);
+  }
+
+  FORCE_INLINE byte* IN_RAM TranslateWrite24(uint8_t task, uint32_t addr24) {
+    if (embiggen && (addr24 >> 16) > 0) {
+      uint32_t blk = addr24 >> 13;
+      uint16_t off = (uint16_t)(addr24 & 0x1FFFu);
+      if (blk < GEP9_NUM_BLOCKS) {
+        return TranslateBlockWrite(task, (uint8_t)blk, off);
+      }
+      return &ram[0];
+    }
+    return TranslateWrite(task, (uint16_t)addr24);
+  }
+
+  FORCE_INLINE byte* IN_RAM TranslateReadPhys(uint8_t task, uint8_t page, uint16_t addr) {
+    return TranslateRead24(task, ((uint32_t)page << 16) | addr);
   }
 
   FORCE_INLINE byte* IN_RAM TranslateWritePhys(uint8_t task, uint8_t page, uint16_t addr) {
-    if (page == 0) {
-      return TranslateWrite(task, addr);
-    }
-    if (embiggen) {
-      uint32_t phys = ((uint32_t)page << 16) | addr;
-      uint8_t blk = phys / 8192;
-      uint16_t off = phys % 8192;
-      if (blk < GEP9_NUM_BLOCKS) {
-        return TranslateBlockWrite(task, blk, off);
-      }
-    }
-    return TranslateWrite(task, addr);
+    return TranslateWrite24(task, ((uint32_t)page << 16) | addr);
   }
 };
 
