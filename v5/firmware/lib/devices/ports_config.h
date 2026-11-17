@@ -577,6 +577,23 @@ inline PortsCheck ValidateDeviceParam(const char* dev, const char* param, const 
       if (ParsePositiveInt(val, &b)) return PortsOk();
       return PortsFail("dw.baud: '%s' is not a positive baud rate", val);
     }
+    if (!strcmp(param, "polarity")) {
+      if (!strcmp(val, "normal") || !strcmp(val, "invert") || !strcmp(val, "inverted") ||
+          !strcmp(val, "dragon") || !strcmp(val, "tx_invert") || !strcmp(val, "rx_invert")) {
+        return PortsOk();
+      }
+      return PortsFail("dw.polarity: unknown polarity '%s' (known: normal, invert, dragon/tx_invert, rx_invert)", val);
+    }
+    if (!strcmp(param, "tx")) {
+      uint32_t p = 0;
+      if (ParsePositiveInt(val, &p) && (p == 12 || p == 14 || p == 16 || p == 18)) return PortsOk();
+      return PortsFail("dw.tx: '%s' is not a valid UART0 TX hat GPIO (12, 14, 16, 18)", val);
+    }
+    if (!strcmp(param, "rx")) {
+      uint32_t p = 0;
+      if (ParsePositiveInt(val, &p) && (p == 13 || p == 15 || p == 17 || p == 19)) return PortsOk();
+      return PortsFail("dw.rx: '%s' is not a valid UART0 RX hat GPIO (13, 15, 17, 19)", val);
+    }
     return PortsFail("unknown option '%s' for device 'dw'", param);
   }
   if (!strcmp(dev, "becker") && !strcmp(param, "over")) {

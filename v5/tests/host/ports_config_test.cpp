@@ -153,6 +153,13 @@ int main() {
     CHECK(!bare.ok && Has(bare, "not an address"), "bare number: '%s'", bare.msg);
     PortsCheck dwbad = ParseAndValidate("on coco2 run nitros9l2 for coco3 with dw over telepathy");
     CHECK(!dwbad.ok && Has(dwbad, "dw.over"), "bad dw.over: '%s'", dwbad.msg);
+    CHECK(ParseAndValidate("on tfr911h run nitros9l2 for jamesbrown with dw baud 57600 polarity dragon tx 16 rx 17").ok, "dw polarity/tx/rx ok");
+    PortsCheck dwpol = ParseAndValidate("on tfr911h run nitros9l2 for jamesbrown with dw polarity sideways");
+    CHECK(!dwpol.ok && Has(dwpol, "dw.polarity"), "bad dw.polarity: '%s'", dwpol.msg);
+    PortsCheck dwtx = ParseAndValidate("on tfr911h run nitros9l2 for jamesbrown with dw tx 13");
+    CHECK(!dwtx.ok && Has(dwtx, "dw.tx"), "bad dw.tx: '%s'", dwtx.msg);
+    PortsCheck dwrx = ParseAndValidate("on tfr911h run nitros9l2 for jamesbrown with dw rx 12");
+    CHECK(!dwrx.ok && Has(dwrx, "dw.rx"), "bad dw.rx: '%s'", dwrx.msg);
     CHECK(ParseAndValidate("on tfr911h run nitros9l1 for flat65280 with becker off").ok, "enhancement off");
   }
 
