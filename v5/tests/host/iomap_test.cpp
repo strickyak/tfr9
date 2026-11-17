@@ -52,7 +52,7 @@ static void TestCoreAndHostNeverOverlap() {
   }
 }
 
-// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clashes across all 23
+// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clashes across all 25
 // targets are tfr911h/hatvan/gep9 and tfr911h/hatvan/gep9big (embiggen_mmu 0xff40-47) vs becker (0xff41-42).
 static void TestEnhancementsFitEverywhere() {
   int conflicts = 0;
@@ -119,6 +119,15 @@ static void TestGoldenAddresses() {
     {"tfr911h", "nitros9l2", "jamesbrown",  "gime",           0xFF90, 0xFF93},
     {"tfr911h", "nitros9l2", "jamesbrown",  "mmu",            0xFFA0, 0xFFAF},
     {"tfr911h", "nitros9l2", "jamesbrown",  "rtc",            0xFFC0, 0xFFC7},
+    {"coco2",   "nitros9l2", "jamesbrown",  "becker",         0xFF41, 0xFF42},
+    {"coco2",   "nitros9l2", "jamesbrown",  "audio",          0xFF70, 0xFF71},
+    {"coco2",   "nitros9l2", "jamesbrown",  "rtc",            0xFF72, 0xFF79},
+    {"coco2",   "nitros9l2", "jamesbrown",  "info",           0xFF7C, 0xFF7D},
+    {"coco2",   "nitros9l2", "jamesbrown",  "emudsk",         0xFF80, 0xFF86},
+    {"coco2",   "nitros9l2", "jamesbrown",  "acia",           0xFF88, 0xFF89},
+    {"coco3",   "nitros9l2", "jamesbrown",  "becker",         0xFF41, 0xFF42},
+    {"coco3",   "nitros9l2", "jamesbrown",  "rtc",            0xFF72, 0xFF79},
+    {"coco3",   "nitros9l2", "jamesbrown",  "acia",           0xFF88, 0xFF89},
     {"tfr911h", "hatvan",    "gep9",        "console",        0xFF00, 0xFF05},
     {"tfr911h", "hatvan",    "gep9",        "disk",           0xFF10, 0xFF1B},
     {"tfr911h", "hatvan",    "gep9",        "fuse_dma",       0xFF20, 0xFF2F},

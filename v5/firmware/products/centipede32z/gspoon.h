@@ -454,6 +454,7 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
       waited_ms += 50;
     }
     SleepMillis(coro_self, 250);
+    rtc_poll_walltime();
   }
 
   if (boot_mode == 70 || boot_mode == 1170) {

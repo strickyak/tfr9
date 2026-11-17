@@ -82,61 +82,9 @@ static void drain_task(Coro& self) {
           break;
         }
 #endif
-        case FG2BG_EMUDSK: {
-          rpc::g_vfs_coro = &self;
-          uint8_t drv = g_emudsk_req.drive;
-          if (drv > 1 || !g_drive_nodes[drv]) {
-            g_emudsk_req.status.store(2, std::memory_order_release); // Drive not ready / enabled
-            break;
-          }
-          auto node = g_drive_nodes[drv];
-          lfs_soff_t offset = (lfs_soff_t)g_emudsk_req.lsn * 256;
-          lfs_soff_t actual = node->seek(offset, LFS_SEEK_SET, &self);
-          if (actual != offset) {
-            g_emudsk_req.status.store(6, std::memory_order_release); // Seek error
-            break;
-          }
-          uint16_t buf_addr = g_emudsk_req.buffer_addr;
-          byte sec_buf[256];
-          if (g_emudsk_req.command == 0) {
-            // Read sector (translate per byte when deep MMU is active so 8 KB block boundaries are safe)
-            lfs_ssize_t n = node->read(sec_buf, 256);
-            if (n == 256) {
-              if (g_deep_mmu_active) {
-                for (int i = 0; i < 256; i++) {
-                  ram[translate_deep_addr((uint16_t)(buf_addr + i))] = sec_buf[i];
-                }
-              } else {
-                for (int i = 0; i < 256; i++) {
-                  ram[(uint16_t)(buf_addr + i)] = sec_buf[i];
-                }
-              }
-              g_emudsk_req.status.store(0, std::memory_order_release);
-            } else {
-              g_emudsk_req.status.store(6, std::memory_order_release);
-            }
-          } else if (g_emudsk_req.command == 1) {
-            // Write sector
-            if (g_deep_mmu_active) {
-              for (int i = 0; i < 256; i++) {
-                sec_buf[i] = ram[translate_deep_addr((uint16_t)(buf_addr + i))];
-              }
-            } else {
-              for (int i = 0; i < 256; i++) {
-                sec_buf[i] = ram[(uint16_t)(buf_addr + i)];
-              }
-            }
-            lfs_ssize_t n = node->write(sec_buf, 256);
-            if (n == 256) {
-              g_emudsk_req.status.store(0, std::memory_order_release);
-            } else {
-              g_emudsk_req.status.store(6, std::memory_order_release);
-            }
-          } else {
-            g_emudsk_req.status.store(6, std::memory_order_release);
-          }
+        case FG2BG_EMUDSK:
+          emudsk_service_bg(&self);
           break;
-        }
         case FG2BG_GEP9_DISK: {
           rpc::g_vfs_coro = &self;
           uint8_t drv = g_gep9_disk_req.drive;

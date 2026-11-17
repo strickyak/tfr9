@@ -1,5 +1,5 @@
 #pragma once
-// centipede_targets.h -- Core-0 target launchers for all 13 `(on, run, for)` Centipede 32z rows in `ports.tsv`.
+// centipede_targets.h -- Core-0 target launchers for all 15 `(on, run, for)` Centipede 32z rows in `ports.tsv`.
 //
 // Reuses `flat65280.h`, `deep65280.h`, and `gep9.h` directly from `firmware/engines/`, plus adds:
 //   - `rsbasic for coco2` (64 KB RAM substitution + Disk 1.1 ROM + floppy, or DECB preload)
@@ -421,6 +421,48 @@ static void setup_centipede_nitros9l2_coco3_on_coco3() {
   g_launch_initial_sp = 0;
 }
 
+// ── 9b. coco2 / nitros9l2 / jamesbrown (`gerbil_gime`) ──
+static void setup_centipede_nitros9l2_jamesbrown_on_coco2() {
+  g_deep_mmu_mask = 0x1F;
+  g_deep_fe_base  = 0x3E000;
+  g_gime_rom_mode = false;
+  g_disk11_rom_enabled = false;
+  g_floppy_enabled = false;
+  SamP1Bit = false;
+  SamTyBit = true;
+  g_guest_boot_us = time_us_64();
+  setup_jamesbrown_coco();
+  write_vdg_banner("JAMESBROWN NITROS-9 L2 (256K)");
+  g_launch_mode = LAUNCH_OS_DIRECT;
+  g_launch_exec_addr = ((uint16_t)vector_ram[14] << 8) | vector_ram[15];
+  g_launch_initial_sp = 0;
+}
+
+// ── 9c. coco3 / nitros9l2 / jamesbrown (`gerbil_io`) ──
+static void setup_centipede_nitros9l2_jamesbrown_on_coco3() {
+  is_an_os9 = true;
+  g_floppy_enabled = false;
+  g_guest_boot_us = time_us_64();
+  for (int d = 0; d < 2; d++) {
+    const char* path = (d == 0) ? g_config.drive0 : g_config.drive1;
+    g_drive_nodes[d] = (path && path[0]) ? vfs_resolve(path) : nullptr;
+    if (g_drive_nodes[d] && g_drive_nodes[d]->open_file(LFS_O_RDWR) < 0) {
+      if (g_drive_nodes[d]->open_file(LFS_O_RDONLY) < 0) g_drive_nodes[d] = nullptr;
+    }
+  }
+  IoReset();
+  BeckerPort::Install(PortBase("becker", 0xFF41));
+  AudioSn76489::Install(PortBase("audio", 0xFF70));
+  RtcPort::Install(PortBase("rtc", 0xFF72));
+  InfoPort::Install(PortBase("info", 0xFF7C));
+  EmuDsk::Install(PortBase("emudsk", 0xFF80));
+  TermAcia::Install(PortBase("acia", 0xFF88));
+  IoFinish();
+  g_launch_mode = LAUNCH_HOST_COCO3;
+  g_launch_exec_addr = 0;
+  g_launch_initial_sp = 0;
+}
+
 // ── 10 & 11. coco2|coco3 / hatvan / coco2 (`gerbil_gep9`) ──
 static void setup_centipede_hatvan() {
   g_floppy_enabled = false;
@@ -520,14 +562,16 @@ static const CentipedeTargetLauncher kCentipedeLaunchers[] = {
   {"coco2", "rsbasic",   "coco2",     setup_centipede_rsbasic_coco2},
   {"coco2", "rsbasic",   "coco3",     setup_centipede_rsbasic_coco3},
   {"coco2", "nitros9l1", "flat65280", setup_centipede_nitros9l1_coco2},
-  {"coco2", "nitros9l2", "deep65280", setup_centipede_nitros9l2_deep_coco2},
-  {"coco2", "nitros9l2", "coco3",     setup_centipede_nitros9l2_coco3_on_coco2},
-  {"coco2", "hatvan",    "coco2",     setup_centipede_hatvan},
-  {"coco2", "fuzix",     "coco2",     setup_centipede_fuzix_coco2},
-  {"coco3", "rsbasic",   "coco3",     setup_centipede_host_coco3_rsbasic},
-  {"coco3", "nitros9l1", "flat65280", setup_centipede_nitros9l1_coco3},
-  {"coco3", "nitros9l2", "deep65280", setup_centipede_nitros9l2_deep_coco3},
-  {"coco3", "nitros9l2", "coco3",     setup_centipede_nitros9l2_coco3_on_coco3},
+  {"coco2", "nitros9l2", "deep65280",  setup_centipede_nitros9l2_deep_coco2},
+  {"coco2", "nitros9l2", "jamesbrown", setup_centipede_nitros9l2_jamesbrown_on_coco2},
+  {"coco2", "nitros9l2", "coco3",      setup_centipede_nitros9l2_coco3_on_coco2},
+  {"coco2", "hatvan",    "coco2",      setup_centipede_hatvan},
+  {"coco2", "fuzix",     "coco2",      setup_centipede_fuzix_coco2},
+  {"coco3", "rsbasic",   "coco3",      setup_centipede_host_coco3_rsbasic},
+  {"coco3", "nitros9l1", "flat65280",  setup_centipede_nitros9l1_coco3},
+  {"coco3", "nitros9l2", "deep65280",  setup_centipede_nitros9l2_deep_coco3},
+  {"coco3", "nitros9l2", "jamesbrown", setup_centipede_nitros9l2_jamesbrown_on_coco3},
+  {"coco3", "nitros9l2", "coco3",      setup_centipede_nitros9l2_coco3_on_coco3},
   {"coco3", "hatvan",    "coco2",     setup_centipede_hatvan},
   {"coco3", "fuzix",     "coco2",     setup_centipede_fuzix_coco3},
 };

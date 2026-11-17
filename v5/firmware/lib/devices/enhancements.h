@@ -37,6 +37,7 @@ inline void IoInstallEnhancementDevice(const char* dev, uint16_t base, uint16_t 
 }
 
 inline void Phase2PollEnhancements() {
+  rtc_poll_walltime();
   if (becker::active) becker::Pump();
   if (g_rtc_active) rtc_refresh_regs();
   if (g_info_active) info_service();

@@ -6,14 +6,15 @@ export SHELF
 # parallel jobs: getconf works on Linux and macOS
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
-.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk flash-fujinet check-fujinet
+.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk jamesbrown-32z-dsk flash-fujinet check-fujinet
 help:
 	@echo "targets:"
 	@echo "  tfr911h      build the TFR/911H firmware -> build/tfr911h.uf2"
 	@echo "  centipede32z build the Centipede 32z firmware -> build/centipede32z.uf2"
 	@echo "  tether       build the Go tether for this machine -> build/tether"
 	@echo "  tethers      cross-build the 8 tether binaries -> build/tether.*.exe"
-	@echo "  jamesbrown-dsk build build/tfr911-jamesbrown.dsk (incl. CMDS/basic09)"
+	@echo "  jamesbrown-dsk     build build/tfr911-jamesbrown.dsk (incl. CMDS/basic09)"
+	@echo "  jamesbrown-32z-dsk build build/centipede32z-jamesbrown.dsk (6809E, CoCo-safe I/O)"
 	@echo "  flash-fujinet  burn FujiNet firmware + LittleFS onto an ESP32 hat over USB"
 	@echo "  check-fujinet  diagnose FujiNet hat pins, bodges, and 921600-baud link"
 	@echo "  doctor       check toolchain (SHELF=$(SHELF))"
@@ -47,6 +48,9 @@ tethers:
 
 jamesbrown-dsk:
 	@sh scripts/make-jamesbrown-dsk.sh
+
+jamesbrown-32z-dsk:
+	@sh scripts/make-jamesbrown-32z-dsk.sh
 
 flash-fujinet:
 	@sh scripts/flash-fujinet.sh

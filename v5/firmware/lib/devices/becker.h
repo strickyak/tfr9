@@ -2,8 +2,8 @@
 // becker.h -- DriveWire / FujiNet Becker port over UART0 (default GPIO 12 TX, GPIO 13 RX)
 // plus interactive FujiNet hat hardware & protocol diagnostics (`fujinet` Tcl command).
 //
-// Default address in enhancement map `e1`: 0xFF41 (status), 0xFF42 (data);
-// on `jamesbrown`: 0xFF45..0xFF46.
+// Default address in enhancement map `e1` and `coco2`/`coco3` `jamesbrown`: 0xFF41 (status), 0xFF42 (data);
+// on `tfr911h` `jamesbrown`: 0xFF45..0xFF46.
 // Status read: bit 1 (0x02) set when RX data is waiting, else 0x00.
 // Data read:   next RX byte (0xFF if empty); Data write: enqueue TX byte to UART.
 //
@@ -114,11 +114,17 @@ inline void EnsureInit(uint32_t baud = active_baud, uint tx_pin = active_tx_pin,
     uart_set_format(BECKER_UART, 8, 1, UART_PARITY_NONE);
     uart_set_hw_flow(BECKER_UART, false, false);
     uart_set_fifo_enabled(BECKER_UART, true);
+    // Trigger RX IRQ at 1/8 FIFO (4 of 32 bytes) and highest NVIC priority (0x00)
+    // so 921600-baud 256-byte DriveWire bursts never overrun during TinyUSB ISRs.
+    hw_write_masked(&uart_get_hw(BECKER_UART)->ifls,
+                    0u << UART_UARTIFLS_RXIFLSEL_LSB,
+                    UART_UARTIFLS_RXIFLSEL_BITS);
     busy_wait_us_32(150);
     while (uart_is_readable(BECKER_UART)) (void)uart_getc(BECKER_UART);
     uart_get_hw(BECKER_UART)->rsr = UART_UARTRSR_BITS;
     Flush();
     irq_set_exclusive_handler(UART_IRQ_NUM(BECKER_UART), UartIrq);
+    irq_set_priority(UART_IRQ_NUM(BECKER_UART), 0x00);
     irq_set_enabled(UART_IRQ_NUM(BECKER_UART), true);
     uart_set_irqs_enabled(BECKER_UART, true, false);
     hw_inited = true;

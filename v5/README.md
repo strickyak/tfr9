@@ -9,6 +9,9 @@ Status: **Phases 0–6 implemented and hardware-verified** (`tfr911h.uf2`, `cent
     make help          # list targets
     make doctor        # check the toolchain (SHELF defaults to ../.. = the coco-shelf)
     make tether tfr911h centipede32z
+    make jamesbrown-dsk jamesbrown-32z-dsk
+    make flash-fujinet # flash FujiNet ESP32 hat firmware + LittleFS over USB
+    make check-fujinet # diagnose FujiNet hat wiring/bodges, 921600-baud link, and jamesbrown verdict
     make test-host     # C++ + Go host tests (no board required)
     make systest       # 10 live hardware test suites (TFR/911H + Centipede 32z)
 
@@ -18,7 +21,7 @@ Build output goes to `build/`.  See `AGENTS.md` for the rules of this tree.
 
 - **TFR/911H:** `./run_tfr911h_turbo9os.sh`, `./run_tfr911h_nitros9_l1.sh`, `./run_tfr911h_nitros9_l2.sh`, `./run_tfr911h_jamesbrown.sh`, `./run_tfr911h_fuzix.sh`, `./run_tfr911h_gep9.sh`, `./run_tfr911h_gep9big.sh`
 - **TurboLab (on TFR/911H):** `./run_tfr911h_turbolab.sh WITH trigger = r/0xFFE8 WITH trace_count = 10000`
-- **Centipede 32z (on CoCo 2/3):** `./run_centipede32z_coco2_basic.sh`, `./run_centipede32z_coco3_basic.sh`
+- **Centipede 32z (on CoCo 2/3):** `./run_centipede32z_coco2_basic.sh`, `./run_centipede32z_coco3_basic.sh`, `./run_centipede32z_jamesbrown.sh` (pass `-coco3` on a CoCo 3)
 
 ## Layout (see spec section 5.2)
 

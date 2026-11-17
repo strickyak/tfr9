@@ -1,8 +1,8 @@
 #!/bin/sh
 # diagnose_fujinet.sh [--centipede | --wire=DEV] [--esp-port=DEV | --no-esp-usb] [SUBCOMMAND ...]
 #
-# Full hardware & protocol diagnostic for a FujiNet hat on a TFR/911H (default)
-# or Centipede 32z:
+# Full hardware & protocol diagnostic for a FujiNet hat on an attached TFR/911H
+# or Centipede 32z (auto-detected unless --tfr911h / --centipede / --wire is given):
 #   1. If an ESP32 USB-UART cable (/dev/ttyUSB* or --esp-port=DEV) is ALSO plugged
 #      in (and no specific subcommand other than `diag` or `matrix` was given),
 #      holds the ESP32 in ROM bootloader (all ESP32 pins verified hi-Z) and sweeps
@@ -18,7 +18,8 @@
 #      from the TFR/911H (electrical pin states + 921600-baud UART scan + OP_TIME +
 #      AdapterConfig + MAC + WiFi + Host/Device slots).
 #   3. Prints a final JAMESBROWN VERDICT stating whether the hat is expected to work
-#      with `jamesbrown` (`run_tfr911h_jamesbrown.sh`), or listing every problem found.
+#      with `jamesbrown` (`run_tfr911h_jamesbrown.sh` / `run_centipede32z_jamesbrown.sh`),
+#      or listing every problem found.
 #
 # Examples:
 #   make check-fujinet
@@ -34,7 +35,7 @@ TETHER=${TETHER:-$V5/build/tether}
 WIRE=${TFR_DEV:-${WIRE:-}}
 ESP_PORT=${FUJINET_PORT:-}
 USE_ESP_USB=auto
-BOARD_QUERY="b=tfr9 v=911h"
+BOARD_QUERY=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -75,11 +76,19 @@ if [ ! -x "$TETHER" ]; then
 fi
 
 if [ -z "$WIRE" ]; then
-  # shellcheck disable=SC2086
-  WIRE=$(sh "$V5/scripts/find-board.sh" $BOARD_QUERY) || {
-    echo "diagnose_fujinet: no board matching '$BOARD_QUERY' found" >&2
-    exit 1
-  }
+  if [ -n "$BOARD_QUERY" ]; then
+    # shellcheck disable=SC2086
+    WIRE=$(sh "$V5/scripts/find-board.sh" $BOARD_QUERY) || {
+      echo "diagnose_fujinet: no board matching '$BOARD_QUERY' found" >&2
+      exit 1
+    }
+  else
+    WIRE=$(sh "$V5/scripts/find-board.sh" b=tfr9 v=911h 2>/dev/null || sh "$V5/scripts/find-board.sh" b=centipede v=32z 2>/dev/null || true)
+    if [ -z "$WIRE" ]; then
+      echo "diagnose_fujinet: no TFR/911H or Centipede 32z board found" >&2
+      exit 1
+    fi
+  fi
 fi
 
 SUBCMD=${1:-diag}

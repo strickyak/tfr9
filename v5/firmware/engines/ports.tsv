@@ -25,6 +25,7 @@ target	tfr911h	fuzix	multicomp09	hamster_multicomp
 # --- coco2 (Centipede 32z in a CoCo 1 or CoCo 2: Gerbil PIO, no motherboard GIME/MMU) ---
 target	coco2	nitros9l1	flat65280	gerbil_sam64k
 target	coco2	nitros9l2	deep65280	gerbil_gime
+target	coco2	nitros9l2	jamesbrown	gerbil_gime
 target	coco2	nitros9l2	coco3	gerbil_gime
 target	coco2	hatvan	coco2	gerbil_gep9
 target	coco2	fuzix	coco2	gerbil_gime
@@ -34,6 +35,7 @@ target	coco2	rsbasic	coco3	gerbil_gime
 # --- coco3 (Centipede 32z in a real CoCo 3: Gerbil PIO, motherboard already has GIME/MMU/RAM) ---
 target	coco3	nitros9l1	flat65280	gerbil_io
 target	coco3	nitros9l2	deep65280	gerbil_io
+target	coco3	nitros9l2	jamesbrown	gerbil_io
 target	coco3	nitros9l2	coco3	gerbil_io
 target	coco3	hatvan	coco2	gerbil_gep9
 target	coco3	fuzix	coco2	gerbil_io
@@ -68,7 +70,7 @@ port	tfr911h	nitros9l2	deep65280	gime	0xff90	0xff91
 port	tfr911h	nitros9l2	deep65280	mmu	0xffa0	0xffaf
 port	tfr911h	nitros9l2	deep65280	vectors	0xfff0	0xffff
 
-# --- tfr911h: nitros9l2 for jamesbrown (Andrew Diller's L2 I/O addresses; tfr911h only) ---
+# --- tfr911h: nitros9l2 for jamesbrown (Andrew Diller's SBC L2 I/O addresses; coco2/coco3 jamesbrown uses e1 addresses below) ---
 port	tfr911h	nitros9l2	jamesbrown	acia	0xff14	0xff15
 port	tfr911h	nitros9l2	jamesbrown	audio	0xff41	0xff42
 port	tfr911h	nitros9l2	jamesbrown	info	0xff43	0xff44
@@ -125,6 +127,16 @@ port	coco2	nitros9l2	deep65280	acia	0xff88	0xff89
 port	coco2	nitros9l2	deep65280	gime	0xff90	0xff91
 port	coco2	nitros9l2	deep65280	mmu	0xffa0	0xffaf
 port	coco2	nitros9l2	deep65280	vectors	0xfff0	0xffff
+port	coco2	nitros9l2	jamesbrown	becker	0xff41	0xff42
+port	coco2	nitros9l2	jamesbrown	audio	0xff70	0xff71
+port	coco2	nitros9l2	jamesbrown	rtc	0xff72	0xff79
+port	coco2	nitros9l2	jamesbrown	info	0xff7c	0xff7d
+port	coco2	nitros9l2	jamesbrown	emudsk	0xff80	0xff86
+port	coco2	nitros9l2	jamesbrown	acia	0xff88	0xff89
+port	coco2	nitros9l2	jamesbrown	gime	0xff90	0xff9f
+port	coco2	nitros9l2	jamesbrown	mmu	0xffa0	0xffaf
+port	coco2	nitros9l2	jamesbrown	palette	0xffb0	0xffbf
+port	coco2	nitros9l2	jamesbrown	vectors	0xfff0	0xffff
 port	coco2	nitros9l2	coco3	emudsk	0xff80	0xff86
 port	coco2	nitros9l2	coco3	acia	0xff88	0xff89
 port	coco2	nitros9l2	coco3	gime	0xff90	0xff9f
@@ -157,6 +169,12 @@ port	coco3	nitros9l1	flat65280	acia	0xff88	0xff89
 port	coco3	nitros9l2	deep65280	emudsk	0xff80	0xff86
 port	coco3	nitros9l2	deep65280	clockstop	0xff87	0xff87
 port	coco3	nitros9l2	deep65280	acia	0xff88	0xff89
+port	coco3	nitros9l2	jamesbrown	becker	0xff41	0xff42
+port	coco3	nitros9l2	jamesbrown	audio	0xff70	0xff71
+port	coco3	nitros9l2	jamesbrown	rtc	0xff72	0xff79
+port	coco3	nitros9l2	jamesbrown	info	0xff7c	0xff7d
+port	coco3	nitros9l2	jamesbrown	emudsk	0xff80	0xff86
+port	coco3	nitros9l2	jamesbrown	acia	0xff88	0xff89
 port	coco3	nitros9l2	coco3	emudsk	0xff80	0xff86
 port	coco3	nitros9l2	coco3	acia	0xff88	0xff89
 port	coco3	hatvan	coco2	disk	0xff50	0xff5b

@@ -2,7 +2,8 @@
 // rtc_port.h -- Real-Time Clock port (8 binary registers: century, year, month, day, wday, hour, min, sec).
 //
 // Compatible with Jeff Vavasour's CoCo 3 emulator RTC (`clock2_jvemu` / `clock2_tfr911`).
-// Default address in enhancement map `e1`: 0xFF72..0xFF79; on `jamesbrown`: 0xFFC0..0xFFC7.
+// Default address in enhancement map `e1` and `coco2`/`coco3` `jamesbrown`: 0xFF72..0xFF79;
+// on `tfr911h` `jamesbrown`: 0xFFC0..0xFFC7.
 // Wall-clock local time is supplied by `tether` via T_WALLTIME (182: 4-byte big-endian Unix seconds).
 // Registers are indexed relative to `g_rtc_base`, so unaligned bases like 0xFF72 work cleanly.
 

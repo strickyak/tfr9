@@ -362,27 +362,32 @@ static inline void PollRuntimeUsbInput() {
              (unsigned char)(*s)[0] != T_WALLTIME;
     });
     if (!pkt) break;
+    byte cmd = (byte)(*pkt)[0];
+    if (cmd == T_HELLO) {
+      // Discard tether's 3-byte startup handshake {T_HELLO=178, 129, 0} so 129/0
+      // are never misread as keystrokes on /Term or the CoCo keyboard injector.
+      delete pkt;
+      continue;
+    }
     if (g_rx_poll_fn) {
-      byte cmd = (byte)(*pkt)[0];
-      if (cmd == C_PUTCHAR) {
-        if (pkt->size() >= 2) {
-          byte c = (byte)(*pkt)[1];
-          if (c == 10) c = 13;
-          term_input.Put(c);
-        }
-      } else {
+      if ((cmd == C_PUTCHAR || cmd == 193) && pkt->size() >= 2) {
+        byte c = (byte)(*pkt)[1];
+        if (c == 10) c = 13;
+        term_input.Put(c);
+      } else if (cmd >= 1 && cmd <= 127) {
         for (size_t i = 0; i < pkt->length(); i++) {
           byte ch = (byte)(*pkt)[i];
           if (ch == 10) ch = 13;
-          term_input.Put(ch);
+          if (ch >= 1 && ch <= 127) term_input.Put(ch);
         }
+      } else if (g_term_acia_arrow_keys && cmd >= 128 && cmd <= 133 && pkt->size() == 1) {
+        term_input.Put(cmd);
       }
     } else {
       // BASIC / CoCo keyboard mode: feed incoming tether keystrokes into the PIA keyboard injector!
-      byte cmd = (byte)(*pkt)[0];
-      if (cmd == C_PUTCHAR && pkt->size() >= 2) {
+      if ((cmd == C_PUTCHAR || cmd == 193) && pkt->size() >= 2) {
         keyboard_injector::queue_char((*pkt)[1]);
-      } else {
+      } else if (cmd >= 1 && cmd <= 131) {
         for (size_t i = 0; i < pkt->length(); i++) {
           keyboard_injector::queue_char((*pkt)[i]);
         }
@@ -440,53 +445,13 @@ static void drain_task(Coro& self) {
         case FG2BG_W_256:
         case FG2BG_FUZIX_SD_READ:
         case FG2BG_FUZIX_SD_WRITE:
+        case FG2BG_EMUDSK:
           while (floppy_has_work) {
             coro_yield(&self);
           }
           floppy_pending_chore = chore;
           floppy_has_work = true;
           break;
-
-        case FG2BG_EMUDSK: {
-          Coro* saved = rpc::g_vfs_coro;
-          rpc::g_vfs_coro = &self;
-          uint8_t drv = g_emudsk_req.drive;
-          if (drv > 1 || !g_drive_nodes[drv]) {
-            g_emudsk_req.status.store(2, std::memory_order_release);
-          } else {
-            auto node = g_drive_nodes[drv];
-            lfs_soff_t off = (lfs_soff_t)g_emudsk_req.lsn * 256;
-            if (node->seek(off, LFS_SEEK_SET, &self) != off) {
-              g_emudsk_req.status.store(4, std::memory_order_release);
-            } else {
-              uint16_t buf_addr = g_emudsk_req.buffer_addr;
-              byte sec_buf[256];
-              if (g_emudsk_req.command == 0) {
-                if (node->read(sec_buf, 256) == 256) {
-                  if (g_deep_mmu_active) {
-                    for (int i = 0; i < 256; i++) ram[translate_deep_addr((uint16_t)(buf_addr + i))] = sec_buf[i];
-                  } else {
-                    for (int i = 0; i < 256; i++) ram[(uint16_t)(buf_addr + i)] = sec_buf[i];
-                  }
-                  g_emudsk_req.status.store(0, std::memory_order_release);
-                } else {
-                  g_emudsk_req.status.store(6, std::memory_order_release);
-                }
-              } else if (g_emudsk_req.command == 1) {
-                if (g_deep_mmu_active) {
-                  for (int i = 0; i < 256; i++) sec_buf[i] = ram[translate_deep_addr((uint16_t)(buf_addr + i))];
-                } else {
-                  for (int i = 0; i < 256; i++) sec_buf[i] = ram[(uint16_t)(buf_addr + i)];
-                }
-                g_emudsk_req.status.store(node->write(sec_buf, 256) == 256 ? 0 : 6, std::memory_order_release);
-              } else {
-                g_emudsk_req.status.store(6, std::memory_order_release);
-              }
-            }
-          }
-          rpc::g_vfs_coro = saved;
-          break;
-        }
 
         case FG2BG_GEP9_DISK: {
           Coro* saved = rpc::g_vfs_coro;
@@ -601,6 +566,9 @@ static void floppy_task(Coro& self) {
         rpc::g_vfs_coro = saved;
         break;
       }
+      case FG2BG_EMUDSK:
+        emudsk_service_bg(&self);
+        break;
       default:
         break;
     }

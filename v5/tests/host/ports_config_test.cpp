@@ -128,8 +128,22 @@ int main() {
     CHECK(!sam.ok && Has(sam, "coco_sam"), "coco2 SAM collision caught: '%s'", sam.msg);
     PortsCheck gime = ParseAndValidate("on coco3 run nitros9l2 for coco3 with rtc at 0xff90");
     CHECK(!gime.ok && Has(gime, "coco3_gime"), "coco3 real GIME collision caught: '%s'", gime.msg);
-    PortsCheck jb = ParseAndValidate("on coco2 run nitros9l2 for jamesbrown");
-    CHECK(!jb.ok && Has(jb, "supported on: tfr911h"), "jamesbrown refused on coco2: '%s'", jb.msg);
+    PortsCheck gep = ParseAndValidate("on coco2 run hatvan for gep9");
+    CHECK(!gep.ok && Has(gep, "supported on: tfr911h"), "gep9 refused on coco2: '%s'", gep.msg);
+
+    // jamesbrown on coco2 and coco3 uses CoCo-safe e1 addresses (no PIA/SAM/GIME clashes).
+    PortSettings jb2, jb3;
+    IoMap jbm2, jbm3;
+    CHECK(ParseLine("on coco2 run nitros9l2 for jamesbrown", jb2).ok && PortsValidate(jb2, jbm2).ok,
+          "jamesbrown validates on coco2");
+    CHECK(jbm2.OwnerOf(0xFF41) && !strcmp(jbm2.OwnerOf(0xFF41), "becker"), "coco2 jamesbrown becker 0xff41");
+    CHECK(jbm2.OwnerOf(0xFF70) && !strcmp(jbm2.OwnerOf(0xFF70), "audio"), "coco2 jamesbrown audio 0xff70");
+    CHECK(jbm2.OwnerOf(0xFF72) && !strcmp(jbm2.OwnerOf(0xFF72), "rtc"), "coco2 jamesbrown rtc 0xff72");
+    CHECK(jbm2.OwnerOf(0xFF7C) && !strcmp(jbm2.OwnerOf(0xFF7C), "info"), "coco2 jamesbrown info 0xff7c");
+    CHECK(jbm2.OwnerOf(0xFF88) && !strcmp(jbm2.OwnerOf(0xFF88), "acia"), "coco2 jamesbrown acia 0xff88");
+    CHECK(ParseLine("on coco3 run nitros9l2 for jamesbrown", jb3).ok && PortsValidate(jb3, jbm3).ok,
+          "jamesbrown validates on coco3");
+    CHECK(!strcmp(jb3.Get("engine"), "gerbil_io"), "coco3 jamesbrown implies gerbil_io");
   }
 
   // 7. 0xff7f ($FF7F), core device rules, fixed ports, and invalid options.

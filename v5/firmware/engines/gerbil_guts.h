@@ -174,7 +174,7 @@ struct GerbilSam64kPolicy {
 };
 
 // 2. gerbil_gime: CoCo 3 128 KB / 256 KB MMU + GIME + Palette + ROM/OS + floppy + keyboard injector + IODriveMask.
-//    Serves `on coco2 run rsbasic for coco3` ("Become CoCo 3"), `nitros9l2` (`deep65280`, `coco3`), and `fuzix`.
+//    Serves `on coco2 run rsbasic for coco3` ("Become CoCo 3"), `nitros9l2` (`deep65280`, `jamesbrown`, `coco3`), and `fuzix`.
 struct GerbilGimePolicy {
   static constexpr bool kHasGimeTimer = true;
 

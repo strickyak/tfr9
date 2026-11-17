@@ -1,8 +1,8 @@
 #pragma once
 // audio_sn76489.h -- SN76489 sound generator + keyclick/bell/beep PWM mixer.
 //
-// Default address in enhancement map `e1`: 0xFF70 (SN76489 data), 0xFF71 (control);
-// on `jamesbrown`: 0xFF41..0xFF42.
+// Default address in enhancement map `e1` and `coco2`/`coco3` `jamesbrown`: 0xFF70 (SN76489 data), 0xFF71 (control);
+// on `tfr911h` `jamesbrown`: 0xFF41..0xFF42.
 // Control register bits:
 //   bit 0 (0x01): enable keyclicks on console input
 //   bit 1 (0x02): enable terminal bell on BEL (0x07)

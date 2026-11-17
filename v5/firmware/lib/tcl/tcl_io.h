@@ -16,6 +16,9 @@
 #include "cobs_tx.h"
 #include "vfs.h"
 
+#ifndef T_HELLO
+#define T_HELLO 178
+#endif
 #ifndef T_WALLTIME
 #define T_WALLTIME 182
 #endif
@@ -61,17 +64,18 @@ inline unsigned char poll_key(console::inkey_state* iks) {
   }
   // Check USB CDC (non-blocking) — skip if USB is not connected
   if ((active_io & IO_USB) && usb_tether_ok()) {
-    std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
-      // Anything that is not an RPC, PicoRPC, or WallTime packet is treated as keyboard input
-      return s && s->length() > 0 &&
-             (unsigned char)(*s)[0] != T_RPC &&
-             (unsigned char)(*s)[0] != T_PICO_RPC &&
-             (unsigned char)(*s)[0] != T_WALLTIME;
-    });
-    
-    if (pkt) {
+    while (true) {
+      std::string* pkt = usb_packet_buf.Yoink([](std::string* s) {
+        // Anything that is not an RPC, PicoRPC, or WallTime packet is inspected here
+        return s && s->length() > 0 &&
+               (unsigned char)(*s)[0] != T_RPC &&
+               (unsigned char)(*s)[0] != T_PICO_RPC &&
+               (unsigned char)(*s)[0] != T_WALLTIME;
+      });
+      if (!pkt) break;
       unsigned char uch = (unsigned char)(*pkt)[0];
       delete pkt;
+      if (uch == T_HELLO) continue;  // discard tether's {178, 129, 0} handshake packet
       return uch;
     }
   }

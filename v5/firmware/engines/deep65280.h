@@ -246,11 +246,15 @@ static void load_nitros9l2_common(const char* tag, byte* out_init1) {
   clock_and_stop_reg = 0;
   *out_init1 = 0;
 
-  // 1. Open drive 0 & drive 1 (defaulting drive 0 to /pc/tfr911-jamesbrown.dsk, /pc/level2.dsk, or /pc/deep0.dsk when unset)
+  // 1. Open drive 0 & drive 1 (defaulting drive 0 to jamesbrown, level2, or deep0 disk when unset)
   for (int d = 0; d < 2; d++) {
     const char* path = (d == 0) ? g_config.drive0 : g_config.drive1;
     if (d == 0 && (!path || !path[0])) {
       struct vfs_info st;
+#if defined(G_E)
+      if (vfs_stat("/pc/centipede32z-jamesbrown.dsk", &st) == 0) path = "/pc/centipede32z-jamesbrown.dsk";
+      else
+#endif
       if (vfs_stat("/pc/tfr911-jamesbrown.dsk", &st) == 0) path = "/pc/tfr911-jamesbrown.dsk";
       else if (vfs_stat("/pc/level2.dsk", &st) == 0) path = "/pc/level2.dsk";
       else if (vfs_stat("/pc/deep0.dsk", &st) == 0) path = "/pc/deep0.dsk";
@@ -419,10 +423,31 @@ void Install_Nitros9L2Coco3_IO(byte init1) {
   IoFinish();
 }
 
+void Install_JamesBrownCoco_IO(byte init1) {
+  IoReset();
+  BeckerPort::Install(PortBase("becker", 0xFF41));
+  AudioSn76489::Install(PortBase("audio", 0xFF70));
+  RtcPort::Install(PortBase("rtc", 0xFF72));
+  InfoPort::Install(PortBase("info", 0xFF7C));
+  EmuDsk::Install(PortBase("emudsk", 0xFF80));
+  TermAcia::Install(PortBase("acia", 0xFF88));
+  Coco3Gime::Install(PortBase("gime", 0xFF90), 16, /*init0=*/0x40, init1);
+  DeepMmu::Install(PortBase("mmu", 0xFFA0));
+  Coco3Palette::Install(PortBase("palette", 0xFFB0));
+  DeepVectors::Install();
+  IoFinish();
+}
+
 void setup_jamesbrown() {
   byte init1 = 0;
   load_nitros9l2_common("jamesbrown", &init1);
   Install_JamesBrown_IO(init1);
+}
+
+void setup_jamesbrown_coco() {
+  byte init1 = 0;
+  load_nitros9l2_common("jamesbrown-32z", &init1);
+  Install_JamesBrownCoco_IO(init1);
 }
 
 void setup_nitros9l2_coco3() {

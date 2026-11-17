@@ -428,8 +428,8 @@ void PollTermInput() {
 #include "gep9_io.h"
 #include "v4_multicomp09.h"
 
-#include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
 #include "deep_mmu.h"   // Deep65280 MMU state and address translation
+#include "emudsk.h"   // EMUDSK block-device register model ($FF80..$FF86)
 #include "gime.h"   // CoCo 3 GIME control/IRQ/shadow registers ($FF90..$FF9F) & palette ($FFB0..$FFBF)
 #include "rtc_port.h"   // RTC 8-register clock port + T_WALLTIME receiver
 #include "audio_sn76489.h"   // SN76489 sound generator + keyclick/bell/beep PWM mixer

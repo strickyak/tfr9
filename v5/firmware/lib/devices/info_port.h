@@ -1,8 +1,8 @@
 #pragma once
 // info_port.h -- Firmware diagnostic report port (2 registers: trigger/status + character stream).
 //
-// Default address in enhancement map `e1`: 0xFF7C (trigger/status), 0xFF7D (stream);
-// on `jamesbrown`: 0xFF43..0xFF44.
+// Default address in enhancement map `e1` and `coco2`/`coco3` `jamesbrown`: 0xFF7C (trigger/status), 0xFF7D (stream);
+// on `tfr911h` `jamesbrown`: 0xFF43..0xFF44.
 // Protocol (used by OS-9 `info`):
 //   Write 0xA5 to base+0 -> requests core 0 to format a fresh report (`Key\tValue\n` lines).
 //   Read  base+0         -> returns 1 once ready, 0 while pending.
@@ -69,7 +69,11 @@ inline void info_service() {
   info_format_uptime(up_pico, sizeof up_pico, now_us);
   info_format_uptime(up_guest, sizeof up_guest, g_guest_boot_us ? (now_us - g_guest_boot_us) : 0);
 
+#if defined(G_E)
+  INFO_LINE("Board\tCopico Centipede 32z: Motorola 6809E + Raspberry Pi RP2350B\n");
+#else
   INFO_LINE("Board\tTFR/911H: Hitachi 63C09E + Raspberry Pi RP2350B\n");
+#endif
   INFO_LINE("Firmware\ttfr9 v5\n");
   if (tgt) {
     INFO_LINE("Target\t%s/%s/%s (engine %s)\n", tgt->on_host, tgt->run_os, tgt->for_hw, tgt->engine);
