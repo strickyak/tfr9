@@ -367,7 +367,7 @@ inline void AppendPinsReport(Tcl_Interp* interp) {
     Tcl_AppendResult(interp, "ALL hat pins FLOAT -> hat unpowered, not seated, or ESP32 held in reset.\n", (char*)NULL);
   } else if (s13 == PIN_HIGH && s12 == PIN_HIGH) {
     Tcl_AppendResult(interp,
-        "GPIO 12 & GPIO 13 both HIGH -> 40c+bodges (TX12->IO33 pull-up & RX13<-IO21 TX idle HIGH) BOTH connected!\n",
+        "GPIO 12 & GPIO 13 both HIGH -> 40c+bodges / 41d+bodge (TX12->IO33 pull-up & RX13<-IO21 TX idle HIGH) BOTH connected!\n",
         (char*)NULL);
   } else if (s13 == PIN_HIGH && s12 == PIN_FLOAT) {
     Tcl_AppendResult(interp,
@@ -664,6 +664,7 @@ inline int fujinet_cmd(ClientData, Tcl_Interp* interp, int argc, char* argv[]) {
         "fujinet mount ?1..4?     mount FujiNet device slot N (default 1)\n"
         "fujinet raw <hex> ?want? ?ms?  send hex bytes and return hex reply\n"
         "fujinet pulse <gpio>     pulse a non-driven hat GPIO low for 200ms (continuity test)\n"
+        "fujinet drive <gpio> <0|1|z>   drive a hat GPIO at 2mA (0/1) or release to hi-Z (z)\n"
         "fujinet sniff ?ms?       listen passively for UART bytes (default 2000ms)\n"
         "fujinet stats            show byte and error counters",
         (char*)NULL);
@@ -827,6 +828,40 @@ inline int fujinet_cmd(ClientData, Tcl_Interp* interp, int argc, char* argv[]) {
     gpio_set_dir(g, GPIO_IN);
     gpio_pull_up(g);
     snprintf(result, sizeof result, "pulsed GPIO%u low for 200ms", g);
+    Tcl_SetResult(interp, result, TCL_STATIC);
+    return TCL_OK;
+  }
+  if (argc > 1 && !strcmp(argv[1], "drive")) {
+    if (argc < 4) {
+      Tcl_SetResult(interp, (char*)"usage: fujinet drive <gpio> <0|1|z>", TCL_STATIC);
+      return TCL_ERROR;
+    }
+    uint g = (uint)atoi(argv[2]);
+    bool allowed = false;
+    for (size_t i = 0; i < sizeof(becker::kHatPins) / sizeof(becker::kHatPins[0]); i++) {
+      if (becker::kHatPins[i].gpio == g) allowed = true;
+    }
+    if (!allowed) {
+      Tcl_SetResult(interp, (char*)"pin is not a safe hat GPIO", TCL_STATIC);
+      return TCL_ERROR;
+    }
+    becker::Deinit();
+    char mode = argv[3][0];
+    gpio_init(g);
+    gpio_set_drive_strength(g, GPIO_DRIVE_STRENGTH_2MA);
+    if (mode == 'z' || mode == 'Z') {
+      gpio_set_dir(g, GPIO_IN);
+      gpio_disable_pulls(g);
+      snprintf(result, sizeof result, "GPIO%u -> Z", g);
+    } else if (mode == '0' || mode == '1') {
+      gpio_disable_pulls(g);
+      gpio_put(g, mode == '1' ? 1 : 0);
+      gpio_set_dir(g, GPIO_OUT);
+      snprintf(result, sizeof result, "GPIO%u -> %c", g, mode);
+    } else {
+      Tcl_SetResult(interp, (char*)"mode must be 0, 1, or z", TCL_STATIC);
+      return TCL_ERROR;
+    }
     Tcl_SetResult(interp, result, TCL_STATIC);
     return TCL_OK;
   }
