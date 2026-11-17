@@ -2,7 +2,13 @@
 # run_tfr911h_gep9.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
-HB=${V5_IMG_HATVAN_DIR:-$HOME/github.com/strickyak/hatvan-os/build}
+if [ -n "${V5_IMG_HATVAN_DIR:-}" ]; then
+  HB=$V5_IMG_HATVAN_DIR
+elif [ -d "$DIR/images/hatvan" ]; then
+  HB="$DIR/images/hatvan"
+else
+  HB="$HOME/github.com/strickyak/hatvan-os/build"
+fi
 
 exec "$DIR/scripts/run-tfr911h-demo.sh" gep9 9040 \
   'on tfr911h run hatvan for gep9

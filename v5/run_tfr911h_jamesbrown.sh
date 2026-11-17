@@ -5,9 +5,11 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 
 if [ -n "${V5_IMG_JAMESBROWN_DISK:-}" ]; then
   DISK=$V5_IMG_JAMESBROWN_DISK
+elif [ -f "$DIR/images/jamesbrown/tfr911-jamesbrown.dsk" ]; then
+  DISK="$DIR/images/jamesbrown/tfr911-jamesbrown.dsk"
 else
   DISK="$DIR/build/tfr911-jamesbrown.dsk"
-  if [ ! -f "$DISK" ]; then
+  if [ ! -f "$DISK" ] && [ -f "$DIR/scripts/make-jamesbrown-dsk.sh" ]; then
     sh "$DIR/scripts/make-jamesbrown-dsk.sh" "$DISK"
   fi
 fi

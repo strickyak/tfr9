@@ -31,7 +31,6 @@
 set -eu
 
 V5=$(cd "$(dirname "$0")/.." && pwd)
-TETHER=${TETHER:-$V5/build/tether}
 WIRE=${TFR_DEV:-${WIRE:-}}
 ESP_PORT=${FUJINET_PORT:-}
 USE_ESP_USB=auto
@@ -70,10 +69,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ ! -x "$TETHER" ]; then
-  echo "diagnose_fujinet: $TETHER not found (run: make tether)" >&2
-  exit 2
-fi
+TETHER=$("$V5/scripts/find-tether.sh") || exit 2
 
 if [ -z "$WIRE" ]; then
   if [ -n "$BOARD_QUERY" ]; then
@@ -119,7 +115,7 @@ MATRIX_JSON="$TMP_DIR/matrix.json"
 DIAG_TXT="$TMP_DIR/diag.txt"
 
 echo "=== Host Board: $WIRE ===" >&2
-"$TETHER" -n -bind="" -wire="$WIRE" -quick-restart=27 >/dev/null 2>&1 || true
+"$TETHER" -n -bind="" -wire="$WIRE" -just-restart=27 >/dev/null 2>&1 || true
 sleep 2
 
 matrix_rc=0
@@ -145,11 +141,11 @@ matrix_json = os.environ["MATRIX_JSON"]
 
 def tfr_inject(cmd: str) -> str:
     res = subprocess.run(
-        [tether, "-n", "-bind=", f"-wire={wire}", f"-quick-inject={cmd}"],
+        [tether, "-n", "-bind=", f"-wire={wire}", f"-just-inject={cmd}"],
         capture_output=True, text=True, check=False,
     )
     if res.returncode != 0:
-        raise RuntimeError(f"tether quick-inject failed ({cmd}): {res.stderr.strip()}")
+        raise RuntimeError(f"tether just-inject failed ({cmd}): {res.stderr.strip()}")
     return res.stdout.strip()
 
 IO_MUX = {
@@ -323,13 +319,13 @@ else
 fi
 
 if [ "$SUBCMD" != "diag" ]; then
-  "$TETHER" -n -bind="" -wire="$WIRE" -quick-inject="$CMD"
+  "$TETHER" -n -bind="" -wire="$WIRE" -just-inject="$CMD"
   exit "$matrix_rc"
 fi
 
 # Capture `fujinet diag` output while printing it, then evaluate the JamesBrown compatibility verdict.
 diag_rc=0
-"$TETHER" -n -bind="" -wire="$WIRE" -quick-inject="$CMD" >"$DIAG_TXT" 2>&1 || diag_rc=$?
+"$TETHER" -n -bind="" -wire="$WIRE" -just-inject="$CMD" >"$DIAG_TXT" 2>&1 || diag_rc=$?
 # Print everything starting from the first '=== FujiNet' header (or all output if inject failed).
 python3 - "$DIAG_TXT" "$MATRIX_JSON" "$diag_rc" << 'PY'
 import json, os, re, sys

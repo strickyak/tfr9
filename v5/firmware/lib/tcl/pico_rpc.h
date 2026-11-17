@@ -127,6 +127,30 @@ inline void handle_pico_rpc_request(std::string* pkt) {
   } else if (req.method == "get-label") {
     resp.status = 0;
     resp.data = FlashLabel::RawLabel();
+  } else if (req.method == "set-label") {
+    std::string err_msg;
+    if (gspoon::g_spoon_coro == nullptr) {
+      resp.status = -1;
+      resp.message = "set-label requires Phase 1 (TCL>); run -just-restart=27 first";
+    } else if (!FlashLabel::ValidateRawLabel(req.data, &err_msg)) {
+      resp.status = -1;
+      resp.message = err_msg;
+    } else {
+      uint8_t page[FlashLabel::LABEL_MAX_LEN];
+      memset(page, 0, sizeof(page));
+      memcpy(page, req.data.data(), req.data.size());
+      pico_flash_write_label(page);
+      FlashLabel::InitLabel();
+      FlashLabel::PopulateTclArray(global_tcl_interp);
+      std::string readback = FlashLabel::RawLabel();
+      if (readback != req.data) {
+        resp.status = -1;
+        resp.message = "flash label readback mismatch";
+      } else {
+        resp.status = 0;
+        resp.data = readback;
+      }
+    }
   } else if (req.method == "inject") {
     g_pending_injections.push_back(req);
     return;  // REPL / menu will send the response after evaluating.

@@ -5,10 +5,10 @@
 echo "Running Suite 7: on/run/for/with grammar, ports list|check, and conflict reporting"
 if ! board_present; then skip "whole suite (no board attached)"; print_summary "Suite 7 (ports)"; exit $?; fi
 
-inj() { run_tether --quick-inject="$1"; }                      # sets TETHER_EXIT / TETHER_STDOUT / TETHER_STDERR
+inj() { run_tether --just-inject="$1"; }                      # sets TETHER_EXIT / TETHER_STDOUT / TETHER_STDERR
 all_out() { printf '%s\n%s\n' "$TETHER_STDOUT" "$TETHER_STDERR"; }
 
-run_tether --quick-restart=0 > /dev/null            # clean boot: settings live in RAM only
+run_tether --just-restart=0 > /dev/null            # clean boot: settings live in RAM only
 
 log_test "default target and minimal ports ensemble (list|check only)"
 inj "on"
@@ -115,8 +115,8 @@ assert_exit_code 1 "$TETHER_EXIT" "bye refuses obsolete Config(engine)"
 assert_contains "$(all_out)" "Config(engine) is no longer supported" "bye explains Config(engine) removal"
 inj "unset Config(engine); expr 6*7"
 assert_contains "$TETHER_STDOUT" "42" "board stayed at TCL> through all refused byes"
-run_tether --quick-ping=9
-assert_contains "$TETHER_STDOUT" "quick-ping: OK (value=9)" "board did not restart"
+run_tether --just-ping=9
+assert_contains "$TETHER_STDOUT" "just-ping: OK (value=9)" "board did not restart"
 
 inj "on tfr911h run turbo9os for turbo9sim"                    # leave board tidy
 print_summary "Suite 7 (ports)"

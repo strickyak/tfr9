@@ -2,7 +2,13 @@
 # run_tfr911h_gep9big.sh - Launch Hatvan OS (gep9big / EMBIGGEN 2-level MMU) on TFR911H SBC
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
-HB=${V5_IMG_HATVAN_DIR:-$HOME/github.com/strickyak/hatvan-os/build}
+if [ -n "${V5_IMG_HATVAN_DIR:-}" ]; then
+  HB=$V5_IMG_HATVAN_DIR
+elif [ -d "$DIR/images/hatvan" ]; then
+  HB="$DIR/images/hatvan"
+else
+  HB="$HOME/github.com/strickyak/hatvan-os/build"
+fi
 
 exec "$DIR/scripts/run-tfr911h-demo.sh" gep9big 9041 \
   'on tfr911h run hatvan for gep9big

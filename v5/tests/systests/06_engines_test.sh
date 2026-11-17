@@ -48,8 +48,8 @@ run_engine() {   # run_engine NAME DESCRIPTION [source:dest ...]
   # previous engine, and an expect session started too early just hangs.
   _ok=0; _try=0
   while [ $_try -lt 8 ]; do
-    run_tether --quick-ping=1
-    case "$TETHER_STDOUT" in *"quick-ping: OK"*) _ok=1; break ;; esac
+    run_tether --just-ping=1
+    case "$TETHER_STDOUT" in *"just-ping: OK"*) _ok=1; break ;; esac
     sleep 2; _try=$((_try + 1))
   done
   [ $_ok -eq 1 ] || { fail "$name: board does not answer ping before the test"; return 0; }

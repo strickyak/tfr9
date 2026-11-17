@@ -30,8 +30,8 @@ wait_board_ready() {
   [ -n "$WIRE" ] || return 1
   _try=0
   while [ "$_try" -lt 10 ]; do
-    run_tether --quick-ping=88
-    case "$TETHER_STDOUT" in *"quick-ping: OK"*) _ok=1; break ;; esac
+    run_tether --just-ping=88
+    case "$TETHER_STDOUT" in *"just-ping: OK"*) _ok=1; break ;; esac
     sleep 1; find_wire; _try=$((_try + 1))
   done
   [ "$_ok" -eq 1 ]

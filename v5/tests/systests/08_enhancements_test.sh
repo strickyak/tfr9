@@ -32,8 +32,8 @@ wait_board_ready() {
   [ -n "$WIRE" ] || return 1
   _try=0
   while [ "$_try" -lt 8 ]; do
-    run_tether --quick-ping=55
-    case "$TETHER_STDOUT" in *"quick-ping: OK"*) _ok=1; break ;; esac
+    run_tether --just-ping=55
+    case "$TETHER_STDOUT" in *"just-ping: OK"*) _ok=1; break ;; esac
     sleep 1; _try=$((_try + 1))
   done
   [ "$_ok" -eq 1 ]
@@ -41,16 +41,16 @@ wait_board_ready() {
 
 # ── Test 1: Tcl commands (`click`, `beep`, `fujinet stats`) ─────────────────
 log_test "Tcl enhancement commands (click, beep, fujinet stats)"
-run_tether --quick-restart=0 > /dev/null
-run_tether --quick-inject="click"
+run_tether --just-restart=0 > /dev/null
+run_tether --just-inject="click"
 assert_contains "$TETHER_STDOUT" "on" "click defaults to on"
-run_tether --quick-inject="click off"
+run_tether --just-inject="click off"
 assert_contains "$TETHER_STDOUT" "off" "click off disables keyclick"
-run_tether --quick-inject="click on"
+run_tether --just-inject="click on"
 assert_contains "$TETHER_STDOUT" "on" "click on re-enables keyclick"
-run_tether --quick-inject="beep 880 5; expr 3+4"
+run_tether --just-inject="beep 880 5; expr 3+4"
 assert_contains "$TETHER_STDOUT" "7" "beep initializes PWM/alarm2 cleanly"
-run_tether --quick-inject="fujinet stats"
+run_tether --just-inject="fujinet stats"
 assert_contains "$TETHER_STDOUT" "rx 0 tx 0" "fujinet stats reports counters"
 
 # ── Test 2: 6309 on flat65280 + full `e1` enhancement map ──────────────────
@@ -364,7 +364,7 @@ assert_contains "$out" "PAL=35,2A,77" "Coco3Palette 6-bit mask and GIME shadow r
 assert_contains "$out" "GIME_IRQ=08,00" "60 Hz GIME VBORD hardware IRQ fired and cleared on read"
 assert_contains "$out" "Target	tfr911h/nitros9l2/coco3 (engine hamster_gime)" "InfoPort reports coco3 target"
 
-run_tether --quick-restart=0 > /dev/null
+run_tether --just-restart=0 > /dev/null
 wait_board_ready || { fail "board did not recover after coco3 test"; print_summary "Suite 8 (enhancements)"; exit 1; }
 
 # ── Test 4: 6309 on `nitros9l2 for jamesbrown` (Track-34 disk boot + Diller I/O map) ──
@@ -487,7 +487,7 @@ assert_contains "$out" "Target	tfr911h/nitros9l2/jamesbrown (engine hamster_gime
 assert_contains "$out" "FujiNet	becker at 0xff45" "JamesBrown Becker reported at 0xff45"
 assert_contains "$out" "Sound	SN76489 at 0xff41" "JamesBrown SN76489 reported at 0xff41"
 
-run_tether --quick-restart=0 > /dev/null
+run_tether --just-restart=0 > /dev/null
 wait_board_ready || { fail "board did not recover after jamesbrown test"; print_summary "Suite 8 (enhancements)"; exit 1; }
 
 print_summary "Suite 8 (enhancements)"

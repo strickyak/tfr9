@@ -41,24 +41,25 @@ var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
 var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
 var TETHER_LOG_USB = flag.Bool("tether_log_usb", false, "Log USB COBS and RPC traffic")
-var QUICK_PING = flag.Int("quick-ping", -1, "Quick mode: connect, send a PicoRPC ping with this uint32 payload, print result, and exit")
-var QUICK_RESTART = flag.Uint("quick-restart", 0, "Quick mode: connect and restart the Pico firmware with this boot_mode")
+var JUST_PING = flag.Int("just-ping", -1, "Just mode: connect, send a PicoRPC ping with this uint32 payload, print result, and exit")
+var JUST_RESTART = flag.Uint("just-restart", 0, "Just mode: connect and restart the Pico firmware with this boot_mode")
 var BOOTMODE = flag.Uint("bootmode", 0, "Restart firmware in this mode and then run tether console as usual")
-var QUICK_REFLASH = flag.String("quick-reflash", "", "Quick mode: reboot Pico into BOOTSEL and copy this UF2 file to it")
-var QUICK_REFORMAT = flag.Bool("quick-reformat", false, "Quick mode: connect and reformat the Pico's LittleFS flash filesystem")
-var QUICK_INJECT = flag.String("quick-inject", "", "Quick mode: connect and inject a Tcl command to the Pico's REPL")
+var JUST_REFLASH = flag.String("just-reflash", "", "Just mode: reboot Pico into BOOTSEL and copy this UF2 file to it")
+var JUST_REFORMAT = flag.Bool("just-reformat", false, "Just mode: connect and reformat the Pico's LittleFS flash filesystem")
+var JUST_INJECT = flag.String("just-inject", "", "Just mode: connect and inject a Tcl command to the Pico's REPL")
 var TCL_INPUT = flag.String("tcl_input", "", "Inject Tcl commands before entering interactive console")
-var QUICK_UPLOAD = flag.String("quick-upload", "", "Quick mode: upload the Pico's flash from this zip file")
-var QUICK_LABEL_DATA = flag.String("quick-label-data", "", "Quick mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
-var QUICK_LABEL_FILENAME = flag.String("quick-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
-var QUICK_GET_LABEL = flag.Bool("quick-get-label", false, "Quick mode: get the label from the highest sector of flash memory and print it")
-var QUICK_GET_RAM = flag.String("quick-get-ram", "", "Quick mode: get raw ram[] from Pico and save to filename")
-var QUICK_GET_TEXT = flag.String("quick-get-text", "", "Quick mode: get text screen from Pico RAM [addr,width,height] and print to stdout")
-var QUICK_GET_PMODE = flag.String("quick-get-pmode", "", "Quick mode: get PMODE screen from Pico RAM [M,P,C,filename] and save as PNG")
-var QUICK_GET_HSCREEN = flag.String("quick-get-hscreen", "", "Quick mode: get HSCREEN graphics from Pico RAM [mode,filename] and save as PNG")
-var QUICK_GET_CYCLES = flag.Bool("quick-get-cycles", false, "Quick mode: get real-time MCU status and last 256 bus cycles")
-var QUICK_TYPE = flag.String("quick-type", "", "Quick mode: type keystrokes into running CoCo via keyboard injector")
-var CPS = flag.Float64("cps", 5.0, "Speed in characters per second at which quick-type should type")
+var JUST_UPLOAD = flag.String("just-upload", "", "Just mode: upload the Pico's flash from this zip file")
+var JUST_LABEL_DATA = flag.String("just-label-data", "", "Just mode: create a uf2 file with this data for the label. Must begin with `p=1,`")
+var JUST_LABEL_FILENAME = flag.String("just-label-filename", "_metadata.uf2", "Where to write the uf2 file for assigning a label")
+var JUST_SET_LABEL = flag.String("just-set-label", "", "Just mode: write flash label at 0x10FFF000 via PicoRPC (Phase 1 TCL> only; must begin with `p=1,`)")
+var JUST_GET_LABEL = flag.Bool("just-get-label", false, "Just mode: get the label from the highest sector of flash memory and print it")
+var JUST_GET_RAM = flag.String("just-get-ram", "", "Just mode: get raw ram[] from Pico and save to filename")
+var JUST_GET_TEXT = flag.String("just-get-text", "", "Just mode: get text screen from Pico RAM [addr,width,height] and print to stdout")
+var JUST_GET_PMODE = flag.String("just-get-pmode", "", "Just mode: get PMODE screen from Pico RAM [M,P,C,filename] and save as PNG")
+var JUST_GET_HSCREEN = flag.String("just-get-hscreen", "", "Just mode: get HSCREEN graphics from Pico RAM [mode,filename] and save as PNG")
+var JUST_GET_CYCLES = flag.Bool("just-get-cycles", false, "Just mode: get real-time MCU status and last 256 bus cycles")
+var JUST_TYPE = flag.String("just-type", "", "Just mode: type keystrokes into running CoCo via keyboard injector")
+var CPS = flag.Float64("cps", 5.0, "Speed in characters per second at which just-type should type")
 
 var tmpDirToClean string
 
@@ -390,19 +391,19 @@ func main() {
 	cobs.UseChecksums = *COBS_CHECKSUMS
 	InstallLimitedLogWriter()
 
-	if *QUICK_UPLOAD != "" {
-		tmp, err := os.MkdirTemp("", "quick-upload-*")
+	if *JUST_UPLOAD != "" {
+		tmp, err := os.MkdirTemp("", "just-upload-*")
 		if err != nil {
 			log.Fatalf("FAILED TO CREATE TEMP DIR: %v", err)
 		}
 		tmpDirToClean = tmp
-		if strings.Contains(*QUICK_UPLOAD, "=") {
+		if strings.Contains(*JUST_UPLOAD, "=") {
 			var injectCmds []string
-			pairs := strings.Split(*QUICK_UPLOAD, ",")
+			pairs := strings.Split(*JUST_UPLOAD, ",")
 			for i, pair := range pairs {
 				parts := strings.SplitN(pair, "=", 2)
 				if len(parts) != 2 {
-					log.Fatalf("INVALID QUICK_UPLOAD SYNTAX (expected target=source): %q", pair)
+					log.Fatalf("INVALID JUST_UPLOAD SYNTAX (expected target=source): %q", pair)
 				}
 				target := parts[0]
 				source := parts[1]
@@ -429,9 +430,9 @@ func main() {
 				injectCmds = append(injectCmds, fmt.Sprintf("cp /pc/%s %s", tmpName, target))
 			}
 			*PC_DIR = tmp
-			*QUICK_INJECT = strings.Join(injectCmds, " ; ")
+			*JUST_INJECT = strings.Join(injectCmds, " ; ")
 		} else {
-			in, err := os.Open(*QUICK_UPLOAD)
+			in, err := os.Open(*JUST_UPLOAD)
 			if err != nil {
 				log.Fatalf("FAILED TO OPEN UPDATE ZIP: %v", err)
 			}
@@ -449,92 +450,93 @@ func main() {
 
 			*PC_DIR = tmp
 			cmd := "rsync-a /pc/update.zip! /"
-			*QUICK_INJECT = cmd
+			*JUST_INJECT = cmd
 		}
 	}
 
-	// Quick-ping mode: connect, ping, exit.
-	if *QUICK_PING >= 0 {
-		RunQuickPing(uint32(*QUICK_PING))
+	// Just-ping mode: connect, ping, exit.
+	if *JUST_PING >= 0 {
+		RunJustPing(uint32(*JUST_PING))
 		return
 	}
-	// Quick-restart mode: connect and restart the Pico.
-	var doQuickRestart bool
+	// Just-restart mode: connect and restart the Pico.
+	var doJustRestart bool
 	var doBootMode bool
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "quick-restart" {
-			doQuickRestart = true
+		if f.Name == "just-restart" {
+			doJustRestart = true
 		}
 		if f.Name == "bootmode" {
 			doBootMode = true
 		}
 	})
-	if doQuickRestart {
-		RunQuickRestart(uint32(*QUICK_RESTART), true)
+	if doJustRestart {
+		RunJustRestart(uint32(*JUST_RESTART), true)
 		return
 	}
 	if doBootMode {
-		RunQuickRestart(uint32(*BOOTMODE), false)
+		RunJustRestart(uint32(*BOOTMODE), false)
 		// Do not return, continue to normal console
 	}
-    if *QUICK_LABEL_DATA != "" {
-        if !strings.HasPrefix(*QUICK_LABEL_DATA, "p=1,") {
-            log.Fatalf("Label must begin with %q but is %q", "p=1,", *QUICK_LABEL_DATA)
-        }
-        MakeUf2Label(*QUICK_LABEL_DATA, *QUICK_LABEL_FILENAME);
-        return
-    }
-	// Quick-reflash mode: connect, reboot into BOOTSEL, copy UF2 file.
-	if *QUICK_REFLASH != "" {
-		RunQuickReflash(*QUICK_REFLASH)
+	if *JUST_LABEL_DATA != "" {
+		MakeUf2Label(*JUST_LABEL_DATA, *JUST_LABEL_FILENAME)
 		return
 	}
-	// Quick-reformat mode: connect and reformat LittleFS.
-	if *QUICK_REFORMAT {
-		RunQuickAction("reformat")
+	if *JUST_SET_LABEL != "" {
+		RunJustSetLabel(*JUST_SET_LABEL)
 		return
 	}
-	if *QUICK_GET_LABEL {
-		RunQuickGetLabel()
+	// Just-reflash mode: connect, reboot into BOOTSEL, copy UF2 file.
+	if *JUST_REFLASH != "" {
+		RunJustReflash(*JUST_REFLASH)
 		return
 	}
-	// Quick-get-text mode: connect, fetch ram via get-ram, decode 6-bit VDG to ASCII, print lines to stdout.
-	quickGetTextSet := false
+	// Just-reformat mode: connect and reformat LittleFS.
+	if *JUST_REFORMAT {
+		RunJustAction("reformat")
+		return
+	}
+	if *JUST_GET_LABEL {
+		RunJustGetLabel()
+		return
+	}
+	if *JUST_GET_RAM != "" {
+		RunJustGetRam(*JUST_GET_RAM)
+		return
+	}
+	// Just-get-text mode: connect, fetch ram via get-ram, decode 6-bit VDG to ASCII, print lines to stdout.
+	justGetTextSet := false
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "quick-get-text" {
-			quickGetTextSet = true
+		if f.Name == "just-get-text" {
+			justGetTextSet = true
 		}
 	})
-	if *QUICK_GET_TEXT != "" || quickGetTextSet {
-		RunQuickGetText(*QUICK_GET_TEXT)
+	if *JUST_GET_TEXT != "" || justGetTextSet {
+		RunJustGetText(*JUST_GET_TEXT)
 		return
 	}
-	quickGetPmodeSet := false
+	justGetPmodeSet := false
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "quick-get-pmode" {
-			quickGetPmodeSet = true
+		if f.Name == "just-get-pmode" {
+			justGetPmodeSet = true
 		}
 	})
-	if *QUICK_GET_PMODE != "" || quickGetPmodeSet {
-		RunQuickGetPmode(*QUICK_GET_PMODE)
+	if *JUST_GET_PMODE != "" || justGetPmodeSet {
+		RunJustGetPmode(*JUST_GET_PMODE)
 		return
 	}
-	quickGetHscreenSet := false
+	justGetHscreenSet := false
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "quick-get-hscreen" {
-			quickGetHscreenSet = true
+		if f.Name == "just-get-hscreen" {
+			justGetHscreenSet = true
 		}
 	})
-	if *QUICK_GET_HSCREEN != "" || quickGetHscreenSet {
-		RunQuickGetHscreen(*QUICK_GET_HSCREEN)
+	if *JUST_GET_HSCREEN != "" || justGetHscreenSet {
+		RunJustGetHscreen(*JUST_GET_HSCREEN)
 		return
 	}
-	if *QUICK_GET_CYCLES {
-		RunQuickGetCycles()
-		return
-	}
-	if *QUICK_GET_LABEL {
-		RunQuickGetLabel()
+	if *JUST_GET_CYCLES {
+		RunJustGetCycles()
 		return
 	}
 
@@ -543,7 +545,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tether: WARNING: %s does not exist, so /pc is disabled (mkdir it, or use -pc)\n", *PC_DIR)
 	}
 
-	if runtime.GOOS != "windows" && *QUICK_INJECT == "" && *QUICK_TYPE == "" && !*COOKED {
+	if runtime.GOOS != "windows" && *JUST_INJECT == "" && *JUST_TYPE == "" && !*COOKED {
 		SaveSttyState()
 		SetSttyCbreak()
 	}
@@ -1908,13 +1910,13 @@ func Run(inkey chan byte, person Personality) {
 	channelFromPico := activeSerial.Out
 	var fromUSB <-chan byte = channelFromPico
 
-	if *QUICK_INJECT != "" {
+	if *JUST_INJECT != "" {
 		go func() {
-			log.Printf("STARTING QUICK-INJECT: %q", *QUICK_INJECT)
-			resp, err := PicoRpcCall(channelToPico, "inject", []byte(*QUICK_INJECT), 60*time.Second)
+			log.Printf("STARTING JUST-INJECT: %q", *JUST_INJECT)
+			resp, err := PicoRpcCall(channelToPico, "inject", []byte(*JUST_INJECT), 60*time.Second)
 			if err != nil {
 				if tmpDirToClean != "" { os.RemoveAll(tmpDirToClean) }
-				log.Fatalf("QUICK-INJECT FAILED: %v", err)
+				log.Fatalf("JUST-INJECT FAILED: %v", err)
 			}
 			resStr := string(resp.Data)
 			if resStr == "" {
@@ -1922,14 +1924,14 @@ func Run(inkey chan byte, person Personality) {
 			}
 			if resp.Status != 0 && resp.Status != 9 {
 				if tmpDirToClean != "" { os.RemoveAll(tmpDirToClean) }
-				log.Printf("QUICK-INJECT ERROR: STATUS=%d RESULT=%q", resp.Status, resStr)
+				log.Printf("JUST-INJECT ERROR: STATUS=%d RESULT=%q", resp.Status, resStr)
 				os.Exit(1)
 			} else {
 				if tmpDirToClean != "" { os.RemoveAll(tmpDirToClean) }
 				if resp.Status == 9 {
-					log.Printf("QUICK-INJECT SUCCESS (TCL_BYE)")
+					log.Printf("JUST-INJECT SUCCESS (TCL_BYE)")
 				} else {
-					log.Printf("QUICK-INJECT SUCCESS")
+					log.Printf("JUST-INJECT SUCCESS")
 				}
 				if len(resStr) > 0 {
 					fmt.Printf("%s\n", resStr)
@@ -1966,13 +1968,13 @@ func Run(inkey chan byte, person Personality) {
 		}()
 	}
 
-	if *QUICK_TYPE != "" {
+	if *JUST_TYPE != "" {
 		go func() {
 			cps := *CPS
 			downTicks, upTicks := CpsToTicks(cps)
 
-			log.Printf("STARTING QUICK-TYPE (%.1f cps, %d down / %d up ticks): %q", cps, downTicks, upTicks, *QUICK_TYPE)
-			unescaped := strings.ReplaceAll(*QUICK_TYPE, `\r`, "\r")
+			log.Printf("STARTING JUST-TYPE (%.1f cps, %d down / %d up ticks): %q", cps, downTicks, upTicks, *JUST_TYPE)
+			unescaped := strings.ReplaceAll(*JUST_TYPE, `\r`, "\r")
 			unescaped = strings.ReplaceAll(unescaped, `\n`, "\n")
 			unescaped = strings.ReplaceAll(unescaped, `\t`, "\t")
 			req := RpcRequest{
@@ -1983,12 +1985,12 @@ func Run(inkey chan byte, person Personality) {
 			}
 			resp, err := PicoRpcCallReq(channelToPico, req, 60*time.Second)
 			if err != nil {
-				log.Fatalf("QUICK-TYPE FAILED: %v", err)
+				log.Fatalf("JUST-TYPE FAILED: %v", err)
 			}
 			if resp.Status != 0 {
-				log.Fatalf("QUICK-TYPE ERROR: status=%d message=%s", resp.Status, resp.Message)
+				log.Fatalf("JUST-TYPE ERROR: status=%d message=%s", resp.Status, resp.Message)
 			}
-			log.Printf("QUICK-TYPE OK")
+			log.Printf("JUST-TYPE OK")
 			os.Exit(0)
 		}()
 	}

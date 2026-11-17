@@ -15,11 +15,7 @@ TCL_BODY=$3
 shift 3
 
 DIR=$(cd "$(dirname "$0")/.." && pwd)
-TETHER=${TETHER:-$DIR/build/tether}
-if [ ! -x "$TETHER" ]; then
-  echo "error: $TETHER not found; run: make tether" >&2
-  exit 1
-fi
+TETHER=$("$DIR/scripts/find-tether.sh")
 
 PC_DIR="$DIR/build/demo-pc/$NAME"
 mkdir -p "$PC_DIR"

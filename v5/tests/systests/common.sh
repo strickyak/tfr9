@@ -57,10 +57,15 @@ run_tether() {
   _o=$(mktemp "${TMPDIR:-/tmp}/tether_out.XXXXXX"); _e=$(mktemp "${TMPDIR:-/tmp}/tether_err.XXXXXX")
   # -n and </dev/null: tether must never wait on (or fight over) the caller's stdin; without them a
   # run from a script or tool pipe could hang until killed.
-  if [ "$WIRE_AUTO" = 1 ] && [ -z "${WIRE:-}" ]; then
+  _offline=0
+  case " $* " in
+    *" --exit"* | *" -exit"* | *" --just-label-data"* | *" -just-label-data"* | *" --quick-"* | *" -quick-"*)
+      _offline=1 ;;
+  esac
+  if [ "$_offline" = 0 ] && [ "$WIRE_AUTO" = 1 ] && [ -z "${WIRE:-}" ]; then
     # Never let tether guess a device: with several boards attached it could pick the wrong one.
     printf 'run_tether: board %s not found\n' "${BOARD_MATCH:-b=tfr9 v=911h}" > "$_e"; : > "$_o"; TETHER_EXIT=99
-  elif [ -n "${WIRE:-}" ]; then
+  elif [ "$_offline" = 0 ] && [ -n "${WIRE:-}" ]; then
     "$TETHER" -n -bind="" -wire="$WIRE" "$@" >"$_o" 2>"$_e" </dev/null; TETHER_EXIT=$?
   else
     "$TETHER" -n -bind="" "$@" >"$_o" 2>"$_e" </dev/null; TETHER_EXIT=$?
@@ -68,7 +73,7 @@ run_tether() {
   # A restart or reflash can re-enumerate the board under a different /dev name (and tether itself
   # re-guesses "the last /dev/ttyACM*", which is wrong with two boards): find it again by label.
   if [ "$WIRE_AUTO" = 1 ]; then
-    case " $* " in *" --quick-restart"* | *" -quick-restart"* | *" --quick-reflash"* | *" -quick-reflash"*)
+    case " $* " in *" --just-restart"* | *" -just-restart"* | *" --just-reflash"* | *" -just-reflash"*)
       _try=0; WIRE=
       while [ -z "$WIRE" ] && [ $_try -lt 15 ]; do find_wire; [ -n "$WIRE" ] || sleep 1; _try=$((_try + 1)); done ;;
     esac

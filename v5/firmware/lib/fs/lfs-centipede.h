@@ -34,4 +34,9 @@ int __not_in_flash_func(pico_lfs_erase)(const struct lfs_config *c,
 // 4. Sync Method
 int pico_lfs_sync(const struct lfs_config *c);
 
+// 5. Write 256-byte flash label page at the last 4 KB sector of 16 MB flash (0x00FFF000 -> XIP 0x10FFF000).
+// Must only be called from Core 0 in Phase 1 (before Core 1 runs a guest bus loop).
+#define LABEL_FLASH_OFFSET (16 * 1024 * 1024 - 4096)
+int __not_in_flash_func(pico_flash_write_label)(const uint8_t *page256);
+
 #endif  // LFS_CENTIPEDE_H_

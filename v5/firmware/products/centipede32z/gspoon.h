@@ -178,7 +178,7 @@ void IN_RAM GPoke1(uint a, byte x) {
   ReadStep(0, (byte)a);
   IdleStep();
   WriteStep(a, x);
-  // Mirror low-64K writes into RP2350 `ram[]` so `tether --quick-get-pmode` can capture the PMODE4 Tcl console too!
+  // Mirror low-64K writes into RP2350 `ram[]` so `tether --just-get-pmode` can capture the PMODE4 Tcl console too!
   if (a < 0x8000u) {
     ram[a] = x;
   }
@@ -544,7 +544,7 @@ void BackgroundSpoonFeeder(Coro* coro_self) {
 
           int rc = Tcl_Eval(global_tcl_interp, (char*)cmd.c_str(), 0, (char**)0);
           if (rc == TCL_BYE) {
-            // Prepare launch (including any `/pc/...` VFS reads) BEFORE replying so `tether -quick-inject` is still serving `/pc`!
+            // Prepare launch (including any `/pc/...` VFS reads) BEFORE replying so `tether -just-inject` is still serving `/pc`!
             centipede_prepare_launch_on_core0();
           }
 

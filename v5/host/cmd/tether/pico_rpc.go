@@ -185,10 +185,10 @@ func PicoRpcPing(channelToPico chan []byte, value uint32) error {
 	return nil
 }
 
-// quickConnect opens the USB serial port with retries, starts writer and
+// justConnect opens the USB serial port with retries, starts writer and
 // reader goroutines, waits for the connection to stabilize, and returns
 // the channelToPico for sending packets and a disconnect function.
-func quickConnect(label string) (chan []byte, func()) {
+func justConnect(label string) (chan []byte, func()) {
 	serialOptions := OpenSerialOptions{
 		PortName:        *WIRE,
 		BaudRate:        *BAUD,
@@ -305,26 +305,26 @@ func waitForDeviceReplaced(path string, orig os.FileInfo, limit time.Duration) b
 	return false
 }
 
-// RunQuickPing opens the USB serial with retries, sends a single PicoRPC
+// RunJustPing opens the USB serial with retries, sends a single PicoRPC
 // ping, prints the result, and exits.
-func RunQuickPing(value uint32) {
-	ch, _ := quickConnect("quick-ping")
+func RunJustPing(value uint32) {
+	ch, _ := justConnect("just-ping")
 	err := PicoRpcPing(ch, value)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "quick-ping: FAIL: %v\n", err)
+		fmt.Fprintf(os.Stderr, "just-ping: FAIL: %v\n", err)
 		os.Exit(1)
 	}
 	time.Sleep(1 * time.Second)
-	fmt.Printf("quick-ping: OK (value=%d)\n", value)
+	fmt.Printf("just-ping: OK (value=%d)\n", value)
 	os.Exit(0)
 }
 
-// RunQuickAction opens the USB serial with retries, sends a PicoRPC
+// RunJustAction opens the USB serial with retries, sends a PicoRPC
 // request with the given method (reflash, reformat), prints
 // the result, and exits.
-func RunQuickAction(method string) {
-	label := "quick-" + method
-	ch, disconnect := quickConnect(label)
+func RunJustAction(method string) {
+	label := "just-" + method
+	ch, disconnect := justConnect(label)
 	resp, err := PicoRpcCall(ch, method, nil, 5*time.Second)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: FAIL: %v\n", label, err)
@@ -344,11 +344,11 @@ func RunQuickAction(method string) {
 	os.Exit(0)
 }
 
-// RunQuickRestart opens the USB serial with retries, sends a PicoRPC
+// RunJustRestart opens the USB serial with retries, sends a PicoRPC
 // restart request with the boot_mode payload, prints the result, and optionally exits.
-func RunQuickRestart(bootMode uint32, shouldExit bool) {
-	label := "quick-restart"
-	ch, disconnect := quickConnect(label)
+func RunJustRestart(bootMode uint32, shouldExit bool) {
+	label := "just-restart"
+	ch, disconnect := justConnect(label)
 
 	payload := make([]byte, 4)
 	payload[0] = byte(bootMode >> 24)
@@ -473,30 +473,30 @@ func copyUf2ToMount(uf2path, mountDir string) (string, error) {
 	return dstPath, nil
 }
 
-// RunQuickReflash sends a reflash RPC to enter BOOTSEL mode, waits for
+// RunJustReflash sends a reflash RPC to enter BOOTSEL mode, waits for
 // the Pico to appear as a USB mass storage device, copies the UF2 file
 // to it directly (no /bin/sh), and waits for reboot/unmount.
-func RunQuickReflash(uf2path string) {
+func RunJustReflash(uf2path string) {
 	if st, err := os.Stat(uf2path); err != nil || st.IsDir() || st.Size() == 0 {
-		fmt.Fprintf(os.Stderr, "quick-reflash: invalid UF2 path %q: %v\n", uf2path, err)
+		fmt.Fprintf(os.Stderr, "just-reflash: invalid UF2 path %q: %v\n", uf2path, err)
 		os.Exit(1)
 	}
 
-	ch, disconnect := quickConnect("quick-reflash")
+	ch, disconnect := justConnect("just-reflash")
 	resp, err := PicoRpcCall(ch, "reflash", nil, 5*time.Second)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "quick-reflash: FAIL: %v\n", err)
+		fmt.Fprintf(os.Stderr, "just-reflash: FAIL: %v\n", err)
 		os.Exit(1)
 	}
 	if resp.Status != 0 {
-		fmt.Fprintf(os.Stderr, "quick-reflash: FAIL: status=%d %s\n", resp.Status, resp.Message)
+		fmt.Fprintf(os.Stderr, "just-reflash: FAIL: status=%d %s\n", resp.Status, resp.Message)
 		os.Exit(1)
 	}
 
 	// Close the serial port so the host can cleanly re-enumerate when the Pico reboots.
 	disconnect()
 
-	fmt.Printf("quick-reflash: Pico entering BOOTSEL mode, waiting for mount...\n")
+	fmt.Printf("just-reflash: Pico entering BOOTSEL mode, waiting for mount...\n")
 	time.Sleep(1 * time.Second)
 	var mounts []string
 	deadline := time.Now().Add(12 * time.Second)
@@ -508,22 +508,22 @@ func RunQuickReflash(uf2path string) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	if len(mounts) == 0 {
-		fmt.Fprintf(os.Stderr, "quick-reflash: FAIL: no mounted BOOTSEL volume (INFO_UF2.TXT) found within 13s\n")
+		fmt.Fprintf(os.Stderr, "just-reflash: FAIL: no mounted BOOTSEL volume (INFO_UF2.TXT) found within 13s\n")
 		os.Exit(1)
 	}
 	if len(mounts) > 1 {
-		fmt.Fprintf(os.Stderr, "quick-reflash: FAIL: multiple BOOTSEL volumes mounted (%v); refusing ambiguous flash\n", mounts)
+		fmt.Fprintf(os.Stderr, "just-reflash: FAIL: multiple BOOTSEL volumes mounted (%v); refusing ambiguous flash\n", mounts)
 		os.Exit(1)
 	}
 
 	dstPath, err := copyUf2ToMount(uf2path, mounts[0])
-	fmt.Printf("quick-reflash: %s -> %s\n", uf2path, dstPath)
+	fmt.Printf("just-reflash: %s -> %s\n", uf2path, dstPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "quick-reflash: copy FAIL: %v\n", err)
+		fmt.Fprintf(os.Stderr, "just-reflash: copy FAIL: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("quick-reflash: copy done, waiting for reboot...\n")
+	fmt.Printf("just-reflash: copy done, waiting for reboot...\n")
 	unmountDeadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(unmountDeadline) {
 		if _, err := os.Stat(filepath.Join(mounts[0], "INFO_UF2.TXT")); err != nil {
@@ -532,15 +532,15 @@ func RunQuickReflash(uf2path string) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	time.Sleep(2 * time.Second)
-	fmt.Printf("quick-reflash: OK\n")
+	fmt.Printf("just-reflash: OK\n")
 	os.Exit(0)
 }
 
-// RunQuickGetRam fetches the raw ram[] array from the Pico in 256-byte
+// RunJustGetRam fetches the raw ram[] array from the Pico in 256-byte
 // chunks via PicoRPC and writes it to filename.
-func RunQuickGetRam(filename string) {
-	label := "quick-get-ram"
-	ch, disconnect := quickConnect(label)
+func RunJustGetRam(filename string) {
+	label := "just-get-ram"
+	ch, disconnect := justConnect(label)
 	defer disconnect()
 
 	const chunkSize = 256
@@ -614,10 +614,10 @@ func parseNum(s string) (int, bool) {
 	return 0, false
 }
 
-// parseQuickGetTextArg parses "[addr[,width[,height]]]" format.
+// parseJustGetTextArg parses "[addr[,width[,height]]]" format.
 // If addr is an illegal numeric value like "z", it defaults to 0x0400, 32, 16.
 // Omitted trailing numbers default to 32 and 16.
-func parseQuickGetTextArg(arg string) (int, int, int) {
+func parseJustGetTextArg(arg string) (int, int, int) {
 	addr := 0x0400
 	width := 32
 	height := 16
@@ -731,13 +731,13 @@ func WriteRamRange(ch chan []byte, offset int, data []byte) error {
 	return nil
 }
 
-// RunQuickGetText fetches the text screen from Pico RAM via get-ram,
+// RunJustGetText fetches the text screen from Pico RAM via get-ram,
 // converts the 6-bit VDG values to normal ASCII, and prints lines to stdout.
-func RunQuickGetText(arg string) {
-	label := "quick-get-text"
-	addr, width, height := parseQuickGetTextArg(arg)
+func RunJustGetText(arg string) {
+	label := "just-get-text"
+	addr, width, height := parseJustGetTextArg(arg)
 
-	ch, disconnect := quickConnect(label)
+	ch, disconnect := justConnect(label)
 	defer disconnect()
 
 	data, err := fetchRamRange(ch, addr, width*height)
@@ -781,13 +781,13 @@ func CpsToTicks(cps float64) (downTicks, upTicks int) {
 	return downTicks, upTicks
 }
 
-// parseQuickGetPmodeArg parses the argument to --quick-get-pmode=[M,P,C,filename].
+// parseJustGetPmodeArg parses the argument to --just-get-pmode=[M,P,C,filename].
 // M: PMODE mode number (0 to 4, default 4).
 // P: Start page number (1 for "PMODE 4,1"). If P > 15, P is treated directly as the RAM address.
 //    If P <= 15 (and P >= 1), address is 0x0600 + (P-1)*0x0600. Default P = 1 (0x0600).
 // C: Colorset (0 or 1, e.g. "SCREEN 1,C"). Default C = 1.
 // filename: Output PNG filename. Default "pmode<M>.png".
-func parseQuickGetPmodeArg(arg string) (int, int, int, string) {
+func parseJustGetPmodeArg(arg string) (int, int, int, string) {
 	mode := 4
 	pageOrAddr := 1
 	colorset := 1
@@ -827,14 +827,14 @@ func parseQuickGetPmodeArg(arg string) (int, int, int, string) {
 	return mode, addr, colorset, filename
 }
 
-// RunQuickGetPmode fetches the PMODE framebuffer from Pico RAM via get-ram,
+// RunJustGetPmode fetches the PMODE framebuffer from Pico RAM via get-ram,
 // renders it as a PNG image with the specified mode and colorset,
 // and saves it to a PNG file.
-func RunQuickGetPmode(arg string) {
-	label := "quick-get-pmode"
-	mode, addr, colorset, filename := parseQuickGetPmodeArg(arg)
+func RunJustGetPmode(arg string) {
+	label := "just-get-pmode"
+	mode, addr, colorset, filename := parseJustGetPmodeArg(arg)
 
-	ch, disconnect := quickConnect(label)
+	ch, disconnect := justConnect(label)
 	defer disconnect()
 
 	var width, height, bpp int
@@ -968,19 +968,19 @@ func RunQuickGetPmode(arg string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("quick-get-pmode: OK (saved %dx%d PMODE %d PNG to %s from 0x%04X, colorset=%d)\n",
+	fmt.Printf("just-get-pmode: OK (saved %dx%d PMODE %d PNG to %s from 0x%04X, colorset=%d)\n",
 		width, height, mode, filename, addr, colorset)
 	os.Exit(0)
 }
 
-func RunQuickGetPmode4(arg string) {
-	RunQuickGetPmode(arg)
+func RunJustGetPmode4(arg string) {
+	RunJustGetPmode(arg)
 }
 
-// parseQuickGetHscreenArg parses the argument to --quick-get-hscreen=[mode,]filename.png.
+// parseJustGetHscreenArg parses the argument to --just-get-hscreen=[mode,]filename.png.
 // mode: HSCREEN mode number (1 to 4, default 2).
 // filename: Output PNG filename (default "hscreen<mode>.png").
-func parseQuickGetHscreenArg(arg string) (int, string) {
+func parseJustGetHscreenArg(arg string) (int, string) {
 	mode := 2
 	filename := "hscreen2.png"
 
@@ -1040,14 +1040,14 @@ func coco3ColorToRGBA(code byte) color.RGBA {
 	}
 }
 
-// RunQuickGetHscreen fetches the CoCo 3 HSCREEN framebuffer from Pico RAM via get-ram,
+// RunJustGetHscreen fetches the CoCo 3 HSCREEN framebuffer from Pico RAM via get-ram,
 // renders it as a PNG image with the specified HSCREEN mode and palette,
 // and saves it to a PNG file.
-func RunQuickGetHscreen(arg string) {
-	label := "quick-get-hscreen"
-	mode, filename := parseQuickGetHscreenArg(arg)
+func RunJustGetHscreen(arg string) {
+	label := "just-get-hscreen"
+	mode, filename := parseJustGetHscreenArg(arg)
 
-	ch, disconnect := quickConnect(label)
+	ch, disconnect := justConnect(label)
 	defer disconnect()
 
 	var width, height, bpp int
@@ -1150,15 +1150,15 @@ func RunQuickGetHscreen(arg string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("quick-get-hscreen: OK (saved %dx%d HSCREEN %d PNG to %s)\n",
+	fmt.Printf("just-get-hscreen: OK (saved %dx%d HSCREEN %d PNG to %s)\n",
 		width, height, mode, filename)
 	os.Exit(0)
 }
 
-// RunQuickGetCycles fetches real-time MCU status and the last 256 bus cycles.
-func RunQuickGetCycles() {
-	label := "quick-get-cycles"
-	ch, disconnect := quickConnect(label)
+// RunJustGetCycles fetches real-time MCU status and the last 256 bus cycles.
+func RunJustGetCycles() {
+	label := "just-get-cycles"
+	ch, disconnect := justConnect(label)
 	defer disconnect()
 
 	// 1. Get Status
@@ -1193,11 +1193,11 @@ func RunQuickGetCycles() {
 	os.Exit(0)
 }
 
-// RunQuickGetLabel opens the USB serial with retries, sends a get-label
+// RunJustGetLabel opens the USB serial with retries, sends a get-label
 // PicoRPC request, prints the label string on a line, and exits.
-func RunQuickGetLabel() {
-	label := "quick-get-label"
-	ch, disconnect := quickConnect(label)
+func RunJustGetLabel() {
+	label := "just-get-label"
+	ch, disconnect := justConnect(label)
 	defer disconnect()
 
 	resp, err := PicoRpcCall(ch, "get-label", nil, 5*time.Second)
@@ -1210,6 +1210,34 @@ func RunQuickGetLabel() {
 		os.Exit(1)
 	}
 	fmt.Printf("%s\n", string(resp.Data))
+	os.Exit(0)
+}
+
+// RunJustSetLabel validates labelData, sends a set-label PicoRPC request
+// (accepted in Phase 1 TCL> only), verifies the echoed label, and exits.
+func RunJustSetLabel(labelData string) {
+	label := "just-set-label"
+	if err := ValidateLabelString(labelData); err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	ch, disconnect := justConnect(label)
+	defer disconnect()
+
+	resp, err := PicoRpcCall(ch, "set-label", []byte(labelData), 5*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: FAIL: %v\n", label, err)
+		os.Exit(1)
+	}
+	if resp.Status != 0 {
+		fmt.Fprintf(os.Stderr, "%s: FAIL: status=%d %s\n", label, resp.Status, resp.Message)
+		os.Exit(1)
+	}
+	if string(resp.Data) != labelData {
+		fmt.Fprintf(os.Stderr, "%s: FAIL: readback %q != %q\n", label, string(resp.Data), labelData)
+		os.Exit(1)
+	}
+	fmt.Printf("%s: OK (%s)\n", label, string(resp.Data))
 	os.Exit(0)
 }
 

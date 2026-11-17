@@ -21,6 +21,52 @@ struct FlashLabel {
     return s;
   }
 
+  static bool ValidateRawLabel(const std::string& s, std::string* err) {
+    if (s.size() < 4 || s.compare(0, 4, "p=1,") != 0) {
+      if (err) *err = "label must begin with \"p=1,\"";
+      return false;
+    }
+    if (s.size() > LABEL_MAX_LEN) {
+      if (err) *err = "label exceeds 256 bytes";
+      return false;
+    }
+    for (size_t i = 0; i < s.size(); i++) {
+      unsigned char c = (unsigned char)s[i];
+      if (c < 0x20 || c > 0x7E) {
+        if (err) *err = "label must contain only printable ASCII";
+        return false;
+      }
+    }
+    size_t pos = 0;
+    while (pos <= s.size()) {
+      size_t comma = s.find(',', pos);
+      size_t end = (comma == std::string::npos) ? s.size() : comma;
+      std::string seg = s.substr(pos, end - pos);
+      size_t eq = seg.find('=');
+      if (eq == std::string::npos || eq == 0 || seg.find('=', eq + 1) != std::string::npos) {
+        if (err) *err = "invalid key=value segment in label: " + seg;
+        return false;
+      }
+      if (comma == std::string::npos) break;
+      pos = comma + 1;
+    }
+    return true;
+  }
+
+  static void PopulateTclArray(Tcl_Interp* interp) {
+    if (!interp) return;
+    Tcl_UnsetVar(interp, (char*)"Label", TCL_GLOBAL_ONLY);
+    if (Label[0] == 'p' && Label[1] == '\0' && Label[2] == '1' &&
+        Label[3] == '\0') {
+      const char* p = Label;
+      while (*p) {
+        const char* q = p + strlen(p) + 1;
+        Tcl_SetVar2(interp, (char*)"Label", (char*)p, (char*)q, TCL_GLOBAL_ONLY);
+        p = q + strlen(q) + 1;
+      }
+    }
+  }
+
   static void InitLabel() {
     for (uint32_t i = 0; i < LABEL_MAX_LEN; i++) {
       uint8_t b = *(uint8_t*)(LABEL_ADDR + i);

@@ -10,7 +10,7 @@ package main
 //   * Only regular files and directories are served (no FIFOs, sockets or devices).
 //   * Path names are cleaned from "/" (no "..", no absolute escapes) and may not contain NUL or '\'.
 //   * Opening uses O_NOFOLLOW where available and re-checks the opened file against the Lstat.
-// Paths given on the command line (-disks, -quick-upload, ...) are trusted and do not go through here.
+// Paths given on the command line (-disks, -just-upload, ...) are trusted and do not go through here.
 
 import (
 	"errors"

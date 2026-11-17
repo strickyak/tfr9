@@ -67,4 +67,13 @@ int pico_lfs_sync(const struct lfs_config *c) {
     return LFS_ERR_OK;
 }
 
+// 5. Flash Label Writer (last 4 KB sector of 16 MB flash: 0x00FFF000 -> XIP 0x10FFF000)
+int __not_in_flash_func(pico_flash_write_label)(const uint8_t *page256) {
+    uint32_t ints = save_and_disable_interrupts();
+    flash_range_erase(LABEL_FLASH_OFFSET, 4096);
+    flash_range_program(LABEL_FLASH_OFFSET, page256, 256);
+    restore_interrupts(ints);
+    return 0;
+}
+
 #undef TRACE

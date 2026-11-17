@@ -9,7 +9,7 @@ see §1).  Time of writing: 2026-11-14 ≈ 23:45.
 
 ## 0. One-paragraph summary
 
-v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware products (`tfr911h.uf2` and `centipede32z.uf2`), a unified Go `tether` (including full TurboLab cycle-accurate trace decoding, `.list` relocation, OS-9 `SWI2`/`RTI` API decoding, and CoCo 2/3 VDG/GIME screen capture), the test harness, the `on <tfr911h|coco2|coco3> run <os> ?for <target>? ?with ...?` (repeated `with`) device/port architecture, the **5 `IN_RAM` Hamster foregrounds** (`hamster_flat`, `hamster_turbolab`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and **4 `IN_RAM` Gerbil foregrounds** (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`), **0 core-1 SRAM→flash calls** (`make check-core1` strict on both products), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all 23 `(on, run, for)` targets** in `ports.tsv`, shell-free `quick-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on real hardware**: **ten** system-test suites pass across both live boards (TFR/911H and Centipede 32z + 16 KB CoCo 2), including all 6 guest OS configurations on TFR/911H (`turbo9os`, `flat65280`, `deep65280`, `hatvan/gep9`, `hatvan/gep9big`, `fuzix`).  **Remaining:** guest kit (`os/fujinet`, generated `.d`/`.go` port headers) and `.pak` loader (Phase 7).
+v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware products (`tfr911h.uf2` and `centipede32z.uf2`), a unified Go `tether` (including full TurboLab cycle-accurate trace decoding, `.list` relocation, OS-9 `SWI2`/`RTI` API decoding, and CoCo 2/3 VDG/GIME screen capture), the test harness, the `on <tfr911h|coco2|coco3> run <os> ?for <target>? ?with ...?` (repeated `with`) device/port architecture, the **5 `IN_RAM` Hamster foregrounds** (`hamster_flat`, `hamster_turbolab`, `hamster_gime`, `hamster_gep9`, `hamster_multicomp`) and **4 `IN_RAM` Gerbil foregrounds** (`gerbil_io`, `gerbil_sam64k`, `gerbil_gime`, `gerbil_gep9`), **0 core-1 SRAM→flash calls** (`make check-core1` strict on both products), **all 5 `e1` enhancement devices** (`BeckerPort`, `AudioSn76489`, `RtcPort`, `Orchestra90`, `InfoPort`), **all 23 `(on, run, for)` targets** in `ports.tsv`, shell-free `just-reflash`, and portable POSIX `sh` demo scripts (`run_*.sh`) are in place and **verified on real hardware**: **ten** system-test suites pass across both live boards (TFR/911H and Centipede 32z + 16 KB CoCo 2), including all 6 guest OS configurations on TFR/911H (`turbo9os`, `flat65280`, `deep65280`, `hatvan/gep9`, `hatvan/gep9big`, `fuzix`).  **Remaining:** guest kit (`os/fujinet`, generated `.d`/`.go` port headers) and `.pak` loader (Phase 7).
 
 ---
 
@@ -45,7 +45,7 @@ v5 is a copy-then-modify of v4 (`../v4/`, never touched).  Both firmware product
 * `/dev/ttyACM*` numbers change.  **Find boards by label:** `scripts/find-board.sh b=tfr9 v=911h` prints the stable
   `/dev/serial/by-id/usb-Raspberry_Pi_Pico_<serial>-if00` name (Linux).  With no arguments it lists every board.
 * **Flash** (picotool cannot open the USB device without extra permissions, and we do not use sudo):
-  `build/tether -n -bind="" -wire=$(scripts/find-board.sh b=tfr9 v=911h) -quick-reflash=$PWD/build/tfr911h.uf2 </dev/null`
+  `build/tether -n -bind="" -wire=$(scripts/find-board.sh b=tfr9 v=911h) -just-reflash=$PWD/build/tfr911h.uf2 </dev/null`
   (takes ~15 s; it asks the board to enter BOOTSEL and copies the UF2 to `/media/$USER/RP*`).
 * **A hung board needs a physical RESET** (ask Strick).  A *panic/abort* prints `*** ABORT: …` and hangs by design.
   To revert firmware: `../v4/build/tfr911h_v4.uf2` (TFR) and `../v4/centipede-32z/build/centipede.uf2` (Centipede).
@@ -148,7 +148,7 @@ the board by label (`BOARD_MATCH`, default `b=tfr9 v=911h`; `WIRE=` overrides).
 
 | Suite | Checks | Covers |
 |---|---|---|
-| 01 quick RPC | 13 | label, ping, restart, upload, `--exit` |
+| 01 just RPC | 15 | label, set-label, ping, restart, upload, `--exit` |
 | 02 Tcl/VFS | 19 | REPL, `/pc` file access and md5, symlink refusal, missing `/pc`, LittleFS, console redraw |
 | 03 streaming source | 9 | small, error stop, nested, 349 KB script, board alive |
 | 04 heap | 9 | `heap-free`, runaway loop → catchable "out of memory", memory returns, no reboot |
@@ -189,12 +189,12 @@ and running a guest on it.
 * `on` / `run` / `ports` state is RAM only and must be re-set by Tcl every boot (by design).
 * **`IoClaim` still stops the board (`ABORT`)** — only reachable by an internal error that `PortsValidate` should
   have caught.
-* picotool is unusable without USB permissions (`quick-reflash` now copies directly in Go without `/bin/sh`, verifying
+* picotool is unusable without USB permissions (`just-reflash` now copies directly in Go without `/bin/sh`, verifying
   `INFO_UF2.TXT` and refusing ambiguous multi-board BOOTSEL mounts).
 * tether: many files fail `gofmt -l`, `go vet` says "unreachable code" at `tconsole.go:1710` — inherited from v4.
 * The restart/engine suite flaked badly before S54; after the fix the last several full runs passed, but it was not
   measured over many runs.  If a spawn prints nothing, look at the goroutine dump in `build/systest-logs/`.
-* Centipede label probes: at one moment the Centipede stopped answering `--quick-get-label` for ~10 minutes and
+* Centipede label probes: at one moment the Centipede stopped answering `--just-get-label` for ~10 minutes and
   recovered; cause unknown (we never wrote to it).
 * The 30 000-distinct-variables case now gives a Tcl error; a script that makes one huge string in one command could
   still abort.
@@ -225,7 +225,7 @@ and running a guest on it.
 10. `find-board.sh` probes the Centipede on every call — acceptable, or add an `--only-tfr` path?
 11. `.pak` format details (spec Appendix F) — whenever you want to work on them.
 12. Turbo9OS no longer prints the stray debug character `I` at startup — fine?
-13. Should `quick-reflash` stop using a shell, and should we add a udev/permissions note for picotool?
+13. Should `just-reflash` stop using a shell, and should we add a udev/permissions note for picotool?
 
 ---
 

@@ -1224,15 +1224,7 @@ void register_tcl_commands(Tcl_Interp* interp) {
   Tcl_CreateCommand(interp, (char*)"sleep", sleep_cmd, NULL, NULL);
 
   // Populate global Tcl array 'Label'
-  if (FlashLabel::Label[0] == 'p' && FlashLabel::Label[1] == '\0' &&
-      FlashLabel::Label[2] == '1' && FlashLabel::Label[3] == '\0') {
-    const char* p = FlashLabel::Label;
-    while (*p) {
-      const char* q = p + strlen(p) + 1;  // q is the value
-      Tcl_SetVar2(interp, (char*)"Label", (char*)p, (char*)q, TCL_GLOBAL_ONLY);
-      p = q + strlen(q) + 1;
-    }
-  }
+  FlashLabel::PopulateTclArray(interp);
 }
 
 #endif  // FIRMWARE_PIO_TCL_COMMANDS_H_

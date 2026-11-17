@@ -10,6 +10,7 @@ Status: **Phases 0–6 implemented and hardware-verified** (`tfr911h.uf2`, `cent
     make doctor        # check the toolchain (SHELF defaults to ../.. = the coco-shelf)
     make tether tfr911h centipede32z
     make jamesbrown-dsk jamesbrown-32z-dsk
+    make release       # stage build/release/ and build/tfr911h-release.zip (8 tethers + UF2 + guest images)
     make flash-fujinet # flash FujiNet ESP32 hat firmware + LittleFS over USB
     make check-fujinet # diagnose FujiNet hat wiring/bodges, 921600-baud link, and jamesbrown verdict
     make test-host     # C++ + Go host tests (no board required)

@@ -17,11 +17,7 @@ if [ "$#" -gt 0 ] && [ "$1" = "--" ]; then
 fi
 
 DIR=$(cd "$(dirname "$0")/.." && pwd)
-TETHER=${TETHER:-$DIR/build/tether}
-if [ ! -x "$TETHER" ]; then
-  echo "error: $TETHER not found; run: make tether" >&2
-  exit 1
-fi
+TETHER=$("$DIR/scripts/find-tether.sh")
 
 PC_DIR="$DIR/build/demo-pc/$NAME"
 mkdir -p "$PC_DIR"
@@ -48,8 +44,8 @@ if [ -z "${WIRE:-}" ]; then
   exit 1
 fi
 
-"$TETHER" -n -bind= -wire="$WIRE" -quick-restart=27 </dev/null >/dev/null
+"$TETHER" -n -bind= -wire="$WIRE" -just-restart=27 </dev/null >/dev/null
 sleep 2
-"$TETHER" -n -bind= -wire="$WIRE" -pc "$PC_DIR" -quick-inject="$TCL_CMD" </dev/null
+"$TETHER" -n -bind= -wire="$WIRE" -pc "$PC_DIR" -just-inject="$TCL_CMD" </dev/null
 sleep 2
 exec "$TETHER" -centipede -wire="$WIRE" -pc "$PC_DIR" "$@"

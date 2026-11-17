@@ -11,11 +11,10 @@
 # board); FIND_BOARD_PLAIN=1 asks for the plain /dev name.
 # All devices are probed in PARALLEL, so one board that does not answer (a hung board, or a CoCo that
 # is busy) cannot delay finding another.  A probe that has not answered after FIND_BOARD_WAIT seconds
-# (default 8) is abandoned.  Needs build/tether (make tether).  POSIX sh.
+# (default 8) is abandoned.  Uses scripts/find-tether.sh ($TETHER, build/tether, or bin/tether.*.exe).  POSIX sh.
 V5=$(cd "$(dirname "$0")/.." && pwd)
-TETHER=${TETHER:-$V5/build/tether}
+TETHER=$("$V5/scripts/find-tether.sh") || exit 2
 WAIT=${FIND_BOARD_WAIT:-8}
-[ -x "$TETHER" ] || { echo "find-board: $TETHER missing (run: make tether)" >&2; exit 2; }
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/find-board.XXXXXX") || exit 2
 pids=
 n=0
@@ -23,7 +22,7 @@ for d in /dev/ttyACM* /dev/cu.usbmodem*; do
   [ -e "$d" ] || continue
   n=$((n + 1))
   echo "$d" > "$tmp/$n.dev"
-  "$TETHER" -n -bind="" -quick-get-label -wire="$d" > "$tmp/$n.out" 2>/dev/null < /dev/null &
+  "$TETHER" -n -bind="" -just-get-label -wire="$d" > "$tmp/$n.out" 2>/dev/null < /dev/null &
   pids="$pids $!"
 done
 byid() {   # byid /dev/ttyACMn : its stable by-id name, or itself

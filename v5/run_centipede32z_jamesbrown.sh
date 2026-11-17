@@ -4,11 +4,7 @@
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)
-TETHER=${TETHER:-$DIR/build/tether}
-if [ ! -x "$TETHER" ]; then
-  echo "error: $TETHER not found; run: make tether" >&2
-  exit 1
-fi
+TETHER=$("$DIR/scripts/find-tether.sh")
 
 HOST_COCO=coco2
 if [ "${1:-}" = "-coco3" ] || [ "${1:-}" = "--coco3" ]; then

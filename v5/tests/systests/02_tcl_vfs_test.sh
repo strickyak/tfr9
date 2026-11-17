@@ -9,37 +9,37 @@ fi
 TMP_PC=$(mktemp -d "${TMPDIR:-/tmp}/systest_pc.XXXXXX")
 trap 'rm -rf "$TMP_PC"' EXIT INT TERM
 
-run_tether --quick-restart=0 >/dev/null     # make sure the board is in Phase 1 (TCL mode)
+run_tether --just-restart=0 >/dev/null     # make sure the board is in Phase 1 (TCL mode)
 
-log_test "Tcl expression evaluation (--quick-inject='expr 6*7')"
-run_tether --quick-inject="expr 6*7"
-assert_exit_code 0 "$TETHER_EXIT" "Quick-inject succeeded"
+log_test "Tcl expression evaluation (--just-inject='expr 6*7')"
+run_tether --just-inject="expr 6*7"
+assert_exit_code 0 "$TETHER_EXIT" "Just-inject succeeded"
 assert_contains "$TETHER_STDOUT" "42" "Evaluated 6*7 = 42"
 
-log_test "Tcl syntax error handling (--quick-inject='expr 6 * 7')"
-run_tether --quick-inject="expr 6 * 7"
-assert_contains "$TETHER_STDERR" "QUICK-INJECT ERROR: STATUS=1" "Reported Tcl error status"
-if [ "$TETHER_EXIT" -ne 0 ]; then pass "Quick-inject returned non-zero on Tcl error"; else fail "Quick-inject unexpectedly returned 0 on Tcl error"; fi
+log_test "Tcl syntax error handling (--just-inject='expr 6 * 7')"
+run_tether --just-inject="expr 6 * 7"
+assert_contains "$TETHER_STDERR" "JUST-INJECT ERROR: STATUS=1" "Reported Tcl error status"
+if [ "$TETHER_EXIT" -ne 0 ]; then pass "Just-inject returned non-zero on Tcl error"; else fail "Just-inject unexpectedly returned 0 on Tcl error"; fi
 
 log_test "Tcl global Label array populated from flash"
-run_tether --quick-inject="set Label(p)"
+run_tether --just-inject="set Label(p)"
 assert_exit_code 0 "$TETHER_EXIT" "Read Label(p) via Tcl"
 assert_contains "$TETHER_STDOUT" "1" "Label(p) == 1"
 
 log_test "Host VFS (/pc) file access and md5 from Tcl"
 printf '%s' "Hello from TFR911h VFS systest!" > "$TMP_PC/greeting.txt"
 EXPECTED_MD5=$(md5_of "$TMP_PC/greeting.txt")
-run_tether -pc "$TMP_PC" --quick-inject="cat /pc/greeting.txt"
+run_tether -pc "$TMP_PC" --just-inject="cat /pc/greeting.txt"
 assert_exit_code 0 "$TETHER_EXIT" "Tcl 'cat /pc/greeting.txt' succeeded"
 assert_contains "$TETHER_STDOUT" "Hello from TFR911h VFS systest!" "Read exact file content over VFS RPC"
-run_tether -pc "$TMP_PC" --quick-inject="md5 /pc/greeting.txt"
+run_tether -pc "$TMP_PC" --just-inject="md5 /pc/greeting.txt"
 assert_exit_code 0 "$TETHER_EXIT" "Tcl 'md5 /pc/greeting.txt' succeeded"
 assert_contains "$TETHER_STDOUT" "$EXPECTED_MD5" "Firmware MD5 matched host MD5 ($EXPECTED_MD5)"
 
 log_test "/pc refuses symlinks (spec 11.13): a link inside -pc is invisible to the board"
 printf 'secret' > "$TMP_PC/../systest_secret.txt" 2>/dev/null
 if ln -s "../systest_secret.txt" "$TMP_PC/escape.txt" 2>/dev/null; then
-  run_tether -pc "$TMP_PC" --quick-inject="cat /pc/escape.txt"
+  run_tether -pc "$TMP_PC" --just-inject="cat /pc/escape.txt"
   if [ "$TETHER_EXIT" -ne 0 ]; then pass "cat of a symlink failed"; else fail "cat of a symlink unexpectedly succeeded"; fi
   assert_not_contains "$TETHER_STDOUT" "secret" "symlink target not readable through /pc"
   rm -f "$TMP_PC/escape.txt"
@@ -48,17 +48,17 @@ rm -f "$TMP_PC/../systest_secret.txt"
 
 log_test "/pc is disabled, not auto-created, when -pc points at a missing directory"
 MISSING="$TMP_PC/does-not-exist"
-run_tether -pc "$MISSING" --quick-inject="cat /pc/greeting.txt"
+run_tether -pc "$MISSING" --just-inject="cat /pc/greeting.txt"
 if [ "$TETHER_EXIT" -ne 0 ]; then pass "cat failed with a missing /pc"; else fail "cat unexpectedly succeeded with a missing /pc"; fi
 if [ ! -e "$MISSING" ]; then pass "tether did not create the directory"; else fail "tether created $MISSING"; fi
 
-log_test "LittleFS file upload (--quick-upload) and readback"
-run_tether --quick-upload="/tmp/systest.txt=$TMP_PC/greeting.txt"
+log_test "LittleFS file upload (--just-upload) and readback"
+run_tether --just-upload="/tmp/systest.txt=$TMP_PC/greeting.txt"
 assert_exit_code 0 "$TETHER_EXIT" "Uploaded file to LittleFS /tmp/systest.txt"
-run_tether --quick-inject="cat /tmp/systest.txt"
+run_tether --just-inject="cat /tmp/systest.txt"
 assert_exit_code 0 "$TETHER_EXIT" "Read back /tmp/systest.txt from LittleFS"
 assert_contains "$TETHER_STDOUT" "Hello from TFR911h VFS systest!" "LittleFS file content verified"
-run_tether --quick-inject="rm /tmp/systest.txt"
+run_tether --just-inject="rm /tmp/systest.txt"
 assert_exit_code 0 "$TETHER_EXIT" "Removed temporary file from LittleFS"
 
 log_test "TCL interactive line redraw emits CR (0x0d) instead of LF (0x0a)"

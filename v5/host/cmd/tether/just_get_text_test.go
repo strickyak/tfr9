@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestParseQuickGetTextArg(t *testing.T) {
+func TestParseJustGetTextArg(t *testing.T) {
 	tests := []struct {
 		arg        string
 		wantAddr   int
@@ -30,9 +30,9 @@ func TestParseQuickGetTextArg(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		gotAddr, gotWidth, gotHeight := parseQuickGetTextArg(tt.arg)
+		gotAddr, gotWidth, gotHeight := parseJustGetTextArg(tt.arg)
 		if gotAddr != tt.wantAddr || gotWidth != tt.wantWidth || gotHeight != tt.wantHeight {
-			t.Errorf("parseQuickGetTextArg(%q) = (%d, %d, %d); want (%d, %d, %d)",
+			t.Errorf("parseJustGetTextArg(%q) = (%d, %d, %d); want (%d, %d, %d)",
 				tt.arg, gotAddr, gotWidth, gotHeight, tt.wantAddr, tt.wantWidth, tt.wantHeight)
 		}
 	}

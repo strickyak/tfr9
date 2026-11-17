@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 )
 
 const (
@@ -30,9 +31,30 @@ const (
 	LABEL_PAYLOAD_SIZE = 256
 )
 
-func MakeUf2Label(label string, uf2_filename string) {
+func ValidateLabelString(label string) error {
+	if !strings.HasPrefix(label, "p=1,") {
+		return fmt.Errorf("Label must begin with %q but is %q", "p=1,", label)
+	}
 	if len(label) > LABEL_PAYLOAD_SIZE {
-		log.Fatalf("Error: Label is %d bytes, max is %d", len(label), LABEL_PAYLOAD_SIZE)
+		return fmt.Errorf("Label is %d bytes, max is %d", len(label), LABEL_PAYLOAD_SIZE)
+	}
+	for i := 0; i < len(label); i++ {
+		if label[i] < 0x20 || label[i] > 0x7E {
+			return fmt.Errorf("Label contains non-printable ASCII byte 0x%02X at index %d", label[i], i)
+		}
+	}
+	for _, seg := range strings.Split(label, ",") {
+		eq := strings.IndexByte(seg, '=')
+		if eq <= 0 || strings.IndexByte(seg[eq+1:], '=') >= 0 {
+			return fmt.Errorf("Invalid key=value segment in label: %q", seg)
+		}
+	}
+	return nil
+}
+
+func MakeUf2Label(label string, uf2_filename string) {
+	if err := ValidateLabelString(label); err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	// Create the 512-byte buffer for a single UF2 block

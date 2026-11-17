@@ -235,7 +235,7 @@ struct GerbilGimePolicy {
         ram[atrans] = dbus;
       }
       // Mirror CoCo 3 text writes in Block 8 ($10400..$105FF) to $0400..$05FF when not in bitplane graphics (BP=0)
-      // so `tether --quick-get-text` works without overwriting HSCREEN pixels in Block 0!
+      // so `tether --just-get-text` works without overwriting HSCREEN pixels in Block 0!
       if (g_gime_rom_mode && (g_gime_regs[8] & 0x80u) == 0 &&
           0x0400u <= abus && abus < 0x0600u && (atrans >> 13) == 8u) {
         ram[abus] = dbus;
@@ -354,7 +354,7 @@ struct GerbilIoPolicy {
 
   static FORCE_INLINE void Write(uint, uint abus, byte dbus) {
     if (likely(abus < 0xFF00u)) {
-      // Passively shadow low 64K writes so `tether --quick-get-text` can inspect screen memory.
+      // Passively shadow low 64K writes so `tether --just-get-text` can inspect screen memory.
       ram[abus] = dbus;
       return;
     }

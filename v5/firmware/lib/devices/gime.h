@@ -87,7 +87,7 @@ void IN_RAM coco3_palette_write(uint addr, byte d) {
   uint idx = (addr - g_palette_base) & 0x0F;
   byte c = d & 0x3F;
   g_gime_palette[idx] = c;
-  ram[0xFFB0 + idx] = c;  // Shadow at $FFB0..$FFBF so tether --quick-get-hscreen reads the active palette
+  ram[0xFFB0 + idx] = c;  // Shadow at $FFB0..$FFBF so tether --just-get-hscreen reads the active palette
 }
 
 struct Coco3Gime {
