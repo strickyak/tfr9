@@ -246,12 +246,13 @@ static void load_nitros9l2_common(const char* tag, byte* out_init1) {
   clock_and_stop_reg = 0;
   *out_init1 = 0;
 
-  // 1. Open drive 0 & drive 1 (defaulting drive 0 to /pc/level2.dsk or /pc/deep0.dsk when unset)
+  // 1. Open drive 0 & drive 1 (defaulting drive 0 to /pc/tfr911-jamesbrown.dsk, /pc/level2.dsk, or /pc/deep0.dsk when unset)
   for (int d = 0; d < 2; d++) {
     const char* path = (d == 0) ? g_config.drive0 : g_config.drive1;
     if (d == 0 && (!path || !path[0])) {
       struct vfs_info st;
-      if (vfs_stat("/pc/level2.dsk", &st) == 0) path = "/pc/level2.dsk";
+      if (vfs_stat("/pc/tfr911-jamesbrown.dsk", &st) == 0) path = "/pc/tfr911-jamesbrown.dsk";
+      else if (vfs_stat("/pc/level2.dsk", &st) == 0) path = "/pc/level2.dsk";
       else if (vfs_stat("/pc/deep0.dsk", &st) == 0) path = "/pc/deep0.dsk";
     }
     if (path && path[0]) {
