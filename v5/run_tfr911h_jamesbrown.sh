@@ -2,13 +2,14 @@
 # run_tfr911h_jamesbrown.sh - Launch NitrOS-9 Level 2 (jamesbrown / Andrew Diller edition) on TFR911H SBC
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
-JB_BUILD="$HOME/github.com/dillera/tfr9/v4/nitros9-l2/build"
+
 if [ -n "${V5_IMG_JAMESBROWN_DISK:-}" ]; then
   DISK=$V5_IMG_JAMESBROWN_DISK
-elif [ -f "$JB_BUILD/tfr911-jamesbrown.dsk" ]; then
-  DISK="$JB_BUILD/tfr911-jamesbrown.dsk"
 else
-  DISK="$JB_BUILD/tfr911-level2.dsk"
+  DISK="$DIR/build/tfr911-jamesbrown.dsk"
+  if [ ! -f "$DISK" ]; then
+    sh "$DIR/scripts/make-jamesbrown-dsk.sh" "$DISK"
+  fi
 fi
 
 if [ -t 0 ]; then

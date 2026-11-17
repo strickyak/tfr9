@@ -6,13 +6,14 @@ export SHELF
 # parallel jobs: getconf works on Linux and macOS
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
-.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports
+.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk
 help:
 	@echo "targets:"
 	@echo "  tfr911h      build the TFR/911H firmware -> build/tfr911h.uf2"
 	@echo "  centipede32z build the Centipede 32z firmware -> build/centipede32z.uf2"
 	@echo "  tether       build the Go tether for this machine -> build/tether"
 	@echo "  tethers      cross-build the 8 tether binaries -> build/tether.*.exe"
+	@echo "  jamesbrown-dsk build build/tfr911-jamesbrown.dsk (incl. CMDS/basic09)"
 	@echo "  doctor       check toolchain (SHELF=$(SHELF))"
 	@echo "  gen-ports    generate build/generated/{ports_gen.h,io-map.md} from firmware/engines/ports.tsv"
 	@echo "  systest      hardware system tests (needs a board; skips cleanly without one)"
@@ -41,6 +42,9 @@ tether:
 
 tethers:
 	@sh scripts/build-tethers.sh all
+
+jamesbrown-dsk:
+	@sh scripts/make-jamesbrown-dsk.sh
 
 check-io:
 	@sh scripts/check-no-lambda-io.sh
