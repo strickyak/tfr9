@@ -168,6 +168,9 @@ type OpenSerialOptions struct {
 
 // Open creates an io.ReadWriteCloser based on the supplied options struct.
 func OpenSerial(options OpenSerialOptions) (io.ReadWriteCloser, error) {
+	if rwc, handled, err := openNonSerialWire(options.PortName); handled {
+		return rwc, err
+	}
 	// Redirect to the OS-specific function.
 	return openInternal(options)
 }

@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/strickyak/tfr9/v5/host/internal/lib"
 	"github.com/strickyak/tfr9/v5/host/internal/cobs"
+	"github.com/strickyak/tfr9/v5/host/internal/foggynet"
+	"github.com/strickyak/tfr9/v5/host/internal/lib"
 
 	"bufio"
 	"bytes"
@@ -71,6 +72,9 @@ var PASS_CTRL_C = flag.Bool("pass_ctrl_c", false, "send ^C (and ^\\, ^Z) to the 
 var BOOT = flag.String("boot", "", "Tcl command to run at the TCL> prompt, e.g. l2 (ignored if the 6309 is already running)")
 var COCO3 = flag.Bool("coco3", false, "Start with CoCo 3 128K RAM enabled")
 var COBS_CHECKSUMS = flag.Bool("cobs_checksums", true, "Enable COBS packet checksums")
+var FOGGYNET = flag.Bool("foggynet", true, "Enable foggynet simulated FujiNet server over COBS tunnel")
+var FOGGYNET_DIR = flag.String("foggynet-dir", "", "State directory for foggynet (default: <pc>/foggynet)")
+var FOGGYNET_LOG = flag.Bool("foggynet-log", false, "Log foggynet FujiNet/DriveWire requests")
 
 var the_ram Rammer
 var person Personality
@@ -137,6 +141,7 @@ const (
 	T_RPC       = 180
 	T_PICO_RPC  = 181
 	T_WALLTIME  = 182 // Payload: local time as 4-byte big-endian Unix seconds.
+	P_FOGGYNET  = 184 // Bidirectional Becker serial tunnel for foggynet.
 )
 
 // SessionPhase tracks the operational phase of the system:
@@ -230,6 +235,7 @@ var CommandStrings = map[byte]string{
 	C_TRACE_CYCLES:   "C_TRACE_CYCLES",
 	C_FAULT:          "C_FAULT",
 	C_CORE_DUMP:      "C_CORE_DUMP",
+	P_FOGGYNET:       "P_FOGGYNET",
 }
 
 var Swi2Num byte
@@ -605,6 +611,7 @@ func main() {
 					gTurbolab.Speed.PrintReport()
 				}
 			}
+			CloseActiveWire()
 			RestoreSttyState()
 			fmt.Fprintf(os.Stderr, "Interrupted by SIGINT (^C); tether exiting.\n")
 			os.Exit(130)
@@ -612,6 +619,7 @@ func main() {
 			if gTurbolab != nil && gTurbolab.Speed != nil {
 				gTurbolab.Speed.PrintReport()
 			}
+			CloseActiveWire()
 			RestoreSttyState()
 			fmt.Printf("\n[SIGTERM]\n")
 			fmt.Fprintf(os.Stderr, "Terminated by SIGTERM; tether exiting.\n")
@@ -742,6 +750,7 @@ func CookedInkeyRoutine(inkey chan byte) {
 	// EOF reached. Wait briefly for output from Pico to arrive and be printed, then exit cleanly.
 	if *COOKED_DRAIN > 0 {
 		time.Sleep(*COOKED_DRAIN)
+		CloseActiveWire()
 		os.Exit(0)
 	}
 	select {}
@@ -972,6 +981,7 @@ func InkeyRoutine(inkey chan byte) {
 			if runtime.GOOS != "windows" {
 				RestoreSttyState()
 			}
+			CloseActiveWire()
 			fmt.Printf("\r\n[tether: quit with ^]]\r\n")
 			os.Exit(0)
 		}
@@ -1006,6 +1016,7 @@ func Shutdown(r any) {
 			fmt.Fprintf(os.Stderr, "***\n*** CAUGHT ERROR: %v\n***\n", r)
 		}
 
+		CloseActiveWire()
 		RestoreSttyState()
 
 		if r != nil {
@@ -1022,6 +1033,27 @@ func Shutdown(r any) {
 		}
 		os.Exit(0)
 	})
+}
+
+var (
+	activeWireMu     sync.Mutex
+	activeWireCloser io.Closer
+)
+
+func setActiveWireCloser(c io.Closer) {
+	activeWireMu.Lock()
+	activeWireCloser = c
+	activeWireMu.Unlock()
+}
+
+func CloseActiveWire() {
+	activeWireMu.Lock()
+	c := activeWireCloser
+	activeWireCloser = nil
+	activeWireMu.Unlock()
+	if c != nil {
+		_ = c.Close()
+	}
 }
 
 type ActiveSerial struct {
@@ -1045,6 +1077,11 @@ func (uc *ActiveSerial) loop() {
 	for {
 		serialPort, err := OpenSerial(uc.Options)
 		if err != nil {
+			if !wasOpen && strings.HasPrefix(uc.Options.PortName, "exec:") {
+				RestoreSttyState()
+				fmt.Fprintf(os.Stderr, "tether: failed to start %s: %v\n", uc.Options.PortName, err)
+				os.Exit(1)
+			}
 			if strings.HasPrefix(uc.Options.PortName, "/dev/ttyACM") {
 				if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
 					for _, m := range matches {
@@ -1074,6 +1111,7 @@ func (uc *ActiveSerial) loop() {
 			log.Printf("UsbOpen")
 			wasOpen = true
 		}
+		setActiveWireCloser(serialPort)
 
 		done := make(chan struct{})
 
@@ -1118,8 +1156,13 @@ func (uc *ActiveSerial) loop() {
 			}
 		}
 
+		setActiveWireCloser(nil)
 		serialPort.Close()
 		if wasOpen && !*RECONNECT {
+			for i := 0; i < 50 && len(uc.Out) > 0; i++ {
+				time.Sleep(5 * time.Millisecond)
+			}
+			time.Sleep(20 * time.Millisecond)
 			fmt.Printf("\n[USB Disconnected: '%s']\n", uc.Options.PortName)
 			fmt.Fprintf(os.Stderr, "USB Disconnected: %s\n", uc.Options.PortName)
 			RestoreSttyState()
@@ -1199,6 +1242,58 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 	defer func() { Shutdown(recover()) }()
 	currentChannelToPico = channelToPico
 	defer func() { currentChannelToPico = nil }()
+
+	// Start foggynet simulated FujiNet server wired to P_FOGGYNET COBS packets.
+	var foggyRxWriter *io.PipeWriter
+	if *FOGGYNET {
+		stateDir := *FOGGYNET_DIR
+		if stateDir == "" {
+			if *PC_DIR != "" {
+				if fi, err := os.Stat(*PC_DIR); err == nil && fi.IsDir() {
+					stateDir = filepath.Join(*PC_DIR, "foggynet")
+				}
+			}
+			if stateDir == "" {
+				stateDir = filepath.Join(os.TempDir(), "tfr9-foggynet")
+			}
+		}
+		rxR, rxW := io.Pipe()
+		txR, txW := io.Pipe()
+		foggyRxWriter = rxW
+		var logger func(string, ...any)
+		if *FOGGYNET_LOG {
+			logger = func(format string, args ...any) {
+				log.Printf("[foggynet] "+format, args...)
+			}
+		}
+		srv := foggynet.NewServer(rxR, txW, foggynet.Options{
+			StateDir: stateDir,
+			Logger:   logger,
+		})
+		defer func() {
+			_ = rxW.Close()
+			_ = txW.Close()
+			srv.Close()
+		}()
+		go func() {
+			_ = srv.Serve()
+		}()
+		go func() {
+			buf := make([]byte, 512)
+			for {
+				n, err := txR.Read(buf)
+				if n > 0 {
+					pkt := make([]byte, 1+n)
+					pkt[0] = P_FOGGYNET
+					copy(pkt[1:], buf[:n])
+					WriteBytes(channelToPico, pkt...)
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
 
 	if *CENTIPEDE {
 		go SyncInitialRamFromPico(channelToPico)
@@ -1463,6 +1558,12 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			case T_PICO_RPC:
 				pack := pkt[1:]
 				HandlePicoRpcResponse(pack)
+
+			case P_FOGGYNET:
+				if foggyRxWriter != nil && len(pkt) > 1 {
+					data := append([]byte(nil), pkt[1:]...)
+					_, _ = foggyRxWriter.Write(data)
+				}
 
 			case C_RAM_CONFIG:
 				pack := pkt[1:]
