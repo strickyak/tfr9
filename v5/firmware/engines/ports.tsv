@@ -18,7 +18,6 @@ target	tfr911h	nitros9l2	deep65280	hamster_gime
 target	tfr911h	nitros9l2	jamesbrown	hamster_gime
 target	tfr911h	nitros9l2	coco3	hamster_gime
 target	tfr911h	hatvan	gep9	hamster_gep9
-target	tfr911h	hatvan	gep9big	hamster_gep9
 target	tfr911h	hatvan	coco2	hamster_gep9
 target	tfr911h	fuzix	multicomp09	hamster_multicomp
 
@@ -89,19 +88,13 @@ port	tfr911h	nitros9l2	coco3	mmu	0xffa0	0xffaf
 port	tfr911h	nitros9l2	coco3	palette	0xffb0	0xffbf
 port	tfr911h	nitros9l2	coco3	vectors	0xfff0	0xffff
 
-# --- tfr911h: hatvan for gep9 / gep9big / coco2 (Hatvan I/O Spec v2.0) ---
+# --- tfr911h: hatvan for gep9 / coco2 (Hatvan I/O Spec v2.0) ---
 port	tfr911h	hatvan	gep9	console	0xff00	0xff05
 port	tfr911h	hatvan	gep9	disk	0xff10	0xff1b
 port	tfr911h	hatvan	gep9	fuse_dma	0xff20	0xff2f
 port	tfr911h	hatvan	gep9	task_sec	0xff30	0xff36
 port	tfr911h	hatvan	gep9	embiggen_mmu	0xff40	0xff47
 port	tfr911h	hatvan	gep9	vectors	0xfff0	0xffff
-port	tfr911h	hatvan	gep9big	console	0xff00	0xff05
-port	tfr911h	hatvan	gep9big	disk	0xff10	0xff1b
-port	tfr911h	hatvan	gep9big	fuse_dma	0xff20	0xff2f
-port	tfr911h	hatvan	gep9big	task_sec	0xff30	0xff36
-port	tfr911h	hatvan	gep9big	embiggen_mmu	0xff40	0xff47
-port	tfr911h	hatvan	gep9big	vectors	0xfff0	0xffff
 port	tfr911h	hatvan	coco2	disk	0xff50	0xff5b
 port	tfr911h	hatvan	coco2	console	0xff60	0xff65
 port	tfr911h	hatvan	coco2	fuse_dma	0xff80	0xff8f

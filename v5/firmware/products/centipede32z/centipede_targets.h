@@ -472,8 +472,8 @@ static void setup_centipede_hatvan() {
   SamTyBit = true;
   setup_hatvan_coco2();
   write_vdg_banner("HATVAN OS (GEP9 PAGED MMU)");
-  uint16_t rst_hi = *gep9_mmu.TranslateRead(0, 0xFFFE);
-  uint16_t rst_lo = *gep9_mmu.TranslateRead(0, 0xFFFF);
+  uint16_t rst_hi = *gep9_mmu.TranslateVectorRead(0xFFFE);
+  uint16_t rst_lo = *gep9_mmu.TranslateVectorRead(0xFFFF);
   g_launch_mode = LAUNCH_OS_DIRECT;
   g_launch_exec_addr = (rst_hi << 8) | rst_lo;
   g_launch_initial_sp = 0;

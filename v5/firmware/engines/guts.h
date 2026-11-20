@@ -117,7 +117,7 @@ struct HamsterGimePolicy {
 };
 
 // 3. hamster_gep9: 256-byte paged Gep9MMU + RTI TaskFuse + capability-gated I/O + EMBIGGEN window.
-//    Serves `hatvan` for `gep9`, `gep9big`, and `coco2`.
+//    Serves `hatvan` for `gep9` and `coco2`.
 struct HamsterGep9Policy {
   static FORCE_INLINE bool IrqNeeded() {
     return gep9_irq_needed();

@@ -56,21 +56,21 @@ assert_contains "$TETHER_STDOUT" "ok" "coco3 nitros9l2 for coco3 validates"
 log_test "every tfr911h target validates"
 for pair in "turbo9os turbo9sim" "turbolab turbo9sim" "nitros9l1 flat65280" "nitros9l2 deep65280" \
             "nitros9l2 jamesbrown" "nitros9l2 coco3" \
-            "hatvan gep9" "hatvan gep9big" "hatvan coco2" "fuzix multicomp09"; do
+            "hatvan gep9" "hatvan coco2" "fuzix multicomp09"; do
   set -- $pair
   inj "on tfr911h run $1 for $2; ports check"
   assert_contains "$TETHER_STDOUT" "ok" "tfr911h: $1 for $2"
 done
+inj "on tfr911h run hatvan for gep9big; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "retired 'gep9big' target is refused"
 
-log_test "the known clash: gep9 and gep9big embiggen_mmu vs Becker's default address (spec 15.x)"
-for f in gep9 gep9big; do
-  inj "on tfr911h run hatvan for $f with e1 with becker; ports check"
-  assert_exit_code 1 "$TETHER_EXIT" "$f: ports check refuses default Becker"
-  assert_contains "$(all_out)" "becker" "$f: message names becker"
-  assert_contains "$(all_out)" "embiggen_mmu" "$f: message names embiggen_mmu"
-  inj "on tfr911h run hatvan for $f with e1 with becker at 0xff48; ports check"
-  assert_contains "$TETHER_STDOUT" "ok" "$f: moving Becker to 0xff48 fixes it"
-done
+log_test "the known clash: gep9 embiggen_mmu vs Becker's default address (spec 15.x)"
+inj "on tfr911h run hatvan for gep9 with e1 with becker; ports check"
+assert_exit_code 1 "$TETHER_EXIT" "gep9: ports check refuses default Becker"
+assert_contains "$(all_out)" "becker" "gep9: message names becker"
+assert_contains "$(all_out)" "embiggen_mmu" "gep9: message names embiggen_mmu"
+inj "on tfr911h run hatvan for gep9 with e1 with becker at 0xff48; ports check"
+assert_contains "$TETHER_STDOUT" "ok" "gep9: moving Becker to 0xff48 fixes it"
 inj "on tfr911h run hatvan for coco2 with e1 with becker; ports check"
 assert_contains "$TETHER_STDOUT" "ok" "hatvan for coco2 has no clash at default Becker address"
 
@@ -97,7 +97,7 @@ inj "on tfr911h run fuzix for multicomp09 with acia at 0xff20; ports check"
 assert_exit_code 1 "$TETHER_EXIT" "multicomp09 ports cannot be moved"
 
 log_test "bye refuses conflicts, wrong host, missing turbolab image, and obsolete Config(engine)"
-inj "on tfr911h run hatvan for gep9big with e1 with becker; bye"
+inj "on tfr911h run hatvan for gep9 with e1 with becker; bye"
 assert_exit_code 1 "$TETHER_EXIT" "bye refuses conflict"
 assert_contains "$(all_out)" "embiggen_mmu" "bye names embiggen_mmu"
 

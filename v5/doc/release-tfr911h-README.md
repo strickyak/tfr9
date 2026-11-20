@@ -19,8 +19,7 @@ tfr911h-release/
 ├── run_tfr911h_nitros9_l1.sh     # Launch NitrOS-9 Level 1 (flat65280, 64 KB)
 ├── run_tfr911h_nitros9_l2.sh     # Launch NitrOS-9 Level 2 (deep65280, 256 KB MMU)
 ├── run_tfr911h_jamesbrown.sh     # Launch NitrOS-9 Level 2 (jamesbrown: FujiNet + Unix tools + games + Basic09)
-├── run_tfr911h_gep9.sh           # Launch Hatvan OS (gep9, 1-level EMBIGGEN MMU)
-├── run_tfr911h_gep9big.sh        # Launch Hatvan OS (gep9big, 2-level EMBIGGEN MMU)
+├── run_tfr911h_gep9.sh           # Launch Hatvan OS (gep9, EMBIGGEN paged MMU)
 ├── run_tfr911h_fuzix.sh          # Launch Fuzix (multicomp09, 256 KB banked RAM)
 ├── run_tfr911h_turbolab.sh       # Launch TurboLab 4-phase cycle-accurate bus tracer
 ├── bin/                          # Statically compiled tether binaries for 8 OS/CPU targets:
@@ -170,8 +169,7 @@ Once installed, launch any guest OS directly from this folder:
 | `./run_tfr911h_nitros9_l1.sh` | **NitrOS-9 Level 1 (`flat65280`)** | 64 KB flat RAM + `flat0.dsk` on EmuDsk |
 | `./run_tfr911h_nitros9_l2.sh` | **NitrOS-9 Level 2 (`deep65280`)** | 256 KB MMU RAM + `deep0.dsk` on EmuDsk |
 | `./run_tfr911h_jamesbrown.sh` | **NitrOS-9 Level 2 (`jamesbrown`)** | 256 KB GIME MMU, Unix tools (`ls`, `vi`, `man unix`), games (`tetris`), `basic09`, `info`, and FujiNet (`fnstatus`, `fnconfig`, `fnweather`, `fnnews`, `fnstocks`, `fnbounce`, `fnbattleship` — see `jamesbrown-fujinet-guide.md`) |
-| `./run_tfr911h_gep9.sh` | **Hatvan OS (`gep9`)** | Hitachi 6309E + 1-level EMBIGGEN MMU |
-| `./run_tfr911h_gep9big.sh` | **Hatvan OS (`gep9big`)** | Hitachi 6309E + 2-level EMBIGGEN MMU |
+| `./run_tfr911h_gep9.sh` | **Hatvan OS (`gep9`)** | Hitachi 6309E + EMBIGGEN paged MMU (`-c`, `-r`, `-n` console modes) |
 | `./run_tfr911h_fuzix.sh` | **Fuzix (`multicomp09`)** | UNIX-like OS in 256 KB banked RAM (`root` login at prompt) |
 | `./run_tfr911h_turbolab.sh` | **TurboLab Cycle Tracer** | Example: `./run_tfr911h_turbolab.sh WITH trigger = r/0xFFFE WITH trace_count = 100 -- -n` |
 | `./tether.sh` | **Interactive `TCL>` Shell** | Manage on-board LittleFS (`ls`, `cp`, `df`, `cat`, `edit`), inspect `ports list`, or type `bye` |
@@ -181,7 +179,7 @@ Once installed, launch any guest OS directly from this folder:
 * **Persistent disk changes & factory reset:** On first run, each `run_tfr911h_*.sh` script copies its clean disk image from `images/<guest>/` into `build/demo-pc/<guest>/`. Changes you save inside the guest OS persist in `build/demo-pc/<guest>/`. Delete `build/demo-pc/<guest>/` at any time to revert to a fresh factory disk!
 * **Exiting `tether`:**
   * In most guests, press **`Ctrl-C`** to exit `tether` back to your host shell.
-  * In `run_tfr911h_jamesbrown.sh`, `Ctrl-C` is forwarded into NitrOS-9 (`-pass_ctrl_c`); press **`Ctrl-]`** to exit `tether`.
+  * In `run_tfr911h_jamesbrown.sh` and `run_tfr911h_gep9.sh`, `Ctrl-C` is forwarded into the guest OS (`-pass_ctrl_c`); press **`Ctrl-]`** to exit `tether`.
 * **Targeting one board among several:** Pass `-wire=/dev/...` (or set `WIRE=$(./scripts/find-board.sh id=t1)`) to any `run_tfr911h_*.sh` script.
 * **FujiNet Hat diagnostics:** If your TFR/911H wears a FujiNet ESP32 hat, run `./scripts/diagnose_fujinet.sh --tfr911h` to check pin wiring, 921,600-baud UART link health, and WiFi status.
 * **Terminal reset:** If `tether` is ever killed abruptly and leaves your Unix terminal without echo, type `Ctrl-J` `reset` `Ctrl-J`.

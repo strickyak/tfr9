@@ -109,14 +109,13 @@ int main() {
     CHECK(!amb.ok && Has(amb, "deep65280") && Has(amb, "jamesbrown") && Has(amb, "coco3"), "ambiguous nitros9l2 lists choices: '%s'", amb.msg);
   }
 
-  // 5. Known conflict: gep9 / gep9big on tfr911h have embiggen_mmu at 0xff40-47 vs Becker's e1 default 0xff41-42.
-  for (const char* f : {"gep9", "gep9big"}) {
-    char c1[112], c2[112];
-    snprintf(c1, sizeof c1, "on tfr911h run hatvan for %s with e1 with becker", f);
-    snprintf(c2, sizeof c2, "on tfr911h run hatvan for %s with e1 with becker at 0xff48", f);
-    PortsCheck bad = ParseAndValidate(c1);
-    CHECK(!bad.ok && Has(bad, "becker") && Has(bad, "embiggen_mmu"), "%s + becker conflict: '%s'", f, bad.msg);
-    CHECK(ParseAndValidate(c2).ok, "%s + becker at 0xff48 ok", f);
+  // 5. Known conflict: gep9 on tfr911h has embiggen_mmu at 0xff40-47 vs Becker's e1 default 0xff41-42; gep9big is retired.
+  {
+    PortsCheck bad = ParseAndValidate("on tfr911h run hatvan for gep9 with e1 with becker");
+    CHECK(!bad.ok && Has(bad, "becker") && Has(bad, "embiggen_mmu"), "gep9 + becker conflict: '%s'", bad.msg);
+    CHECK(ParseAndValidate("on tfr911h run hatvan for gep9 with e1 with becker at 0xff48").ok, "gep9 + becker at 0xff48 ok");
+    PortsCheck retired = ParseAndValidate("on tfr911h run hatvan for gep9big");
+    CHECK(!retired.ok, "retired gep9big target refused: '%s'", retired.msg);
   }
   CHECK(ParseAndValidate("on tfr911h run hatvan for coco2 with e1 with becker").ok, "hatvan for coco2 has no clash at 0xff41");
 

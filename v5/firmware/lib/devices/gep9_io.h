@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════════════
 // gep9 Hardware I/O Registers — Hatvan Unified Hardware I/O Spec v2.0
 //
-// Master Register Map ($FF00..$FFFF on gep9 / gep9big):
+// Master Register Map ($FF00..$FFFF on gep9):
 //   $FF00: Term.Out (putchar)
 //   $FF01: Term.In  (getchar, non-blocking, 0 = empty)
 //   $FF02: Reg.Stat (Bit 0: Timer.Ready, Bit 1: Term.RxReady, W1C)
@@ -344,7 +344,7 @@ void IN_RAM gep9_write_vector(uint addr, byte d) {
 inline bool gep9_reported_shell_stats = false;
 
 inline void gep9_poll_rx() {
-  if (!gep9_reported_shell_stats && gep9_mmu.task_tables[3] != nullptr && gep9_mmu.CountTaskFrames(3) > 0) {
+  if (!gep9_reported_shell_stats && gep9_mmu.HasTaskSlot(3) && gep9_mmu.CountTaskFrames(3) > 0) {
     gep9_reported_shell_stats = true;
     cobs_printf("\n[gep9 shell running: %d / 1024 physical pages allocated (%.1f KB / 256 KB)]\n",
                 (int)gep9_mmu.allocated_count,

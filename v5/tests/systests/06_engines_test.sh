@@ -42,7 +42,7 @@ stage() {
 
 run_engine() {   # run_engine NAME DESCRIPTION [source:dest ...]
   name=$1; desc=$2; shift 2
-  case " ${ENGINES:-turbo9os flat65280 deep65280 gep9 gep9big fuzix} " in *" $name "*) ;; *) return 0 ;; esac
+  case " ${ENGINES:-turbo9os flat65280 deep65280 gep9 fuzix} " in *" $name "*) ;; *) return 0 ;; esac
   log_test "$desc"
   # The board must answer an RPC before we start: it may still be rebooting or re-enumerating after the
   # previous engine, and an expect session started too early just hangs.
@@ -68,8 +68,7 @@ run_engine() {   # run_engine NAME DESCRIPTION [source:dest ...]
 run_engine turbo9os  "Engine 0: Turbo9OS (built-in)"
 run_engine flat65280 "Engine 1: Flat65280 (NitrOS-9 Level 1)" "$F_BOOT:flat65280.img" "$F_DISK:flat0.dsk" "$F_DISK:disk0.dsk"
 run_engine deep65280 "Engine 2: Deep65280 (NitrOS-9 Level 2, 256 KB MMU)" "$D_BOOT:deep65280.img" "$D_DISK:deep0.dsk" "$D_DISK:disk0.dsk"
-run_engine gep9      "Engine 3: Hatvan OS (gep9, 256B paged MMU)" "$H_DIR/kernel_6809.decb:kernel_6809.decb" "$H_DIR/rbf_6809.decb:rbf_6809.decb" "$H_DIR/procfs_6809.decb:procfs_6809.decb" "$H_DIR/disk0.dsk:hatvan0.dsk" "$H_DIR/disk0.dsk:disk0.dsk"
-run_engine gep9big   "Engine 4: Hatvan OS (gep9big, EMBIGGEN 2-level MMU)" "$H_DIR/kernel_6809.decb:kernel_6809.decb" "$H_DIR/rbf_6809.decb:rbf_6809.decb" "$H_DIR/procfs_6809.decb:procfs_6809.decb" "$H_DIR/disk0.dsk:hatvan0.dsk" "$H_DIR/disk0.dsk:disk0.dsk"
-run_engine fuzix     "Engine 5: multicomp09fuzix (Fuzix 6809)" "$X_BIN:fuzix.bin" "$X_DISK:disk.img"
+run_engine gep9      "Engine 3: Hatvan OS (gep9, EMBIGGEN paged MMU)" "$H_DIR/kernel_6809.decb:kernel_6809.decb" "$H_DIR/rbf_6809.decb:rbf_6809.decb" "$H_DIR/procfs_6809.decb:procfs_6809.decb" "$H_DIR/disk0.dsk:hatvan0.dsk" "$H_DIR/disk0.dsk:disk0.dsk"
+run_engine fuzix     "Engine 4: multicomp09fuzix (Fuzix 6809)" "$X_BIN:fuzix.bin" "$X_DISK:disk.img"
 
 print_summary "Suite 6 (engines)"

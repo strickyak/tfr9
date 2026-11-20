@@ -1,7 +1,6 @@
 #pragma once
-// gep9.h -- Engines gep9 / gep9big: Hatvan 6309 support.
-// Moved VERBATIM out of products/tfr911h/main.cpp (v5 Phase 3 step 1: pure code motion, no change
-// in behavior; the object code was compared before and after).  Included once, by main.cpp, at the
+// gep9.h -- Engine gep9: Hatvan 6309 support (with 2-level EMBIGGEN MMU).
+// Moved out of products/tfr911h/main.cpp (v5 Phase 3 step 1).  Included once, by main.cpp, at the
 // point where this code used to be, so it relies on the declarations above that include.
 
 // ═══════════════════════════════════════════════════════════════════
@@ -65,7 +64,7 @@ static bool gep9_load_decb_into_task(uint8_t task, const char* path) {
           lfs_ssize_t rn = img_node->read(chunk_buf, to_read);
           if (rn <= 0) break;
           for (int i = 0; i < rn; i++) {
-            if (gep9_mmu.embiggen && (cur_addr + i) >= 0x10000) {
+            if ((cur_addr + i) >= 0x10000) {
               uint32_t phys = cur_addr + i;
               uint8_t blk = phys / 8192;
               uint16_t off = phys % 8192;
@@ -161,15 +160,21 @@ void setup_gep9() {
   const char* t0_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/kernel_6809.decb";
   gep9_load_decb_into_task(0, t0_path);
 
-  // Task 1: RBF disk driver (task1 or /pc/rbf_6809.decb)
-  const char* t1_path = g_config.task1[0] ? g_config.task1 : "/pc/rbf_6809.decb";
-  gep9_load_decb_into_task(1, t1_path);
+  // Task 1: RBF disk driver (task1 or /pc/rbf_6809.decb if present)
+  if (g_config.task1[0]) {
+    gep9_load_decb_into_task(1, g_config.task1);
+  } else if (vfs_resolve("/pc/rbf_6809.decb")) {
+    gep9_load_decb_into_task(1, "/pc/rbf_6809.decb");
+  }
 
-  // Task 2: ProcFS driver (task2 or /pc/procfs_6809.decb)
-  const char* t2_path = g_config.task2[0] ? g_config.task2 : "/pc/procfs_6809.decb";
-  gep9_load_decb_into_task(2, t2_path);
+  // Task 2: ProcFS driver (task2 or /pc/procfs_6809.decb if present)
+  if (g_config.task2[0]) {
+    gep9_load_decb_into_task(2, g_config.task2);
+  } else if (vfs_resolve("/pc/procfs_6809.decb")) {
+    gep9_load_decb_into_task(2, "/pc/procfs_6809.decb");
+  }
 
-  // 4. Install IO handlers
+  // 4. Install IO handlers (including EMBIGGEN MMAP vector at 0xff40..0xff47 or 0xffe0..0xffe7)
   Install_Gep9_IO();
   cobs_printf("[gep9: IO and MMU initialized | preloaded %d / 1024 pages (Task 0: %d, Task 1: %d, Task 2: %d)]\n",
               (int)gep9_mmu.allocated_count,
@@ -178,77 +183,7 @@ void setup_gep9() {
               gep9_mmu.CountTaskFrames(2));
 }
 
-void setup_gep9big() {
-  is_an_os9 = true;
-
-  // 1. Initialize gep9 MMU with EMBIGGEN active
-  gep9_mmu.Init();
-  gep9_mmu.embiggen = true;
-
-  // 2. Open up to 4 drive nodes if configured
-  for (int d = 0; d < 4; d++) {
-    const char* path = "";
-    if (d == 0) {
-      if (g_config.drive0[0]) {
-        path = g_config.drive0;
-      } else {
-        auto hnode = vfs_resolve("/pc/hatvan0.dsk");
-        path = hnode ? "/pc/hatvan0.dsk" : "/pc/disk0.dsk";
-      }
-    }
-    else if (d == 1) path = g_config.drive1;
-    else if (d == 2) path = g_config.drive2;
-    else if (d == 3) path = g_config.drive3;
-
-    if (path && path[0]) {
-      g_drive_nodes[d] = vfs_resolve(path);
-      if (g_drive_nodes[d]) {
-        int err = g_drive_nodes[d]->open_file(LFS_O_RDWR);
-        if (err < 0) {
-          cobs_printf("[gep9big: drive %d open RDWR failed (err %d), trying RDONLY: %s]\n", d, err, path);
-          err = g_drive_nodes[d]->open_file(LFS_O_RDONLY);
-          if (err >= 0) {
-            cobs_printf("[gep9big: opened drive %d read-only: %s]\n", d, path);
-          } else {
-            cobs_printf("[gep9big: drive %d open failed: %s]\n", d, path);
-            g_drive_nodes[d] = nullptr;
-          }
-        } else {
-          cobs_printf("[gep9big: opened drive %d: %s]\n", d, path);
-        }
-      } else {
-        cobs_printf("[gep9big: could not resolve drive %d path: %s]\n", d, path);
-      }
-    } else {
-      g_drive_nodes[d] = nullptr;
-    }
-  }
-
-  // 3. Load tasks into memory:
-  const char* t0_path = g_config.flat_img[0] ? g_config.flat_img : "/pc/kernel_6809.decb";
-  gep9_load_decb_into_task(0, t0_path);
-
-  if (g_config.task1[0]) {
-    gep9_load_decb_into_task(1, g_config.task1);
-  } else if (vfs_resolve("/pc/rbf_6809.decb")) {
-    gep9_load_decb_into_task(1, "/pc/rbf_6809.decb");
-  }
-  if (g_config.task2[0]) {
-    gep9_load_decb_into_task(2, g_config.task2);
-  } else if (vfs_resolve("/pc/procfs_6809.decb")) {
-    gep9_load_decb_into_task(2, "/pc/procfs_6809.decb");
-  }
-
-  // 4. Install IO handlers (including 0xff40..0xff47 or 0xffe0..0xffe7 MMAP vector)
-  Install_Gep9_IO();
-  cobs_printf("[gep9big: EMBIGGEN IO and MMU initialized | preloaded %d / 1024 pages (Task 0: %d, Task 1: %d, Task 2: %d)]\n",
-              (int)gep9_mmu.allocated_count,
-              gep9_mmu.CountTaskFrames(0),
-              gep9_mmu.CountTaskFrames(1),
-              gep9_mmu.CountTaskFrames(2));
-}
-
 void setup_hatvan_coco2() {
-  setup_gep9big();
+  setup_gep9();
 }
 

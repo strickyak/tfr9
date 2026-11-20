@@ -82,7 +82,7 @@ cp "$V5_BUILD/generated/io-map.md" "$REL/io-map.md"
 cp "$V5_BUILD/tfr911h.uf2" "$REL/tfr911h.uf2"
 chmod 0644 "$REL/README.md" "$REL/jamesbrown-fujinet-guide.md" "$REL/io-map.md" "$REL/tfr911h.uf2"
 
-# Top-level helpers & all 8 run_tfr911h_*.sh launchers
+# Top-level helpers & all 7 run_tfr911h_*.sh launchers
 for shfile in \
   tether.sh \
   cold_install_tfr911h.sh \
@@ -92,7 +92,6 @@ for shfile in \
   run_tfr911h_nitros9_l2.sh \
   run_tfr911h_jamesbrown.sh \
   run_tfr911h_gep9.sh \
-  run_tfr911h_gep9big.sh \
   run_tfr911h_fuzix.sh \
   run_tfr911h_turbolab.sh
 do

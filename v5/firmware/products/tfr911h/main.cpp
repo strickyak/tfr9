@@ -442,7 +442,7 @@ void PollTermInput() {
 #include "turbo9os.h"   // Engine turbo9os: built-in Turbo9OS ROM + setup
 #include "flat65280.h"   // Engine flat65280: NitrOS-9 Level 1 I/O and setup
 #include "deep65280.h"   // Engine deep65280: NitrOS-9 Level 2 I/O and setup
-#include "gep9.h"   // Engines gep9 / gep9big: Hatvan 6309 support
+#include "gep9.h"   // Engine gep9: Hatvan 6309 support
 #include "multicomp09.h"   // Engine multicomp09: Fuzix 6809 support
 #include "pins.h"   // TFR911H GPIO initialization
 // ═══════════════════════════════════════════════════════════════════

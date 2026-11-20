@@ -52,8 +52,8 @@ static void TestCoreAndHostNeverOverlap() {
   }
 }
 
-// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clashes across all 25
-// targets are tfr911h/hatvan/gep9 and tfr911h/hatvan/gep9big (embiggen_mmu 0xff40-47) vs becker (0xff41-42).
+// Enhancements in map e1: skipping devices already built into a target (jamesbrown), the ONLY clash across all
+// targets is tfr911h/hatvan/gep9 (embiggen_mmu 0xff40-47) vs becker (0xff41-42).
 static void TestEnhancementsFitEverywhere() {
   int conflicts = 0;
   for (size_t i = 0; i < kNumTargets; i++) {
@@ -73,14 +73,14 @@ static void TestEnhancementsFitEverywhere() {
       if (!r.ok) {
         conflicts++;
         bool is_gep = !strcmp(t.on_host, "tfr911h") && !strcmp(t.run_os, "hatvan") &&
-                      (!strcmp(t.for_hw, "gep9") || !strcmp(t.for_hw, "gep9big"));
+                      !strcmp(t.for_hw, "gep9");
         bool expected = is_gep && !strcmp(enh, "becker");
         CHECK(expected, "unexpected conflict: %s/%s/%s + %s at 0x%04x (owner %s)",
               t.on_host, t.run_os, t.for_hw, enh, r.addr, r.owner ? r.owner : "?");
       }
     }
   }
-  CHECK(conflicts == 2, "expected exactly 2 known conflicts (gep9 and gep9big + becker), saw %d", conflicts);
+  CHECK(conflicts == 1, "expected exactly 1 known conflict (gep9 + becker), saw %d", conflicts);
 }
 
 // CoCo 2 vs CoCo 3 GIME/MMU rule: `on coco2 run nitros9l2 for coco3` simulates GIME/MMU/vectors (`gerbil_gime`),
@@ -133,9 +133,6 @@ static void TestGoldenAddresses() {
     {"tfr911h", "hatvan",    "gep9",        "fuse_dma",       0xFF20, 0xFF2F},
     {"tfr911h", "hatvan",    "gep9",        "task_sec",       0xFF30, 0xFF36},
     {"tfr911h", "hatvan",    "gep9",        "embiggen_mmu",   0xFF40, 0xFF47},
-    {"tfr911h", "hatvan",    "gep9big",     "disk",           0xFF10, 0xFF1B},
-    {"tfr911h", "hatvan",    "gep9big",     "task_sec",       0xFF30, 0xFF36},
-    {"tfr911h", "hatvan",    "gep9big",     "embiggen_mmu",   0xFF40, 0xFF47},
     {"tfr911h", "hatvan",    "coco2",       "disk",           0xFF50, 0xFF5B},
     {"tfr911h", "hatvan",    "coco2",       "console",        0xFF60, 0xFF65},
     {"tfr911h", "hatvan",    "coco2",       "fuse_dma",       0xFF80, 0xFF8F},

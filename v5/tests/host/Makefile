@@ -4,6 +4,7 @@ CXXFLAGS ?= -std=gnu++17 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-
 CORE = ../../firmware/lib/core
 BUS = ../../firmware/lib/bus
 DEV = ../../firmware/lib/devices
+MEM = ../../firmware/lib/mem
 GEN = ../../build/generated
 OUT = ../../build/host-tests
 
@@ -21,6 +22,9 @@ $(OUT)/ports_config_test: ports_config_test.cpp $(DEV)/ports_config.h $(DEV)/iom
 
 $(OUT)/floppy_geom_test: floppy_geom_test.cpp $(DEV)/floppy_geom.h | $(OUT)
 	$(CXX) $(CXXFLAGS) -I$(DEV) -o $@ floppy_geom_test.cpp
+
+$(OUT)/gep9_mmu_test: gep9_mmu_test.cpp $(MEM)/gep9_mmu.h | $(OUT)
+	$(CXX) $(CXXFLAGS) -I$(MEM) -o $@ gep9_mmu_test.cpp
 
 # ---- tcl_stream_test: the real Tcl 6.7c sources compiled for the PC ----
 TCLDIR = ../../third_party/tcl6.7c
@@ -42,6 +46,6 @@ $(OUT)/test_pio_assembler: test_pio_assembler.cpp $(BUS)/pio_assembler.h $(BUS)/
 	$(CXX) $(CXXFLAGS) -I$(BUS) -o $@ test_pio_assembler.cpp
 
 # ONE `test` rule: a Makefile keeps only the LAST recipe for a target, so earlier test rules would silently not run.
-TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/floppy_geom_test $(OUT)/test_pio_assembler $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
+TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/floppy_geom_test $(OUT)/gep9_mmu_test $(OUT)/test_pio_assembler $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
 test: $(TESTS)
 	@for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done

@@ -11,7 +11,7 @@
 // Compiles down into flat key-value pairs (`ports list`):
 //   on = tfr911h | coco2 | coco3
 //   run = turbo9os | turbolab | nitros9l1 | nitros9l2 | hatvan | fuzix | rsbasic
-//   for = turbo9sim | flat65280 | deep65280 | jamesbrown | coco3 | coco2 | gep9 | gep9big | multicomp09
+//   for = turbo9sim | flat65280 | deep65280 | jamesbrown | coco3 | coco2 | gep9 | multicomp09
 //   engine = hamster_flat | hamster_turbolab | hamster_gime | hamster_gep9 | hamster_multicomp | gerbil_*
 //   with = e1
 //   <device> = on | off
