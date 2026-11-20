@@ -2,8 +2,6 @@
 # run_tfr911h_coco2_basic.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1 on TFR911H (browser VDG screen + keyboard on :8080)
 set -eu
 DIR=$(cd "$(dirname "$0")" && pwd)
-PC_DIR="$DIR/build/demo-pc/coco2_basic"
-mkdir -p "$PC_DIR"
 
 # Detect custom -bind=... flag for the banner hint (default in tether is :8080).
 bind_addr=":8080"
@@ -27,19 +25,19 @@ case "$bind_addr" in
 esac
 
 if [ -n "${V5_IMG_COCO2_DISK:-}" ]; then
-  exec "$DIR/scripts/run-tfr911h-demo.sh" coco2_basic 9060 \
-    'on tfr911h run rsbasic for coco2 with e1 with info with rtc
-bye' \
-    "$V5_IMG_COCO2_DISK:f0" -- "$@"
-fi
-
-# Auto-create a blank formatted 35-track RS-DOS floppy in Drive 0 (630 * 256 = 161280 bytes of 0xFF) if none exists.
-if [ ! -f "$PC_DIR/f0" ]; then
-  echo "[coco2_basic: creating blank 35-track RS-DOS disk at $PC_DIR/f0]" >&2
-  tr '\000' '\377' < /dev/zero | dd bs=256 count=630 of="$PC_DIR/f0" 2>/dev/null
+  DISK=$V5_IMG_COCO2_DISK
+elif [ -f "$DIR/images/coco2_basic/f0.dsk" ]; then
+  DISK="$DIR/images/coco2_basic/f0.dsk"
+else
+  DISK="$DIR/build/coco2_basic.dsk"
+  if [ -f "$DIR/scripts/make-coco2-basic-dsk.sh" ]; then
+    if [ ! -f "$DISK" ] || [ -n "$(find "$DIR/os/coco2" -name '*.bas' -newer "$DISK" 2>/dev/null)" ]; then
+      sh "$DIR/scripts/make-coco2-basic-dsk.sh" "$DISK"
+    fi
+  fi
 fi
 
 exec "$DIR/scripts/run-tfr911h-demo.sh" coco2_basic 9060 \
   'on tfr911h run rsbasic for coco2 with e1 with info with rtc
 bye' \
-  -- "$@"
+  "$DISK:f0" -- "$@"

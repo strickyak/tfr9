@@ -6,7 +6,7 @@ export SHELF
 # parallel jobs: getconf works on Linux and macOS
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
-.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk jamesbrown-32z-dsk flash-fujinet check-fujinet release
+.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk jamesbrown-32z-dsk coco2-basic-dsk flash-fujinet check-fujinet release
 help:
 	@echo "targets:"
 	@echo "  tfr911h      build the TFR/911H firmware -> build/tfr911h.uf2"
@@ -53,7 +53,10 @@ jamesbrown-dsk:
 jamesbrown-32z-dsk:
 	@sh scripts/make-jamesbrown-32z-dsk.sh
 
-release: tfr911h tethers jamesbrown-dsk gen-ports
+coco2-basic-dsk:
+	@sh scripts/make-coco2-basic-dsk.sh
+
+release: tfr911h tethers jamesbrown-dsk coco2-basic-dsk gen-ports
 	@sh scripts/make-release.sh
 
 flash-fujinet:

@@ -19,6 +19,7 @@ FLAT_DISK=${V5_IMG_FLAT_DISK:-$SHELF/nitros9/recipes/flat65280/flat0.dsk}
 DEEP_BOOT=${V5_IMG_DEEP_BOOT:-$SHELF/nitros9/recipes/deep65280/deep65280.img}
 DEEP_DISK=${V5_IMG_DEEP_DISK:-$SHELF/nitros9/recipes/deep65280/deep0.dsk}
 JB_DISK=${V5_IMG_JAMESBROWN_DISK:-$V5_BUILD/tfr911-jamesbrown.dsk}
+COCO2_DISK=${V5_IMG_COCO2_DISK:-$V5_BUILD/coco2_basic.dsk}
 HATVAN_DIR=${V5_IMG_HATVAN_DIR:-$HOME/github.com/strickyak/hatvan-os/build}
 FUZIX_BIN=${V5_IMG_FUZIX_BIN:-$HOME/nand/github.com/EtchedPixels/FUZIX/Kernel/fuzix.bin}
 FUZIX_DISK=${V5_IMG_FUZIX_DISK:-$HOME/nand/github.com/EtchedPixels/FUZIX/Images/multicomp09/disk.img}
@@ -53,6 +54,7 @@ need_file "$FLAT_DISK" "set V5_IMG_FLAT_DISK"
 need_file "$DEEP_BOOT" "set V5_IMG_DEEP_BOOT"
 need_file "$DEEP_DISK" "set V5_IMG_DEEP_DISK"
 need_file "$JB_DISK" "run: make jamesbrown-dsk"
+need_file "$COCO2_DISK" "run: make coco2-basic-dsk"
 need_file "$HATVAN_DIR/kernel_6809.decb" "set V5_IMG_HATVAN_DIR"
 need_file "$HATVAN_DIR/rbf_6809.decb" "set V5_IMG_HATVAN_DIR"
 need_file "$HATVAN_DIR/procfs_6809.decb" "set V5_IMG_HATVAN_DIR"
@@ -73,7 +75,8 @@ mkdir -p \
   "$REL/images/deep65280" \
   "$REL/images/jamesbrown" \
   "$REL/images/hatvan" \
-  "$REL/images/fuzix"
+  "$REL/images/fuzix" \
+  "$REL/images/coco2_basic"
 
 # Documentation & firmware
 cp "$V5/doc/release-tfr911h-README.md" "$REL/README.md"
@@ -129,6 +132,7 @@ cp "$HATVAN_DIR/procfs_6809.decb" "$REL/images/hatvan/procfs_6809.decb"
 cp "$HATVAN_DIR/disk0.dsk"        "$REL/images/hatvan/disk0.dsk"
 cp "$FUZIX_BIN"  "$REL/images/fuzix/fuzix.bin"
 cp "$FUZIX_DISK" "$REL/images/fuzix/disk.img"
+cp "$COCO2_DISK" "$REL/images/coco2_basic/f0.dsk"
 find "$REL/images" -type f -exec chmod 0644 {} +
 
 # Create build/tfr911h-release.zip with top-level directory `tfr911h-release/`
