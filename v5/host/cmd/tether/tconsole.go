@@ -26,6 +26,7 @@ import (
 
 var COOKED = flag.Bool("cooked", false, "Cooked line terminal mode: read lines from stdin without stty manipulation, exit on EOF")
 var COOKED_DRAIN = flag.Duration("cooked-drain", 2*time.Second, "In cooked mode, duration to wait after stdin EOF before exiting (0 = wait indefinitely)")
+var READLINE = flag.Bool("readline", false, "Readline terminal mode: cook lines locally in tether with bash-style history and line editing")
 var RECONNECT = flag.Bool("reconnect", false, "reconnect if USB drops instead of exiting")
 var EXIT = flag.Bool("exit", false, "immediately exit(0) without doing anything")
 var OMIT_STDERR = flag.Bool("omit_stderr", false, "send stderr to nowhere")
@@ -551,7 +552,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tether: WARNING: %s does not exist, so /pc is disabled (mkdir it, or use -pc)\n", *PC_DIR)
 	}
 
-	if runtime.GOOS != "windows" && *JUST_INJECT == "" && *JUST_TYPE == "" && !*COOKED {
+	if *COOKED && *READLINE {
+		Fatalf("cannot specify both -cooked and -readline")
+	}
+
+	if runtime.GOOS != "windows" && *JUST_INJECT == "" && *JUST_TYPE == "" && !*COOKED && !*NO_KEYBOARD {
 		SaveSttyState()
 		SetSttyCbreak()
 	}
@@ -583,6 +588,8 @@ func main() {
 	if !*NO_KEYBOARD {
 		if *COOKED {
 			go CookedInkeyRoutine(inkey)
+		} else if *READLINE {
+			go ReadlineInkeyRoutine(inkey)
 		} else {
 			go InkeyRoutine(inkey)
 		}
@@ -715,17 +722,24 @@ func CookedInkeyRoutine(inkey chan byte) {
 	// Allow serial link a moment to initialize
 	time.Sleep(300 * time.Millisecond)
 
+	ttyCooked := isStdinTTY()
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "^C" || line == "^c" {
+			lineEchoSuppressor.Clear()
 			inkey <- 3 // Control-C
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
 		if strings.HasPrefix(line, "~") {
 			if strings.HasPrefix(line, "~~") {
-				for _, b := range []byte(line[1:]) {
+				lit := line[1:]
+				if ttyCooked {
+					expected := append([]byte(lit), '\r', '\n')
+					lineEchoSuppressor.Expect(expected, 2*time.Second)
+				}
+				for _, b := range []byte(lit) {
 					inkey <- b
 					time.Sleep(5 * time.Millisecond)
 				}
@@ -736,6 +750,10 @@ func CookedInkeyRoutine(inkey chan byte) {
 			uCmdChan <- line[1:]
 			time.Sleep(50 * time.Millisecond)
 			continue
+		}
+		if ttyCooked {
+			expected := append([]byte(line), '\r', '\n')
+			lineEchoSuppressor.Expect(expected, 2*time.Second)
 		}
 		for _, b := range []byte(line) {
 			inkey <- b
@@ -1854,6 +1872,10 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				} // otherwise use the ch from default case.
 
 				for _, ch = range chs {
+					if lineEchoSuppressor.ShouldDrop(ch) {
+						previousPutChar = ch
+						continue
+					}
 					// UTF-8 goes to the terminal as it is.  Any other byte
 					// of 128 or more is shown as its Latin-1 character.
 					if !*CURLY_DEC {

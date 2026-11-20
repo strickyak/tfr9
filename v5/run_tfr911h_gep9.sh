@@ -1,6 +1,28 @@
 #!/bin/sh
 # run_tfr911h_gep9.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
+#
+# Terminal input modes:
+#   (default)           Single-character cbreak mode (target echoes characters)
+#   -c, -cooked         Cooked line mode (Linux tty cooks lines; exits after EOF)
+#   -r, -readline       Readline mode (tether cooks lines with bash-style history)
+#   -n, -nostdin        Disable stdin reading (passes -n to tether)
 set -e
+
+case "${1:-}" in
+  -h|--help)
+    cat <<'EOF'
+Usage: sh run_tfr911h_gep9.sh [mode] [extra tether flags...]
+
+Terminal modes:
+  (default)           Single-char cbreak mode (Hatvan OS echoes characters)
+  -c, -cooked         Cooked line input mode (host tty cooks lines; exits on EOF)
+  -r, -readline       Readline mode in tether (line editing + Up/Down history)
+  -n, -nostdin        Never read stdin (passes -n to tether)
+EOF
+    exit 0
+    ;;
+esac
+
 DIR=$(cd "$(dirname "$0")" && pwd)
 if [ -n "${V5_IMG_HATVAN_DIR:-}" ]; then
   HB=$V5_IMG_HATVAN_DIR

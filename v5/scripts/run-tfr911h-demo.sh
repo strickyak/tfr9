@@ -39,12 +39,33 @@ done
 
 printf '%s\n' "$TCL_BODY" > "$PC_DIR/mode${BOOTMODE}.tcl"
 
-# Resolve TFR911H wire unless caller passed -wire=... or set WIRE.
+# Normalize terminal mode flags (-c/-cooked, -r/-readline, -n/-nostdin)
+# and detect whether caller passed -wire=... or set WIRE.
 has_wire=0
-for arg in "$@"; do
+nargs=$#
+i=0
+while [ "$i" -lt "$nargs" ]; do
+  arg=$1
+  shift
   case "$arg" in
-    -wire|-wire=*|--wire|--wire=*) has_wire=1 ;;
+    -c|-cooked|--cooked)
+      set -- "$@" -cooked
+      ;;
+    -r|-readline|--readline)
+      set -- "$@" -readline
+      ;;
+    -n|-nostdin|--nostdin)
+      set -- "$@" -n
+      ;;
+    -wire|-wire=*|--wire|--wire=*)
+      has_wire=1
+      set -- "$@" "$arg"
+      ;;
+    *)
+      set -- "$@" "$arg"
+      ;;
   esac
+  i=$((i + 1))
 done
 
 if [ "$has_wire" -eq 0 ]; then
