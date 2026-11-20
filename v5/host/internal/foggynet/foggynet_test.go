@@ -1,6 +1,7 @@
 package foggynet
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -238,5 +239,122 @@ func TestNetHTTPJSONAndTCP(t *testing.T) {
 	}
 	if string(tcpResp) != "PONG:PING" {
 		t.Fatalf("unexpected TCP response: %q", string(tcpResp))
+	}
+}
+
+func TestTNFSTCPClient(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	var sector0 [256]byte
+	copy(sector0[:], "TCP-TNFS-SECTOR-0")
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				r := bufio.NewReader(conn)
+				var hdr [4]byte
+				for {
+					if _, err := io.ReadFull(r, hdr[:]); err != nil {
+						return
+					}
+					sid := binary.LittleEndian.Uint16(hdr[0:2])
+					seq := hdr[2]
+					cmd := hdr[3]
+					var payload []byte
+					switch cmd {
+					case tnfsCmdMount:
+						var ver [2]byte
+						_, _ = io.ReadFull(r, ver[:])
+						_, _ = r.ReadBytes(0)
+						_, _ = r.ReadBytes(0)
+						_, _ = r.ReadBytes(0)
+						sid = 0x4242
+						payload = []byte{0x00, 0x02, 0x01, 100, 0}
+					case tnfsCmdUmount:
+						payload = []byte{0x00}
+					case tnfsCmdOpenDirX:
+						var h4 [4]byte
+						_, _ = io.ReadFull(r, h4[:])
+						_, _ = r.ReadBytes(0)
+						_, _ = r.ReadBytes(0)
+						payload = []byte{0x00, 1, 1, 0}
+					case tnfsCmdReadDirX:
+						var req [2]byte
+						_, _ = io.ReadFull(r, req[:])
+						var b bytes.Buffer
+						b.Write([]byte{0x00, 1, 0x01, 0, 0})
+						var rec [13]byte
+						binary.LittleEndian.PutUint32(rec[1:5], 256)
+						b.Write(rec[:])
+						b.WriteString("test.dsk")
+						b.WriteByte(0)
+						payload = b.Bytes()
+					case tnfsCmdCloseDir, tnfsCmdClose:
+						_, _ = r.ReadByte()
+						payload = []byte{0x00}
+					case tnfsCmdStat:
+						_, _ = r.ReadBytes(0)
+						var st [25]byte
+						binary.LittleEndian.PutUint16(st[1:3], 0100444)
+						binary.LittleEndian.PutUint32(st[7:11], 256)
+						payload = st[:]
+					case tnfsCmdOpen:
+						var h4 [4]byte
+						_, _ = io.ReadFull(r, h4[:])
+						_, _ = r.ReadBytes(0)
+						payload = []byte{0x00, 7}
+					case tnfsCmdLseek:
+						var req [6]byte
+						_, _ = io.ReadFull(r, req[:])
+						payload = []byte{0x00, 0, 0, 0, 0}
+					case tnfsCmdRead:
+						var req [3]byte
+						_, _ = io.ReadFull(r, req[:])
+						b := make([]byte, 3+256)
+						binary.LittleEndian.PutUint16(b[1:3], 256)
+						copy(b[3:], sector0[:])
+						payload = b
+					}
+					resp := make([]byte, 4+len(payload))
+					binary.LittleEndian.PutUint16(resp[0:2], sid)
+					resp[2] = seq
+					resp[3] = cmd
+					copy(resp[4:], payload)
+					_, _ = conn.Write(resp)
+				}
+			}(c)
+		}
+	}()
+
+	client, err := DialTNFS(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("DialTNFS: %v", err)
+	}
+	defer client.Close()
+	if !client.isTCP {
+		t.Fatal("expected DialTNFS to connect over TCP")
+	}
+
+	items, err := client.ListDir("/", "")
+	if err != nil || len(items) != 1 || items[0].Name != "test.dsk" {
+		t.Fatalf("ListDir failed: items=%v err=%v", items, err)
+	}
+	f, err := client.OpenFile("/test.dsk", false)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	defer f.Close()
+	sec, rc := f.ReadSector(0)
+	if rc != 0x00 || sec != sector0 {
+		t.Fatalf("ReadSector mismatch: rc=0x%02X got=%q", rc, sec[:17])
 	}
 }

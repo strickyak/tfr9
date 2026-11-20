@@ -10,7 +10,8 @@ This guide covers using FujiNet (on real TFR/911H hardware via `run_tfr911h_jame
   * Slot `0` defaults to `SD`:
     * On real TFR/911H hardware: the microSD card on the ESP32 FujiNet hat.
     * Under `./run_gep9_jamesbrown.sh` (`foggynet`): `build/demo-pc/jamesbrown-gep9/foggynet/sd/` on your host PC.
-  * Slots `1`–`7` hold TNFS server hostnames (`tnfs.fujinet.online` is preloaded in slot `1`; `apps.irata.online` hosts a large CoCo OS-9 collection).
+  * Slots `1`–`7` hold TNFS server hostnames (`tnfs.fujinet.online` is preloaded in slot `1`; `apps.irata.online` hosts a large CoCo OS-9 collection). Both real `fujinet-firmware` and `foggynet` try **TCP port 16384 first** and fall back to UDP (`_tcp.` or `_udp.` prefixes force one).
+  * You can also run the bundled read-only TCP TNFS server (`build/tnfsd --fs=/some/dir --listen=localhost:16384`) or mount a TCP TNFS server on Linux via FUSE (`build/tnfsfuse --server=apps.irata.com --mount=/tmp/tnfs`).
 * **Device slots (`0`–`3`):** Map 1-to-1 to NitrOS-9 DriveWire RBF drives **`/x0`**, **`/x1`**, **`/x2`**, **`/x3`**.
   * Use slots `1`–`3` (`/x1`–`/x3`) when mounting extra disks (`fnconfig` protects `/x0` from interactive overwrite in case `/x0` is a DriveWire root filesystem).
   * Note: NitrOS-9 `dir /x1` expects an **OS-9 RBF** `.dsk` image (usually marked `(OS-9)` on TNFS archives), not a CoCo Disk BASIC (DECB) `.dsk`.

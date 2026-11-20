@@ -1,8 +1,10 @@
 package foggynet
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"path"
 	"sort"
@@ -40,26 +42,78 @@ type DirItem struct {
 	ModTime time.Time
 }
 
-// TNFSClient speaks the TNFS UDP protocol (port 16384) to a remote TNFS host.
+// TNFSClient speaks the TNFS protocol (TCP first, falling back to UDP on port 16384) to a remote TNFS host.
 type TNFSClient struct {
 	mu      sync.Mutex
 	host    string
-	conn    *net.UDPConn
+	isTCP   bool
+	conn    net.Conn
+	r       *bufio.Reader
 	sessID  [2]byte
 	seq     byte
 	mounted bool
 }
 
-// DialTNFS connects and mounts "/" on a TNFS server (default UDP port 16384).
+// DialTNFS connects and mounts "/" on a TNFS server (TCP first, falling back to UDP on port 16384).
+// Hostnames prefixed with "_tcp." or "_udp." force that transport.
 func DialTNFS(hostSpec string) (*TNFSClient, error) {
 	addrStr := strings.TrimSpace(hostSpec)
 	addrStr = strings.TrimPrefix(strings.TrimPrefix(addrStr, "tnfs://"), "TNFS://")
 	if idx := strings.IndexByte(addrStr, '/'); idx >= 0 {
 		addrStr = addrStr[:idx]
 	}
+
+	forceTCP := false
+	forceUDP := false
+	if strings.HasPrefix(addrStr, "_tcp.") {
+		forceTCP = true
+		addrStr = strings.TrimPrefix(addrStr, "_tcp.")
+	} else if strings.HasPrefix(addrStr, "_udp.") {
+		forceUDP = true
+		addrStr = strings.TrimPrefix(addrStr, "_udp.")
+	}
 	if !strings.Contains(addrStr, ":") {
 		addrStr = fmt.Sprintf("%s:%d", addrStr, tnfsDefaultPort)
 	}
+
+	var tcpErr error
+	if !forceUDP {
+		if c, err := dialTNFSTCP(hostSpec, addrStr); err == nil {
+			return c, nil
+		} else {
+			tcpErr = err
+		}
+		if forceTCP {
+			return nil, tcpErr
+		}
+	}
+
+	c, udpErr := dialTNFSUDP(hostSpec, addrStr)
+	if udpErr != nil && tcpErr != nil {
+		return nil, fmt.Errorf("tnfs tcp (%v) and udp (%v) failed", tcpErr, udpErr)
+	}
+	return c, udpErr
+}
+
+func dialTNFSTCP(hostSpec, addrStr string) (*TNFSClient, error) {
+	conn, err := net.DialTimeout("tcp", addrStr, 2500*time.Millisecond)
+	if err != nil {
+		return nil, fmt.Errorf("tnfs tcp dial %q: %w", addrStr, err)
+	}
+	c := &TNFSClient{
+		host:  hostSpec,
+		isTCP: true,
+		conn:  conn,
+		r:     bufio.NewReaderSize(conn, 4096),
+	}
+	if err := c.mount("/"); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+func dialTNFSUDP(hostSpec, addrStr string) (*TNFSClient, error) {
 	raddr, err := net.ResolveUDPAddr("udp", addrStr)
 	if err != nil {
 		return nil, fmt.Errorf("tnfs resolve %q: %w", addrStr, err)
@@ -68,7 +122,6 @@ func DialTNFS(hostSpec string) (*TNFSClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tnfs dial %q: %w", addrStr, err)
 	}
-
 	c := &TNFSClient{
 		host: hostSpec,
 		conn: conn,
@@ -137,6 +190,10 @@ func (c *TNFSClient) rpcLocked(cmd byte, payload []byte) ([]byte, error) {
 	pkt[3] = cmd
 	copy(pkt[4:], payload)
 
+	if c.isTCP {
+		return c.rpcTCPLocked(pkt, seq, cmd)
+	}
+
 	var respBuf [2048]byte
 	for attempt := 0; attempt < 3; attempt++ {
 		if _, err := c.conn.Write(pkt); err != nil {
@@ -160,6 +217,126 @@ func (c *TNFSClient) rpcLocked(cmd byte, payload []byte) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("tnfs timeout on cmd 0x%02X to %s", cmd, c.host)
+}
+
+func (c *TNFSClient) rpcTCPLocked(pkt []byte, seq, cmd byte) ([]byte, error) {
+	_ = c.conn.SetDeadline(time.Now().Add(5 * time.Second))
+	for total := 0; total < len(pkt); {
+		n, err := c.conn.Write(pkt[total:])
+		total += n
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var hdr [5]byte
+	if _, err := io.ReadFull(c.r, hdr[:]); err != nil {
+		return nil, err
+	}
+	if hdr[2] != seq || hdr[3] != cmd {
+		return nil, fmt.Errorf("tnfs tcp mismatch: got seq=%d cmd=0x%02X, want seq=%d cmd=0x%02X", hdr[2], hdr[3], seq, cmd)
+	}
+	status := hdr[4]
+	if status != 0x00 {
+		if cmd == tnfsCmdMount && c.r.Buffered() >= 2 {
+			_, _ = io.CopyN(io.Discard, c.r, 2)
+		} else if status == 0x07 { // EAGAIN backoff
+			var backoff [2]byte
+			_, _ = io.ReadFull(c.r, backoff[:])
+		}
+		return hdr[:], nil
+	}
+
+	body, err := readTNFSTCPBody(c.r, cmd)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 5+len(body))
+	copy(out[:5], hdr[:])
+	copy(out[5:], body)
+	return out, nil
+}
+
+func readTNFSTCPBody(r *bufio.Reader, cmd byte) ([]byte, error) {
+	switch cmd {
+	case tnfsCmdMount:
+		var buf [4]byte
+		_, err := io.ReadFull(r, buf[:])
+		return buf[:], err
+	case tnfsCmdUmount, tnfsCmdCloseDir, tnfsCmdClose:
+		return nil, nil
+	case tnfsCmdOpenDir, tnfsCmdOpen:
+		b, err := r.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		return []byte{b}, nil
+	case tnfsCmdReadDir:
+		s, err := r.ReadBytes(0)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	case tnfsCmdOpenDirX:
+		var buf [3]byte
+		_, err := io.ReadFull(r, buf[:])
+		return buf[:], err
+	case tnfsCmdReadDirX:
+		var h4 [4]byte
+		if _, err := io.ReadFull(r, h4[:]); err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, 128)
+		out = append(out, h4[:]...)
+		count := int(h4[0])
+		for i := 0; i < count; i++ {
+			var fixed [13]byte
+			if _, err := io.ReadFull(r, fixed[:]); err != nil {
+				return nil, err
+			}
+			name, err := r.ReadBytes(0)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, fixed[:]...)
+			out = append(out, name...)
+		}
+		return out, nil
+	case tnfsCmdStat:
+		var fixed [22]byte
+		if _, err := io.ReadFull(r, fixed[:]); err != nil {
+			return nil, err
+		}
+		if _, err := r.ReadBytes(0); err != nil {
+			return nil, err
+		}
+		if _, err := r.ReadBytes(0); err != nil {
+			return nil, err
+		}
+		return fixed[:], nil
+	case tnfsCmdLseek:
+		var buf [4]byte
+		_, err := io.ReadFull(r, buf[:])
+		return buf[:], err
+	case tnfsCmdRead:
+		var szBuf [2]byte
+		if _, err := io.ReadFull(r, szBuf[:]); err != nil {
+			return nil, err
+		}
+		n := int(binary.LittleEndian.Uint16(szBuf[:]))
+		out := make([]byte, 2+n)
+		copy(out[:2], szBuf[:])
+		if _, err := io.ReadFull(r, out[2:]); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case tnfsCmdWrite:
+		var buf [2]byte
+		_, err := io.ReadFull(r, buf[:])
+		return buf[:], err
+	default:
+		return nil, fmt.Errorf("unexpected tnfs tcp cmd 0x%02X", cmd)
+	}
 }
 
 func cleanTNFSPath(p string) string {
