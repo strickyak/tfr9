@@ -51,4 +51,12 @@ PY
 os9 copy -r "$BASIC09_MOD" "$OUT,CMDS/basic09"
 os9 attr -q -r -e -pr -pe -nw -npw -ns "$OUT,CMDS/basic09"
 
-echo "built $OUT (with CMDS/basic09 attr r e pr pe)"
+# Build and install the 5 CMOC C FujiNet apps (fnnews, fnweather, fnstocks, fnbounce, fnbattleship)
+FN_APPS_DIR="$V5/build/fn-apps"
+sh "$V5/scripts/build-jamesbrown-fn-apps.sh" "$FN_APPS_DIR"
+for app in fnnews fnweather fnstocks fnbounce fnbattleship; do
+  os9 copy -r "$FN_APPS_DIR/bin/$app" "$OUT,CMDS/$app"
+  os9 attr -q -r -w -e -pr -pe "$OUT,CMDS/$app"
+done
+
+echo "built $OUT (with CMDS/basic09 + fnnews fnweather fnstocks fnbounce fnbattleship)"
