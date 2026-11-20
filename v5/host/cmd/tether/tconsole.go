@@ -556,9 +556,14 @@ func main() {
 		Fatalf("cannot specify both -cooked and -readline")
 	}
 
-	if runtime.GOOS != "windows" && *JUST_INJECT == "" && *JUST_TYPE == "" && !*COOKED && !*NO_KEYBOARD {
-		SaveSttyState()
-		SetSttyCbreak()
+	if runtime.GOOS != "windows" && *JUST_INJECT == "" && *JUST_TYPE == "" && !*NO_KEYBOARD {
+		if !*COOKED {
+			SaveSttyState()
+			SetSttyCbreak()
+		} else if *PASS_CTRL_C && isStdinTTY() {
+			SaveSttyState()
+			SetSttyCookedPassCtrlC()
+		}
 	}
 	defer func() { Shutdown(recover()) }()
 
@@ -600,6 +605,12 @@ func main() {
 	go func() {
 		sig := <-sigChan
 		if sig == syscall.SIGINT {
+			if *COOKED && *PASS_CTRL_C && !*NO_KEYBOARD && !turbolabActive.Load() {
+				CloseActiveWire()
+				RestoreSttyState()
+				fmt.Printf("\r\n[tether: quit with ^]]\r\n")
+				os.Exit(0)
+			}
 			fmt.Printf("\n[SIGINT]\n")
 			if turbolabActive.Load() {
 				if ch := GetChannelToPico(); ch != nil {
@@ -723,13 +734,67 @@ func CookedInkeyRoutine(inkey chan byte) {
 	time.Sleep(300 * time.Millisecond)
 
 	ttyCooked := isStdinTTY()
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		line := scanner.Text()
+	reader := bufio.NewReader(os.Stdin)
+	var lineBuf []byte
+	for {
+		b, err := reader.ReadByte()
+		if err != nil {
+			if err != io.EOF {
+				Logf("CookedInkeyRoutine: stdin read error: %v", err)
+			}
+			if len(lineBuf) == 0 {
+				break
+			}
+			b = '\n' // flush trailing unterminated line before EOF
+		}
+
+		if *PASS_CTRL_C && b == 0x1D { // ^] quits tether if delivered as a byte
+			RestoreSttyState()
+			CloseActiveWire()
+			fmt.Printf("\r\n[tether: quit with ^]]\r\n")
+			os.Exit(0)
+		}
+
+		if b == 3 { // ^C (flushed immediately via VEOL in cooked -pass_ctrl_c mode)
+			lineBuf = lineBuf[:0]
+			if ttyCooked {
+				os.Stdout.Write([]byte{'\r', '\n'})
+				lineEchoSuppressor.Expect([]byte("^C\r\n"), 2*time.Second)
+			} else {
+				lineEchoSuppressor.Clear()
+			}
+			inkey <- 3
+			time.Sleep(200 * time.Millisecond)
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		if b != '\n' && b != '\r' {
+			lineBuf = append(lineBuf, b)
+			continue
+		}
+		if b == '\r' {
+			if next, perr := reader.Peek(1); perr == nil && len(next) == 1 && next[0] == '\n' {
+				_, _ = reader.ReadByte()
+			}
+		}
+
+		line := string(lineBuf)
+		lineBuf = lineBuf[:0]
+
 		if line == "^C" || line == "^c" {
-			lineEchoSuppressor.Clear()
+			if ttyCooked {
+				lineEchoSuppressor.Expect([]byte("^C\r\n"), 2*time.Second)
+			} else {
+				lineEchoSuppressor.Clear()
+			}
 			inkey <- 3 // Control-C
 			time.Sleep(200 * time.Millisecond)
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 		if strings.HasPrefix(line, "~") {
@@ -739,36 +804,43 @@ func CookedInkeyRoutine(inkey chan byte) {
 					expected := append([]byte(lit), '\r', '\n')
 					lineEchoSuppressor.Expect(expected, 2*time.Second)
 				}
-				for _, b := range []byte(lit) {
-					inkey <- b
+				for _, ch := range []byte(lit) {
+					inkey <- ch
 					time.Sleep(5 * time.Millisecond)
 				}
 				inkey <- 13
 				time.Sleep(200 * time.Millisecond)
+				if err == io.EOF {
+					break
+				}
 				continue
 			}
 			uCmdChan <- line[1:]
 			time.Sleep(50 * time.Millisecond)
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 		if ttyCooked {
 			expected := append([]byte(line), '\r', '\n')
 			lineEchoSuppressor.Expect(expected, 2*time.Second)
 		}
-		for _, b := range []byte(line) {
-			inkey <- b
+		for _, ch := range []byte(line) {
+			inkey <- ch
 			time.Sleep(5 * time.Millisecond)
 		}
 		inkey <- 13 // Carriage Return (Enter)
 		time.Sleep(200 * time.Millisecond)
-	}
-	if err := scanner.Err(); err != nil {
-		Logf("CookedInkeyRoutine: stdin scan error: %v", err)
+		if err == io.EOF {
+			break
+		}
 	}
 	// EOF reached. Wait briefly for output from Pico to arrive and be printed, then exit cleanly.
 	if *COOKED_DRAIN > 0 {
 		time.Sleep(*COOKED_DRAIN)
 		CloseActiveWire()
+		RestoreSttyState()
 		os.Exit(0)
 	}
 	select {}

@@ -537,7 +537,11 @@ func ReadlineInkeyRoutine(inkey chan byte) {
 			ed.writeBytes([]byte("\r\n[tether: quit with ^]]\r\n"))
 			os.Exit(0)
 		case RlActionRaw:
-			lineEchoSuppressor.Clear()
+			if res.RawByte == 3 {
+				lineEchoSuppressor.Expect([]byte("^C\r\n"), 2*time.Second)
+			} else {
+				lineEchoSuppressor.Clear()
+			}
 			inkey <- res.RawByte
 		case RlActionUCmd:
 			uCmdChan <- res.Line

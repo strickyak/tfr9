@@ -56,6 +56,21 @@ func SetSttyCbreak() {
 	}
 }
 
+// SetSttyCookedPassCtrlC keeps canonical (cooked) line editing enabled on the
+// host TTY while disabling host signals (-isig) and setting VEOL=^C and VEOL2=^]
+// so both ^C (forwarded as 0x03) and ^] (quit tether) flush immediately without Enter.
+func SetSttyCookedPassCtrlC() {
+	sttyMu.Lock()
+	defer sttyMu.Unlock()
+
+	if sttyPath != "" && originalSttyState != "" {
+		cmd := exec.Command(sttyPath, "-isig", "eol", "^C", "eol2", "^]")
+		cmd.Stdin = os.Stdin
+		_ = cmd.Run()
+		sttyIsCbreak = true
+	}
+}
+
 func RestoreSttyState() {
 	sttyMu.Lock()
 	defer sttyMu.Unlock()

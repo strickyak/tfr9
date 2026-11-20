@@ -25,4 +25,4 @@ bye' \
   "$HB/rbf_6809.decb:rbf_6809.decb" \
   "$HB/procfs_6809.decb:procfs_6809.decb" \
   "$HB/disk0.dsk:hatvan0.dsk" \
-  -- "$@"
+  -- -pass_ctrl_c "$@"

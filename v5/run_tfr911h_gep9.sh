@@ -2,10 +2,10 @@
 # run_tfr911h_gep9.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
 #
 # Terminal input modes:
-#   (default)           Single-character cbreak mode (target echoes characters)
-#   -c, -cooked         Cooked line mode (Linux tty cooks lines; exits after EOF)
-#   -r, -readline       Readline mode (tether cooks lines with bash-style history)
-#   -n, -nostdin        Disable stdin reading (passes -n to tether)
+#   (default)           Single-character cbreak mode (^C -> Hatvan, ^] -> quit tether)
+#   -c, -cooked         Cooked line mode (^C -> Hatvan, ^] -> quit tether)
+#   -r, -readline       Readline mode with bash-style history (^C -> Hatvan, ^] -> quit tether)
+#   -n, -nostdin        Disable stdin reading (^C kills tether via SIGINT)
 set -e
 
 case "${1:-}" in
@@ -14,10 +14,10 @@ case "${1:-}" in
 Usage: sh run_tfr911h_gep9.sh [mode] [extra tether flags...]
 
 Terminal modes:
-  (default)           Single-char cbreak mode (Hatvan OS echoes characters)
-  -c, -cooked         Cooked line input mode (host tty cooks lines; exits on EOF)
-  -r, -readline       Readline mode in tether (line editing + Up/Down history)
-  -n, -nostdin        Never read stdin (passes -n to tether)
+  (default)           Single-char cbreak mode (^C -> Hatvan, ^] -> quit tether)
+  -c, -cooked         Cooked line input mode (^C -> Hatvan, ^] -> quit tether)
+  -r, -readline       Readline mode in tether with history (^C -> Hatvan, ^] -> quit tether)
+  -n, -nostdin        Never read stdin (^C kills tether via SIGINT)
 EOF
     exit 0
     ;;
@@ -30,6 +30,21 @@ elif [ -d "$DIR/images/hatvan" ]; then
   HB="$DIR/images/hatvan"
 else
   HB="$HOME/github.com/strickyak/hatvan-os/build"
+fi
+
+is_nostdin=0
+for arg in "$@"; do
+  case "$arg" in
+    -n|-nostdin|--nostdin) is_nostdin=1 ;;
+  esac
+done
+
+if [ -t 0 ]; then
+  if [ "$is_nostdin" -eq 1 ]; then
+    echo "Hatvan OS (gep9, -nostdin): stdin disabled; quit tether with ^C ." >&2
+  else
+    echo "Hatvan OS (gep9): ^C goes to Hatvan; quit tether with ^] ." >&2
+  fi
 fi
 
 exec "$DIR/scripts/run-tfr911h-demo.sh" gep9 9040 \
@@ -47,4 +62,4 @@ bye' \
   "$HB/rbf_6809.decb:rbf_6809.decb" \
   "$HB/procfs_6809.decb:procfs_6809.decb" \
   "$HB/disk0.dsk:hatvan0.dsk" \
-  -- "$@"
+  -- -pass_ctrl_c "$@"
