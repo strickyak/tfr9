@@ -1,6 +1,28 @@
 #!/bin/sh
 # run_tfr911h_gep9big.sh - Launch Hatvan OS (gep9big / EMBIGGEN 2-level MMU) on TFR911H SBC
+#
+# Terminal input modes:
+#   (default)           Single-character cbreak mode (^C -> Hatvan, ^] -> quit tether)
+#   -c, -cooked         Cooked line mode (^C -> Hatvan, ^] -> quit tether)
+#   -r, -readline       Readline mode with bash-style history (^C -> Hatvan, ^] -> quit tether)
+#   -n, -nostdin        Disable stdin reading (^C kills tether via SIGINT)
 set -e
+
+case "${1:-}" in
+  -h|--help)
+    cat <<'EOF'
+Usage: sh run_tfr911h_gep9big.sh [mode] [extra tether flags...]
+
+Terminal modes:
+  (default)           Single-char cbreak mode (^C -> Hatvan, ^] -> quit tether)
+  -c, -cooked         Cooked line input mode (^C -> Hatvan, ^] -> quit tether)
+  -r, -readline       Readline mode in tether with history (^C -> Hatvan, ^] -> quit tether)
+  -n, -nostdin        Never read stdin (^C kills tether via SIGINT)
+EOF
+    exit 0
+    ;;
+esac
+
 DIR=$(cd "$(dirname "$0")" && pwd)
 if [ -n "${V5_IMG_HATVAN_DIR:-}" ]; then
   HB=$V5_IMG_HATVAN_DIR
@@ -8,6 +30,21 @@ elif [ -d "$DIR/images/hatvan" ]; then
   HB="$DIR/images/hatvan"
 else
   HB="$HOME/github.com/strickyak/hatvan-os/build"
+fi
+
+is_nostdin=0
+for arg in "$@"; do
+  case "$arg" in
+    -n|-nostdin|--nostdin) is_nostdin=1 ;;
+  esac
+done
+
+if [ -t 0 ]; then
+  if [ "$is_nostdin" -eq 1 ]; then
+    echo "Hatvan OS (gep9big, -nostdin): stdin disabled; quit tether with ^C ." >&2
+  else
+    echo "Hatvan OS (gep9big): ^C goes to Hatvan; quit tether with ^] ." >&2
+  fi
 fi
 
 exec "$DIR/scripts/run-tfr911h-demo.sh" gep9big 9041 \
