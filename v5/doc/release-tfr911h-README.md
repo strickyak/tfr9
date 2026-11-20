@@ -9,6 +9,7 @@ This archive contains everything needed to install, upgrade, and run the **TFR/9
 ```text
 tfr911h-release/
 ├── README.md                     # This guide (Cold Install, Upgrade Install, Guest Systems)
+├── jamesbrown-fujinet-guide.md   # FujiNet / foggynet guide (hosts, /x0-/x3 mounting, apps)
 ├── io-map.md                     # Hardware I/O address map reference
 ├── tfr911h.uf2                   # TFR/911H RP2350B firmware image
 ├── tether.sh                     # Portable shell wrapper for bin/tether.<os>-<arch>.exe
@@ -168,7 +169,7 @@ Once installed, launch any guest OS directly from this folder:
 | `./run_tfr911h_turbo9os.sh` | **Turbo9OS + Basic09** | Built into firmware ROM; try `mdir` or `basic09` |
 | `./run_tfr911h_nitros9_l1.sh` | **NitrOS-9 Level 1 (`flat65280`)** | 64 KB flat RAM + `flat0.dsk` on EmuDsk |
 | `./run_tfr911h_nitros9_l2.sh` | **NitrOS-9 Level 2 (`deep65280`)** | 256 KB MMU RAM + `deep0.dsk` on EmuDsk |
-| `./run_tfr911h_jamesbrown.sh` | **NitrOS-9 Level 2 (`jamesbrown`)** | 256 KB GIME MMU, Unix tools (`ls`, `vi`, `man unix`), games (`tetris`), `basic09`, and FujiNet (`fnstatus`, `fnwx`, ...) |
+| `./run_tfr911h_jamesbrown.sh` | **NitrOS-9 Level 2 (`jamesbrown`)** | 256 KB GIME MMU, Unix tools (`ls`, `vi`, `man unix`), games (`tetris`), `basic09`, `info`, and FujiNet (`fnstatus`, `fnconfig`, `fnweather`, `fnnews`, `fnstocks`, `fnbounce`, `fnbattleship` — see `jamesbrown-fujinet-guide.md`) |
 | `./run_tfr911h_gep9.sh` | **Hatvan OS (`gep9`)** | Hitachi 6309E + 1-level EMBIGGEN MMU |
 | `./run_tfr911h_gep9big.sh` | **Hatvan OS (`gep9big`)** | Hitachi 6309E + 2-level EMBIGGEN MMU |
 | `./run_tfr911h_fuzix.sh` | **Fuzix (`multicomp09`)** | UNIX-like OS in 256 KB banked RAM (`root` login at prompt) |

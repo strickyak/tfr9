@@ -42,6 +42,7 @@ need_file() {
 }
 
 need_file "$V5/doc/release-tfr911h-README.md" "release README"
+need_file "$V5/doc/jamesbrown-fujinet-guide.md" "jamesbrown FujiNet guide"
 need_file "$V5_BUILD/generated/io-map.md" "run: make gen-ports"
 need_file "$V5_BUILD/tfr911h.uf2" "run: make tfr911h"
 for tb in $TETHER_BINS; do
@@ -76,9 +77,10 @@ mkdir -p \
 
 # Documentation & firmware
 cp "$V5/doc/release-tfr911h-README.md" "$REL/README.md"
+cp "$V5/doc/jamesbrown-fujinet-guide.md" "$REL/jamesbrown-fujinet-guide.md"
 cp "$V5_BUILD/generated/io-map.md" "$REL/io-map.md"
 cp "$V5_BUILD/tfr911h.uf2" "$REL/tfr911h.uf2"
-chmod 0644 "$REL/README.md" "$REL/io-map.md" "$REL/tfr911h.uf2"
+chmod 0644 "$REL/README.md" "$REL/jamesbrown-fujinet-guide.md" "$REL/io-map.md" "$REL/tfr911h.uf2"
 
 # Top-level helpers & all 8 run_tfr911h_*.sh launchers
 for shfile in \
