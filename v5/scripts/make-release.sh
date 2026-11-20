@@ -88,8 +88,8 @@ for shfile in \
   cold_install_tfr911h.sh \
   upgrade_tfr911h.sh \
   run_tfr911h_turbo9os.sh \
-  run_tfr911h_nitros9_l1.sh \
-  run_tfr911h_nitros9_l2.sh \
+  run_tfr911h_flat65280_nitros9_l1.sh \
+  run_tfr911h_deep65280_nitros9_l2.sh \
   run_tfr911h_jamesbrown.sh \
   run_tfr911h_gep9_hatvan.sh \
   run_tfr911h_fuzix.sh \

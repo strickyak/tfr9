@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_tfr911h_nitros9_l1.sh - Launch NitrOS-9 Level 1 (flat65280) on TFR911H SBC (Hitachi 6309E CPU)
+# run_tfr911h_flat65280_nitros9_l1.sh - Launch NitrOS-9 Level 1 (flat65280) on TFR911H SBC (Hitachi 6309E CPU)
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 if [ -n "${V5_IMG_FLAT_BOOT:-}" ]; then

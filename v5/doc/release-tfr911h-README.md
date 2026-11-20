@@ -15,13 +15,13 @@ tfr911h-release/
 ├── tether.sh                     # Portable shell wrapper for bin/tether.<os>-<arch>.exe
 ├── cold_install_tfr911h.sh       # Step-2 helper for Cold Install (reformat + write board label)
 ├── upgrade_tfr911h.sh            # Helper for Upgrade Install (preserves flash storage & label)
-├── run_tfr911h_turbo9os.sh       # Launch built-in Turbo9OS + Basic09
-├── run_tfr911h_nitros9_l1.sh     # Launch NitrOS-9 Level 1 (flat65280, 64 KB)
-├── run_tfr911h_nitros9_l2.sh     # Launch NitrOS-9 Level 2 (deep65280, 256 KB MMU)
-├── run_tfr911h_jamesbrown.sh     # Launch NitrOS-9 Level 2 (jamesbrown: FujiNet + Unix tools + games + Basic09)
-├── run_tfr911h_gep9_hatvan.sh    # Launch Hatvan OS (gep9, EMBIGGEN paged MMU)
-├── run_tfr911h_fuzix.sh          # Launch Fuzix (multicomp09, 256 KB banked RAM)
-├── run_tfr911h_turbolab.sh       # Launch TurboLab 4-phase cycle-accurate bus tracer
+├── run_tfr911h_turbo9os.sh              # Launch built-in Turbo9OS + Basic09
+├── run_tfr911h_flat65280_nitros9_l1.sh  # Launch NitrOS-9 Level 1 (flat65280, 64 KB)
+├── run_tfr911h_deep65280_nitros9_l2.sh  # Launch NitrOS-9 Level 2 (deep65280, 256 KB MMU)
+├── run_tfr911h_jamesbrown.sh            # Launch NitrOS-9 Level 2 (jamesbrown: FujiNet + Unix tools + games + Basic09)
+├── run_tfr911h_gep9_hatvan.sh           # Launch Hatvan OS (gep9, EMBIGGEN paged MMU)
+├── run_tfr911h_fuzix.sh                 # Launch Fuzix (multicomp09, 256 KB banked RAM)
+├── run_tfr911h_turbolab.sh              # Launch TurboLab 4-phase cycle-accurate bus tracer
 ├── bin/                          # Statically compiled tether binaries for 8 OS/CPU targets:
 │   ├── tether.linux-amd64.exe    #   Linux x86_64
 │   ├── tether.linux-386.exe      #   Linux 32-bit x86
@@ -166,8 +166,8 @@ Once installed, launch any guest OS directly from this folder:
 | Script | Guest System / Tool | Notes |
 |---|---|---|
 | `./run_tfr911h_turbo9os.sh` | **Turbo9OS + Basic09** | Built into firmware ROM; try `mdir` or `basic09` |
-| `./run_tfr911h_nitros9_l1.sh` | **NitrOS-9 Level 1 (`flat65280`)** | 64 KB flat RAM + `flat0.dsk` on EmuDsk |
-| `./run_tfr911h_nitros9_l2.sh` | **NitrOS-9 Level 2 (`deep65280`)** | 256 KB MMU RAM + `deep0.dsk` on EmuDsk |
+| `./run_tfr911h_flat65280_nitros9_l1.sh` | **NitrOS-9 Level 1 (`flat65280`)** | 64 KB flat RAM + `flat0.dsk` on EmuDsk |
+| `./run_tfr911h_deep65280_nitros9_l2.sh` | **NitrOS-9 Level 2 (`deep65280`)** | 256 KB MMU RAM + `deep0.dsk` on EmuDsk |
 | `./run_tfr911h_jamesbrown.sh` | **NitrOS-9 Level 2 (`jamesbrown`)** | 256 KB GIME MMU, Unix tools (`ls`, `vi`, `man unix`), games (`tetris`), `basic09`, `info`, and FujiNet (`fnstatus`, `fnconfig`, `fnweather`, `fnnews`, `fnstocks`, `fnbounce`, `fnbattleship` — see `jamesbrown-fujinet-guide.md`) |
 | `./run_tfr911h_gep9_hatvan.sh` | **Hatvan OS (`gep9`)** | Hitachi 6309E + EMBIGGEN paged MMU (`-c`, `-r`, `-n` console modes) |
 | `./run_tfr911h_fuzix.sh` | **Fuzix (`multicomp09`)** | UNIX-like OS in 256 KB banked RAM (`root` login at prompt) |
