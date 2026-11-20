@@ -217,7 +217,7 @@ inline bool IsCoreDeviceOf(const TargetSpec& tgt, const char* dev) {
 }
 
 inline bool TargetHasFixedPorts(const TargetSpec& tgt) {
-  return !strcmp(tgt.engine, "hamster_multicomp");
+  return !strcmp(tgt.engine, "hamster_multicomp") || !strcmp(tgt.engine, "hamster_coco2");
 }
 
 struct PortsCheck {

@@ -366,8 +366,20 @@ uint32_t __uninitialized_ram(boot_mode_check);
 #define BOOT_MODE_CHECKER 0x56781234u
 bool startup_e_clock_detected = false;
 
-// Stub for menu.h — TFR911 has no floppy config.
-inline void set_floppy_names() {}
+// WD1773 + $FF40 Floppy Disk Controller over VFS (/pc/f0..f3)
+#define FLOPPY_OVER_VFS 1
+volatile uint nmi_fuse = 0;
+std::atomic<uint8_t> floppy_w256_busy_mask{0};
+#define ASSERT_NMI() do { gpio_set_dir(NMI, GPIO_OUT); nmi_fuse = 8; } while (0)
+#include "config.h"
+#include "floppy.h"
+struct TfrFloppyTraits {
+  static void Fatal(const char* s, int x) {
+    cobs_printf("FATAL(%s, %d)\n", s, x);
+    centipede_abort(s);
+  }
+};
+using FloppyImpl = DoFloppy<TfrFloppyTraits>;
 
 // Tcl commands (all built-in shell commands)
 #include "tcl_commands.h"
@@ -444,6 +456,43 @@ void PollTermInput() {
 #include "deep65280.h"   // Engine deep65280: NitrOS-9 Level 2 I/O and setup
 #include "gep9.h"   // Engine gep9: Hatvan 6309 support
 #include "multicomp09.h"   // Engine multicomp09: Fuzix 6809 support
+#include "disk11_rom.h"   // Disk Extended Color BASIC 1.1 ROM ($C000..$DFFF)
+#include "coco2_rom.h"   // Extended Color BASIC 1.1 + Color BASIC 1.3 ROMs ($8000..$BFFF)
+#include "coco2_mb.h"   // Emulated CoCo 2 PIA0, PIA1, SAM, and SRAM ROM window
+#include "coco2_tfr911h.h"   // Engine hamster_coco2 setup & I/O installers
+
+static bool tfr911h_rpc_hook(const pcb::RpcRequest& req, pcb::RpcResponse& resp) {
+  if (req.method == "get-coco2-video") {
+    if (!coco2_active || g_timer_60hz_fn != coco2_60hz_tick) {
+      resp.status = -1;
+      resp.message = "coco2 engine not active";
+      return true;
+    }
+    uint16_t fb_base = 0;
+    uint16_t fb_bytes = 512;
+    coco2_video_geometry(&fb_base, &fb_bytes);
+    uint16_t sam = coco2_sam_bits;
+    uint8_t p1b = coco2_pia1_outb();
+    resp.status = 0;
+    resp.handle = (int)((uint32_t)sam | ((uint32_t)p1b << 16));
+    resp.size = (int)fb_bytes;
+    size_t off = (req.offset > 0) ? (size_t)req.offset : 0;
+    size_t max_len = (req.length > 0) ? (size_t)req.length : 1024;
+    if (max_len > 1024) max_len = 1024;
+    if (off < fb_bytes) {
+      size_t n = fb_bytes - off;
+      if (n > max_len) n = max_len;
+      resp.data.resize(n);
+      for (size_t i = 0; i < n; i++) {
+        resp.data[i] = (char)ram[(fb_base + off + i) & 0xFFFFu];
+      }
+    } else {
+      resp.data.clear();
+    }
+    return true;
+  }
+  return false;
+}
 #include "pins.h"   // TFR911H GPIO initialization
 // ═══════════════════════════════════════════════════════════════════
 // Timer (1ms tick on core 0)
@@ -496,6 +545,7 @@ int main() {
   hamster_program_init(pio0, 0, offset_t911);
 
   cobs_printf(":g:\n");
+  g_product_rpc_hook = tfr911h_rpc_hook;
   Install_Turbo9os_IO();   // (installed again, and checked against the plan, when `bye` launches turbo9os)
 
   // DON'T launch core 1 here — the Tcl REPL runs first on core 0.

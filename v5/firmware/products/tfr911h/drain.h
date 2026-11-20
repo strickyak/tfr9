@@ -85,6 +85,21 @@ static void drain_task(Coro& self) {
         case FG2BG_EMUDSK:
           emudsk_service_bg(&self);
           break;
+        case FG2BG_FLOPPY_LATCH:
+          FloppyImpl::BackgroundFifoFloppyLatch((byte)(chore & 0xFFu));
+          break;
+        case FG2BG_FLOPPY_COMMAND:
+          FloppyImpl::BackgroundFifoFloppyCommand(self, chore, (byte)(chore & 0xFFu));
+          break;
+        case FG2BG_W_256: {
+          byte idx = (byte)(chore & 1u);
+          FloppyImpl::BackgroundFifoFloppyW256(self, idx);
+          floppy_w256_busy_mask.fetch_and((uint8_t)~(1u << idx), std::memory_order_release);
+          break;
+        }
+        case FG2BG_START_KEYBOARD_INJECTOR:
+          keyboard_injector::start_if_queued();
+          break;
         case FG2BG_GEP9_DISK: {
           rpc::g_vfs_coro = &self;
           uint8_t drv = g_gep9_disk_req.drive;

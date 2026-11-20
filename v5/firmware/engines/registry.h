@@ -23,6 +23,7 @@ static const TargetLauncher kLaunchers[] = {
   {"hatvan",    "gep9",        setup_gep9},
   {"hatvan",    "coco2",       setup_hatvan_coco2},
   {"fuzix",     "multicomp09", setup_multicomp09},
+  {"rsbasic",   "coco2",       setup_coco2_basic},
 };
 
 static inline const TargetLauncher* FindLauncher(const char* run_os, const char* for_hw) {

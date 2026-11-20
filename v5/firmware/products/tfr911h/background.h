@@ -74,6 +74,7 @@ void IN_RAM tfr911_background() {
   coro_create(&drain_coro, drain_task, drain_stack, sizeof(drain_stack));
 
   bool phase2 = false;
+  uint64_t last_tick_20ms = 0;
 
   // ── Unified Scheduler Loop ─────────────────────────────────────
   while (true) {
@@ -151,6 +152,7 @@ void IN_RAM tfr911_background() {
         cobs_printf("[bye: HALT released, 6309 booting]\n");
 
         alarm_pool_init_default();
+        start_20ms_timer();
 #if SPEED_STATS
         add_repeating_timer_us(1000, TimerCallback, nullptr, &TimerData);
 #endif
@@ -177,6 +179,12 @@ void IN_RAM tfr911_background() {
       PollTermInput();
       if (g_rx_poll_fn) {
         g_rx_poll_fn();
+      }
+
+      uint64_t cur_tick = get_system_ticks_20ms();
+      if (cur_tick != last_tick_20ms) {
+        last_tick_20ms = cur_tick;
+        keyboard_injector::tick();
       }
 
       periodic_status();

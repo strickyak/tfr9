@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,6 +15,11 @@ import (
 var VDG_TEXT = flag.Bool("vdg_text", false, "whether to show VDG text")
 
 var SamBits uint
+
+var liveCoco2Mu sync.Mutex
+var liveCoco2Active bool
+var livePia1OutB byte
+var liveCoco2Unsupported bool
 
 func SamModeV() uint         { return 7 & SamBits }
 func SamModeF() uint         { return 127 & (SamBits >> 3) }
@@ -24,7 +30,17 @@ func SamModeTY() uint        { return 1 & (SamBits >> 15) }
 func SamScreenAddress() uint { return SamModeF() << 9 }
 
 func Pia1OutB() byte {
-	return the_ram.Peek1(0xFF23) // assuming write DATA after writing DIRECTION
+	liveCoco2Mu.Lock()
+	active := liveCoco2Active
+	p1b := livePia1OutB
+	liveCoco2Mu.Unlock()
+	if active {
+		return p1b
+	}
+	if the_ram == nil {
+		return 0
+	}
+	return the_ram.Peek1(0xFF22)
 }
 
 func SamPoke1(addr uint) {
@@ -451,7 +467,7 @@ func SyncLiveScreenRam(addr uint, size int) {
 		liveScreenSyncMu.Unlock()
 		return
 	}
-	if time.Since(lastLiveScreenSync) < 100*time.Millisecond {
+	if time.Since(lastLiveScreenSync) < 80*time.Millisecond {
 		liveScreenSyncMu.Unlock()
 		return
 	}
@@ -474,6 +490,60 @@ func SyncLiveScreenRam(addr uint, size int) {
 			liveScreenSyncBusy = false
 			liveScreenSyncMu.Unlock()
 		}()
+
+		liveCoco2Mu.Lock()
+		unsupported := liveCoco2Unsupported
+		liveCoco2Mu.Unlock()
+
+		if !unsupported {
+			resp, err := PicoRpcCallReq(ch, RpcRequest{
+				Method: "get-coco2-video",
+				Offset: 0,
+				Length: 1024,
+			}, 1500*time.Millisecond)
+			if err == nil && resp.Status == 0 {
+				sam := uint(resp.Handle) & 0xFFFF
+				p1b := byte((uint(resp.Handle) >> 16) & 0xFF)
+				total := resp.Size
+				data := append([]byte(nil), resp.Data...)
+				ok := true
+				for len(data) < total {
+					r2, err2 := PicoRpcCallReq(ch, RpcRequest{
+						Method: "get-coco2-video",
+						Offset: len(data),
+						Length: 1024,
+					}, 1500*time.Millisecond)
+					if err2 != nil || r2.Status != 0 || len(r2.Data) == 0 {
+						ok = false
+						break
+					}
+					data = append(data, r2.Data...)
+				}
+				if ok {
+					SamBits = sam
+					liveCoco2Mu.Lock()
+					liveCoco2Active = true
+					livePia1OutB = p1b
+					liveCoco2Mu.Unlock()
+					fb := (sam >> 3 & 0x7F) << 9
+					if the_ram != nil {
+						raw := the_ram.GetTrackRam()
+						if raw != nil && int(fb)+len(data) <= len(raw) {
+							copy(raw[fb:], data)
+						}
+					}
+					return
+				}
+			} else if err == nil && resp.Status != 0 {
+				liveCoco2Mu.Lock()
+				liveCoco2Active = false
+				if strings.Contains(strings.ToLower(resp.Message), "unknown") {
+					liveCoco2Unsupported = true
+				}
+				liveCoco2Mu.Unlock()
+			}
+		}
+
 		data, err := fetchRamRange(ch, int(addr), size)
 		if err == nil && len(data) == size && the_ram != nil {
 			raw := the_ram.GetTrackRam()
@@ -482,6 +552,69 @@ func SyncLiveScreenRam(addr uint, size int) {
 			}
 		}
 	}()
+}
+
+// Coco2ActiveVideoMode returns (-1, 512) for 32x16 Text/SG4 or (gm 0..7, fbBytes) for MC6847 graphics modes.
+func Coco2ActiveVideoMode() (gm int, fbBytes int) {
+	p1b := Pia1OutB()
+	if (p1b & 0x80) != 0 {
+		gm = int((p1b >> 4) & 7)
+	} else {
+		liveCoco2Mu.Lock()
+		active := liveCoco2Active
+		liveCoco2Mu.Unlock()
+		if !active && SamModeV() != 0 {
+			switch SamModeV() {
+			case 1:
+				gm = 0
+			case 2:
+				gm = 2
+			case 3:
+				gm = 3
+			case 4:
+				gm = 4
+			case 5:
+				gm = 5
+			default:
+				gm = 7
+			}
+		} else {
+			return -1, 512
+		}
+	}
+	switch gm {
+	case 0, 1:
+		return gm, 1024
+	case 2:
+		return gm, 2048
+	case 3:
+		return gm, 1536
+	case 4, 5:
+		return gm, 3072
+	default:
+		return gm, 6144
+	}
+}
+
+func Coco2StatusLine() string {
+	if IsGimeGraphics() {
+		return "CoCo 3 GIME Graphics"
+	}
+	if IsGimeText() {
+		return "CoCo 3 GIME Text"
+	}
+	fb := SamScreenAddress()
+	if fb == 0 {
+		fb = 0x0400
+	}
+	p1b := Pia1OutB()
+	css := (p1b >> 3) & 1
+	gm, _ := Coco2ActiveVideoMode()
+	if gm < 0 {
+		return fmt.Sprintf("VDG TEXT/SG4  @$%04X  CSS%d", fb, css)
+	}
+	names := [8]string{"CG1 64x64x4", "RG1 128x64x2", "CG2 128x64x4", "PMODE0 128x96x2", "PMODE1 128x96x4", "PMODE2 128x192x2", "PMODE3 128x192x4", "PMODE4 256x192x2"}
+	return fmt.Sprintf("VDG %s @$%04X CSS%d", names[gm&7], fb, css)
 }
 
 func GetScreenForWebsocket() []byte {
@@ -499,21 +632,163 @@ func GetScreenForWebsocket() []byte {
 	if fb == 0 {
 		fb = 0x0400
 	}
-	Logf("SAM V=%d addr=$%04x P1B=$%02x", SamModeV(), fb, Pia1OutB())
+	gm, fbBytes := Coco2ActiveVideoMode()
+	p1b := Pia1OutB()
+	Logf("SAM V=%d gm=%d addr=$%04x P1B=$%02x", SamModeV(), gm, fb, p1b)
 
-	switch SamModeV() {
-	case 0: // Text
-		SyncLiveScreenRam(fb, 512)
-		return GetTextScreen(fb)
-	case 4: // PMODE 1
-		SyncLiveScreenRam(fb, 128*96/4)
-		return GetPmode1Screen(fb)
-		// case 6: // PMODE 3 : SAM V=6 addr=$0600 P1B=$37 // TODO -- look this up
-	case 6: // PMODE 4
-		SyncLiveScreenRam(fb, 256*192/8)
-		return GetPmode4Screen(fb)
+	SyncLiveScreenRam(fb, fbBytes)
+	if gm < 0 {
+		return GetCoco2TextScreen(fb, p1b)
 	}
-	return nil
+	return GetCoco2GraphicsScreen(fb, gm, p1b)
+}
+
+// GetCoco2TextScreen renders the 32x16 MC6847 Alphanumeric + Semigraphics-4 screen as one 256x192 OpBitmap at (32, 4).
+func GetCoco2TextScreen(base uint, p1b byte) []byte {
+	const outW = 256
+	const outH = 192
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(32))
+	binary.Write(&buf, binary.LittleEndian, uint16(4))
+	binary.Write(&buf, binary.LittleEndian, uint16(outW))
+	binary.Write(&buf, binary.LittleEndian, uint16(outH))
+	buf.Grow(outW * outH * 3)
+
+	textBg := VdgSemiGraphicsColors[0] // green (#32C832)
+	if (p1b & 0x08) != 0 {
+		textBg = VdgSemiGraphicsColors[7] // orange CSS=1
+	}
+
+	for row := uint(0); row < 16; row++ {
+		for cy := uint(0); cy < 12; cy++ {
+			for col := uint(0); col < 32; col++ {
+				addr := (base + row*32 + col) & 0xFFFF
+				var ch byte
+				if (*BOOTMODE & 1024) != 0 {
+					ch = the_ram.PPeek1(addr)
+				} else {
+					ch = the_ram.Peek1(addr)
+				}
+				if (ch & 0x80) == 0 {
+					// Alphanumeric: bit 6 = 1 ($40..$7F) is normal black-on-green; bit 6 = 0 ($00..$3F) is inverted green-on-black.
+					normalBg := (ch & 0x40) != 0
+					var glyphRow byte
+					if cy >= 3 && cy < 10 {
+						glyphRow = VdgFont[7*uint(ch&0x3F)+(cy-3)]
+					}
+					for cx := uint(0); cx < 8; cx++ {
+						stroke := cy >= 3 && cy < 10 && ((glyphRow>>(7-cx))&1) != 0
+						if normalBg {
+							if stroke {
+								buf.Write(BlackRGB)
+							} else {
+								buf.Write(textBg)
+							}
+						} else {
+							if stroke {
+								buf.Write(textBg)
+							} else {
+								buf.Write(BlackRGB)
+							}
+						}
+					}
+				} else {
+					// Semigraphics-4: bits 6..4 select color (0..7), bits 3..0 select TL, TR, BL, BR quadrants.
+					rgb := VdgSemiGraphicsColors[(ch>>4)&7]
+					leftOn := (ch & 0x08) != 0
+					rightOn := (ch & 0x04) != 0
+					if cy >= 6 {
+						leftOn = (ch & 0x02) != 0
+						rightOn = (ch & 0x01) != 0
+					}
+					for cx := uint(0); cx < 4; cx++ {
+						if leftOn {
+							buf.Write(rgb)
+						} else {
+							buf.Write(BlackRGB)
+						}
+					}
+					for cx := uint(0); cx < 4; cx++ {
+						if rightOn {
+							buf.Write(rgb)
+						} else {
+							buf.Write(BlackRGB)
+						}
+					}
+				}
+			}
+		}
+	}
+	return buf.Bytes()
+}
+
+// GetCoco2GraphicsScreen renders MC6847 full-graphics modes GM=0..7 (incl. PMODE 0..4) scaled to 256x192 at (32, 4).
+func GetCoco2GraphicsScreen(base uint, gm int, p1b byte) []byte {
+	var srcW, srcH, bpp uint
+	switch gm & 7 {
+	case 0: // CG1: 64x64x4
+		srcW, srcH, bpp = 64, 64, 2
+	case 1: // RG1: 128x64x2
+		srcW, srcH, bpp = 128, 64, 1
+	case 2: // CG2: 128x64x4
+		srcW, srcH, bpp = 128, 64, 2
+	case 3: // RG2 / PMODE 0: 128x96x2
+		srcW, srcH, bpp = 128, 96, 1
+	case 4: // CG3 / PMODE 1: 128x96x4
+		srcW, srcH, bpp = 128, 96, 2
+	case 5: // RG3 / PMODE 2: 128x192x2
+		srcW, srcH, bpp = 128, 192, 1
+	case 6: // CG6 / PMODE 3: 128x192x4
+		srcW, srcH, bpp = 128, 192, 2
+	default: // RG6 / PMODE 4: 256x192x2
+		srcW, srcH, bpp = 256, 192, 1
+	}
+
+	const outW = 256
+	const outH = 192
+	scaleX := outW / srcW
+	scaleY := outH / srcH
+	bytesPerRow := srcW * bpp / 8
+	colorBias := uint((p1b & 0x08) >> 1) // 0 (Green/Yellow/Blue/Red) or 4 (Buff/Cyan/Magenta/Orange)
+
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(32))
+	binary.Write(&buf, binary.LittleEndian, uint16(4))
+	binary.Write(&buf, binary.LittleEndian, uint16(outW))
+	binary.Write(&buf, binary.LittleEndian, uint16(outH))
+	buf.Grow(outW * outH * 3)
+
+	fg1 := VdgSemiGraphicsColors[colorBias] // Green (CSS=0) or Buff (CSS=1)
+	for sy := uint(0); sy < srcH; sy++ {
+		rowAddr := base + sy*bytesPerRow
+		for ry := uint(0); ry < scaleY; ry++ {
+			for bx := uint(0); bx < bytesPerRow; bx++ {
+				b := the_ram.Peek1((rowAddr + bx) & 0xFFFF)
+				if bpp == 1 {
+					for bit := uint(0); bit < 8; bit++ {
+						pix := BlackRGB
+						if ((b >> (7 - bit)) & 1) != 0 {
+							pix = fg1
+						}
+						for rx := uint(0); rx < scaleX; rx++ {
+							buf.Write(pix)
+						}
+					}
+				} else {
+					for p := uint(0); p < 4; p++ {
+						cidx := colorBias + uint((b>>(6-2*p))&3)
+						pix := VdgSemiGraphicsColors[cidx]
+						for rx := uint(0); rx < scaleX; rx++ {
+							buf.Write(pix)
+						}
+					}
+				}
+			}
+		}
+	}
+	return buf.Bytes()
 }
 
 func GetPmode1Screen(base uint) []byte {

@@ -704,9 +704,7 @@ func main() {
 			Key: func(flags uint, s string) {
 				ch := KeystrokeValue(flags, s)
 				if ch >= 1 {
-					if !*NO_KEYBOARD {
-						inkey <- ch
-					}
+					inkey <- ch
 				}
 			},
 			Move: func(x, y int) {},

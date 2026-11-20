@@ -20,7 +20,7 @@ Build output goes to `build/`.  See `AGENTS.md` for the rules of this tree.
 
 ## Quick Demo Scripts
 
-- **TFR/911H:** `./run_tfr911h_turbo9os.sh`, `./run_tfr911h_flat65280_nitros9_l1.sh`, `./run_tfr911h_deep65280_nitros9_l2.sh`, `./run_tfr911h_jamesbrown.sh`, `./run_tfr911h_fuzix.sh`, `./run_tfr911h_gep9_hatvan.sh`
+- **TFR/911H:** `./run_tfr911h_turbo9os.sh`, `./run_tfr911h_flat65280_nitros9_l1.sh`, `./run_tfr911h_deep65280_nitros9_l2.sh`, `./run_tfr911h_jamesbrown.sh`, `./run_tfr911h_fuzix.sh`, `./run_tfr911h_gep9_hatvan.sh`, `./run_tfr911h_coco2_basic.sh`
 - **TurboLab (on TFR/911H):** `./run_tfr911h_turbolab.sh WITH trigger = r/0xFFE8 WITH trace_count = 10000`
 - **Centipede 32z (on CoCo 2/3):** `./run_centipede32z_coco2_basic.sh`, `./run_centipede32z_coco3_basic.sh`, `./run_centipede32z_jamesbrown.sh` (pass `-coco3` on a CoCo 3)
 
@@ -31,7 +31,7 @@ Build output goes to `build/`.  See `AGENTS.md` for the rules of this tree.
 | `boards/` | Pico SDK board headers, pin and flash layouts (`tfr911h_rp2350b.h`, `centipede32z.h`) |
 | `third_party/` | vendored littlefs, miniz, tcl6.7c (with `PATCHES.md`) |
 | `firmware/lib/` | shared RP2350B code: `core fs tcl bus mem devices` |
-| `firmware/engines/` | `ports.tsv` + 5 `IN_RAM` Hamster engines (incl. `turbolab.h`) + 4 `IN_RAM` Gerbil engines |
+| `firmware/engines/` | `ports.tsv` + 6 `IN_RAM` Hamster engines (incl. `coco2_tfr911h.h`, `turbolab.h`) + 4 `IN_RAM` Gerbil engines |
 | `firmware/products/` | UF2 products: `tfr911h` (incl. TurboLab) and `centipede32z` |
 | `host/` | the Go `tether` (one module) |
 | `os/` | guest software: NitrOS-9, FujiNet kit, Hatvan, Fuzix, ... |

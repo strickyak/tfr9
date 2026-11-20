@@ -56,11 +56,13 @@ assert_contains "$TETHER_STDOUT" "ok" "coco3 nitros9l2 for coco3 validates"
 log_test "every tfr911h target validates"
 for pair in "turbo9os turbo9sim" "turbolab turbo9sim" "nitros9l1 flat65280" "nitros9l2 deep65280" \
             "nitros9l2 jamesbrown" "nitros9l2 coco3" \
-            "hatvan gep9" "hatvan coco2" "fuzix multicomp09"; do
+            "hatvan gep9" "hatvan coco2" "fuzix multicomp09" "rsbasic coco2"; do
   set -- $pair
   inj "on tfr911h run $1 for $2; ports check"
   assert_contains "$TETHER_STDOUT" "ok" "tfr911h: $1 for $2"
 done
+inj "on tfr911h run rsbasic for coco2 with e1 with info with rtc with becker; ports check"
+assert_contains "$TETHER_STDOUT" "ok" "tfr911h: rsbasic for coco2 + e1 enhancements"
 inj "on tfr911h run hatvan for gep9big; ports check"
 assert_exit_code 1 "$TETHER_EXIT" "retired 'gep9big' target is refused"
 

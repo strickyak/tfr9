@@ -310,27 +310,13 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
-		// Demo State variables
-		boxX, boxY := 10, 10
-		dx, dy := 2, 2
-
 		for range ticker.C {
-			// Update Demo Physics
-			boxX += dx
-			boxY += dy
-			if boxX <= 0 || boxX >= 256-32 {
-				dx *= -1
-			}
-			if boxY <= 0 || boxY >= 200-32 {
-				dy *= -1
-			}
-
 			// Prepare the Binary Buffer
 			buf := new(bytes.Buffer)
 
-			// 1. Draw "UI Controls" (Bottom Area)
+			// 1. Draw Status Strip (Bottom Area y=200..249)
 			buf.WriteByte(OpSetColor)
-			buf.Write([]byte{50, 50, 50}) // Dark Grey
+			buf.Write([]byte{36, 40, 36})
 
 			buf.WriteByte(OpFillRect)
 			binary.Write(buf, binary.LittleEndian, uint16(0))   // X
@@ -338,7 +324,7 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			binary.Write(buf, binary.LittleEndian, uint16(320)) // W
 			binary.Write(buf, binary.LittleEndian, uint16(50))  // H
 
-			// 2. Clear Screen (Top Area)
+			// 2. Clear Screen Surround (Top Area y=0..199)
 			buf.WriteByte(OpSetColor)
 			buf.Write([]byte{0, 0, 0}) // Black
 
@@ -348,10 +334,34 @@ func handleWebSocket(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.
 			binary.Write(buf, binary.LittleEndian, uint16(320))
 			binary.Write(buf, binary.LittleEndian, uint16(200))
 
-			// 3. Draw
+			// 3. Draw Active VDG / GIME Framebuffer
 			pixelData := GetScreenForWebsocket()
 			if pixelData != nil {
 				buf.Write(pixelData)
+			}
+
+			// 4. Draw Live Video Mode Status Line
+			statusText := Coco2StatusLine()
+			if len(statusText) > 42 {
+				statusText = statusText[:42]
+			}
+			if len(statusText) > 0 {
+				buf.WriteByte(OpSetColor)
+				buf.Write([]byte{160, 230, 160})
+				buf.WriteByte(OpText)
+				binary.Write(buf, binary.LittleEndian, uint16(10))
+				binary.Write(buf, binary.LittleEndian, uint16(222))
+				buf.WriteByte(byte(len(statusText)))
+				buf.WriteString(statusText)
+
+				hint := "Esc:BREAK  F1/Home:CLEAR  Shift+0:Case"
+				buf.WriteByte(OpSetColor)
+				buf.Write([]byte{160, 165, 160})
+				buf.WriteByte(OpText)
+				binary.Write(buf, binary.LittleEndian, uint16(10))
+				binary.Write(buf, binary.LittleEndian, uint16(240))
+				buf.WriteByte(byte(len(hint)))
+				buf.WriteString(hint)
 			}
 
 			/*
@@ -394,9 +404,24 @@ func KeystrokeValue(flags uint, s string) byte {
 			return 8
 		case "Tab":
 			return 9
+		case "Escape":
+			if (flags & 1) != 0 {
+				return 127 // Shift+Break
+			}
+			return 27 // CoCo Break
+		case "Delete":
+			return 127 // CoCo Shift+Break
+		case "F1", "Home", "Clear":
+			return 12 // CoCo Clear
 		case "ArrowUp":
+			if (flags & 1) != 0 {
+				return 132
+			}
 			return 128
 		case "ArrowDown":
+			if (flags & 1) != 0 {
+				return 133
+			}
 			return 129
 		case "ArrowLeft":
 			return 130
@@ -406,6 +431,8 @@ func KeystrokeValue(flags uint, s string) byte {
 			return 132
 		case "PageDown":
 			return 133
+		case "Shift", "Control", "Alt", "Meta", "CapsLock":
+			return 0
 		default:
 			log.Printf("KV?  [[[%x,%q]]]  ", flags, s)
 			return 0
@@ -427,16 +454,21 @@ const CONTENT = `
         body { background-color: #222; color: #fff; font-family: monospace; display: flex; flex-direction: column; align-items: center; padding-top: 30px; }
         canvas { 
             background: #000; 
+            width: 640px;
+            height: 500px;
+            max-width: 95vw;
             image-rendering: pixelated; /* Essential for retro look */
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
             /* (NOT YET) cursor: none; */ /* (NOT YET) Hide standard cursor for immersion */
         }
         #status { color: #888; margin-top: 10px; font-size: 0.9em; }
+        #legend { color: #aaa; margin-top: 6px; font-size: 0.85em; }
     </style>
 </head>
 <body>
     <canvas id="screen" width="320" height="250"></canvas>
     <div id="status">Connecting...</div>
+    <div id="legend">CoCo 2 Keys: lowercase &rarr; BASIC UPPERCASE &nbsp;|&nbsp; Esc &rarr; BREAK &nbsp;|&nbsp; F1 / Home &rarr; CLEAR &nbsp;|&nbsp; Shift+0 &rarr; Case Lock</div>
 
     <script>
         const canvas = document.getElementById('screen');
@@ -488,7 +520,7 @@ const CONTENT = `
                         const textBytes = new Uint8Array(buffer, offset, len);
                         const text = new TextDecoder().decode(textBytes);
                         offset += len;
-                        ctx.font = "16px monospace";
+                        ctx.font = "11px monospace";
                         ctx.fillText(text, tx, ty);
                         break;
 
@@ -545,8 +577,12 @@ const CONTENT = `
         // 1. Keyboard Events
         window.addEventListener('keydown', (e) => {
             if (socket.readyState === WebSocket.OPEN) {
-                // Prevent default for arrow keys/space to avoid scrolling
-                if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
+                if (e.ctrlKey && (e.key === 'r' || e.key === 'R' || e.key === 'l' || e.key === 'L' || e.key === 'w' || e.key === 'W')) {
+                    return; // Allow standard browser reload/location shortcuts
+                }
+                // Prevent default for CoCo control keys, arrows, space, F1, Backspace, Tab
+                if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Backspace","Tab","Escape","F1","Home","PageUp","PageDown","Delete"].indexOf(e.code) > -1 ||
+                    ["Escape","F1","Home","Backspace","Tab"].indexOf(e.key) > -1) {
                     e.preventDefault();
                 }
 

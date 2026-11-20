@@ -20,6 +20,7 @@ target	tfr911h	nitros9l2	coco3	hamster_gime
 target	tfr911h	hatvan	gep9	hamster_gep9
 target	tfr911h	hatvan	coco2	hamster_gep9
 target	tfr911h	fuzix	multicomp09	hamster_multicomp
+target	tfr911h	rsbasic	coco2	hamster_coco2
 
 # --- coco2 (Centipede 32z in a CoCo 1 or CoCo 2: Gerbil PIO, no motherboard GIME/MMU) ---
 target	coco2	nitros9l1	flat65280	gerbil_sam64k
@@ -108,6 +109,13 @@ port	tfr911h	fuzix	multicomp09	uart_stubs	0xffd2	0xffd5
 port	tfr911h	fuzix	multicomp09	sd	0xffd8	0xffdc
 port	tfr911h	fuzix	multicomp09	timer	0xffdd	0xffdd
 port	tfr911h	fuzix	multicomp09	mmu	0xffde	0xffdf
+
+# --- tfr911h: rsbasic for coco2 (emulated CoCo 2 motherboard + Disk 1.1 controller) ---
+port	tfr911h	rsbasic	coco2	coco_pia	0xff00	0xff3f
+port	tfr911h	rsbasic	coco2	floppy_latch	0xff40	0xff40
+port	tfr911h	rsbasic	coco2	floppy_fdc	0xff48	0xff4b
+port	tfr911h	rsbasic	coco2	coco_sam	0xffc0	0xffdf
+port	tfr911h	rsbasic	coco2	vectors	0xfff0	0xffff
 
 # --- coco2: nitros9l1 / nitros9l2 / hatvan / fuzix / rsbasic ---
 port	coco2	nitros9l1	flat65280	emudsk	0xff80	0xff86

@@ -193,5 +193,49 @@ func TestGetGimeTextModes(t *testing.T) {
 	if screenCoco2 == nil {
 		t.Fatalf("GetScreenForWebsocket returned nil for CoCo 2 text")
 	}
+	expectedCoco2Len := 9 + (256 * 192 * 3)
+	if len(screenCoco2) != expectedCoco2Len {
+		t.Errorf("CoCo 2 text: expected len %d, got %d", expectedCoco2Len, len(screenCoco2))
+	}
+}
+
+func TestCoco2GraphicsModesAndKeys(t *testing.T) {
+	ram := new(Coco1Ram)
+	the_ram = ram
+	SamBits = 0
+	SamPoke1(0xFFC7) // F0 = 1
+	SamPoke1(0xFFC9) // F1 = 1 -> $0600
+
+	// Test all 5 Extended Color BASIC PMODE 0..4 modes ($B0, $C0, $D0, $E0, $F8)
+	for pmode := 0; pmode <= 4; pmode++ {
+		p1b := byte(0x80 | ((pmode + 3) << 4) | 0x08)
+		ram.Poke1(0xFF22, p1b)
+		ram.Poke1(0x0600, 0xAA)
+		frame := GetScreenForWebsocket()
+		expectedLen := 9 + (256 * 192 * 3)
+		if len(frame) != expectedLen {
+			t.Fatalf("PMODE %d: expected len %d, got %d", pmode, expectedLen, len(frame))
+		}
+		if frame[0] != OpBitmap {
+			t.Fatalf("PMODE %d: expected OpBitmap, got %d", pmode, frame[0])
+		}
+	}
+
+	// Test CoCo 2 browser key mappings
+	if got := KeystrokeValue(0, "Escape"); got != 27 {
+		t.Errorf("Escape: expected 27, got %d", got)
+	}
+	if got := KeystrokeValue(1, "Escape"); got != 127 {
+		t.Errorf("Shift+Escape: expected 127, got %d", got)
+	}
+	if got := KeystrokeValue(0, "F1"); got != 12 {
+		t.Errorf("F1: expected 12 (CLEAR), got %d", got)
+	}
+	if got := KeystrokeValue(0, "Home"); got != 12 {
+		t.Errorf("Home: expected 12 (CLEAR), got %d", got)
+	}
+	if got := KeystrokeValue(0, "Shift"); got != 0 {
+		t.Errorf("bare Shift: expected 0, got %d", got)
+	}
 }
 

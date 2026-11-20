@@ -21,6 +21,7 @@ tfr911h-release/
 ├── run_tfr911h_jamesbrown.sh            # Launch NitrOS-9 Level 2 (jamesbrown: FujiNet + Unix tools + games + Basic09)
 ├── run_tfr911h_gep9_hatvan.sh           # Launch Hatvan OS (gep9, EMBIGGEN paged MMU)
 ├── run_tfr911h_fuzix.sh                 # Launch Fuzix (multicomp09, 256 KB banked RAM)
+├── run_tfr911h_coco2_basic.sh           # Launch 64 KB CoCo 2 Disk Extended Color BASIC 1.1 (browser screen/keyboard on :8080)
 ├── run_tfr911h_turbolab.sh              # Launch TurboLab 4-phase cycle-accurate bus tracer
 ├── bin/                          # Statically compiled tether binaries for 8 OS/CPU targets:
 │   ├── tether.linux-amd64.exe    #   Linux x86_64
@@ -150,7 +151,7 @@ In `v5`, the legacy `v4` `set Config(engine) ...` Tcl variable was replaced by t
 on tfr911h run <os> [for <target>] [with ...]
 ```
 
-All `run_tfr911h_*.sh` scripts in this release use bootmode numbers `9010..9050` so old `/rc/mode1.tcl .. /rc/mode90.tcl` files will not interfere. However, if you previously created `/rc/init.tcl` in Flash under `v4`, it runs automatically on startup unless bootmode `27` is used. To inspect or update `/rc` safely without running startup scripts:
+All `run_tfr911h_*.sh` scripts in this release use bootmode numbers `9010..9060` so old `/rc/mode1.tcl .. /rc/mode90.tcl` files will not interfere. However, if you previously created `/rc/init.tcl` in Flash under `v4`, it runs automatically on startup unless bootmode `27` is used. To inspect or update `/rc` safely without running startup scripts:
 
 ```sh
 ./tether.sh -bootmode=27
@@ -171,6 +172,7 @@ Once installed, launch any guest OS directly from this folder:
 | `./run_tfr911h_jamesbrown.sh` | **NitrOS-9 Level 2 (`jamesbrown`)** | 256 KB GIME MMU, Unix tools (`ls`, `vi`, `man unix`), games (`tetris`), `basic09`, `info`, and FujiNet (`fnstatus`, `fnconfig`, `fnweather`, `fnnews`, `fnstocks`, `fnbounce`, `fnbattleship` — see `jamesbrown-fujinet-guide.md`) |
 | `./run_tfr911h_gep9_hatvan.sh` | **Hatvan OS (`gep9`)** | Hitachi 6309E + EMBIGGEN paged MMU (`-c`, `-r`, `-n` console modes) |
 | `./run_tfr911h_fuzix.sh` | **Fuzix (`multicomp09`)** | UNIX-like OS in 256 KB banked RAM (`root` login at prompt) |
+| `./run_tfr911h_coco2_basic.sh` | **CoCo 2 Disk Extended Color BASIC 1.1** | 64 KB RAM + VFS Floppy Drive 0 (`f0`) + browser VDG screen & keyboard at `http://localhost:8080` |
 | `./run_tfr911h_turbolab.sh` | **TurboLab Cycle Tracer** | Example: `./run_tfr911h_turbolab.sh WITH trigger = r/0xFFFE WITH trace_count = 100 -- -n` |
 | `./tether.sh` | **Interactive `TCL>` Shell** | Manage on-board LittleFS (`ls`, `cp`, `df`, `cat`, `edit`), inspect `ports list`, or type `bye` |
 

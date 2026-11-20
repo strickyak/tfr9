@@ -335,7 +335,8 @@ struct DoFloppy {
   // Assert CoCo HALT# while HALT enable ($FF40 bit 7) is set and a Read Sector
   // command is still waiting on background VFS I/O (BUSY=1, DRQ=0 -> status 0x01).
   FORCE_INLINE static bool IN_RAM WantsHalt() {
-    return ((floppy_latch & 0x80u) != 0) &&
+    return floppy_in_read &&
+           ((floppy_latch & 0x80u) != 0) &&
            (floppy_status.load(std::memory_order_acquire) == 0x01u);
   }
 

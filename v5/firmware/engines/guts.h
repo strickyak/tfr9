@@ -42,6 +42,14 @@ FORCE_INLINE void IN_RAM ChangeInterruptPin(bool needed) {
   }
 }
 
+FORCE_INLINE void IN_RAM ChangeFirqPin(bool needed) {
+  if (needed) {
+    gpio_set_dir(FIRQ, GPIO_OUT);
+  } else {
+    gpio_set_dir(FIRQ, GPIO_IN);
+  }
+}
+
 // Pure-SRAM >= 1 us delay using RP2350's side-effect-free raw microsecond counter (TIMERAWL).
 // Replaces SDK `sleep_us(1)`, which lives in flash and touches alarm pools.
 FORCE_INLINE void IN_RAM sram_delay_1us() {
@@ -206,6 +214,28 @@ struct HamsterMulticompPolicy {
       return;
     }
     ram[mc_slot_base[7] | (addr & 0x1FFF)] = value;
+  }
+};
+
+// 5. hamster_coco2: 64 KB CoCo 2 RAM + 32 KB SRAM-cached ROM + SAM/PIA/WD1773 ($FF00..$FFFF).
+//    Serves `rsbasic for coco2` on TFR/911H with per-cycle HALT clocking and NMI pulse countdown.
+struct HamsterCoco2Policy {
+  static FORCE_INLINE bool IrqNeeded()  { return coco2_irq_needed(); }
+  static FORCE_INLINE bool FirqNeeded() { return coco2_firq_needed(); }
+  static FORCE_INLINE byte Read(uint addr) {
+    if (likely(addr < 0xFF00u)) {
+      return coco2_mem_read(addr);
+    }
+    IOReader fn = IOReaders[addr & 0xFFu];
+    return fn ? fn(addr) : 0xFFu;
+  }
+  static FORCE_INLINE void Write(uint addr, byte value) {
+    if (likely(addr < 0xFF00u)) {
+      coco2_mem_write(addr, value);
+      return;
+    }
+    IOWriter fn = IOWriters[addr & 0xFFu];
+    if (fn) fn(addr, value);
   }
 };
 
@@ -382,6 +412,68 @@ void IN_RAM hamster_gep9_foreground()      { HamsterForegroundLoop<HamsterGep9Po
 void IN_RAM hamster_multicomp_foreground() { HamsterForegroundLoop<HamsterMulticompPolicy>(); }
 void IN_RAM hamster_turbolab_foreground();
 
+// CoCo 2 foreground loop: keeps E/Q running continuously during VFS floppy HALT and pulses NMI for 8 cycles.
+void IN_RAM hamster_coco2_foreground() {
+  volatile sio_hw_t* hw = (volatile sio_hw_t*)sio_hw;
+  bool actually_halted = false;
+  bool prev_firq_needed = false;
+
+  foreground_running.store(true, std::memory_order_release);
+
+  while (!hamster_cpu_released.load(std::memory_order_acquire)) {
+    pio_sm_put(pio0, 0, 0);
+    uint ep = pio_sm_get_blocking(pio0, 0);
+    if (0 != (ep & (1 << R_W))) {
+      pio_sm_put(pio0, 0, 0);
+    }
+    (void)pio_sm_get_blocking(pio0, 0);
+  }
+
+  while (true) {
+    irq_needed = HamsterCoco2Policy::IrqNeeded();
+    if (irq_needed != prev_irq_needed) {
+      ChangeInterruptPin(irq_needed);
+      prev_irq_needed = irq_needed;
+    }
+    bool firq_needed = HamsterCoco2Policy::FirqNeeded();
+    if (firq_needed != prev_firq_needed) {
+      ChangeFirqPin(firq_needed);
+      prev_firq_needed = firq_needed;
+    }
+
+    for (int i = 0; i < GROUP_SIZE; i++) {
+      bool halt_wanted = coco2_floppy_wants_halt()
+        || bg_wants_halt.load(std::memory_order_relaxed)
+        || (fg2bg.size() > FG2BG_HIGH_WATERMARK);
+      if (unlikely(halt_wanted != actually_halted)) {
+        if (halt_wanted) HaltOn();
+        else             HaltOff();
+        actually_halted = halt_wanted;
+      }
+
+      pio_sm_put(pio0, 0, 0);
+      uint early_pins = pio_sm_get_blocking(pio0, 0);
+      uint addr = 0xFFFFu & hw->gpio_hi_in;
+      const bool reading = 0 != (early_pins & (1 << R_W));
+
+      if (likely(reading)) {
+        byte value = HamsterCoco2Policy::Read(addr);
+        pio_sm_put(pio0, 0, value);
+        (void)pio_sm_get_blocking(pio0, 0);
+      } else {
+        uint late_pins = pio_sm_get_blocking(pio0, 0);
+        HamsterCoco2Policy::Write(addr, (byte)late_pins);
+      }
+
+      if (unlikely(nmi_fuse > 0)) {
+        if (--nmi_fuse == 0) {
+          gpio_set_dir(NMI, GPIO_IN);
+        }
+      }
+    }
+  }
+}
+
 using ForegroundFn = void (*)();
 
 struct HamsterEngineEntry {
@@ -394,6 +486,7 @@ static const HamsterEngineEntry kHamsterEngines[] = {
   {"hamster_gime",      hamster_gime_foreground},
   {"hamster_gep9",      hamster_gep9_foreground},
   {"hamster_multicomp", hamster_multicomp_foreground},
+  {"hamster_coco2",     hamster_coco2_foreground},
   {"hamster_turbolab",  hamster_turbolab_foreground},
 };
 
