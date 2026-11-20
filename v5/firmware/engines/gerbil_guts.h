@@ -32,6 +32,7 @@ bool g_disk11_rom_enabled = false;
 bool g_floppy_enabled = false;
 bool g_gime_rom_mode = false;
 bool fg_halt_for_flow_control = false;
+bool fg_halt_active = false;
 volatile uint nmi_fuse = 0;
 volatile uint cart_fuse = 0;
 
@@ -47,11 +48,14 @@ volatile bool g_freeze_cycles = false;
 FORCE_INLINE void IN_RAM GerbilAssertHalt() {
   gpio_set_dir(G_HALT, GPIO_OUT);
   gpio_put(G_LED, 1);
+  fg_halt_active = true;
 }
 
 FORCE_INLINE void IN_RAM GerbilReleaseHalt() {
   gpio_set_dir(G_HALT, GPIO_IN);
   gpio_put(G_LED, 0);
+  fg_halt_active = false;
+  fg_halt_for_flow_control = false;
 }
 
 FORCE_INLINE void IN_RAM GerbilAssertCart() {
@@ -64,11 +68,18 @@ FORCE_INLINE void IN_RAM GerbilFlowControlCheck() {
   if (!fg_halt_for_flow_control) {
     if (sz >= GERBIL_HIGH_WATERMARK) {
       fg_halt_for_flow_control = true;
-      GerbilAssertHalt();
     }
   } else {
     if (sz <= GERBIL_LOW_WATERMARK) {
       fg_halt_for_flow_control = false;
+    }
+  }
+  bool want_halt = fg_halt_for_flow_control ||
+                   (unlikely(g_floppy_enabled) && FloppyImpl::WantsHalt());
+  if (want_halt != fg_halt_active) {
+    if (want_halt) {
+      GerbilAssertHalt();
+    } else {
       GerbilReleaseHalt();
     }
   }
@@ -112,7 +123,7 @@ struct GerbilSam64kPolicy {
   static FORCE_INLINE bool Read(uint, uint abus, byte& dbus) {
     if (likely(abus < 0x8000u)) {
       if (likely(g_sam64k_ram_enabled)) {
-        dbus = ram[abus + (SamP1Bit ? 0x8000u : 0u)];
+        dbus = ram[abus + ((!SamTyBit && SamP1Bit) ? 0x8000u : 0u)];
         return true;
       }
       return false;
@@ -150,7 +161,7 @@ struct GerbilSam64kPolicy {
 
   static FORCE_INLINE void Write(uint, uint abus, byte dbus) {
     if (likely(abus < 0x8000u)) {
-      ram[abus + (SamP1Bit ? 0x8000u : 0u)] = dbus;
+      ram[abus + ((!SamTyBit && SamP1Bit) ? 0x8000u : 0u)] = dbus;
       return;
     }
     if (likely(abus < 0xFF00u)) {

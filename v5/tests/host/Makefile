@@ -19,6 +19,9 @@ $(OUT)/iomap_test: iomap_test.cpp $(DEV)/iomap.h $(GEN)/ports_gen.h | $(OUT)
 $(OUT)/ports_config_test: ports_config_test.cpp $(DEV)/ports_config.h $(DEV)/iomap.h $(GEN)/ports_gen.h | $(OUT)
 	$(CXX) $(CXXFLAGS) -I$(DEV) -I$(GEN) -o $@ ports_config_test.cpp
 
+$(OUT)/floppy_geom_test: floppy_geom_test.cpp $(DEV)/floppy_geom.h | $(OUT)
+	$(CXX) $(CXXFLAGS) -I$(DEV) -o $@ floppy_geom_test.cpp
+
 # ---- tcl_stream_test: the real Tcl 6.7c sources compiled for the PC ----
 TCLDIR = ../../third_party/tcl6.7c
 TCLSRCS = panic regexp tclAssem tclBasic tclCkalloc tclCmdAH tclCmdIL tclCmdMZ tclEnv tclExpr tclGet tclGlob tclHash tclHistory tclParse tclProc tclUtil tclVar
@@ -39,6 +42,6 @@ $(OUT)/test_pio_assembler: test_pio_assembler.cpp $(BUS)/pio_assembler.h $(BUS)/
 	$(CXX) $(CXXFLAGS) -I$(BUS) -o $@ test_pio_assembler.cpp
 
 # ONE `test` rule: a Makefile keeps only the LAST recipe for a target, so earlier test rules would silently not run.
-TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/test_pio_assembler $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
+TESTS = $(OUT)/cobs_test $(OUT)/iomap_test $(OUT)/ports_config_test $(OUT)/floppy_geom_test $(OUT)/test_pio_assembler $(OUT)/tcl_stream_test $(OUT)/tcl_lowmem_test
 test: $(TESTS)
 	@for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done
