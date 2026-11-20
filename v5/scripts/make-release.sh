@@ -91,7 +91,7 @@ for shfile in \
   run_tfr911h_nitros9_l1.sh \
   run_tfr911h_nitros9_l2.sh \
   run_tfr911h_jamesbrown.sh \
-  run_tfr911h_gep9.sh \
+  run_tfr911h_gep9_hatvan.sh \
   run_tfr911h_fuzix.sh \
   run_tfr911h_turbolab.sh
 do

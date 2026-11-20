@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_tfr911h_gep9.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
+# run_tfr911h_gep9_hatvan.sh - Launch Hatvan OS (gep9) on TFR911H SBC (Hitachi 6309E CPU)
 #
 # Terminal input modes:
 #   (default)           Single-character cbreak mode (^C -> Hatvan, ^] -> quit tether)
@@ -11,7 +11,7 @@ set -e
 case "${1:-}" in
   -h|--help)
     cat <<'EOF'
-Usage: sh run_tfr911h_gep9.sh [mode] [extra tether flags...]
+Usage: sh run_tfr911h_gep9_hatvan.sh [mode] [extra tether flags...]
 
 Terminal modes:
   (default)           Single-char cbreak mode (^C -> Hatvan, ^] -> quit tether)
