@@ -361,33 +361,33 @@ func TestCoco3MmuWriteCyclesAndGimeScreens(t *testing.T) {
 func TestServeSessionAndAutoPortStep(t *testing.T) {
 	defer resetBoardLabelState()
 	setBoardLabel("p=1,b=centipede,v=32z,id=z99,name=zGengar")
-	setActiveWebAddr(":8082", 8082)
+	setActiveWebAddr(":8090", 8090)
 
 	wcc := &WebConsoleConfig{
 		Bind:    ":8080",
-		Port:    8082,
-		Session: "Bilbo",
+		Port:    8090,
+		Session: "BilboSession",
 	}
 	mux := newWebMux(wcc)
 
-	// 1a. Plain text GET /session with all 4 fields known
+	// 1a. Plain text GET /session with all 6 fields known
 	req := httptest.NewRequest("GET", "/session", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /session: expected 200, got %d", w.Code)
 	}
-	if w.Body.String() != "8082 Bilbo z99 zGengar\n" {
-		t.Errorf("GET /session: expected %q, got %q", "8082 Bilbo z99 zGengar\n", w.Body.String())
+	if w.Body.String() != "8090 BilboSession centipede 32z z99 zGengar\n" {
+		t.Errorf("GET /session: expected %q, got %q", "8090 BilboSession centipede 32z z99 zGengar\n", w.Body.String())
 	}
 
-	// 1b. Plain text GET /session with unknown session_name and unknown board_name -> "."
+	// 1b. Plain text GET /session with unknown fields -> "."
 	setBoardLabel("p=1,b=centipede,v=32z,id=z99")
 	muxSparse := newWebMux(&WebConsoleConfig{Bind: ":8080", Port: 8090})
 	wSparse := httptest.NewRecorder()
 	muxSparse.ServeHTTP(wSparse, httptest.NewRequest("GET", "/session", nil))
-	if wSparse.Body.String() != "8090 . z99 .\n" {
-		t.Errorf("GET /session sparse: expected %q, got %q", "8090 . z99 .\n", wSparse.Body.String())
+	if wSparse.Body.String() != "8090 . centipede 32z z99 .\n" {
+		t.Errorf("GET /session sparse: expected %q, got %q", "8090 . centipede 32z z99 .\n", wSparse.Body.String())
 	}
 
 	// 2. JSON GET /session.json and /session?format=json
@@ -403,7 +403,8 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 		if err := json.Unmarshal(wJ.Body.Bytes(), &info); err != nil {
 			t.Fatalf("GET %s: invalid JSON %q: %v", path, wJ.Body.String(), err)
 		}
-		if !info.Tether || info.Session != "Bilbo" || info.Port != 8082 || info.BoardID != "z99" || info.BoardName != "zGengar" || info.PID <= 0 {
+		if !info.Tether || info.Session != "BilboSession" || info.Port != 8090 ||
+			info.Board != "centipede" || info.Version != "32z" || info.BoardID != "z99" || info.BoardName != "zGengar" || info.PID <= 0 {
 			t.Errorf("GET %s: unexpected SessionInfo: %+v", path, info)
 		}
 	}
@@ -452,13 +453,13 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 	srvTether := &http.Server{Handler: newWebMux(&WebConsoleConfig{
 		Bind:    actualBind,
 		Port:    steppedPort,
-		Session: "Bilbo",
+		Session: "BilboSession",
 	})}
 	go srvTether.Serve(lnStepped)
 	defer srvTether.Close()
 
 	lines := ProbeSessions("127.0.0.1", foreignPort, steppedPort, 1*time.Second)
-	wantLine := fmt.Sprintf("%d Bilbo z99 zGengar", steppedPort)
+	wantLine := fmt.Sprintf("%d BilboSession centipede 32z z99 zGengar", steppedPort)
 	foundWant := false
 	for _, lnStr := range lines {
 		if strings.HasPrefix(lnStr, fmt.Sprintf("%d ", foreignPort)) {

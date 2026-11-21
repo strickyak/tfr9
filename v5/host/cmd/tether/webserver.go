@@ -66,6 +66,8 @@ type SessionInfo struct {
 	Tether    bool   `json:"tether"`
 	Port      int    `json:"port"`
 	Session   string `json:"session"`
+	Board     string `json:"board"`
+	Version   string `json:"version"`
 	BoardID   string `json:"board_id"`
 	BoardName string `json:"board_name"`
 	Bind      string `json:"bind"`
@@ -178,7 +180,7 @@ func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 
 		sess := sessionName(wcc)
 		label := getBoardLabel()
-		boardID, boardName := parseLabelIdAndName(label)
+		lf := parseLabelFields(label)
 
 		bind, port := getActiveWebAddr()
 		if wcc != nil {
@@ -207,8 +209,10 @@ func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 				Tether:    true,
 				Port:      port,
 				Session:   sess,
-				BoardID:   boardID,
-				BoardName: boardName,
+				Board:     lf.Board,
+				Version:   lf.Version,
+				BoardID:   lf.ID,
+				BoardName: lf.Name,
 				Bind:      bind,
 				Wire:      wireVal,
 				Label:     label,
@@ -229,11 +233,13 @@ func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 			portField = strconv.Itoa(port)
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "%s %s %s %s\n",
+		fmt.Fprintf(w, "%s %s %s %s %s %s\n",
 			portField,
 			dotOrToken(sess),
-			dotOrToken(boardID),
-			dotOrToken(boardName),
+			dotOrToken(lf.Board),
+			dotOrToken(lf.Version),
+			dotOrToken(lf.ID),
+			dotOrToken(lf.Name),
 		)
 	}
 }
@@ -268,12 +274,12 @@ func ProbeSessions(host string, startPort, endPort int, timeout time.Duration) [
 					return
 				}
 				line := strings.TrimSpace(string(body))
-				if line != "" {
+				if len(strings.Fields(line)) >= 6 {
 					results[idx] = line
+					return
 				}
-				return
 			}
-			if resp.Header.Get("X-Tether-Pid") != "" {
+			if resp.Header.Get("X-Tether-Pid") != "" || resp.Header.Get("X-Tether-Session") == "1" {
 				respJ, errJ := client.Get(fmt.Sprintf("http://%s:%d/session.json", host, p))
 				if errJ != nil {
 					return
@@ -288,9 +294,15 @@ func ProbeSessions(host string, startPort, endPort int, timeout time.Duration) [
 				}
 				var info SessionInfo
 				if json.Unmarshal(bodyJ, &info) == nil && info.Tether {
-					bid, bname := parseLabelIdAndName(info.Label)
-					results[idx] = fmt.Sprintf("%d %s %s %s",
-						p, dotOrToken(info.Session), dotOrToken(bid), dotOrToken(bname))
+					lf := parseLabelFields(info.Label)
+					results[idx] = fmt.Sprintf("%d %s %s %s %s %s",
+						p,
+						dotOrToken(info.Session),
+						dotOrToken(lf.Board),
+						dotOrToken(lf.Version),
+						dotOrToken(lf.ID),
+						dotOrToken(lf.Name),
+					)
 				}
 			}
 		}(i, port)
@@ -785,8 +797,8 @@ const CONTENT = `
             .then((resp) => resp.ok ? resp.text() : "")
             .then((txt) => {
                 const parts = txt.trim().split(/\s+/);
-                if (parts.length >= 4) {
-                    const tags = [parts[1], parts[2], parts[3]].filter((x) => x && x !== ".");
+                if (parts.length >= 6) {
+                    const tags = parts.slice(1, 6).filter((x) => x && x !== ".");
                     sessionTag = tags.join(" ");
                     if (sessionTag) {
                         document.title = "TFR9 CONSOLE \u2014 " + sessionTag;

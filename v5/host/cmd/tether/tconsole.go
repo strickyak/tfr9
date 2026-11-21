@@ -44,7 +44,7 @@ var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
 var BIND = flag.String("bind", ":8080", "WebServer binds to this address (auto-steps :8080..:8099 when not explicitly set)")
 var SESSION = flag.String("session", "", "Session name exposed at /session and shown in the browser UI")
-var JUST_LIST_SESSIONS = flag.Bool("just-list-sessions", false, "Just mode: probe localhost:8080..8099 and list active tether sessions (port session id name)")
+var JUST_LIST_SESSIONS = flag.Bool("just-list-sessions", false, "Just mode: probe localhost:8080..8099 and list active tether sessions (port session b v id name)")
 var TETHER_LOG_USB = flag.Bool("tether_log_usb", false, "Log USB COBS and RPC traffic")
 var JUST_PING = flag.Int("just-ping", -1, "Just mode: connect, send a PicoRPC ping with this uint32 payload, print result, and exit")
 var JUST_RESTART = flag.Uint("just-restart", 0, "Just mode: connect and restart the Pico firmware with this boot_mode")
@@ -1390,19 +1390,31 @@ func isBoardLabelQueried() bool {
 	return boardLabelQueried
 }
 
-func parseLabelIdAndName(label string) (boardID, boardName string) {
+type LabelFields struct {
+	Board   string
+	Version string
+	ID      string
+	Name    string
+}
+
+func parseLabelFields(label string) LabelFields {
+	var f LabelFields
 	label = strings.TrimSpace(label)
 	if !strings.HasPrefix(label, "p=1,") {
-		return "", ""
+		return f
 	}
 	for _, seg := range strings.Split(label, ",") {
-		if v, ok := strings.CutPrefix(seg, "id="); ok && v != "" {
-			boardID = v
+		if v, ok := strings.CutPrefix(seg, "b="); ok && v != "" {
+			f.Board = v
+		} else if v, ok := strings.CutPrefix(seg, "v="); ok && v != "" {
+			f.Version = v
+		} else if v, ok := strings.CutPrefix(seg, "id="); ok && v != "" {
+			f.ID = v
 		} else if v, ok := strings.CutPrefix(seg, "name="); ok && v != "" {
-			boardName = v
+			f.Name = v
 		}
 	}
-	return boardID, boardName
+	return f
 }
 
 func SyncBoardLabelFromPico(ch chan []byte, timeout time.Duration) {
