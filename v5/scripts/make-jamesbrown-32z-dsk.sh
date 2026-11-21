@@ -46,6 +46,7 @@ done
 # Overlay v5 CoCo-safe 6809 modules (rel, boot_emu, emudsk, clock, clock2_e1, click, dwread_becker_to).
 cp "$V5"/os/jamesbrown-32z/modules/*.asm "$WORK/modules/"
 cp "$V5/os/jamesbrown-32z/modules/dwread_becker_to.asm" "$WORK/fujinet/defs/"
+rm -f "$WORK/fujinet/fujinet-lib/bus/os9/fuji_bus_call.s"
 
 # Relocate all conflicting $FFxx addresses and switch assembler flags to strict --6809.
 python3 - "$WORK" << 'PY'
@@ -109,18 +110,125 @@ patch("fujinet/modules/dwio.asm", [
 ])
 
 # Drain any stale late RX bytes in Becker ($FF41/$FF42) before starting a new SS.Fuji
-# transaction, so a previous timed-out network request cannot shift subsequent replies.
+# transaction, and use a fast (~80ms) probe timeout for FUJI$Ready ($E2 $00) when no
+# hat is attached, vs a ~31s (0.895 MHz) / ~16s (1.79 MHz) initial-byte timeout for
+# active FujiNet commands so WiFi scans (~4-5s) and WiFi association/DHCP (~5-15s)
+# never time out mid-command.
 patch("fujinet/modules/scdwv.asm", [
     (
         "                    orcc      #IntMasks           freeze the wire for the whole exchange\n"
-        "                    ldx       3,s                 system buffer\n",
+        "                    ldx       3,s                 system buffer\n"
+        "                    leax      2,x                 request bytes follow the prefix\n"
+        "                    ldy       9,s                 request length\n"
+        "                    ldu       <D.DWSubAddr\n"
+        "                    jsr       DW$Write,u          send request\n"
+        "                    ldy       1,s                 response length\n"
+        "                    beq       FujiOut2            command wants no reply\n"
+        "                    ldx       3,s                 reuse the system buffer for the response\n"
+        "                    jsr       DW$Read,u           read raw response\n"
+        "                    bcs       FujiIOE2\n"
+        "                    bne       FujiIOE2\n",
         "                    orcc      #IntMasks           freeze the wire for the whole exchange\n"
         "FujiDrn@            ldb       >$FF41\n"
         "                    bitb      #$02\n"
         "                    beq       FujiDrnOk@\n"
         "                    ldb       >$FF42\n"
         "                    bra       FujiDrn@\n"
-        "FujiDrnOk@          ldx       3,s                 system buffer\n",
+        "FujiDrnOk@          ldx       3,s                 system buffer\n"
+        "                    leax      2,x                 request bytes follow the prefix\n"
+        "                    ldy       9,s                 request length\n"
+        "                    ldu       <D.DWSubAddr\n"
+        "                    jsr       DW$Write,u          send request\n"
+        "                    ldy       1,s                 response length\n"
+        "                    beq       FujiOut2            command wants no reply\n"
+        "                    ldu       3,s                 system buffer ([resplen:2][req0][req1]...)\n"
+        "                    ldd       2,u                 peek first 2 request bytes before overwriting\n"
+        "                    cmpd      #$E200              OP_FUJI + FUJI$Ready?\n"
+        "                    bne       FujiWaitLong@\n"
+        "                    lda       #1                  fast ~80ms probe when checking if hat exists\n"
+        "                    ldx       #$1000\n"
+        "                    bra       FujiPoll@\n"
+        "FujiWaitLong@       lda       #24                 ~31s (0.895 MHz) / ~16s (1.79 MHz) for scan/connect\n"
+        "FujiNextByte@       ldx       #$0000              65536 inner polls per outer tick\n"
+        "FujiPoll@           ldb       >$FF41\n"
+        "                    bitb      #$02\n"
+        "                    bne       FujiGotByte@\n"
+        "                    leax      -1,x\n"
+        "                    bne       FujiPoll@\n"
+        "                    deca\n"
+        "                    bne       FujiNextByte@\n"
+        "                    bra       FujiIOE2\n"
+        "FujiGotByte@        ldb       >$FF42\n"
+        "                    stb       ,u+\n"
+        "                    lda       #2                  inter-byte safety timeout once streaming\n"
+        "                    leay      -1,y\n"
+        "                    bne       FujiNextByte@\n",
+    ),
+])
+
+# Upstream FujiNet firmware returns 0 scan results (esp_wifi_scan_start error 12294 =
+# ESP_ERR_WIFI_STATE) if a scan starts while WiFiManager is mid-reconnect to an
+# unreachable saved SSID (~8s burst followed by 10s pause). Retry empty scans after a
+# 2s sleep so fnconfig reliably catches the pause window and lists visible APs.
+patch("fujinet/cmds/fnconfig.as", [
+    (
+        "                    ldd       #OP_FUJI*256+FUJI$ScanNetworks\n"
+        "                    std       request,u\n"
+        "                    leax      request,u\n"
+        "                    ldy       #2\n"
+        "                    lbsr      FBCmd\n"
+        "                    lbcs      WifiScanExit\n"
+        "                    leax      scanCount,u\n"
+        "                    ldy       #1\n"
+        "                    lbsr      FBRead\n"
+        "                    lbcs      WifiScanExit\n"
+        "                    lda       scanCount,u\n"
+        "                    cmpa      #MAXNETWORKS\n",
+        "                    lda       #6                  retry if STA is mid-reconnect (ESP_ERR_WIFI_STATE)\n"
+        "                    sta       workidx,u\n"
+        "WifiScanTry@        ldd       #OP_FUJI*256+FUJI$ScanNetworks\n"
+        "                    std       request,u\n"
+        "                    leax      request,u\n"
+        "                    ldy       #2\n"
+        "                    lbsr      FBCmd\n"
+        "                    lbcs      WifiScanExit\n"
+        "                    leax      scanCount,u\n"
+        "                    ldy       #1\n"
+        "                    lbsr      FBRead\n"
+        "                    lbcs      WifiScanExit\n"
+        "                    lda       scanCount,u\n"
+        "                    bne       WifiScanGot@\n"
+        "                    dec       workidx,u\n"
+        "                    beq       WifiCountOK\n"
+        "                    ldx       #120                2s pause for background reconnect burst to clear\n"
+        "                    os9       F$Sleep\n"
+        "                    bra       WifiScanTry@\n"
+        "WifiScanGot@        cmpa      #MAXNETWORKS\n",
+    ),
+    (
+        "                    leax      request,u\n"
+        "                    ldy       #2+SSIDCFGSZ\n"
+        "                    lbsr      FBCmd\n"
+        "                    bcs       WifiConnectExit\n"
+        "                    lbsr      LoadStatus\n"
+        "WifiConnectExit     rts\n",
+        "                    leax      request,u\n"
+        "                    ldy       #2+SSIDCFGSZ\n"
+        "                    lbsr      FBCmd\n"
+        "                    bcs       WifiConnectExit\n"
+        "                    lda       #12                 poll up to ~12s for WPA2 + DHCP IP\n"
+        "                    sta       workidx,u\n"
+        "WifiWaitIP@         lbsr      LoadStatus\n"
+        "                    bcs       WifiConnectExit\n"
+        "                    lda       wifistatus,u\n"
+        "                    cmpa      #3\n"
+        "                    beq       WifiConnectExit\n"
+        "                    dec       workidx,u\n"
+        "                    beq       WifiConnectExit\n"
+        "                    ldx       #60                 1s sleep\n"
+        "                    os9       F$Sleep\n"
+        "                    bra       WifiWaitIP@\n"
+        "WifiConnectExit     rts\n",
     ),
 ])
 
@@ -192,4 +300,12 @@ PY
 os9 copy -r "$BASIC09_MOD" "$OUT,CMDS/basic09"
 os9 attr -q -r -e -pr -pe -nw -npw -ns "$OUT,CMDS/basic09"
 
-echo "built $OUT (Motorola 6809E, CoCo-safe I/O map, CMDS/basic09 attr r e pr pe)"
+# Build and install the 5 CoCo-safe CMOC C FujiNet apps (fnnews, fnweather, fnstocks, fnbounce, fnbattleship)
+FN_APPS_32Z="$V5/build/fn-apps-32z"
+FN_SRC_DIR="$WORK/fujinet" sh "$V5/scripts/build-jamesbrown-fn-apps.sh" "$FN_APPS_32Z"
+for app in fnnews fnweather fnstocks fnbounce fnbattleship; do
+  os9 copy -r "$FN_APPS_32Z/bin/$app" "$OUT,CMDS/$app"
+  os9 attr -q -r -w -e -pr -pe "$OUT,CMDS/$app"
+done
+
+echo "built $OUT (Motorola 6809E, CoCo-safe I/O map, CMDS/basic09 + fnnews fnweather fnstocks fnbounce fnbattleship)"

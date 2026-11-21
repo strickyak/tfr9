@@ -173,7 +173,31 @@ GPIO_ENABLE1_REG = 0x3FF4402C
 GPIO_IN_REG = 0x3FF4403C
 GPIO_IN1_REG = 0x3FF44040
 
-tfr_inject("foreach g {8 9 10 11 12 13 14 15 16 17 18 19} {fujinet drive $g z}")
+lbl_res = subprocess.run(
+    [tether, "-n", "-bind=", f"-wire={wire}", "-just-get-label"],
+    capture_output=True, text=True, check=False,
+)
+is_centipede = "b=centipede" in lbl_res.stdout
+
+HAT_SPEC = [
+    (8,  "J1-1  H8   ", "NC (40c R2 removed)"),
+    (9,  "J1-3  H9   ", "NC (40c R1 removed)"),
+    (10, "J1-5  H10CD", "IO22 (R5 1K PIN_CD)"),
+    (11, "J1-7  H11  ", "NC"),
+    (12, "J1-9  H12  ", "IO33 (UART1_RX / CASS_IN)"),
+    (13, "J1-11 H13  ", "IO21 (40c-bodged) or IO13+IO21 (41d+bodge)"),
+    (14, "J1-13 H14  ", "IO26 (CASS_OUT)"),
+    (15, "J1-15 H15  ", "IO25 (DAC1)"),
+    (16, "J1-17 H16  ", "NC (J4-1)"),
+    (17, "J1-19 H17  ", "NC (J4-3)"),
+    (18, "J1-20 H18  ", "NC (J4-5)"),
+    (19, "J1-18 H19  ", "NC (J4-7)"),
+]
+if is_centipede:
+    HAT_SPEC = [entry for entry in HAT_SPEC if entry[0] not in (8, 9, 11)]
+
+hat_gpios_tcl = " ".join(str(g) for g, _, _ in HAT_SPEC)
+tfr_inject(f"foreach g {{{hat_gpios_tcl}}} {{fujinet drive $g z}}")
 
 esp = esptool.targets.ESP32ROM(esp_port, 115200)
 esp.connect("default_reset")
@@ -206,21 +230,6 @@ print(
     f"  PCB Pull-Ups: IO14(R7/SAFE_RESET)={base[14]}  "
     f"IO36(R14/A14)={base[36]}  IO39(R15/A15)={base[39]}  IO15(SD_CD)={base[15]}"
 )
-
-HAT_SPEC = [
-    (8,  "J1-1  H8   ", "NC (40c R2 removed)"),
-    (9,  "J1-3  H9   ", "NC (40c R1 removed)"),
-    (10, "J1-5  H10CD", "IO22 (R5 1K PIN_CD)"),
-    (11, "J1-7  H11  ", "NC"),
-    (12, "J1-9  H12  ", "IO33 (UART1_RX / CASS_IN)"),
-    (13, "J1-11 H13  ", "IO21 (40c-bodged) or IO13+IO21 (41d+bodge)"),
-    (14, "J1-13 H14  ", "IO26 (CASS_OUT)"),
-    (15, "J1-15 H15  ", "IO25 (DAC1)"),
-    (16, "J1-17 H16  ", "NC (J4-1)"),
-    (17, "J1-19 H17  ", "NC (J4-3)"),
-    (18, "J1-20 H18  ", "NC (J4-5)"),
-    (19, "J1-18 H19  ", "NC (J4-7)"),
-]
 
 failures = []
 if not io13_hiz:
@@ -286,7 +295,7 @@ try:
             failures.append(f"TFR GPIO {gpio} ({label.strip()}): {verdict}")
         print(f"  TFR GPIO {gpio:2d} ({label}) -> ESP32 {hits_str:<12} [{verdict}]  ({expected_desc})")
 finally:
-    tfr_inject("foreach g {8 9 10 11 12 13 14 15 16 17 18 19} {fujinet drive $g z}")
+    tfr_inject(f"foreach g {{{hat_gpios_tcl}}} {{fujinet drive $g z}}")
     esp.hard_reset()
     esp._port.close()
 
@@ -304,7 +313,7 @@ if failures:
     print(f"Matrix summary: FAIL ({len(failures)} issue(s))")
     sys.exit(1)
 else:
-    print(f"Matrix summary: ALL 12 HAT PINS & PULL-UPS PASSED ({hat_variant})!")
+    print(f"Matrix summary: ALL {len(HAT_SPEC)} HAT PINS & PULL-UPS PASSED ({hat_variant})!")
 PY
   if [ "$SUBCMD" = "matrix" ]; then
     exit "$matrix_rc"

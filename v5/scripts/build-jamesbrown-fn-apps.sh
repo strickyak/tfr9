@@ -8,7 +8,7 @@ V5=$(cd "$(dirname "$0")/.." && pwd)
 . "$V5/scripts/env.sh"
 
 L2_DIR=${DILLERA_L2_DIR:-$HOME/github.com/dillera/tfr9/v4/nitros9-l2}
-FN_ROOT="$L2_DIR/fujinet"
+FN_ROOT=${FN_SRC_DIR:-$L2_DIR/fujinet}
 FNLIB="$FN_ROOT/fujinet-lib"
 FN_C="$FN_ROOT/c"
 BUS_CALL_C="$V5/os/nitros9/fujinet/fuji_bus_call.c"
