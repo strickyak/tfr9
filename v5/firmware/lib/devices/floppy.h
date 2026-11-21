@@ -73,6 +73,7 @@ volatile byte *floppy_read_end = floppy_buf + 256;
 volatile uint16_t floppy_cur_sector_bytes = 256;
 volatile bool floppy_in_read = false;
 volatile bool floppy_in_write = false;
+std::atomic<bool> floppy_latch_written{false};
 
 #if FLOPPY_OVER_VFS
 #include "vfs.h"
@@ -100,6 +101,7 @@ void set_floppy_names() {
   floppy_cur_sector_bytes = 256;
   floppy_in_read = false;
   floppy_in_write = false;
+  floppy_latch_written.store(false, std::memory_order_relaxed);
 }
 
 // Open drive hnum if not yet opened, and infer single/double density,
@@ -195,11 +197,13 @@ struct DoFloppy {
     (void)chore;
     cobs_printf(" f!%02x ", chore_byte);
     if ((chore_byte & 0xF0) == 0x80) {  // read sector (0x80..0x8F)
-      // Wait up to 250 us for 6809 code (DECB DSKCON, NitrOS-9 Boot/rb1773)
-      // to write $FF40 (drive select, side select 0x40, HALT enable 0x80) after $FF48.
-      // rb1773 delays ~108 E-cycles (~121 us) before setting bit 7 of $FF40.
+      // Wait up to 100 us for 6809 code (DECB DSKCON, NitrOS-9 boot_1773 / rb1773)
+      // to write $FF40 (drive select + side select 0x40) after writing $FF48.
+      // All three write $FF40 within ~15..22 us of $FF48 with interrupts masked;
+      // callers that pre-set $FF40 before $FF48 fall through with floppy_latch intact.
       uint64_t t_cmd = time_us_64();
-      while ((floppy_latch & 0x80u) == 0 && (time_us_64() - t_cmd) < 250) {
+      while (!floppy_latch_written.load(std::memory_order_acquire) &&
+             (time_us_64() - t_cmd) < 100) {
         coro_yield(&self);
       }
       byte latch_snap = floppy_latch;
@@ -370,7 +374,10 @@ struct DoFloppy {
             floppy_status.store((byte)(st & ~0x03u), std::memory_order_relaxed);
             floppy_ptr = floppy_buf;
             if ((floppy_latch & 0x80) != 0) {
-              // HALT/NMI enabled: pulse NMI to signal transfer complete.
+              // On real Tandy FD-502 hardware, INTRQ/NMI resets bit 7 (HALTENA)
+              // of the $FF40 latch flip-flop so the next $FF48 command does not
+              // immediately re-halt the 6809 before it updates $FF40 (SIDESEL).
+              floppy_latch &= ~0x80u;
               ASSERT_NMI();
             }
           }
@@ -390,9 +397,11 @@ struct DoFloppy {
     switch (abus & 15) {
       case 0x0:  // WriteLatch
         floppy_latch = dbus;
+        floppy_latch_written.store(true, std::memory_order_release);
         PUSH_TO_BG(FG2BG_FLOPPY_LATCH, 0, dbus);
         break;
       case 0x8:  // WriteCommand
+        floppy_latch_written.store(false, std::memory_order_relaxed);
         if ((dbus & 0xF0) == 0xA0) {
           // WRITE: BUSY + DRQ (0x03) immediately — CoCo must start feeding data.
           floppy_in_read = false;
@@ -408,6 +417,7 @@ struct DoFloppy {
         } else {
           floppy_in_read = false;
           floppy_in_write = false;
+          floppy_latch &= ~0x80u;  // Type I / IV completion clears HALTENA
           floppy_status.store(0x00, std::memory_order_relaxed);
           floppy_ptr = floppy_buf;
         }
@@ -443,6 +453,7 @@ struct DoFloppy {
               floppy_write_latch = floppy_latch;
               floppy_write_track = floppy_track;
               floppy_write_sector = floppy_sector;
+              floppy_latch &= ~0x80u;
               uint8_t completed_idx = floppy_write_active_idx;
               floppy_write_active_idx ^= 1;
               floppy_ptr = floppy_write_bufs[floppy_write_active_idx];

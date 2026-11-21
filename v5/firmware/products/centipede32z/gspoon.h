@@ -146,11 +146,15 @@ void IN_RAM Jump(uint a) {
   ReadStep(0, (byte)a);
 }
 
-void IN_RAM SetS(uint s) {
+void IN_RAM MaskInterrupts() {
   Synchronize7E();
-  ReadStep(0, 0x1A);  // ORCC #$50 (mask IRQ and FIRQ)
+  ReadStep(0, 0x1A);  // ORCC #$50 (mask IRQ and FIRQ, matching 6809 hardware RESET)
   ReadStep(0, 0x50);
   IdleStep();
+}
+
+void IN_RAM SetS(uint s) {
+  MaskInterrupts();
 
   Synchronize7E();
   ReadStep(0, 0x10);  // LDS #immediate
@@ -276,8 +280,13 @@ void IN_RAM DriveConsole() {
           GPoke1(0xFFDF, 0);  // SAM TY=1 (all-RAM mode: silence CoCo 2 internal BASIC ROMs!)
           SamP1Bit = false;
           SamTyBit = true;
+          MaskInterrupts();
           if (g_launch_initial_sp != 0) {
             SetS(g_launch_initial_sp);
+          }
+          if (g_coco_irq_shim_active) {
+            (void)GPeek1(0xFF02);   // clear any pending PIA0 VSYNC flag
+            GPoke1(0xFF03, 0x35);   // enable CoCo 2 PIA0 60 Hz VSYNC _IRQ
           }
           Jump(g_launch_exec_addr);
           return;

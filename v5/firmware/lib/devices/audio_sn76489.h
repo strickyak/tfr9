@@ -28,8 +28,8 @@ constexpr uint kSampleHz = 1000000 / kSampleUs;
 constexpr uint kChipHz = 3579545;      // NTSC SN76489 input clock
 constexpr uint32_t kStep = (uint32_t)((double)kChipHz / 16.0 / kSampleHz * 65536.0);
 
-// Non-const so the table lives in `.data` SRAM (safe during flash erases).
-static byte amp_table[16] = {30, 24, 19, 15, 12, 9, 8, 6, 5, 4, 3, 2, 2, 1, 1, 0};
+// Placed in its own __not_in_flash data section so GCC cannot promote it to `.rodata` XIP flash.
+static byte __not_in_flash("amp_table") amp_table[16] = {30, 24, 19, 15, 12, 9, 8, 6, 5, 4, 3, 2, 2, 1, 1, 0};
 
 inline volatile byte control = 0x03;   // bit 0 click, bit 1 bell, bit 7 raw arrows
 inline volatile byte fifo[256];

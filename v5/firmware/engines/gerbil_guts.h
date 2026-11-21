@@ -63,6 +63,19 @@ FORCE_INLINE void IN_RAM GerbilAssertCart() {
   cart_fuse = 6;
 }
 
+FORCE_INLINE bool IN_RAM GerbilEmuDskWantsHalt() {
+  if (likely(!emudsk_dma_busy)) return false;
+  if (emudsk_bra_phase >= 2) {
+    int8_t st = g_emudsk_req.status.load(std::memory_order_acquire);
+    if (st >= 0) {
+      emudsk_status = (byte)st;
+      emudsk_dma_busy = false;
+      return false;
+    }
+  }
+  return true;
+}
+
 FORCE_INLINE void IN_RAM GerbilFlowControlCheck() {
   uint sz = fg2bg.size();
   if (!fg_halt_for_flow_control) {
@@ -75,6 +88,7 @@ FORCE_INLINE void IN_RAM GerbilFlowControlCheck() {
     }
   }
   bool want_halt = fg_halt_for_flow_control ||
+                   GerbilEmuDskWantsHalt() ||
                    (unlikely(g_floppy_enabled) && FloppyImpl::WantsHalt());
   if (want_halt != fg_halt_active) {
     if (want_halt) {
@@ -400,7 +414,11 @@ FORCE_INLINE void GerbilForegroundLoop() {
     byte dbus = 0;
 
     if (likely(reading)) {
-      if (Policy::Read(signals, abus, dbus)) {
+      if (unlikely(emudsk_dma_busy && emudsk_bra_phase < 2)) {
+        dbus = (emudsk_bra_phase == 0) ? 0x20u : 0xFEu;
+        emudsk_bra_phase = (uint8_t)(emudsk_bra_phase + 1u);
+        gerbil_program_put_word(pio, sm, 0x100u | (uint32_t)dbus);
+      } else if (Policy::Read(signals, abus, dbus)) {
         gerbil_program_put_word(pio, sm, 0x100u | (uint32_t)dbus);
       } else {
         gerbil_program_put_word(pio, sm, 0x000u);

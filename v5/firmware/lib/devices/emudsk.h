@@ -20,6 +20,8 @@ static byte emudsk_status = 0;
 static byte emudsk_fifo_buf[256];
 static uint8_t emudsk_fifo_idx = 0;
 static bool emudsk_fifo_mode = false;
+static volatile bool emudsk_dma_busy = false;
+static volatile uint8_t emudsk_bra_phase = 0;
 
 static std::shared_ptr<VfsNode> g_drive_nodes[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -106,6 +108,16 @@ void IN_RAM emudsk_write_command(uint, byte data) {
   g_emudsk_req.command = data;
   g_emudsk_req.status.store(-1, std::memory_order_release);
 
+#if defined(G_E)
+  // On Centipede 32z (Gerbil), the CoCo's external 0.895 MHz E/Q clock runs
+  // continuously, so Core 1 must never spin-wait here. Enqueue the VFS request
+  // for Core 0, feed one `BRA -2` ($20 $FE) + assert G_HALT so the 6809E halts
+  // cleanly before `LDA $FF83`, and release G_HALT once status >= 0.
+  emudsk_status = 0x80;
+  emudsk_bra_phase = 0;
+  emudsk_dma_busy = true;
+  (void)fg2bg.push((uint)FG2BG_EMUDSK << 24);
+#else
   uint pb_w = ((uint)FG2BG_EMUDSK << 24);
   while (!fg2bg.push(pb_w)) { tight_loop_contents(); }
 
@@ -113,6 +125,7 @@ void IN_RAM emudsk_write_command(uint, byte data) {
     tight_loop_contents();
   }
   emudsk_status = (byte)g_emudsk_req.status.load(std::memory_order_acquire);
+#endif
 }
 
 
@@ -122,6 +135,8 @@ struct EmuDsk {   // 7 registers: LSN (3), command/status, buffer/FIFO (2), driv
     emudsk_fifo_mode = false;
     emudsk_fifo_idx = 0;
     emudsk_status = 0;
+    emudsk_dma_busy = false;
+    emudsk_bra_phase = 0;
     IoClaim(base, base + 6, "emudsk");
     IoSet(base + 0, emudsk_read_lsn0, emudsk_write_lsn0);
     IoSet(base + 1, emudsk_read_lsn1, emudsk_write_lsn1);

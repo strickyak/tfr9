@@ -31,6 +31,7 @@ FORCE_INLINE bool IN_RAM IoIsDriven(uint8_t lo) {
 static void (*g_rx_poll_fn)() = nullptr;      // core-0 Phase 2 terminal RX delivery
 static void (*g_timer_60hz_fn)() = nullptr;   // core-0 60 Hz timer callback (targets MUST be IN_RAM)
 static bool g_deep_mmu_active = false;        // core-0 EmuDsk / $FE panic dump translates via deep_mmu
+static bool g_coco_irq_shim_active = false;   // CoCo 2 PIA0 VSYNC -> ClockStop/TermAcia IRQ shim active
 
 inline void IoResetEnhancementState();
 inline void IoInstallEnhancementDevice(const char* dev, uint16_t base, uint16_t last, const TargetSpec& tgt);
@@ -42,6 +43,7 @@ static inline void IoReset() {
   g_rx_poll_fn = nullptr;
   g_timer_60hz_fn = nullptr;
   g_deep_mmu_active = false;
+  g_coco_irq_shim_active = false;
   g_term_acia_arrow_keys = false;
   IoResetEnhancementState();
 }

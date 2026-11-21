@@ -121,12 +121,14 @@ port	tfr911h	rsbasic	coco2	vectors	0xfff0	0xffff
 port	coco2	nitros9l1	flat65280	emudsk	0xff80	0xff86
 port	coco2	nitros9l1	flat65280	clockstop	0xff87	0xff87
 port	coco2	nitros9l1	flat65280	acia	0xff88	0xff89
+port	coco2	nitros9l1	flat65280	irq_shim	0xffe0	0xffef
 port	coco2	nitros9l1	flat65280	vectors	0xfff0	0xffff
 port	coco2	nitros9l2	deep65280	emudsk	0xff80	0xff86
 port	coco2	nitros9l2	deep65280	clockstop	0xff87	0xff87
 port	coco2	nitros9l2	deep65280	acia	0xff88	0xff89
 port	coco2	nitros9l2	deep65280	gime	0xff90	0xff91
 port	coco2	nitros9l2	deep65280	mmu	0xffa0	0xffaf
+port	coco2	nitros9l2	deep65280	irq_shim	0xffe0	0xffef
 port	coco2	nitros9l2	deep65280	vectors	0xfff0	0xffff
 port	coco2	nitros9l2	jamesbrown	becker	0xff41	0xff42
 port	coco2	nitros9l2	jamesbrown	audio	0xff70	0xff71

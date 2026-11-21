@@ -17,6 +17,58 @@ FORCE_INLINE bool IN_RAM flat65280_irq_needed() {
   return clock_irq || acia_rx_irq || acia_tx_irq;
 }
 
+// CoCo 2 PIA0 VSYNC -> ClockStop/TermAcia IRQ shim ($FFE0..$FFEF by default).
+// Used when running unmodified `flat65280` / `deep65280` images on a CoCo 2
+// cartridge port (which has no `_IRQ` pin): `PIA0` 60 Hz VSYNC drives `_IRQ`,
+// and `$FFF8:$FFF9` enters this 16-byte SRAM-backed shim to clear `$FF02` and
+// either `RTI` immediately or jump to the guest's `$FFF8:$FFF9` handler when
+// `flat65280_irq_needed()` is true.
+inline uint16_t g_coco_irq_shim_base = 0xFFE0;
+byte __not_in_flash("irq_shim_data") g_coco_irq_shim_code[16] = {
+    0xB6, 0xFF, 0x02,  // 0..2: LDA >$FF02 (clear CoCo 2 PIA0 VSYNC latch)
+    0xB6, 0xFF, 0xEF,  // 3..5: LDA >$FFEF (bit 7 = flat65280_irq_needed())
+    0x2B, 0x01,        // 6..7: BMI +1 (to offset 9)
+    0x3B,              // 8:    RTI
+    0xA6, 0x61,        // 9..A: LDA 1,S (restore stacked A)
+    0x7E, 0x00, 0x00,  // B..D: JMP <vector_ram[8..9]>
+    0x3B, 0x00,        // E..F
+};
+
+byte IN_RAM coco_irq_shim_vec_hi(uint) { return (byte)(g_coco_irq_shim_base >> 8); }
+byte IN_RAM coco_irq_shim_vec_lo(uint) { return (byte)(g_coco_irq_shim_base & 0xFFu); }
+
+byte IN_RAM coco_irq_shim_reader(uint addr) {
+  uint off = (addr - g_coco_irq_shim_base) & 0x0Fu;
+  if (off == 0x0Fu) return flat65280_irq_needed() ? 0x80u : 0x00u;
+  if (off == 0x0Cu) return vector_ram[8];
+  if (off == 0x0Du) return vector_ram[9];
+  return g_coco_irq_shim_code[off];
+}
+
+struct CocoIrqShim {
+  static constexpr uint16_t kDefaultBase = 0xFFE0;
+  static void Install(uint16_t base = kDefaultBase) {
+    g_coco_irq_shim_base = base;
+    uint16_t stat_addr = (uint16_t)(base + 0x0Fu);
+    g_coco_irq_shim_code[4] = (byte)(stat_addr >> 8);
+    g_coco_irq_shim_code[5] = (byte)(stat_addr & 0xFFu);
+    IoClaim(base, base + 15, "irq_shim");
+    for (int i = 0; i < 16; i++) {
+      IoSet(base + i, coco_irq_shim_reader, nullptr);
+    }
+    IoSet(0xFFF8, coco_irq_shim_vec_hi, IOWriters[0xF8]);
+    IoSet(0xFFF9, coco_irq_shim_vec_lo, IOWriters[0xF9]);
+    g_coco_irq_shim_active = true;
+  }
+  static void InstallIfCore() {
+    const TargetSpec* tgt = nullptr;
+    if (ResolveActiveTarget(g_port_settings, &tgt, DEFAULT_BOARD_HOST).ok && tgt &&
+        IsCoreDeviceOf(*tgt, "irq_shim")) {
+      Install(PortBase("irq_shim", kDefaultBase));
+    }
+  }
+};
+
 struct FlatVectors {   // $FFF0..$FFFF read from RAM (the 6809 vectors live in the top of RAM)
   static constexpr uint16_t kDefaultBase = 0xFFF0;
   static void Install(uint16_t base = kDefaultBase) {
@@ -31,6 +83,7 @@ void Install_Flat65280_IO() {
   ClockStop::Install(PortBase("clockstop", ClockStop::kDefaultBase));
   TermAcia::Install(PortBase("acia", TermAcia::kDefaultBase));
   FlatVectors::Install();
+  CocoIrqShim::InstallIfCore();
   IoFinish();
 }
 

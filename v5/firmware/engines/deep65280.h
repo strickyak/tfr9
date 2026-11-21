@@ -81,6 +81,7 @@ void Install_Deep65280_IO() {
   DeepGime::Install(PortBase("gime", DeepGime::kDefaultBase));
   DeepMmu::Install(PortBase("mmu", DeepMmu::kDefaultBase));
   DeepVectors::Install();
+  CocoIrqShim::InstallIfCore();
   IoFinish();
 }
 
