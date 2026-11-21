@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	// "math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -44,25 +45,179 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+const (
+	autoPortStart = 8080
+	autoPortEnd   = 8099
+)
+
 type WebConsoleConfig struct {
-	Bind string
-	Key  func(flags uint, s string)
-	Move func(x, y int)
-	Down func(x, y int)
-	Up   func(x, y int)
+	Bind         string
+	ExplicitBind bool
+	Session      string
+	Ready        chan struct{}
+	Key          func(flags uint, s string)
+	Move         func(x, y int)
+	Down         func(x, y int)
+	Up           func(x, y int)
+}
+
+type SessionInfo struct {
+	Tether  bool   `json:"tether"`
+	Session string `json:"session"`
+	Bind    string `json:"bind"`
+	Port    int    `json:"port"`
+	Wire    string `json:"wire"`
+	Label   string `json:"label"`
+	PID     int    `json:"pid"`
+}
+
+var (
+	webInfoMu     sync.RWMutex
+	activeWebBind string
+	activeWebPort int
+)
+
+func setActiveWebAddr(bind string, port int) {
+	webInfoMu.Lock()
+	activeWebBind = bind
+	activeWebPort = port
+	webInfoMu.Unlock()
+}
+
+func getActiveWebAddr() (string, int) {
+	webInfoMu.RLock()
+	defer webInfoMu.RUnlock()
+	return activeWebBind, activeWebPort
+}
+
+func sessionName(wcc *WebConsoleConfig) string {
+	if wcc != nil && wcc.Session != "" {
+		return strings.TrimSpace(wcc.Session)
+	}
+	if SESSION != nil {
+		return strings.TrimSpace(*SESSION)
+	}
+	return ""
+}
+
+func listenWebServerRange(bind string, explicit bool, host string, startPort, endPort int) (net.Listener, string, int, error) {
+	if !explicit {
+		var lastErr error
+		for p := startPort; p <= endPort; p++ {
+			cand := fmt.Sprintf("%s:%d", host, p)
+			ln, err := net.Listen("tcp", cand)
+			if err == nil {
+				port := p
+				if tcpAddr, ok := ln.Addr().(*net.TCPAddr); ok {
+					port = tcpAddr.Port
+				}
+				return ln, cand, port, nil
+			}
+			lastErr = err
+		}
+		return nil, "", 0, fmt.Errorf("no free web server port in %s:%d..:%d: %w", host, startPort, endPort, lastErr)
+	}
+	ln, err := net.Listen("tcp", bind)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	port := 0
+	if tcpAddr, ok := ln.Addr().(*net.TCPAddr); ok {
+		port = tcpAddr.Port
+	}
+	return ln, bind, port, nil
+}
+
+func listenWebServer(bind string, explicit bool) (net.Listener, string, int, error) {
+	return listenWebServerRange(bind, explicit || bind != ":8080", "", autoPortStart, autoPortEnd)
+}
+
+func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Tether-Pid", strconv.Itoa(os.Getpid()))
+		sess := sessionName(wcc)
+
+		wantJSON := strings.HasSuffix(r.URL.Path, ".json") || strings.ToLower(r.URL.Query().Get("format")) == "json"
+		if wantJSON {
+			if getBoardLabel() == "" {
+				if ch := GetChannelToPico(); ch != nil && !strings.HasPrefix(*WIRE, "exec:") {
+					SyncBoardLabelFromPico(ch, 400*time.Millisecond)
+				}
+			}
+			bind, port := getActiveWebAddr()
+			if bind == "" && wcc != nil {
+				bind = wcc.Bind
+			}
+			wireVal := ""
+			if WIRE != nil {
+				wireVal = *WIRE
+			}
+			info := SessionInfo{
+				Tether:  true,
+				Session: sess,
+				Bind:    bind,
+				Port:    port,
+				Wire:    wireVal,
+				Label:   getBoardLabel(),
+				PID:     os.Getpid(),
+			}
+			body, err := json.Marshal(info)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Write(append(body, '\n'))
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "%s\n", sess)
+	}
+}
+
+func newWebMux(wcc *WebConsoleConfig) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", serveHome(wcc))
+	mux.HandleFunc("/ws", handleWebSocket(wcc))
+	mux.HandleFunc("/session", serveSession(wcc))
+	mux.HandleFunc("/session.json", serveSession(wcc))
+	mux.HandleFunc("/ram", serveRam)
+	mux.HandleFunc("/ram.bin", serveRam)
+	mux.HandleFunc("/ram.hex", serveRam)
+	mux.HandleFunc("/pico_rpc", servePicoRpc)
+	mux.HandleFunc("/pico_rpc/", servePicoRpc)
+	return mux
 }
 
 func WebServer(wcc *WebConsoleConfig) {
-	http.HandleFunc("/", serveHome(wcc))
-	http.HandleFunc("/ws", handleWebSocket(wcc))
-	http.HandleFunc("/ram", serveRam)
-	http.HandleFunc("/ram.bin", serveRam)
-	http.HandleFunc("/ram.hex", serveRam)
-	http.HandleFunc("/pico_rpc", servePicoRpc)
-	http.HandleFunc("/pico_rpc/", servePicoRpc)
+	ln, actualBind, port, err := listenWebServer(wcc.Bind, wcc.ExplicitBind)
+	if err != nil {
+		if wcc.Ready != nil {
+			close(wcc.Ready)
+		}
+		log.Fatal(err)
+	}
+	setActiveWebAddr(actualBind, port)
+	mux := newWebMux(wcc)
 
-	fmt.Printf("Internal web server started at %q\n", wcc.Bind)
-	log.Fatal(http.ListenAndServe(wcc.Bind, nil))
+	sess := sessionName(wcc)
+	urlHint := ""
+	if port > 0 {
+		urlHint = fmt.Sprintf(" (http://localhost:%d/", port)
+		if sess != "" {
+			urlHint += fmt.Sprintf(", session=%q", sess)
+		}
+		urlHint += ")"
+	} else if sess != "" {
+		urlHint = fmt.Sprintf(" (session=%q)", sess)
+	}
+	fmt.Printf("Internal web server started at %q%s\n", actualBind, urlHint)
+	if wcc.Ready != nil {
+		close(wcc.Ready)
+	}
+	log.Fatal(http.Serve(ln, mux))
 }
 
 func parseUintParam(s string) (uint, bool) {
@@ -237,7 +392,11 @@ func serveRam(w http.ResponseWriter, r *http.Request) {
 }
 func serveHome(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "index.html", StartupTime, WebContent)
+		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, "index.html", StartupTime, strings.NewReader(webHTML))
 	}
 }
 
@@ -442,7 +601,7 @@ func KeystrokeValue(flags uint, s string) byte {
 
 var StartupTime = time.Now()
 
-var WebContent = strings.NewReader(strings.ReplaceAll(CONTENT, `"""`, "`"))
+var webHTML = strings.ReplaceAll(CONTENT, `"""`, "`")
 
 const CONTENT = `
 <!DOCTYPE html>
@@ -478,9 +637,26 @@ const CONTENT = `
         const socket = new WebSocket("ws://" + window.location.host + "/ws");
         socket.binaryType = "arraybuffer";
 
+        let sessionName = "";
+        function updateOnlineStatus() {
+            if (socket.readyState === WebSocket.OPEN) {
+                statusDiv.innerText = sessionName ? ("System Online [" + sessionName + "]") : "System Online";
+                statusDiv.style.color = "#0f0";
+            }
+        }
+        fetch("/session", { cache: "no-store" })
+            .then((resp) => resp.ok ? resp.text() : "")
+            .then((txt) => {
+                sessionName = txt.trim();
+                if (sessionName) {
+                    document.title = "TFR9 CONSOLE \u2014 " + sessionName;
+                }
+                updateOnlineStatus();
+            })
+            .catch(() => {});
+
         socket.onopen = () => { 
-            statusDiv.innerText = "System Online"; 
-            statusDiv.style.color = "#0f0";
+            updateOnlineStatus();
         };
 
         socket.onclose = () => {

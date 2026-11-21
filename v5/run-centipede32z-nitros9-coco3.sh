@@ -7,13 +7,18 @@ TETHER=$("$DIR/scripts/find-tether.sh")
 SHELF=${SHELF:-$(cd "$DIR/../.." && pwd)}
 
 HOST_COCO=coco2
-if [ "${1:-}" = "-coco3" ] || [ "${1:-}" = "--coco3" ]; then
-  HOST_COCO=coco3
+nargs=$#
+i=0
+while [ "$i" -lt "$nargs" ]; do
+  arg=$1
   shift
-elif [ "${1:-}" = "-coco2" ] || [ "${1:-}" = "--coco2" ]; then
-  HOST_COCO=coco2
-  shift
-fi
+  case "$arg" in
+    -coco3|--coco3) HOST_COCO=coco3 ;;
+    -coco2|--coco2) HOST_COCO=coco2 ;;
+    *) set -- "$@" "$arg" ;;
+  esac
+  i=$((i + 1))
+done
 
 if [ -n "${V5_IMG_COCO3_DISK:-}" ]; then
   DISK=$V5_IMG_COCO3_DISK

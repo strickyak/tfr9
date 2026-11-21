@@ -41,7 +41,8 @@ var RAM_VERBOSE = flag.Bool("ram_verbose", false, "enable verbose debugging outp
 var LINKMAP = flag.String("linkmap", "", ".map file from linker")
 var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
-var BIND = flag.String("bind", ":8080", "WebServer binds to this address")
+var BIND = flag.String("bind", ":8080", "WebServer binds to this address (auto-steps :8080..:8099 when not explicitly set)")
+var SESSION = flag.String("session", "", "Session name exposed at /session and shown in the browser UI")
 var TETHER_LOG_USB = flag.Bool("tether_log_usb", false, "Log USB COBS and RPC traffic")
 var JUST_PING = flag.Int("just-ping", -1, "Just mode: connect, send a PicoRPC ping with this uint32 payload, print result, and exit")
 var JUST_RESTART = flag.Uint("just-restart", 0, "Just mode: connect and restart the Pico firmware with this boot_mode")
@@ -469,12 +470,16 @@ func main() {
 	// Just-restart mode: connect and restart the Pico.
 	var doJustRestart bool
 	var doBootMode bool
+	var explicitBind bool
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "just-restart" {
 			doJustRestart = true
 		}
 		if f.Name == "bootmode" {
 			doBootMode = true
+		}
+		if f.Name == "bind" {
+			explicitBind = true
 		}
 	})
 	if doJustRestart {
@@ -707,9 +712,13 @@ func main() {
 		}
 	}
 
-	if *BIND != "" {
+	if *BIND != "" && (explicitBind || (*JUST_INJECT == "" && *JUST_TYPE == "")) {
+		ready := make(chan struct{})
 		go WebServer(&WebConsoleConfig{
-			Bind: *BIND,
+			Bind:         *BIND,
+			ExplicitBind: explicitBind,
+			Session:      *SESSION,
+			Ready:        ready,
 			Key: func(flags uint, s string) {
 				ch := KeystrokeValue(flags, s)
 				if ch >= 1 {
@@ -720,7 +729,10 @@ func main() {
 			Down: func(x, y int) {},
 			Up:   func(x, y int) {},
 		})
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ready:
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 	OpenDisks(*DISKS)
 	for {
@@ -1331,8 +1343,39 @@ func syncRamChunks(ch chan []byte, physStart int, totalBytes int) int {
 	return synced
 }
 
+var (
+	boardLabelMu     sync.RWMutex
+	cachedBoardLabel string
+)
+
+func setBoardLabel(label string) {
+	label = strings.TrimRight(label, "\x00\r\n ")
+	boardLabelMu.Lock()
+	cachedBoardLabel = label
+	boardLabelMu.Unlock()
+}
+
+func getBoardLabel() string {
+	boardLabelMu.RLock()
+	defer boardLabelMu.RUnlock()
+	return cachedBoardLabel
+}
+
+func SyncBoardLabelFromPico(ch chan []byte, timeout time.Duration) {
+	if ch == nil || strings.HasPrefix(*WIRE, "exec:") {
+		return
+	}
+	if getBoardLabel() != "" {
+		return
+	}
+	resp, err := PicoRpcCall(ch, "get-label", nil, timeout)
+	if err == nil && resp.Status == 0 && len(resp.Data) > 0 {
+		setBoardLabel(string(resp.Data))
+	}
+}
+
 func SyncInitialRamFromPico(ch chan []byte) {
-	if the_ram == nil || ch == nil {
+	if the_ram == nil || ch == nil || strings.HasPrefix(*WIRE, "exec:") {
 		return
 	}
 	// Give the USB connection 150ms to settle
@@ -1340,6 +1383,7 @@ func SyncInitialRamFromPico(ch chan []byte) {
 	if the_ram == nil {
 		return
 	}
+	SyncBoardLabelFromPico(ch, 1200*time.Millisecond)
 
 	// Query live GIME/MMU/Palette/SAM/PIA1 state first so CoCo 3 MMU mappings and video registers
 	// are known even when tether attaches after CoCo 3 BASIC has already cold-booted.
@@ -1468,6 +1512,11 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 	if *CENTIPEDE {
 		go SyncInitialRamFromPico(channelToPico)
+	} else if *JUST_INJECT == "" && *JUST_TYPE == "" && !strings.HasPrefix(*WIRE, "exec:") {
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			SyncBoardLabelFromPico(channelToPico, 1200*time.Millisecond)
+		}()
 	}
 
 	loadArgs := flag.Args()

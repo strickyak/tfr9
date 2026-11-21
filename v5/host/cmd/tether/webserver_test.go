@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -352,4 +355,86 @@ func TestCoco3MmuWriteCyclesAndGimeScreens(t *testing.T) {
 			frameHs2[9], frameHs2[10], frameHs2[11])
 	}
 }
+
+func TestServeSessionAndAutoPortStep(t *testing.T) {
+	prevLabel := getBoardLabel()
+	defer setBoardLabel(prevLabel)
+	setBoardLabel("p=1,b=centipede,v=32z,id=z10")
+	setActiveWebAddr(":8081", 8081)
+
+	wcc := &WebConsoleConfig{
+		Bind:    ":8080",
+		Session: "Bilbo",
+	}
+	mux := newWebMux(wcc)
+
+	// 1. Plain text GET /session
+	req := httptest.NewRequest("GET", "/session", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /session: expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != "Bilbo\n" {
+		t.Errorf("GET /session: expected %q, got %q", "Bilbo\n", w.Body.String())
+	}
+
+	// 2. JSON GET /session.json and /session?format=json
+	for _, path := range []string{"/session.json", "/session?format=json"} {
+		reqJ := httptest.NewRequest("GET", path, nil)
+		wJ := httptest.NewRecorder()
+		mux.ServeHTTP(wJ, reqJ)
+		if wJ.Code != http.StatusOK {
+			t.Fatalf("GET %s: expected 200, got %d", path, wJ.Code)
+		}
+		var info SessionInfo
+		if err := json.Unmarshal(wJ.Body.Bytes(), &info); err != nil {
+			t.Fatalf("GET %s: invalid JSON %q: %v", path, wJ.Body.String(), err)
+		}
+		if !info.Tether || info.Session != "Bilbo" || info.Port != 8081 || info.Label != "p=1,b=centipede,v=32z,id=z10" || info.PID <= 0 {
+			t.Errorf("GET %s: unexpected SessionInfo: %+v", path, info)
+		}
+	}
+
+	// 3. Concurrent GET / requests do not race on a shared strings.Reader
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rHome := httptest.NewRequest("GET", "/", nil)
+			wHome := httptest.NewRecorder()
+			mux.ServeHTTP(wHome, rHome)
+			if wHome.Code != http.StatusOK || !strings.Contains(wHome.Body.String(), "TFR9 CONSOLE") {
+				t.Errorf("concurrent GET / failed: code=%d len=%d", wHome.Code, wHome.Body.Len())
+			}
+		}()
+	}
+	wg.Wait()
+
+	// 4. Auto-stepping port listener steps past an occupied port when explicit=false,
+	//    and fails fast when explicit=true.
+	lnOccupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen ephemeral failed: %v", err)
+	}
+	defer lnOccupied.Close()
+	occupiedPort := lnOccupied.Addr().(*net.TCPAddr).Port
+
+	lnStepped, actualBind, steppedPort, err := listenWebServerRange(
+		"127.0.0.1:0", false, "127.0.0.1", occupiedPort, occupiedPort+10,
+	)
+	if err != nil {
+		t.Fatalf("listenWebServerRange auto-step failed: %v", err)
+	}
+	defer lnStepped.Close()
+	if steppedPort <= occupiedPort || steppedPort > occupiedPort+10 {
+		t.Errorf("expected steppedPort in (%d..%d], got %d (bind=%q)", occupiedPort, occupiedPort+10, steppedPort, actualBind)
+	}
+
+	if _, _, _, err := listenWebServerRange(lnOccupied.Addr().String(), true, "127.0.0.1", occupiedPort, occupiedPort+10); err == nil {
+		t.Errorf("expected explicit bind on occupied address %s to fail", lnOccupied.Addr().String())
+	}
+}
+
 

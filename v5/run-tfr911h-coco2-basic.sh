@@ -3,26 +3,32 @@
 set -eu
 DIR=$(cd "$(dirname "$0")" && pwd)
 
-# Detect custom -bind=... flag for the banner hint (default in tether is :8080).
-bind_addr=":8080"
+# Detect custom -bind=... flag for the banner hint (default in tether auto-steps :8080..:8099).
+bind_addr=""
+bind_set=0
 prev_is_bind=0
 for arg in "$@"; do
   if [ "$prev_is_bind" -eq 1 ]; then
     bind_addr=$arg
+    bind_set=1
     prev_is_bind=0
     continue
   fi
   case "$arg" in
     -bind|--bind) prev_is_bind=1 ;;
-    -bind=*|--bind=*) bind_addr=${arg#*=} ;;
+    -bind=*|--bind=*) bind_addr=${arg#*=}; bind_set=1 ;;
   esac
 done
 
-case "$bind_addr" in
-  "") ;;
-  :*) echo "[coco2_basic: open http://localhost${bind_addr} in your browser for CoCo 2 screen & keyboard]" >&2 ;;
-  *)  echo "[coco2_basic: open http://${bind_addr} in your browser for CoCo 2 screen & keyboard]" >&2 ;;
-esac
+if [ "$bind_set" -eq 0 ]; then
+  echo "[coco2_basic: open the http://localhost:808x/ URL printed by tether in your browser for CoCo 2 screen & keyboard]" >&2
+else
+  case "$bind_addr" in
+    "") ;;
+    :*) echo "[coco2_basic: open http://localhost${bind_addr} in your browser for CoCo 2 screen & keyboard]" >&2 ;;
+    *)  echo "[coco2_basic: open http://${bind_addr} in your browser for CoCo 2 screen & keyboard]" >&2 ;;
+  esac
+fi
 
 if [ -n "${V5_IMG_COCO2_DISK:-}" ]; then
   DISK=$V5_IMG_COCO2_DISK

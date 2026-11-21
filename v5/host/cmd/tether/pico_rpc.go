@@ -1209,6 +1209,7 @@ func RunJustGetLabel() {
 		fmt.Fprintf(os.Stderr, "%s: FAIL: status=%d %s\n", label, resp.Status, resp.Message)
 		os.Exit(1)
 	}
+	setBoardLabel(string(resp.Data))
 	fmt.Printf("%s\n", string(resp.Data))
 	os.Exit(0)
 }

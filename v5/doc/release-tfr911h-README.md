@@ -22,7 +22,7 @@ tfr911h-release/
 ├── run-tfr911h-jamesbrown.sh            # Launch NitrOS-9 Level 2 (jamesbrown: FujiNet + Unix tools + games + Basic09)
 ├── run-tfr911h-gep9-hatvan.sh           # Launch Hatvan OS (gep9, EMBIGGEN paged MMU)
 ├── run-tfr911h-fuzix.sh                 # Launch Fuzix (multicomp09, 256 KB banked RAM)
-├── run-tfr911h-coco2-basic.sh           # Launch 64 KB CoCo 2 Disk Extended Color BASIC 1.1 (browser screen/keyboard on :8080)
+├── run-tfr911h-coco2-basic.sh           # Launch 64 KB CoCo 2 Disk Extended Color BASIC 1.1 (browser screen/keyboard on :808x)
 ├── run-tfr911h-turbolab.sh              # Launch TurboLab 4-phase cycle-accurate bus tracer
 ├── bin/                          # Statically compiled tether binaries for 8 OS/CPU targets:
 │   ├── tether.linux-amd64.exe    #   Linux x86_64
@@ -33,7 +33,7 @@ tfr911h-release/
 │   ├── tether.mac-amd64.exe      #   macOS Intel x86_64
 │   ├── tether.win-amd64.exe      #   Windows 64-bit x86_64
 │   └── tether.win-386.exe        #   Windows 32-bit x86
-├── scripts/                      # Helper scripts (find-tether.sh, find-board.sh, FujiNet diag)
+├── scripts/                      # Helper scripts (find-tether.sh, find-board.sh, find-session.sh, FujiNet diag)
 └── images/                       # Clean factory kernel & disk images for all guest OSes
 ```
 
@@ -183,6 +183,6 @@ Once installed, launch any guest OS directly from this folder:
 * **Exiting `tether`:**
   * In most guests, press **`Ctrl-C`** to exit `tether` back to your host shell.
   * In `run-tfr911h-jamesbrown.sh` and `run-tfr911h-gep9-hatvan.sh`, `Ctrl-C` is forwarded into the guest OS (`-pass_ctrl_c`); press **`Ctrl-]`** to exit `tether`.
-* **Targeting one board among several:** Pass `-wire=/dev/...` (or set `WIRE=$(./scripts/find-board.sh id=t1)`) to any `run-tfr911h-*.sh` script.
+* **Targeting one board among several & named web sessions:** Pass `-wire=/dev/...` (or set `WIRE=$(./scripts/find-board.sh id=t1)`) to any `run-tfr911h-*.sh` script. When running multiple `tether` sessions at once, the web server automatically steps across `:8080..:8099`; pass `--session=Bilbo` and discover its active URL with `./scripts/find-session.sh Bilbo` (or `curl http://localhost:8080/session`).
 * **FujiNet Hat diagnostics:** If your TFR/911H wears a FujiNet ESP32 hat, run `./scripts/diagnose_fujinet.sh --tfr911h` to check pin wiring, 921,600-baud UART link health, and WiFi status.
 * **Terminal reset:** If `tether` is ever killed abruptly and leaves your Unix terminal without echo, type `Ctrl-J` `reset` `Ctrl-J`.

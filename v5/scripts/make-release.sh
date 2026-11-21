@@ -108,6 +108,7 @@ done
 for sc in \
   find-tether.sh \
   find-board.sh \
+  find-session.sh \
   run-tfr911h-demo.sh \
   diagnose_fujinet.sh
 do
