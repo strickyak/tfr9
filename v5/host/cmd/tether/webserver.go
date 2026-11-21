@@ -306,7 +306,7 @@ func ProbeSessions(host string, startPort, endPort int, timeout time.Duration) [
 	return lines
 }
 
-func RunJustListSession() {
+func RunJustListSessions() {
 	lines := ProbeSessions("127.0.0.1", autoPortStart, autoPortEnd, 1500*time.Millisecond)
 	for _, line := range lines {
 		fmt.Println(line)

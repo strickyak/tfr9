@@ -424,7 +424,7 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 	}
 	wg.Wait()
 
-	// 4. Auto-stepping port listener + ProbeSessions (-just-list-session)
+	// 4. Auto-stepping port listener + ProbeSessions (-just-list-sessions)
 	lnForeign, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen ephemeral failed: %v", err)

@@ -1,6 +1,6 @@
 #!/bin/sh
-# find-session.sh [OPTIONS] [SESSION_OR_FILTER] -- discover active tether web sessions via `tether -just-list-session` (POSIX sh).
-# No external curl/wget dependency: `tether -just-list-session` probes 127.0.0.1:8080..8099 directly in Go.
+# find-session.sh [OPTIONS] [SESSION_OR_FILTER] -- discover active tether web sessions via `tether -just-list-sessions` (POSIX sh).
+# No external curl/wget dependency: `tether -just-list-sessions` probes 127.0.0.1:8080..8099 directly in Go.
 #
 # Examples:
 #   ./scripts/find-session.sh                # list active sessions (`<port> <session> <board_id> <board_name>`)
@@ -105,7 +105,7 @@ esac
 try=0
 while :; do
   try=$((try + 1))
-  listing=$("$TETHER" -just-list-session)
+  listing=$("$TETHER" -just-list-sessions)
 
   if [ "$HAS_TARGET" -eq 0 ]; then
     if [ -n "$listing" ]; then
