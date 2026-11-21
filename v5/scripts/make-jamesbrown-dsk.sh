@@ -1,5 +1,5 @@
 #!/bin/sh
-# make-jamesbrown-dsk.sh -- build build/tfr911-jamesbrown.dsk for run_tfr911h_jamesbrown.sh.
+# make-jamesbrown-dsk.sh -- build build/tfr911-jamesbrown.dsk for run-tfr911h-jamesbrown.sh.
 #
 # Starts from Andrew Diller's nitros9-l2 disk image (building it first if needed),
 # stamps the OS-9 RBF LSN 0 volume name to 'tfr911-jamesbrown.dsk', and installs

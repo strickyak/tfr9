@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_centipede32z_coco2_nitros9_l1.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1
+# run-centipede32z-coco2-nitros9-l1.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1
 # with l1_coco.dsk mounted as floppy drive 0 (/pc/f0) on Centipede 32z, so `DOS` boots NitrOS-9 Level 1.
 set -eu
 

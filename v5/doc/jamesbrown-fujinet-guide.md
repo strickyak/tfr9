@@ -1,6 +1,6 @@
 # `jamesbrown` FujiNet & `foggynet` Guide
 
-This guide covers using FujiNet (on real TFR/911H hardware via `run_tfr911h_jamesbrown.sh`, or simulated on a PC via `run_gep9_jamesbrown.sh` + `foggynet`), finding and mounting OS-9 `.dsk` images, and running the bundled FujiNet and diagnostic commands in NitrOS-9 Level 2.
+This guide covers using FujiNet (on real TFR/911H hardware via `run-tfr911h-jamesbrown.sh`, or simulated on a PC via `run-gep9-jamesbrown.sh` + `foggynet`), finding and mounting OS-9 `.dsk` images, and running the bundled FujiNet and diagnostic commands in NitrOS-9 Level 2.
 
 ---
 
@@ -9,7 +9,7 @@ This guide covers using FujiNet (on real TFR/911H hardware via `run_tfr911h_jame
 * **Host slots (`0`–`7`):** Where disk images live.
   * Slot `0` defaults to `SD`:
     * On real TFR/911H hardware: the microSD card on the ESP32 FujiNet hat.
-    * Under `./run_gep9_jamesbrown.sh` (`foggynet`): `build/demo-pc/jamesbrown-gep9/foggynet/sd/` on your host PC.
+    * Under `./run-gep9-jamesbrown.sh` (`foggynet`): `build/demo-pc/jamesbrown-gep9/foggynet/sd/` on your host PC.
   * Slots `1`–`7` hold TNFS server hostnames (`tnfs.fujinet.online` is preloaded in slot `1`; `apps.irata.online` hosts a large CoCo OS-9 collection). Both real `fujinet-firmware` and `foggynet` try **TCP port 16384 first** and fall back to UDP (`_tcp.` or `_udp.` prefixes force one).
   * You can also run the bundled read-only TCP TNFS server (`build/tnfsd --fs=/some/dir --listen=localhost:16384`) or mount a TCP TNFS server on Linux via FUSE (`build/tnfsfuse --server=apps.irata.com --mount=/tmp/tnfs`).
 * **Device slots (`0`–`3`):** Map 1-to-1 to NitrOS-9 DriveWire RBF drives **`/x0`**, **`/x1`**, **`/x2`**, **`/x3`**.
@@ -69,7 +69,7 @@ dir /x1
 
 ### Example B: Mount a Local `.dsk` from Your PC (`SD` Host Slot `0`) onto `/x1` Read/Write
 
-1. Under `./run_gep9_jamesbrown.sh`, copy any OS-9 `.dsk` into `foggynet`'s `SD` directory on your host PC:
+1. Under `./run-gep9-jamesbrown.sh`, copy any OS-9 `.dsk` into `foggynet`'s `SD` directory on your host PC:
    ```sh
    mkdir -p build/demo-pc/jamesbrown-gep9/foggynet/sd
    cp build/tfr911-jamesbrown.dsk build/demo-pc/jamesbrown-gep9/foggynet/sd/extra.dsk

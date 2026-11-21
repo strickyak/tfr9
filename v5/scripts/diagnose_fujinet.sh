@@ -18,7 +18,7 @@
 #      from the TFR/911H (electrical pin states + 921600-baud UART scan + OP_TIME +
 #      AdapterConfig + MAC + WiFi + Host/Device slots).
 #   3. Prints a final JAMESBROWN VERDICT stating whether the hat is expected to work
-#      with `jamesbrown` (`run_tfr911h_jamesbrown.sh` / `run_centipede32z_jamesbrown.sh`),
+#      with `jamesbrown` (`run-tfr911h-jamesbrown.sh` / `run-centipede32z-jamesbrown.sh`),
 #      or listing every problem found.
 #
 # Examples:

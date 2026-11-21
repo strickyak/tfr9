@@ -1,10 +1,10 @@
 #!/bin/sh
-# run_tfr911h_turbolab.sh - Launch TurboLab on TFR911H SBC (`on tfr911h run turbolab [with ...]`).
+# run-tfr911h-turbolab.sh - Launch TurboLab on TFR911H SBC (`on tfr911h run turbolab [with ...]`).
 #
 # Examples:
-#   ./run_tfr911h_turbolab.sh
-#   ./run_tfr911h_turbolab.sh WITH trigger = r/0xFFFE WITH trace_count = 100 -- -n
-#   ./run_tfr911h_turbolab.sh WITH trace = i WITH stop = c/1500k -- -n
+#   ./run-tfr911h-turbolab.sh
+#   ./run-tfr911h-turbolab.sh WITH trigger = r/0xFFFE WITH trace_count = 100 -- -n
+#   ./run-tfr911h-turbolab.sh WITH trace = i WITH stop = c/1500k -- -n
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)

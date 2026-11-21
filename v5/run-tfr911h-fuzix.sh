@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_tfr911h_fuzix.sh - Launch Fuzix 6809 (multicomp09) on TFR911H SBC (Hitachi 6309E CPU)
+# run-tfr911h-fuzix.sh - Launch Fuzix 6809 (multicomp09) on TFR911H SBC (Hitachi 6309E CPU)
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 if [ -n "${V5_IMG_FUZIX_BIN:-}" ]; then

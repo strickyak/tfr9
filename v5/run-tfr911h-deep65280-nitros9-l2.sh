@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_tfr911h_deep65280_nitros9_l2.sh - Launch NitrOS-9 Level 2 (deep65280) on TFR911H SBC (Hitachi 6309E CPU)
+# run-tfr911h-deep65280-nitros9-l2.sh - Launch NitrOS-9 Level 2 (deep65280) on TFR911H SBC (Hitachi 6309E CPU)
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 if [ -n "${V5_IMG_DEEP_BOOT:-}" ]; then

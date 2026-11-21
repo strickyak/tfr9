@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_centipede32z_jamesbrown.sh - Launch JamesBrown NitrOS-9 Level 2 + FujiNet + Basic09
+# run-centipede32z-jamesbrown.sh - Launch JamesBrown NitrOS-9 Level 2 + FujiNet + Basic09
 # on a CoCo 2 (default, 256 KB gerbil_gime) or CoCo 3 (-coco3, gerbil_io) via Centipede 32z.
 set -eu
 

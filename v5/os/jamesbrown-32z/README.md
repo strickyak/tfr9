@@ -1,6 +1,6 @@
 # `jamesbrown-32z` (NitrOS-9 Level 2 + FujiNet + Basic09 for CoCo 2 / CoCo 3)
 
-CoCo-2 and CoCo-3 compatible Motorola 6809E edition of Andrew Diller's **JamesBrown** NitrOS-9 Level 2 + FujiNet + Unix commands + Games + `basic09` release, built into `build/centipede32z-jamesbrown.dsk` by `scripts/make-jamesbrown-32z-dsk.sh` (`make jamesbrown-32z-dsk`) and launched by `./run_centipede32z_jamesbrown.sh`.
+CoCo-2 and CoCo-3 compatible Motorola 6809E edition of Andrew Diller's **JamesBrown** NitrOS-9 Level 2 + FujiNet + Unix commands + Games + `basic09` release, built into `build/centipede32z-jamesbrown.dsk` by `scripts/make-jamesbrown-32z-dsk.sh` (`make jamesbrown-32z-dsk`) and launched by `./run-centipede32z-jamesbrown.sh`.
 
 ## I/O Address Relocation (`on coco2|coco3 run nitros9l2 for jamesbrown`)
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # make-jamesbrown-32z-dsk.sh -- build CoCo-2 / CoCo-3 I/O-safe Motorola 6809E
-# build/centipede32z-jamesbrown.dsk for run_centipede32z_jamesbrown.sh.
+# build/centipede32z-jamesbrown.dsk for run-centipede32z-jamesbrown.sh.
 #
 # Stages a clean build workspace in build/jamesbrown-32z-work/ from Andrew Diller's
 # nitros9-l2 sources + $SHELF/nitros9 + v5's CoCo-safe overrides in os/jamesbrown-32z/:

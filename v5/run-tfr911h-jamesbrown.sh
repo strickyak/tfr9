@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_tfr911h_jamesbrown.sh - Launch NitrOS-9 Level 2 (jamesbrown / Andrew Diller edition) on TFR911H SBC
+# run-tfr911h-jamesbrown.sh - Launch NitrOS-9 Level 2 (jamesbrown / Andrew Diller edition) on TFR911H SBC
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 

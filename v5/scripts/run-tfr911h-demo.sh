@@ -1,5 +1,5 @@
 #!/bin/sh
-# run-tfr911h-demo.sh -- shared launcher for v5/run_tfr911h_*.sh OS demo scripts on TFR911H.
+# run-tfr911h-demo.sh -- shared launcher for v5/run-tfr911h-*.sh OS demo scripts on TFR911H.
 # TFR911H demo scripts reserve bootmode numbers 9000..9100 (avoiding /rc/modeN.tcl clashes).
 # Usage: run-tfr911h-demo.sh <name> <bootmode> <tcl_body> [src:dst ...] [-- <extra tether args...>]
 set -eu

@@ -1,11 +1,11 @@
 #!/bin/sh
-# upgrade_centipede32z.sh -- Upgrade firmware on an already-installed Centipede 32z board (POSIX sh).
+# upgrade-centipede32z.sh -- Upgrade firmware on an already-installed Centipede 32z board (POSIX sh).
 #
 # Flashes centipede32z.uf2 while preserving both the 11 MB LittleFS flash storage (4..15 MB)
 # and the board's Flash Label at 0x10FFF000.
 #
 # Usage:
-#   ./upgrade_centipede32z.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/centipede32z.uf2]
+#   ./upgrade-centipede32z.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/centipede32z.uf2]
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -17,7 +17,7 @@ UF2_ARG=""
 
 usage() {
   cat >&2 << 'EOF'
-Usage: ./upgrade_centipede32z.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/centipede32z.uf2]
+Usage: ./upgrade-centipede32z.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/centipede32z.uf2]
 
 Upgrades centipede32z.uf2 over USB (via -just-reflash) without touching your 11 MB LittleFS
 files or your board's 0x10FFF000 flash label.
@@ -61,7 +61,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "upgrade_centipede32z.sh: unknown option '$1'" >&2
+      echo "upgrade-centipede32z.sh: unknown option '$1'" >&2
       usage
       exit 2
       ;;

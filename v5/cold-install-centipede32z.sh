@@ -1,5 +1,5 @@
 #!/bin/sh
-# cold_install_centipede32z.sh -- Cold Install for a Centipede 32z board (POSIX sh).
+# cold-install-centipede32z.sh -- Cold Install for a Centipede 32z board (POSIX sh).
 #
 # Can be run either:
 #   - While the new board is in RP2350 BOOTSEL mode (copies centipede32z.uf2 automatically if found), OR
@@ -13,7 +13,7 @@
 #   5. Verifies board discovery by label via scripts/find-board.sh.
 #
 # Usage:
-#   ./cold_install_centipede32z.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/ttyACM0] [--uf2=path] [--force]
+#   ./cold-install-centipede32z.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/ttyACM0] [--uf2=path] [--force]
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -27,7 +27,7 @@ FORCE=0
 
 usage() {
   cat >&2 << 'EOF'
-Usage: ./cold_install_centipede32z.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/...] [--uf2=path] [--force]
+Usage: ./cold-install-centipede32z.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/...] [--uf2=path] [--force]
 
 Step 1 (BOOTSEL, once on a blank board):
   Hold BOOTSEL while plugging the Centipede 32z into USB (or hold BOOTSEL + press RESET),
@@ -36,7 +36,7 @@ Step 1 (BOOTSEL, once on a blank board):
 
 Step 2 (this script — works over USB with or without a CoCo attached):
   Formats the 11 MB LittleFS flash storage and writes the board's flash label at 0x10FFF000:
-    ./cold_install_centipede32z.sh --id=z11 --name=MyCentipede
+    ./cold-install-centipede32z.sh --id=z11 --name=MyCentipede
 
 Options:
   --id=<short-id>      Required short board identifier (e.g. z11)
@@ -94,7 +94,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "cold_install_centipede32z.sh: unknown option '$1'" >&2
+      echo "cold-install-centipede32z.sh: unknown option '$1'" >&2
       usage
       exit 2
       ;;
@@ -229,7 +229,7 @@ case "$EXISTING_LABEL" in
     if [ "$FORCE" -ne 1 ]; then
       echo "error: board on $WIRE_ARG already has a flash label:" >&2
       echo "  $EXISTING_LABEL" >&2
-      echo "Use ./upgrade_centipede32z.sh to upgrade firmware while preserving LittleFS & label," >&2
+      echo "Use ./upgrade-centipede32z.sh to upgrade firmware while preserving LittleFS & label," >&2
       echo "or re-run with --force to reformat LittleFS and overwrite the label." >&2
       exit 1
     fi
@@ -255,4 +255,4 @@ fi
 echo "=== Cold Install Complete! ==="
 echo "  Device: $FOUND"
 echo "  Label:  $("$TETHER" -n -bind="" -wire="$FOUND" -just-get-label </dev/null)"
-echo "Try running: ./run_centipede32z_coco2_basic.sh  or  ./run_centipede32z_coco3_basic.sh"
+echo "Try running: ./run-centipede32z-coco2-basic.sh  or  ./run-centipede32z-coco3-basic.sh"

@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_centipede32z_coco3_basic.sh - Launch 128KB CoCo 3 Super Extended Color BASIC 2.1 on Centipede 32z ("Become CoCo 3")
+# run-centipede32z-coco3-basic.sh - Launch 128KB CoCo 3 Super Extended Color BASIC 2.1 on Centipede 32z ("Become CoCo 3")
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 

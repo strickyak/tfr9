@@ -1,6 +1,6 @@
 # `tether` Terminal Modes, Newline Translation, and `^C` / `^]` Strategy
 
-This document records the design, implementation details, and rejected alternatives for console I/O across `tether`, the `run_tfr911h_*.sh` launchers (especially `run_tfr911h_gep9_hatvan.sh`), and Hatvan OS `/term`.
+This document records the design, implementation details, and rejected alternatives for console I/O across `tether`, the `run-tfr911h-*.sh` launchers (especially `run-tfr911h-gep9-hatvan.sh`), and Hatvan OS `/term`.
 
 ---
 
@@ -23,7 +23,7 @@ Interactive console sessions over `tether` bridge a POSIX host terminal (`os.Std
 
 ## 2. Summary of the Four Terminal Modes
 
-`scripts/run-tfr911h-demo.sh` normalizes shorthand flags (`-c`/`-cooked`, `-r`/`-readline`, `-n`/`-nostdin`) for all `run_tfr911h_*.sh` scripts, and `run_tfr911h_gep9_hatvan.sh` (like `run_tfr911h_jamesbrown.sh`) enables `-pass_ctrl_c` by default:
+`scripts/run-tfr911h-demo.sh` normalizes shorthand flags (`-c`/`-cooked`, `-r`/`-readline`, `-n`/`-nostdin`) for all `run-tfr911h-*.sh` scripts, and `run-tfr911h-gep9-hatvan.sh` (like `run-tfr911h-jamesbrown.sh`) enables `-pass_ctrl_c` by default:
 
 | Launcher Flag | `tether` Flag | Host `stty` (when TTY) | Line Cooking & History | Character Echo | `^C` (`0x03`) | `^]` (`0x1D`) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |

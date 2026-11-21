@@ -85,19 +85,20 @@ cp "$V5_BUILD/generated/io-map.md" "$REL/io-map.md"
 cp "$V5_BUILD/tfr911h.uf2" "$REL/tfr911h.uf2"
 chmod 0644 "$REL/README.md" "$REL/jamesbrown-fujinet-guide.md" "$REL/io-map.md" "$REL/tfr911h.uf2"
 
-# Top-level helpers & all 8 run_tfr911h_*.sh launchers
+# Top-level helpers & all 8 run-tfr911h-*.sh launchers
 for shfile in \
   tether.sh \
-  cold_install_tfr911h.sh \
-  upgrade_tfr911h.sh \
-  run_tfr911h_turbo9os.sh \
-  run_tfr911h_flat65280_nitros9_l1.sh \
-  run_tfr911h_deep65280_nitros9_l2.sh \
-  run_tfr911h_jamesbrown.sh \
-  run_tfr911h_gep9_hatvan.sh \
-  run_tfr911h_fuzix.sh \
-  run_tfr911h_coco2_basic.sh \
-  run_tfr911h_turbolab.sh
+  tether-tfr911h.sh \
+  cold-install-tfr911h.sh \
+  upgrade-tfr911h.sh \
+  run-tfr911h-turbo9os.sh \
+  run-tfr911h-flat65280-nitros9-l1.sh \
+  run-tfr911h-deep65280-nitros9-l2.sh \
+  run-tfr911h-jamesbrown.sh \
+  run-tfr911h-gep9-hatvan.sh \
+  run-tfr911h-fuzix.sh \
+  run-tfr911h-coco2-basic.sh \
+  run-tfr911h-turbolab.sh
 do
   cp "$V5/$shfile" "$REL/$shfile"
   chmod 0755 "$REL/$shfile"

@@ -1,11 +1,11 @@
 #!/bin/sh
-# upgrade_tfr911h.sh -- Upgrade firmware on an already-installed TFR/911H board (POSIX sh).
+# upgrade-tfr911h.sh -- Upgrade firmware on an already-installed TFR/911H board (POSIX sh).
 #
 # Flashes tfr911h.uf2 while preserving both the 11 MB LittleFS flash storage (4..15 MB)
 # and the board's Flash Label at 0x10FFF000.
 #
 # Usage:
-#   ./upgrade_tfr911h.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/tfr911h.uf2]
+#   ./upgrade-tfr911h.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/tfr911h.uf2]
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -17,7 +17,7 @@ UF2_ARG=""
 
 usage() {
   cat >&2 << 'EOF'
-Usage: ./upgrade_tfr911h.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/tfr911h.uf2]
+Usage: ./upgrade-tfr911h.sh [--id=<short-id>] [--wire=/dev/...] [--uf2=path/to/tfr911h.uf2]
 
 Upgrades tfr911h.uf2 over USB (via -just-reflash) without touching your 11 MB LittleFS
 files or your board's 0x10FFF000 flash label.
@@ -61,7 +61,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "upgrade_tfr911h.sh: unknown option '$1'" >&2
+      echo "upgrade-tfr911h.sh: unknown option '$1'" >&2
       usage
       exit 2
       ;;

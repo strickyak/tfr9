@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_gep9_jamesbrown.sh - Simulate NitrOS-9 Level 2 (jamesbrown) on gep9 (--jamesbrown)
+# run-gep9-jamesbrown.sh - Simulate NitrOS-9 Level 2 (jamesbrown) on gep9 (--jamesbrown)
 # with foggynet (simulated ESP32 FujiNet inside tether making live TCP/HTTP/HTTPS/TNFS connections).
 set -eu
 

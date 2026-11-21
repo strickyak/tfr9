@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_centipede32z_flat65280_nitros9_l1.sh - Launch NitrOS-9 Level 1 (flat65280) on CoCo 2 (-coco2, default) or CoCo 3 (-coco3) via Centipede 32z.
+# run-centipede32z-flat65280-nitros9-l1.sh - Launch NitrOS-9 Level 1 (flat65280) on CoCo 2 (-coco2, default) or CoCo 3 (-coco3) via Centipede 32z.
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)

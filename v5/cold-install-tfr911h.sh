@@ -1,5 +1,5 @@
 #!/bin/sh
-# cold_install_tfr911h.sh -- Cold Install Step 2 for a TFR/911H board (POSIX sh).
+# cold-install-tfr911h.sh -- Cold Install Step 2 for a TFR/911H board (POSIX sh).
 #
 # Run AFTER Step 1 (holding FLASH + pressing RESET and copying tfr911h.uf2 onto the RP2350 USB drive).
 # This script:
@@ -9,7 +9,7 @@
 #   4. Verifies board discovery by label via scripts/find-board.sh.
 #
 # Usage:
-#   ./cold_install_tfr911h.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/ttyACM0]
+#   ./cold-install-tfr911h.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/ttyACM0]
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -21,7 +21,7 @@ WIRE_ARG=${WIRE:-}
 
 usage() {
   cat >&2 << 'EOF'
-Usage: ./cold_install_tfr911h.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/...]
+Usage: ./cold-install-tfr911h.sh --id=<short-id> [--name=<board-name>] [--wire=/dev/...]
 
 Step 1 (manual BOOTSEL, once):
   Hold FLASH on the TFR/911H, press & release RESET, release FLASH, and copy tfr911h.uf2
@@ -29,7 +29,7 @@ Step 1 (manual BOOTSEL, once):
 
 Step 2 (this script):
   Formats the 11 MB LittleFS flash storage and writes the board's flash label at 0x10FFF000:
-    ./cold_install_tfr911h.sh --id=t1 --name=MyTFR
+    ./cold-install-tfr911h.sh --id=t1 --name=MyTFR
 EOF
 }
 
@@ -67,7 +67,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "cold_install_tfr911h.sh: unknown option '$1'" >&2
+      echo "cold-install-tfr911h.sh: unknown option '$1'" >&2
       usage
       exit 2
       ;;
@@ -157,4 +157,4 @@ fi
 echo "=== Cold Install Complete! ==="
 echo "  Device: $FOUND"
 echo "  Label:  $("$TETHER" -n -bind="" -wire="$FOUND" -just-get-label </dev/null)"
-echo "Try running: ./run_tfr911h_turbo9os.sh  or  ./run_tfr911h_jamesbrown.sh"
+echo "Try running: ./run-tfr911h-turbo9os.sh  or  ./run-tfr911h-jamesbrown.sh"

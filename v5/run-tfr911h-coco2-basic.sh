@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_tfr911h_coco2_basic.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1 on TFR911H (browser VDG screen + keyboard on :8080)
+# run-tfr911h-coco2-basic.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1 on TFR911H (browser VDG screen + keyboard on :8080)
 set -eu
 DIR=$(cd "$(dirname "$0")" && pwd)
 

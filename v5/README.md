@@ -18,11 +18,14 @@ Status: **Phases 0–6 implemented and hardware-verified** (`tfr911h.uf2`, `cent
 
 Build output goes to `build/`.  See `AGENTS.md` for the rules of this tree.
 
-## Quick Demo Scripts
+## Quick Demo & Helper Scripts
 
-- **TFR/911H:** `./run_tfr911h_turbo9os.sh`, `./run_tfr911h_flat65280_nitros9_l1.sh`, `./run_tfr911h_deep65280_nitros9_l2.sh`, `./run_tfr911h_jamesbrown.sh`, `./run_tfr911h_fuzix.sh`, `./run_tfr911h_gep9_hatvan.sh`, `./run_tfr911h_coco2_basic.sh`
-- **TurboLab (on TFR/911H):** `./run_tfr911h_turbolab.sh WITH trigger = r/0xFFE8 WITH trace_count = 10000`
-- **Centipede 32z (on CoCo 2/3):** `./run_centipede32z_coco2_basic.sh`, `./run_centipede32z_coco3_basic.sh`, `./run_centipede32z_jamesbrown.sh` (pass `-coco3` on a CoCo 3)
+- **Tether REPL:** `./tether.sh` (either board), `./tether-tfr911h.sh`, `./tether-centipede32z.sh`
+- **Install / Upgrade:** `./cold-install-tfr911h.sh`, `./upgrade-tfr911h.sh`, `./cold-install-centipede32z.sh`, `./upgrade-centipede32z.sh`
+- **TFR/911H:** `./run-tfr911h-turbo9os.sh`, `./run-tfr911h-flat65280-nitros9-l1.sh`, `./run-tfr911h-deep65280-nitros9-l2.sh`, `./run-tfr911h-jamesbrown.sh`, `./run-tfr911h-fuzix.sh`, `./run-tfr911h-gep9-hatvan.sh`, `./run-tfr911h-coco2-basic.sh`
+- **TurboLab (on TFR/911H):** `./run-tfr911h-turbolab.sh WITH trigger = r/0xFFE8 WITH trace_count = 10000`
+- **Centipede 32z (on CoCo 2/3):** `./run-centipede32z-coco2-basic.sh`, `./run-centipede32z-coco3-basic.sh`, `./run-centipede32z-coco2-nitros9-l1.sh`, `./run-centipede32z-flat65280-nitros9-l1.sh`, `./run-centipede32z-deep65280-nitros9-l2.sh`, `./run-centipede32z-nitros9-coco3.sh`, `./run-centipede32z-jamesbrown.sh` (pass `-coco3` on a CoCo 3)
+- **Simulated GEP9 (no board):** `./run-gep9-jamesbrown.sh`
 
 ## Layout (see spec section 5.2)
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# run_centipede32z_coco2_basic.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1 on Centipede 32z
+# run-centipede32z-coco2-basic.sh - Launch 64KB CoCo 2 Disk Extended Color BASIC 1.1 on Centipede 32z
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 
