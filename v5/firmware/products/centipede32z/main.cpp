@@ -228,6 +228,7 @@ using FloppyImpl = DoFloppy<CentipedeFloppyTraits>;
 #include "gime.h"
 #include "clock_stop.h"
 #include "gep9_io.h"
+#include "rp2350b_diag.h"
 #include "enhancements.h"
 
 // ROM flash images + Shared & Gerbil Engines

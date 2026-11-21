@@ -6,7 +6,7 @@ export SHELF
 # parallel jobs: getconf works on Linux and macOS
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
-.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk jamesbrown-32z-dsk coco2-basic-dsk coco3-basic-dsk flash-fujinet check-fujinet release
+.PHONY: help doctor check-sh check-io check-core1 clean tfr911h centipede32z test-host systest tether tethers gen-ports jamesbrown-dsk jamesbrown-32z-dsk coco2-basic-dsk coco3-basic-dsk flash-fujinet check-fujinet check-rp2350b release
 help:
 	@echo "targets:"
 	@echo "  tfr911h      build the TFR/911H firmware -> build/tfr911h.uf2"
@@ -18,6 +18,7 @@ help:
 	@echo "  release      stage build/release/ and package build/tfr911h-release.zip"
 	@echo "  flash-fujinet  burn FujiNet firmware + LittleFS onto an ESP32 hat over USB"
 	@echo "  check-fujinet  diagnose FujiNet hat pins, bodges, and 921600-baud link"
+	@echo "  check-rp2350b  diagnose all 48 RP2350B GPIOs, clocks, shorts & CPU/CoCo bus"
 	@echo "  doctor       check toolchain (SHELF=$(SHELF))"
 	@echo "  gen-ports    generate build/generated/{ports_gen.h,io-map.md} from firmware/engines/ports.tsv"
 	@echo "  systest      hardware system tests (needs a board; skips cleanly without one)"
@@ -67,6 +68,9 @@ flash-fujinet:
 
 check-fujinet: tether
 	@sh scripts/diagnose_fujinet.sh
+
+check-rp2350b: tether
+	@sh scripts/diagnose_rp2350b.sh
 
 check-io:
 	@sh scripts/check-no-lambda-io.sh

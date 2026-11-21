@@ -47,4 +47,5 @@ inline void RegisterEnhancementTclCommands(Tcl_Interp* interp) {
   Tcl_CreateCommand(interp, (char*)"beep", beep_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"click", click_cmd, NULL, NULL);
   Tcl_CreateCommand(interp, (char*)"fujinet", fujinet_cmd, NULL, NULL);
+  Tcl_CreateCommand(interp, (char*)"rp2350b", rp2350b_cmd, NULL, NULL);
 }

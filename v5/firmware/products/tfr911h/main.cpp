@@ -448,6 +448,7 @@ void PollTermInput() {
 #include "orchestra90.h"   // Orchestra-90 stereo PWM DAC
 #include "becker.h"   // DriveWire / FujiNet Becker port over UART0
 #include "info_port.h"   // Firmware diagnostic report port
+#include "rp2350b_diag.h"   // 48-GPIO electrical & bus diagnostic (`rp2350b` Tcl command)
 #include "enhancements.h"   // Enhancement installer, reset, background service, Tcl commands
 #include "clock_stop.h"   // CLOCK_AND_STOP register (60 Hz clock enable, stop/exit command)
 #include "acia_term.h"   // terminal ACIA 6850 ($FF88/$FF89 or $FF14/$FF15) for NitrOS-9 engines
