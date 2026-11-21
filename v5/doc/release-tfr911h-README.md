@@ -173,7 +173,7 @@ Once installed, launch any guest OS directly from this folder:
 | `./run-tfr911h-jamesbrown.sh` | **NitrOS-9 Level 2 (`jamesbrown`)** | 256 KB GIME MMU, Unix tools (`ls`, `vi`, `man unix`), games (`tetris`), `basic09`, `info`, and FujiNet (`fnstatus`, `fnconfig`, `fnweather`, `fnnews`, `fnstocks`, `fnbounce`, `fnbattleship` — see `jamesbrown-fujinet-guide.md`) |
 | `./run-tfr911h-gep9-hatvan.sh` | **Hatvan OS (`gep9`)** | Hitachi 6309E + EMBIGGEN paged MMU (`-c`, `-r`, `-n` console modes) |
 | `./run-tfr911h-fuzix.sh` | **Fuzix (`multicomp09`)** | UNIX-like OS in 256 KB banked RAM (`root` login at prompt) |
-| `./run-tfr911h-coco2-basic.sh` | **CoCo 2 Disk Extended Color BASIC 1.1** | 64 KB RAM + Drive 0 (`HELLO.BAS`, `PMODE1.BAS`, `PMODE2.BAS`, `PMODE4.BAS`) + browser screen & keyboard at `http://localhost:8080` |
+| `./run-tfr911h-coco2-basic.sh` | **CoCo 2 Disk Extended Color BASIC 1.1** | 64 KB RAM + Drive 0 (`LOADER.BAS` OPIL demo, `HELLO.BAS`, `PMODE1.BAS`, `PMODE2.BAS`, `PMODE4.BAS`) + browser screen & keyboard |
 | `./run-tfr911h-turbolab.sh` | **TurboLab Cycle Tracer** | Example: `./run-tfr911h-turbolab.sh WITH trigger = r/0xFFFE WITH trace_count = 100 -- -n` |
 | `./tether-tfr911h.sh` / `./tether.sh` | **Interactive `TCL>` Shell** | Manage on-board LittleFS (`ls`, `cp`, `df`, `cat`, `edit`), inspect `ports list`, or type `bye` |
 

@@ -37,7 +37,7 @@ elif [ -f "$DIR/images/coco2_basic/f0.dsk" ]; then
 else
   DISK="$DIR/build/coco2_basic.dsk"
   if [ -f "$DIR/scripts/make-coco2-basic-dsk.sh" ]; then
-    if [ ! -f "$DISK" ] || [ -n "$(find "$DIR/os/coco2" -name '*.bas' -newer "$DISK" 2>/dev/null)" ]; then
+    if [ ! -f "$DISK" ] || [ -n "$(find "$DIR/os/coco2" "$DIR/scripts/make-coco2-basic-dsk.sh" -type f -newer "$DISK" 2>/dev/null)" ]; then
       sh "$DIR/scripts/make-coco2-basic-dsk.sh" "$DISK"
     fi
   fi
