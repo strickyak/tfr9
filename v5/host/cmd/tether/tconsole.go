@@ -43,6 +43,8 @@ var LINKLISTS = flag.String("linklists", "", ".list filenames from lwasm")
 var ABSLISTS = flag.String("abslists", "", ".list filenames from lwasm with correct absolute addresses")
 var BIND = flag.String("bind", ":8080", "WebServer binds to this address (auto-steps :8080..:8099 when not explicitly set)")
 var SESSION = flag.String("session", "", "Session name exposed at /session and shown in the browser UI")
+var JUST_LIST_SESSION = flag.Bool("just-list-session", false, "Just mode: probe localhost:8080..8099 and list active tether sessions (port session id name)")
+var JUST_LIST_SESSIONS = flag.Bool("just-list-sessions", false, "Alias for -just-list-session")
 var TETHER_LOG_USB = flag.Bool("tether_log_usb", false, "Log USB COBS and RPC traffic")
 var JUST_PING = flag.Int("just-ping", -1, "Just mode: connect, send a PicoRPC ping with this uint32 payload, print result, and exit")
 var JUST_RESTART = flag.Uint("just-restart", 0, "Just mode: connect and restart the Pico firmware with this boot_mode")
@@ -398,6 +400,11 @@ func main() {
 	}
 	cobs.UseChecksums = *COBS_CHECKSUMS
 	InstallLimitedLogWriter()
+
+	if *JUST_LIST_SESSION || *JUST_LIST_SESSIONS {
+		RunJustListSession()
+		return
+	}
 
 	if *JUST_UPLOAD != "" {
 		tmp, err := os.MkdirTemp("", "just-upload-*")
@@ -1344,14 +1351,25 @@ func syncRamChunks(ch chan []byte, physStart int, totalBytes int) int {
 }
 
 var (
-	boardLabelMu     sync.RWMutex
-	cachedBoardLabel string
+	boardLabelMu         sync.RWMutex
+	boardLabelFetchMu    sync.Mutex
+	cachedBoardLabel     string
+	boardLabelQueried    bool
+	serialRuntimeStarted atomic.Bool
 )
 
 func setBoardLabel(label string) {
 	label = strings.TrimRight(label, "\x00\r\n ")
 	boardLabelMu.Lock()
 	cachedBoardLabel = label
+	boardLabelQueried = true
+	boardLabelMu.Unlock()
+}
+
+func resetBoardLabelState() {
+	boardLabelMu.Lock()
+	cachedBoardLabel = ""
+	boardLabelQueried = false
 	boardLabelMu.Unlock()
 }
 
@@ -1361,15 +1379,41 @@ func getBoardLabel() string {
 	return cachedBoardLabel
 }
 
+func isBoardLabelQueried() bool {
+	boardLabelMu.RLock()
+	defer boardLabelMu.RUnlock()
+	return boardLabelQueried
+}
+
+func parseLabelIdAndName(label string) (boardID, boardName string) {
+	label = strings.TrimSpace(label)
+	if !strings.HasPrefix(label, "p=1,") {
+		return "", ""
+	}
+	for _, seg := range strings.Split(label, ",") {
+		if v, ok := strings.CutPrefix(seg, "id="); ok && v != "" {
+			boardID = v
+		} else if v, ok := strings.CutPrefix(seg, "name="); ok && v != "" {
+			boardName = v
+		}
+	}
+	return boardID, boardName
+}
+
 func SyncBoardLabelFromPico(ch chan []byte, timeout time.Duration) {
-	if ch == nil || strings.HasPrefix(*WIRE, "exec:") {
+	if ch == nil || (WIRE != nil && strings.HasPrefix(*WIRE, "exec:")) {
 		return
 	}
-	if getBoardLabel() != "" {
+	if isBoardLabelQueried() {
+		return
+	}
+	boardLabelFetchMu.Lock()
+	defer boardLabelFetchMu.Unlock()
+	if isBoardLabelQueried() {
 		return
 	}
 	resp, err := PicoRpcCall(ch, "get-label", nil, timeout)
-	if err == nil && resp.Status == 0 && len(resp.Data) > 0 {
+	if err == nil && resp.Status == 0 {
 		setBoardLabel(string(resp.Data))
 	}
 }
@@ -2239,6 +2283,7 @@ func SendWallTime(channelToPico chan []byte) {
 }
 
 func Run(inkey chan byte, person Personality) {
+	serialRuntimeStarted.Store(true)
 	CurrentPhase = T_Phase
 	const SERIAL_BUFFER_SIZE = 1024
 

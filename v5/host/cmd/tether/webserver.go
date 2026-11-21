@@ -52,6 +52,7 @@ const (
 
 type WebConsoleConfig struct {
 	Bind         string
+	Port         int
 	ExplicitBind bool
 	Session      string
 	Ready        chan struct{}
@@ -62,13 +63,15 @@ type WebConsoleConfig struct {
 }
 
 type SessionInfo struct {
-	Tether  bool   `json:"tether"`
-	Session string `json:"session"`
-	Bind    string `json:"bind"`
-	Port    int    `json:"port"`
-	Wire    string `json:"wire"`
-	Label   string `json:"label"`
-	PID     int    `json:"pid"`
+	Tether    bool   `json:"tether"`
+	Port      int    `json:"port"`
+	Session   string `json:"session"`
+	BoardID   string `json:"board_id"`
+	BoardName string `json:"board_name"`
+	Bind      string `json:"bind"`
+	Wire      string `json:"wire"`
+	Label     string `json:"label"`
+	PID       int    `json:"pid"`
 }
 
 var (
@@ -132,35 +135,84 @@ func listenWebServer(bind string, explicit bool) (net.Listener, string, int, err
 	return listenWebServerRange(bind, explicit || bind != ":8080", "", autoPortStart, autoPortEnd)
 }
 
+func dotOrToken(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "." {
+		return "."
+	}
+	return strings.Join(strings.Fields(s), "_")
+}
+
+func ensureBoardLabelLoaded() {
+	if isBoardLabelQueried() {
+		return
+	}
+	if WIRE == nil || *WIRE == "" || strings.HasPrefix(*WIRE, "exec:") {
+		return
+	}
+	ch := GetChannelToPico()
+	if ch == nil && serialRuntimeStarted.Load() {
+		deadline := time.Now().Add(400 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+			if isBoardLabelQueried() {
+				return
+			}
+			if ch = GetChannelToPico(); ch != nil {
+				break
+			}
+		}
+	}
+	if ch != nil {
+		SyncBoardLabelFromPico(ch, 800*time.Millisecond)
+	}
+}
+
 func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Tether-Session", "1")
 		w.Header().Set("X-Tether-Pid", strconv.Itoa(os.Getpid()))
+
+		ensureBoardLabelLoaded()
+
 		sess := sessionName(wcc)
+		label := getBoardLabel()
+		boardID, boardName := parseLabelIdAndName(label)
+
+		bind, port := getActiveWebAddr()
+		if wcc != nil {
+			if wcc.Port > 0 {
+				port = wcc.Port
+			}
+			if bind == "" {
+				bind = wcc.Bind
+			}
+		}
+		if port <= 0 && r.Host != "" {
+			if _, pStr, err := net.SplitHostPort(r.Host); err == nil {
+				if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+					port = p
+				}
+			}
+		}
 
 		wantJSON := strings.HasSuffix(r.URL.Path, ".json") || strings.ToLower(r.URL.Query().Get("format")) == "json"
 		if wantJSON {
-			if getBoardLabel() == "" {
-				if ch := GetChannelToPico(); ch != nil && !strings.HasPrefix(*WIRE, "exec:") {
-					SyncBoardLabelFromPico(ch, 400*time.Millisecond)
-				}
-			}
-			bind, port := getActiveWebAddr()
-			if bind == "" && wcc != nil {
-				bind = wcc.Bind
-			}
 			wireVal := ""
 			if WIRE != nil {
 				wireVal = *WIRE
 			}
 			info := SessionInfo{
-				Tether:  true,
-				Session: sess,
-				Bind:    bind,
-				Port:    port,
-				Wire:    wireVal,
-				Label:   getBoardLabel(),
-				PID:     os.Getpid(),
+				Tether:    true,
+				Port:      port,
+				Session:   sess,
+				BoardID:   boardID,
+				BoardName: boardName,
+				Bind:      bind,
+				Wire:      wireVal,
+				Label:     label,
+				PID:       os.Getpid(),
 			}
 			body, err := json.Marshal(info)
 			if err != nil {
@@ -172,8 +224,92 @@ func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 			return
 		}
 
+		portField := "."
+		if port > 0 {
+			portField = strconv.Itoa(port)
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "%s\n", sess)
+		fmt.Fprintf(w, "%s %s %s %s\n",
+			portField,
+			dotOrToken(sess),
+			dotOrToken(boardID),
+			dotOrToken(boardName),
+		)
+	}
+}
+
+func ProbeSessions(host string, startPort, endPort int, timeout time.Duration) []string {
+	if startPort > endPort {
+		return nil
+	}
+	count := endPort - startPort + 1
+	results := make([]string, count)
+	client := &http.Client{
+		Timeout: timeout,
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		port := startPort + i
+		wg.Add(1)
+		go func(idx, p int) {
+			defer wg.Done()
+			url := fmt.Sprintf("http://%s:%d/session", host, p)
+			resp, err := client.Get(url)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			if resp.Header.Get("X-Tether-Session") == "1" {
+				body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+				if err != nil {
+					return
+				}
+				line := strings.TrimSpace(string(body))
+				if line != "" {
+					results[idx] = line
+				}
+				return
+			}
+			if resp.Header.Get("X-Tether-Pid") != "" {
+				respJ, errJ := client.Get(fmt.Sprintf("http://%s:%d/session.json", host, p))
+				if errJ != nil {
+					return
+				}
+				defer respJ.Body.Close()
+				if respJ.StatusCode != http.StatusOK {
+					return
+				}
+				bodyJ, errJ := io.ReadAll(io.LimitReader(respJ.Body, 8192))
+				if errJ != nil {
+					return
+				}
+				var info SessionInfo
+				if json.Unmarshal(bodyJ, &info) == nil && info.Tether {
+					bid, bname := parseLabelIdAndName(info.Label)
+					results[idx] = fmt.Sprintf("%d %s %s %s",
+						p, dotOrToken(info.Session), dotOrToken(bid), dotOrToken(bname))
+				}
+			}
+		}(i, port)
+	}
+	wg.Wait()
+
+	var lines []string
+	for _, line := range results {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func RunJustListSession() {
+	lines := ProbeSessions("127.0.0.1", autoPortStart, autoPortEnd, 1500*time.Millisecond)
+	for _, line := range lines {
+		fmt.Println(line)
 	}
 }
 
@@ -199,6 +335,7 @@ func WebServer(wcc *WebConsoleConfig) {
 		}
 		log.Fatal(err)
 	}
+	wcc.Port = port
 	setActiveWebAddr(actualBind, port)
 	mux := newWebMux(wcc)
 
@@ -637,19 +774,23 @@ const CONTENT = `
         const socket = new WebSocket("ws://" + window.location.host + "/ws");
         socket.binaryType = "arraybuffer";
 
-        let sessionName = "";
+        let sessionTag = "";
         function updateOnlineStatus() {
             if (socket.readyState === WebSocket.OPEN) {
-                statusDiv.innerText = sessionName ? ("System Online [" + sessionName + "]") : "System Online";
+                statusDiv.innerText = sessionTag ? ("System Online [" + sessionTag + "]") : "System Online";
                 statusDiv.style.color = "#0f0";
             }
         }
         fetch("/session", { cache: "no-store" })
             .then((resp) => resp.ok ? resp.text() : "")
             .then((txt) => {
-                sessionName = txt.trim();
-                if (sessionName) {
-                    document.title = "TFR9 CONSOLE \u2014 " + sessionName;
+                const parts = txt.trim().split(/\s+/);
+                if (parts.length >= 4) {
+                    const tags = [parts[1], parts[2], parts[3]].filter((x) => x && x !== ".");
+                    sessionTag = tags.join(" ");
+                    if (sessionTag) {
+                        document.title = "TFR9 CONSOLE \u2014 " + sessionTag;
+                    }
                 }
                 updateOnlineStatus();
             })

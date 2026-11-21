@@ -350,6 +350,12 @@ func RunJustRestart(bootMode uint32, shouldExit bool) {
 	label := "just-restart"
 	ch, disconnect := justConnect(label)
 
+	if !shouldExit {
+		if lResp, lErr := PicoRpcCall(ch, "get-label", nil, 1*time.Second); lErr == nil && lResp.Status == 0 {
+			setBoardLabel(string(lResp.Data))
+		}
+	}
+
 	payload := make([]byte, 4)
 	payload[0] = byte(bootMode >> 24)
 	payload[1] = byte(bootMode >> 16)

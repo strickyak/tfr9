@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestServeRam(t *testing.T) {
@@ -357,29 +359,39 @@ func TestCoco3MmuWriteCyclesAndGimeScreens(t *testing.T) {
 }
 
 func TestServeSessionAndAutoPortStep(t *testing.T) {
-	prevLabel := getBoardLabel()
-	defer setBoardLabel(prevLabel)
-	setBoardLabel("p=1,b=centipede,v=32z,id=z10")
-	setActiveWebAddr(":8081", 8081)
+	defer resetBoardLabelState()
+	setBoardLabel("p=1,b=centipede,v=32z,id=z99,name=zGengar")
+	setActiveWebAddr(":8082", 8082)
 
 	wcc := &WebConsoleConfig{
 		Bind:    ":8080",
+		Port:    8082,
 		Session: "Bilbo",
 	}
 	mux := newWebMux(wcc)
 
-	// 1. Plain text GET /session
+	// 1a. Plain text GET /session with all 4 fields known
 	req := httptest.NewRequest("GET", "/session", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /session: expected 200, got %d", w.Code)
 	}
-	if w.Body.String() != "Bilbo\n" {
-		t.Errorf("GET /session: expected %q, got %q", "Bilbo\n", w.Body.String())
+	if w.Body.String() != "8082 Bilbo z99 zGengar\n" {
+		t.Errorf("GET /session: expected %q, got %q", "8082 Bilbo z99 zGengar\n", w.Body.String())
+	}
+
+	// 1b. Plain text GET /session with unknown session_name and unknown board_name -> "."
+	setBoardLabel("p=1,b=centipede,v=32z,id=z99")
+	muxSparse := newWebMux(&WebConsoleConfig{Bind: ":8080", Port: 8090})
+	wSparse := httptest.NewRecorder()
+	muxSparse.ServeHTTP(wSparse, httptest.NewRequest("GET", "/session", nil))
+	if wSparse.Body.String() != "8090 . z99 .\n" {
+		t.Errorf("GET /session sparse: expected %q, got %q", "8090 . z99 .\n", wSparse.Body.String())
 	}
 
 	// 2. JSON GET /session.json and /session?format=json
+	setBoardLabel("p=1,b=centipede,v=32z,id=z99,name=zGengar")
 	for _, path := range []string{"/session.json", "/session?format=json"} {
 		reqJ := httptest.NewRequest("GET", path, nil)
 		wJ := httptest.NewRecorder()
@@ -391,7 +403,7 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 		if err := json.Unmarshal(wJ.Body.Bytes(), &info); err != nil {
 			t.Fatalf("GET %s: invalid JSON %q: %v", path, wJ.Body.String(), err)
 		}
-		if !info.Tether || info.Session != "Bilbo" || info.Port != 8081 || info.Label != "p=1,b=centipede,v=32z,id=z10" || info.PID <= 0 {
+		if !info.Tether || info.Session != "Bilbo" || info.Port != 8082 || info.BoardID != "z99" || info.BoardName != "zGengar" || info.PID <= 0 {
 			t.Errorf("GET %s: unexpected SessionInfo: %+v", path, info)
 		}
 	}
@@ -412,28 +424,56 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 	}
 	wg.Wait()
 
-	// 4. Auto-stepping port listener steps past an occupied port when explicit=false,
-	//    and fails fast when explicit=true.
-	lnOccupied, err := net.Listen("tcp", "127.0.0.1:0")
+	// 4. Auto-stepping port listener + ProbeSessions (-just-list-session)
+	lnForeign, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen ephemeral failed: %v", err)
 	}
-	defer lnOccupied.Close()
-	occupiedPort := lnOccupied.Addr().(*net.TCPAddr).Port
+	defer lnForeign.Close()
+	foreignPort := lnForeign.Addr().(*net.TCPAddr).Port
+	// Non-tether HTTP server returning 200 OK on /session without X-Tether-Session header must be ignored.
+	srvForeign := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "not a tether server")
+	})}
+	go srvForeign.Serve(lnForeign)
+	defer srvForeign.Close()
 
 	lnStepped, actualBind, steppedPort, err := listenWebServerRange(
-		"127.0.0.1:0", false, "127.0.0.1", occupiedPort, occupiedPort+10,
+		"127.0.0.1:0", false, "127.0.0.1", foreignPort, foreignPort+10,
 	)
 	if err != nil {
 		t.Fatalf("listenWebServerRange auto-step failed: %v", err)
 	}
 	defer lnStepped.Close()
-	if steppedPort <= occupiedPort || steppedPort > occupiedPort+10 {
-		t.Errorf("expected steppedPort in (%d..%d], got %d (bind=%q)", occupiedPort, occupiedPort+10, steppedPort, actualBind)
+	if steppedPort <= foreignPort || steppedPort > foreignPort+10 {
+		t.Fatalf("expected steppedPort in (%d..%d], got %d (bind=%q)", foreignPort, foreignPort+10, steppedPort, actualBind)
 	}
 
-	if _, _, _, err := listenWebServerRange(lnOccupied.Addr().String(), true, "127.0.0.1", occupiedPort, occupiedPort+10); err == nil {
-		t.Errorf("expected explicit bind on occupied address %s to fail", lnOccupied.Addr().String())
+	srvTether := &http.Server{Handler: newWebMux(&WebConsoleConfig{
+		Bind:    actualBind,
+		Port:    steppedPort,
+		Session: "Bilbo",
+	})}
+	go srvTether.Serve(lnStepped)
+	defer srvTether.Close()
+
+	lines := ProbeSessions("127.0.0.1", foreignPort, steppedPort, 1*time.Second)
+	wantLine := fmt.Sprintf("%d Bilbo z99 zGengar", steppedPort)
+	foundWant := false
+	for _, lnStr := range lines {
+		if strings.HasPrefix(lnStr, fmt.Sprintf("%d ", foreignPort)) {
+			t.Errorf("ProbeSessions included non-tether server on port %d: %q", foreignPort, lnStr)
+		}
+		if lnStr == wantLine {
+			foundWant = true
+		}
+	}
+	if !foundWant {
+		t.Errorf("ProbeSessions(%d..%d) = %v; missing %q", foreignPort, steppedPort, lines, wantLine)
+	}
+
+	if _, _, _, err := listenWebServerRange(lnForeign.Addr().String(), true, "127.0.0.1", foreignPort, foreignPort+10); err == nil {
+		t.Errorf("expected explicit bind on occupied address %s to fail", lnForeign.Addr().String())
 	}
 }
 

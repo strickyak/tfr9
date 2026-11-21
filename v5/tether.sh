@@ -38,7 +38,7 @@ while [ "$i" -lt "$n" ]; do
       i=$((i + 1))
       continue
       ;;
-    -h|--help|-exit|--exit|-just-label-data|--just-label-data|-just-label-data=*|--just-label-data=*)
+    -h|--help|-exit|--exit|-just-list-session|--just-list-session|-just-list-sessions|--just-list-sessions|-just-label-data|--just-label-data|-just-label-data=*|--just-label-data=*)
       is_offline=1
       ;;
     -just-*|--just-*)
