@@ -195,15 +195,20 @@ func justConnect(label string) (chan []byte, func()) {
 		DataBits:        8,
 		StopBits:        1,
 		MinimumReadSize: 1,
+		NonExclusive:    *NONEXCLUSIVE,
 	}
 
-	// Try to open the serial port up to 3 times, 1 second apart.
+	// Try to open the serial port up to 3 times, 1 second apart (fail fast on EBUSY).
 	var serialPort io.ReadWriteCloser
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		serialPort, err = OpenSerial(serialOptions)
 		if err == nil {
 			break
+		}
+		if isSerialBusy(err) {
+			fmt.Fprintf(os.Stderr, "%s: %s is busy (already open; pass --nonexclusive to override): %v\n", label, *WIRE, err)
+			os.Exit(1)
 		}
 		log.Printf("%s: open attempt %d failed: %v", label, attempt+1, err)
 		time.Sleep(1 * time.Second)

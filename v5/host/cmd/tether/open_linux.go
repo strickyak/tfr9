@@ -142,6 +142,22 @@ func makeTermios2(options OpenSerialOptions) (*termios2, error) {
 	return t2, nil
 }
 
+type linuxSerialFile struct {
+	*os.File
+	clearExcl bool
+}
+
+func (f *linuxSerialFile) Close() error {
+	if f.clearExcl {
+		if sc, err := f.File.SyscallConn(); err == nil {
+			sc.Control(func(fd uintptr) {
+				_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, fd, unix.TIOCNXCL, 0)
+			})
+		}
+	}
+	return f.File.Close()
+}
+
 func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 
 	portName := options.PortName
@@ -153,7 +169,7 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	// If the named /dev/ttyACMn is gone (renumbered after a reboot), fall back to the only ttyACM device --
 	// but ONLY when there is exactly one: with two boards attached guessing could open the wrong one.
 	// Boards should be named by /dev/serial/by-id/..., which follows them (see scripts/find-board.sh).
-	if openErr != nil && strings.HasPrefix(portName, "/dev/ttyACM") {
+	if openErr != nil && !errors.Is(openErr, syscall.EBUSY) && strings.HasPrefix(portName, "/dev/ttyACM") {
 		if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) == 1 {
 			for _, m := range matches {
 				if m != portName {
@@ -178,6 +194,7 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	// the new session as "connected" (spec S54).  So use SyscallConn().Control, never file.Fd().
 	sc, scErr := file.SyscallConn()
 	if scErr != nil {
+		file.Close()
 		return nil, scErr
 	}
 	ioctl := func(req uintptr, arg unsafe.Pointer) (errno syscall.Errno) {
@@ -187,11 +204,20 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 		return errno
 	}
 
+	if !options.NonExclusive {
+		if errno := ioctl(unix.TIOCEXCL, nil); errno != 0 {
+			file.Close()
+			return nil, os.NewSyscallError("SYS_IOCTL (TIOCEXCL)", errno)
+		}
+	}
+
 	t2, optErr := makeTermios2(options)
 	if optErr != nil {
+		file.Close()
 		return nil, optErr
 	}
 	if errno := ioctl(kTCSETS2, unsafe.Pointer(t2)); errno != 0 {
+		file.Close()
 		return nil, os.NewSyscallError("SYS_IOCTL", errno)
 	}
 
@@ -212,9 +238,10 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 		}
 
 		if errno := ioctl(tIOCSRS485, unsafe.Pointer(&rs485)); errno != 0 {
+			file.Close()
 			return nil, os.NewSyscallError("SYS_IOCTL (RS485)", errno)
 		}
 	}
 
-	return file, nil
+	return &linuxSerialFile{File: file, clearExcl: !options.NonExclusive}, nil
 }

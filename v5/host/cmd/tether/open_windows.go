@@ -60,9 +60,14 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 		options.PortName = "\\\\.\\" + options.PortName
 	}
 
+	shareMode := uint32(0)
+	if options.NonExclusive {
+		shareMode = syscall.FILE_SHARE_READ | syscall.FILE_SHARE_WRITE
+	}
+
 	h, err := syscall.CreateFile(syscall.StringToUTF16Ptr(options.PortName),
 		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
-		0,
+		shareMode,
 		nil,
 		syscall.OPEN_EXISTING,
 		syscall.FILE_ATTRIBUTE_NORMAL|syscall.FILE_FLAG_OVERLAPPED,

@@ -34,6 +34,7 @@ var NO_KEYBOARD = flag.Bool("n", false, "disable keyboard input")
 var CURLY_DEC = flag.Bool("curly_dec", false, "Show nonprintable 7-bit output codes with curly decimal numbers")
 var WIRE = flag.String("wire", "/dev/ttyACM0", "serial device connected by USB to Pi Pico")
 var BAUD = flag.Uint("baud", 115200, "serial device baud rate")
+var NONEXCLUSIVE = flag.Bool("nonexclusive", false, "do not set TIOCEXCL exclusive lock when opening serial device")
 var DISKS = flag.String("disks", "", "Comma-separated filepaths to disk files, in order of drive number")
 var PC_DIR = flag.String("pc", "/tmp/pc", "root directory for virtual /pc filesystem")
 var USB_VERBOSE = flag.Bool("usb_verbose", false, "enable verbose debugging output of bytes over the USB")
@@ -1197,7 +1198,12 @@ func (uc *ActiveSerial) loop() {
 				fmt.Fprintf(os.Stderr, "tether: failed to start %s: %v\n", uc.Options.PortName, err)
 				os.Exit(1)
 			}
-			if strings.HasPrefix(uc.Options.PortName, "/dev/ttyACM") {
+			if !wasOpen && !*RECONNECT && isSerialBusy(err) {
+				RestoreSttyState()
+				fmt.Fprintf(os.Stderr, "tether: serial device %s is busy (already open; pass --nonexclusive to override): %v\n", uc.Options.PortName, err)
+				os.Exit(1)
+			}
+			if !isSerialBusy(err) && strings.HasPrefix(uc.Options.PortName, "/dev/ttyACM") {
 				if matches, _ := filepath.Glob("/dev/ttyACM*"); len(matches) > 0 {
 					for _, m := range matches {
 						if m != uc.Options.PortName {
@@ -2293,6 +2299,7 @@ func Run(inkey chan byte, person Personality) {
 		DataBits:        8,
 		StopBits:        1,
 		MinimumReadSize: 1,
+		NonExclusive:    *NONEXCLUSIVE,
 	}
 	activeSerial := NewActiveSerial(serialOptions)
 	channelToPico := activeSerial.In

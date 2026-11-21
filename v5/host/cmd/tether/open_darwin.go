@@ -202,6 +202,18 @@ func convertOptions(options OpenSerialOptions) (*termios, error) {
 	return &result, nil
 }
 
+type darwinSerialFile struct {
+	*os.File
+	clearExcl bool
+}
+
+func (f *darwinSerialFile) Close() error {
+	if f.clearExcl {
+		_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(f.File.Fd()), uintptr(syscall.TIOCNXCL), 0)
+	}
+	return f.File.Close()
+}
+
 func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 	// Open the serial port in non-blocking mode, since otherwise the OS will
 	// wait for the CARRIER line to be asserted.
@@ -215,6 +227,13 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 		return nil, err
 	}
 
+	if !options.NonExclusive {
+		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(file.Fd()), uintptr(syscall.TIOCEXCL), 0); errno != 0 {
+			file.Close()
+			return nil, os.NewSyscallError("SYS_IOCTL (TIOCEXCL)", errno)
+		}
+	}
+
 	// We want to do blocking I/O, so clear the non-blocking flag set above.
 	r1, _, errno :=
 		syscall.Syscall(
@@ -224,21 +243,25 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 			uintptr(0))
 
 	if errno != 0 {
+		file.Close()
 		return nil, os.NewSyscallError("SYS_FCNTL", errno)
 	}
 
 	if r1 != 0 {
+		file.Close()
 		return nil, errors.New("Unknown error from SYS_FCNTL.")
 	}
 
 	// Set standard termios options.
 	terminalOptions, err := convertOptions(options)
 	if err != nil {
+		file.Close()
 		return nil, err
 	}
 
 	err = setTermios(file.Fd(), terminalOptions)
 	if err != nil {
+		file.Close()
 		return nil, err
 	}
 
@@ -251,14 +274,16 @@ func openInternal(options OpenSerialOptions) (io.ReadWriteCloser, error) {
 			uintptr(unsafe.Pointer(&options.BaudRate)))
 
 		if errno2 != 0 {
+			file.Close()
 			return nil, os.NewSyscallError("SYS_IOCTL", errno2)
 		}
 
 		if r2 != 0 {
+			file.Close()
 			return nil, errors.New("Unknown error from SYS_IOCTL.")
 		}
 	}
 
 	// We're done.
-	return file, nil
+	return &darwinSerialFile{File: file, clearExcl: !options.NonExclusive}, nil
 }

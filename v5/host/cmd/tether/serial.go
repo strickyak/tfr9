@@ -25,8 +25,10 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"math"
+	"syscall"
 )
 
 // Valid parity values.
@@ -164,6 +166,13 @@ type OpenSerialOptions struct {
 
 	// RTS delay after send
 	Rs485DelayRtsAfterSend int
+
+	// Do not acquire exclusive access (ioctl TIOCEXCL) on the serial port.
+	NonExclusive bool
+}
+
+func isSerialBusy(err error) bool {
+	return err != nil && errors.Is(err, syscall.EBUSY)
 }
 
 // Open creates an io.ReadWriteCloser based on the supplied options struct.
