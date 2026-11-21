@@ -100,19 +100,20 @@ enum : byte {
 };
 
 enum : byte {
+  C_LOGGING = 130,
   T_DISK_READ = 173,
   C_DISK_WRITE = 174,
-  C_LOGGING = 130,
-  C_PRE_PUTCHAR = 191,
-  C_COMPRESSED_CYCLES = 192,
-  C_SHUTDOWN = 194,
-  C_PUTCHAR = 195,
+  C_COMPRESSED_CYCLES = 175,
   C_CORE_DUMP = 189,
+  C_PRE_PUTCHAR = 191,
+  C_PUTCHAR = 193,
+  C_WRITE_CYCLE = 195,
+  C_SHUTDOWN = 255,
 };
 
 // Cross-core queues (power-of-2 element counts)
 CrossCoreFIFO<uint, 512> bg2fg;
-CrossCoreFIFO<uint, 512> fg2bg;
+CrossCoreFIFO<uint, 2048> fg2bg;
 CrossCoreFIFO<byte, 4096> fg2bg_chars;  // 4096-byte dedicated console TX FIFO
 
 FORCE_INLINE void IN_RAM Say(byte c) {
@@ -235,6 +236,8 @@ using FloppyImpl = DoFloppy<CentipedeFloppyTraits>;
 #include "flat65280.h"
 #include "deep65280.h"
 #include "gep9.h"
+static void ResetCycleStreamForNewSession();
+
 #include "gerbil_guts.h"
 #include "centipede_targets.h"
 #include "ports_cmd.h"
@@ -249,13 +252,21 @@ static constexpr uint kCompressionThreshold = 60;
 static uint32_t g_cycle_buffer[kCompressionThreshold + 4];
 static uint8_t g_compression_buffer[4 * (kCompressionThreshold + 4) + 16];
 static uint g_cycle_buf_count = 0;
+static uint8_t g_pkt_write_counter_lsb = 0;
+static bool g_compress_needs_reset = true;
+static bool g_was_usb_tether_ok = false;
+
+static void ResetCycleStreamForNewSession() {
+  g_cycle_buf_count = 0;
+  g_pkt_write_counter_lsb = 0;
+  g_compress_needs_reset = true;
+}
 
 static bool IsRomPredicateForCompression(addr16 addr) {
-  if (g_gime_rom_mode) {
-    return (0xE000u <= addr && addr < 0xFE00u && deep65280_active_task == 0 && deep65280_mmu[0][7] >= 0x3Cu) ||
-           (!SamTyBit && 0x8000u <= addr && addr < 0xE000u);
-  }
   if (!SamTyBit) {
+    if (g_gime_rom_mode) {
+      return 0x8000u <= addr && addr < 0xFE00u;
+    }
     return (0x8000u <= addr && addr < 0xC000u) ||
            (g_disk11_rom_enabled && 0xC000u <= addr && addr < 0xE000u);
   }
@@ -264,10 +275,31 @@ static bool IsRomPredicateForCompression(addr16 addr) {
 
 static void FlushCyclesWithCompression() {
   if (g_cycle_buf_count == 0) return;
+  if (!usb_tether_ok()) {
+    g_cycle_buf_count = 0;
+    g_compress_needs_reset = true;
+    return;
+  }
+  bool reset_now = g_compress_needs_reset;
+  if (reset_now) {
+    ResetCompressCycles();
+    g_pkt_write_counter_lsb = 0;
+    g_compress_needs_reset = false;
+  }
+  uint writes_in_pkt = 0;
+  for (uint i = 0; i < g_cycle_buf_count; i++) {
+    if ((g_cycle_buffer[i] >> 24) == FG2BG_WRITE) {
+      writes_in_pkt++;
+    }
+  }
   g_compression_buffer[0] = C_COMPRESSED_CYCLES;
-  uint n = CompressCycles(g_compression_buffer + 1, g_cycle_buffer, g_cycle_buf_count,
+  g_compression_buffer[1] = (uint8_t)((g_cycle_buf_count & 0x7Fu) | (reset_now ? 0x80u : 0x00u));
+  g_compression_buffer[2] = g_pkt_write_counter_lsb;
+  g_compression_buffer[3] = (uint8_t)(g_fg2bg_push_fail & 0xFFu);
+  uint n = CompressCycles(g_compression_buffer + 4, g_cycle_buffer, g_cycle_buf_count,
                           IsRomPredicateForCompression);
-  CobsEncodeAndTransmit(g_compression_buffer, n + 1, putchar_raw);
+  CobsEncodeAndTransmit(g_compression_buffer, n + 4, putchar_raw);
+  g_pkt_write_counter_lsb = (uint8_t)(g_pkt_write_counter_lsb + writes_in_pkt);
   g_cycle_buf_count = 0;
 }
 
@@ -278,8 +310,43 @@ static void InsertCycleWithCompression(uint32_t chore) {
   }
 }
 
-// Product-specific PicoRPC handler (`get-status`, `get-cycles`)
+// Product-specific PicoRPC handler (`get-status`, `get-cycles`, `get-video-state`)
 static bool centipede_rpc_hook(const pcb::RpcRequest& req, pcb::RpcResponse& resp) {
+  if (req.method == "get-video-state") {
+    FlushCyclesWithCompression();
+    g_compress_needs_reset = true;
+    resp.status = 0;
+    resp.data.resize(54);
+    uint8_t flags = 0;
+    if (g_gime_rom_mode) flags |= 0x01u;
+    if (SamTyBit) flags |= 0x02u;
+    if (SamP1Bit) flags |= 0x04u;
+    if (g_gerbil_loop_fn == gerbil_gime_foreground) flags |= 0x08u;
+    if (g_deep_mmu_mask == 0x1Fu) flags |= 0x10u;
+    if (coco_running) flags |= 0x20u;
+    uint16_t sam = g_sam_bits;
+    resp.data[0] = (char)flags;
+    resp.data[1] = (char)g_pia1_ff22;
+    resp.data[2] = (char)g_pia1_crb;
+    resp.data[3] = (char)(sam & 0xFFu);
+    resp.data[4] = (char)((sam >> 8) & 0xFFu);
+    resp.data[5] = 0;
+    resp.data[6] = (char)g_gime_init0;
+    resp.data[7] = (char)g_gime_init1;
+    resp.data[8] = (char)g_gime_irqenr;
+    resp.data[9] = (char)g_gime_firqenr;
+    for (int i = 4; i < 16; i++) {
+      resp.data[6 + i] = (char)g_gime_regs[i];
+    }
+    for (int s = 0; s < 8; s++) {
+      resp.data[22 + s] = (char)deep65280_mmu[0][s];
+      resp.data[30 + s] = (char)deep65280_mmu[1][s];
+    }
+    for (int i = 0; i < 16; i++) {
+      resp.data[38 + i] = (char)g_gime_palette[i];
+    }
+    return true;
+  }
   if (req.method == "get-status") {
     resp.status = 0;
     uint e_hi = 0, e_lo = 0, e_trans = 0;
@@ -365,7 +432,9 @@ static inline void PollRuntimeUsbInput() {
     byte cmd = (byte)(*pkt)[0];
     if (cmd == T_HELLO) {
       // Discard tether's 3-byte startup handshake {T_HELLO=178, 129, 0} so 129/0
-      // are never misread as keystrokes on /Term or the CoCo keyboard injector.
+      // are never misread as keystrokes on /Term or the CoCo keyboard injector,
+      // and reset the stateful cycle compressor for the newly attached tether session.
+      ResetCycleStreamForNewSession();
       delete pkt;
       continue;
     }
@@ -410,31 +479,45 @@ static uint8_t spoon_stack[16384]  __attribute__((aligned(8)));
 static void drain_task(Coro& self) {
   uint idle_polls = 0;
   while (true) {
-    uint chore = 0;
-    if (fg2bg.pop(chore)) {
+    bool usb_ok = usb_tether_ok();
+    if (usb_ok != g_was_usb_tether_ok) {
+      g_was_usb_tether_ok = usb_ok;
+      if (usb_ok) {
+        ResetCycleStreamForNewSession();
+      }
+    }
+
+    uint popped = 0;
+    while (popped < 64) {
+      uint chore = 0;
+      if (!fg2bg.pop(chore)) {
+        break;
+      }
+      popped++;
       idle_polls = 0;
       uint kind = chore >> 24;
       uint addr = (chore >> 8) & 0xFFFFu;
       byte data = (byte)(chore & 0xFFu);
 
+      if (kind == FG2BG_WRITE) {
+        if (usb_ok) {
+          g_cpu_tracker.ProcessCycle(cputracker::CycleType::WRITE, (uint16_t)addr, data);
+          InsertCycleWithCompression(chore);
+        }
+        continue;
+      }
+      if (kind == FG2BG_READ) {
+        if (usb_ok) {
+          bool is_fic = g_cpu_tracker.ProcessCycle(cputracker::CycleType::READ, (uint16_t)addr, data);
+          uint32_t tracked = is_fic ? (((uint32_t)FG0BG_FIC << 24) | (chore & 0x00FFFFFFu)) : chore;
+          InsertCycleWithCompression(tracked);
+        }
+        continue;
+      }
+
       switch (kind) {
-        case FG2BG_READ: {
-          if (usb_tether_ok()) {
-            bool is_fic = g_cpu_tracker.ProcessCycle(cputracker::CycleType::READ, (uint16_t)addr, data);
-            uint32_t tracked = is_fic ? (((uint32_t)FG0BG_FIC << 24) | (chore & 0x00FFFFFFu)) : chore;
-            InsertCycleWithCompression(tracked);
-          }
-          break;
-        }
-        case FG2BG_WRITE: {
-          if (usb_tether_ok()) {
-            g_cpu_tracker.ProcessCycle(cputracker::CycleType::WRITE, (uint16_t)addr, data);
-            InsertCycleWithCompression(chore);
-          }
-          break;
-        }
         case FG2BG_PUTCHAR:
-          if (usb_tether_ok()) putbyte(data);
+          if (usb_ok) putbyte(data);
           break;
 
         case FG2BG_FLOPPY_LATCH:
@@ -505,10 +588,14 @@ static void drain_task(Coro& self) {
         default:
           break;
       }
-    } else {
-      if (++idle_polls >= 64) {
+      // Yield right away after any non-cycle chore so floppy/spoon/VFS tasks run immediately.
+      break;
+    }
+
+    if (popped == 0) {
+      if (++idle_polls >= 16) {
         idle_polls = 0;
-        if (g_cycle_buf_count > 0 && usb_tether_ok()) {
+        if (g_cycle_buf_count > 0 && usb_ok) {
           FlushCyclesWithCompression();
         }
       }

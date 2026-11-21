@@ -12,10 +12,10 @@
 // Core 1 runs strictly out of SRAM with zero calls into XIP flash (`scripts/check-core1-sram.sh -s`).
 
 #ifndef GERBIL_HIGH_WATERMARK
-#define GERBIL_HIGH_WATERMARK 220
+#define GERBIL_HIGH_WATERMARK 700
 #endif
 #ifndef GERBIL_LOW_WATERMARK
-#define GERBIL_LOW_WATERMARK 100
+#define GERBIL_LOW_WATERMARK 250
 #endif
 
 // Staging slices in the top 40 KB of the 256 KB `ram[]` array for 64K/128K BASIC modes
@@ -27,6 +27,10 @@ static inline byte* const sram_disk11_rom = ram + (248 * 1024);  //  8 KB: 248 K
 volatile bool SamTyBit = false;
 volatile bool SamP1Bit = false;
 volatile byte g_pia0_ff02 = 0xFF;
+volatile uint16_t g_sam_bits = 0;
+volatile byte g_pia1_ff22 = 0x00;
+volatile byte g_pia1_crb = 0x34;
+volatile uint32_t g_fg2bg_push_fail = 0;
 bool g_sam64k_ram_enabled = true;
 bool g_disk11_rom_enabled = false;
 bool g_floppy_enabled = false;
@@ -106,15 +110,31 @@ FORCE_INLINE void IN_RAM GerbilPushRead(uint abus, byte dbus) {
 }
 
 FORCE_INLINE void IN_RAM GerbilPushWrite(uint abus, byte dbus) {
-  (void)fg2bg.push(((uint)FG2BG_WRITE << 24) | (abus << 8) | dbus);
+  if (unlikely(!fg2bg.push(((uint)FG2BG_WRITE << 24) | (abus << 8) | dbus))) {
+    g_fg2bg_push_fail++;
+  }
 }
 
 FORCE_INLINE void IN_RAM ShadowSamAndPiaWrite(uint abus, byte dbus) {
   if ((abus & 0xFFE3u) == 0xFF02u) {
     g_pia0_ff02 = dbus;
     ram[0xFF02] = dbus;
+  } else if ((abus & 0xFFE3u) == 0xFF23u) {
+    g_pia1_crb = dbus;
+    ram[0xFF23] = dbus;
+  } else if ((abus & 0xFFE3u) == 0xFF22u) {
+    if (g_pia1_crb & 0x04u) {
+      g_pia1_ff22 = dbus;
+      ram[0xFF22] = dbus;
+    }
   } else if (abus >= 0xFFC0u && abus <= 0xFFDFu) {
     ram[abus] = dbus;
+    uint bit = (abus - 0xFFC0u) >> 1;
+    if (abus & 1u) {
+      g_sam_bits = (uint16_t)(g_sam_bits | (1u << bit));
+    } else {
+      g_sam_bits = (uint16_t)(g_sam_bits & ~(1u << bit));
+    }
     switch (abus & 0xFFu) {
       case 0xD4: SamP1Bit = false; break;
       case 0xD5: SamP1Bit = true;  break;
@@ -203,12 +223,8 @@ struct GerbilSam64kPolicy {
 struct GerbilGimePolicy {
   static constexpr bool kHasGimeTimer = true;
 
-  static FORCE_INLINE bool IsProtectedCoco3Rom(uint abus) {
-    if (!g_gime_rom_mode) return false;
-    if (0xE000u <= abus && abus < 0xFE00u) {
-      return (deep65280_active_task == 0) && (deep65280_mmu[0][7] >= 0x3Cu);
-    }
-    return !SamTyBit && (0x8000u <= abus && abus < 0xE000u);
+  static FORCE_INLINE bool IsCoco3RomRead(uint abus) {
+    return g_gime_rom_mode && !SamTyBit && (0x8000u <= abus && abus < 0xFE00u);
   }
 
   static FORCE_INLINE uint32_t TranslateAddr(uint abus) {
@@ -223,7 +239,7 @@ struct GerbilGimePolicy {
 
   static FORCE_INLINE bool Read(uint, uint abus, byte& dbus) {
     if (likely(abus < 0xFF00u)) {
-      if (IsProtectedCoco3Rom(abus)) {
+      if (IsCoco3RomRead(abus)) {
         // CoCo 3 GIME INIT0 ($FF90) bit 1 selects internal 32K ROM (1) vs 16K internal + 16K cart (0).
         if (g_disk11_rom_enabled && (g_gime_init0 & 0x02u) == 0 && 0xC000u <= abus && abus < 0xE000u) {
           dbus = sram_disk11_rom[abus - 0xC000u];
@@ -255,10 +271,11 @@ struct GerbilGimePolicy {
 
   static FORCE_INLINE void Write(uint, uint abus, byte dbus) {
     if (likely(abus < 0xFF00u)) {
+      // On CoCo 3 (just like CoCo 1/2 SAM), writes to $8000..$FDFF always go through the MMU
+      // to underlying RAM even when TY=0 ($FFDE), enabling cold-boot ROM-to-RAM copy + patching,
+      // and when TY=1 ($FFDF) both reads and writes access RAM (incl. $E0E1..$E0F0 MMU tables).
       uint32_t atrans = TranslateAddr(abus);
-      if (!IsProtectedCoco3Rom(abus)) {
-        ram[atrans] = dbus;
-      }
+      ram[atrans] = dbus;
       // Mirror CoCo 3 text writes in Block 8 ($10400..$105FF) to $0400..$05FF when not in bitplane graphics (BP=0)
       // so `tether --just-get-text` works without overwriting HSCREEN pixels in Block 0!
       if (g_gime_rom_mode && (g_gime_regs[8] & 0x80u) == 0 &&

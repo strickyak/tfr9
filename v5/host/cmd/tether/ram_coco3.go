@@ -7,20 +7,31 @@ import (
 )
 
 type Coco3Ram struct {
-	trackRam [COCO3_RAM_SIZE]byte
+	trackRam     [COCO3_RAM_SIZE]byte
+	gimeRomMode  bool
+	mmu256K      bool
+	pia1CrbValid bool
+	pia1Crb      byte
 }
 
 type Mapping [8]uint
 
-const COCO3_RAM_SIZE = 256 * 1024 // 256K (for Fuzix; 128K used in CoCo 3 mode)
+const COCO3_RAM_SIZE = 256 * 1024 // 256K (for Fuzix / NitrOS-9 L2; 128K used in CoCo 3 BASIC mode)
 const COCO3_RAM_MASK = COCO3_RAM_SIZE - 1
 const COCO3_IO_PHYS = COCO3_RAM_SIZE - 256
 
 func (o *Coco3Ram) activeMask() uint {
-	if (*BOOTMODE & 1024) != 0 {
+	if o.mmu256K || (*BOOTMODE&1024) != 0 || *LEVEL >= 2 {
 		return 256*1024 - 1
 	}
 	return 128*1024 - 1
+}
+
+func (o *Coco3Ram) isCoco3BasicMode() bool {
+	if o.mmu256K || (*BOOTMODE&1024) != 0 || *LEVEL != 0 {
+		return false
+	}
+	return o.gimeRomMode || *COCO3
 }
 
 func (o *Coco3Ram) RamSize() uint { return o.activeMask() + 1 }
@@ -81,10 +92,43 @@ func (o *Coco3Ram) PPeek2(addr uint) uint {
 }
 
 func (o *Coco3Ram) Poke1(addr uint, data byte) {
+	addr &= 0xFFFF
+	SamPoke1(addr)
+
+	if 0xFF20 <= addr && addr < 0xFF40 {
+		io := o.IoPhys()
+		switch addr & 0xFFE3 {
+		case 0xFF23:
+			o.pia1Crb = data
+			o.pia1CrbValid = true
+			o.trackRam[(io+0x23)&o.activeMask()] = data
+			return
+		case 0xFF22:
+			if o.pia1CrbValid && (o.pia1Crb&0x04) == 0 {
+				// DDRB write while CRB bit 2 == 0: do not clobber PIA1 ORB ($FF22).
+				return
+			}
+			o.trackRam[(io+0x22)&o.activeMask()] = data
+			return
+		}
+	}
+
+	if 0xFFB0 <= addr && addr <= 0xFFBF {
+		data &= 0x3F
+	} else if addr == 0xFF94 {
+		data &= 0x0F
+	}
+
 	longaddr := o.Physical(addr)
 	o.trackRam[longaddr&o.activeMask()] = data
 
-	SamPoke1(addr)
+	// Mirror CoCo-compatible text writes in Block 8 ($10400..$105FF) to $0400..$05FF when BP=0,
+	// matching GerbilGimePolicy::Write.
+	if o.isCoco3BasicMode() && 0x0400 <= addr && addr < 0x0600 && (longaddr>>13) == 8 {
+		if (o.Peek1AtBlock(0xFF98, 0x3F) & 0x80) == 0 {
+			o.trackRam[addr] = data
+		}
+	}
 }
 
 func (o *Coco3Ram) GetTrackRam() []byte {
@@ -131,7 +175,7 @@ func (o *Coco3Ram) PhysicalAddrWithMmu(logical uint) uint {
 	const IOBlock = 0x3F
 	const MmuEnableAddr = 0xFF90
 	const MmuEnableBit = 0x40
-	const FExxEnableBit = 0x40
+	const FExxEnableBit = 0x08 // MC3 (bit 3 of $FF90): constant $FE00..$FEFF page
 	const MmuTaskAddr = 0xFF91
 	const MmuTaskBit = 0x01
 
@@ -151,36 +195,27 @@ func (o *Coco3Ram) PhysicalAddrWithMmu(logical uint) uint {
 		return o.PhysicalAddrAtBlock(offset, uint(mapbyte))
 	}
 
+	if 0xFF00 <= logical {
+		return o.PhysicalAddrAtBlock(offset, IOBlock)
+	}
+
 	e := o.Peek1AtBlock(MmuEnableAddr, IOBlock)
+	if 0xFE00 <= logical && (!o.isCoco3BasicMode() || (e&FExxEnableBit) != 0) {
+		return o.PhysicalAddrAtBlock(offset, IOBlock)
+	}
+
 	enabled := (e & MmuEnableBit) != 0
 	if !enabled {
-		z := o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
-		//Logf("PhysicalAddrWithMmu(%04x) => No %06x", uint, z)
-		return z
-	}
-
-	if 0xFF00 <= logical {
-		z := o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
-		//Logf("PhysicalAddrWithMmu(%04x) => (FF) %06x", z)
-		return z
-	}
-
-	fexx := (e & FExxEnableBit) != 0
-	if fexx && 0xFE00 <= logical {
-		z := o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
-		//Logf("PhysicalAddrWithMmu(%04x) => (FE) %06x", z)
-		return z
+		return o.PhysicalAddrAtBlock(offset, DefaultBlock+slot)
 	}
 
 	task := uint(o.Peek1AtBlock(MmuTaskAddr, IOBlock) & MmuTaskBit)
 	mapbyte := o.Peek1AtBlock(0xFFA0+slot+8*task, IOBlock)
-	z := o.PhysicalAddrAtBlock(offset, uint(mapbyte))
-	//Logf("PhysicalAddrWithMmu(%04x) => %x %x %06x", task, mapbyte, z)
-	return z
+	return o.PhysicalAddrAtBlock(offset, uint(mapbyte))
 }
 
 func (o *Coco3Ram) Who() string {
-	init1 := o.PPeek1(0x3ff91)
+	init1 := o.PPeek1(o.IoPhys() + 0x91)
 	mmuTask := init1 & 1
 	if mmuTask == 0 {
 		return ""
@@ -222,7 +257,7 @@ func (o *Coco3Ram) CurrentMapString() string {
 	const IOBlock = 0x3F
 	const MmuEnableAddr = 0xFF90
 	const MmuEnableBit = 0x40
-	const FExxEnableBit = 0x40
+	const FExxEnableBit = 0x08
 	const MmuTaskAddr = 0xFF91
 	const MmuTaskBit = 0x01
 
@@ -269,7 +304,7 @@ func (o *Coco3Ram) MapAddrWithMapping(logical uint, m Mapping) uint {
 }
 
 func (o *Coco3Ram) HalfNumberToMapping(half byte) Mapping {
-	base := COCO3_IO_PHYS + 0xA0 + (8 * uint(half))
+	base := o.IoPhys() + 0xA0 + (8 * uint(half))
 	var m Mapping
 	for i := uint(0); i < 8; i++ {
 		m[i] = uint(o.PPeek1(base + i))

@@ -8,7 +8,9 @@ import (
 )
 
 type Coco1Ram struct {
-	trackRam [COCO1_RAM_SIZE]byte
+	trackRam     [COCO1_RAM_SIZE]byte
+	pia1CrbValid bool
+	pia1Crb      byte
 }
 
 func (o *Coco1Ram) GetTrackRam() []byte {
@@ -130,9 +132,27 @@ func (o *Coco1Ram) LPeek2(addr uint) uint {
 }
 
 func (o *Coco1Ram) Poke1(addr uint, data byte) {
-	o.trackRam[addr&COCO1_RAM_MASK] = data
-
+	addr &= COCO1_RAM_MASK
 	SamPoke1(addr)
+
+	if 0xFF20 <= addr && addr < 0xFF40 {
+		switch addr & 0xFFE3 {
+		case 0xFF23:
+			o.pia1Crb = data
+			o.pia1CrbValid = true
+			o.trackRam[0xFF23] = data
+			return
+		case 0xFF22:
+			if o.pia1CrbValid && (o.pia1Crb&0x04) == 0 {
+				// DDRB write while CRB bit 2 == 0: do not clobber PIA1 ORB ($FF22).
+				return
+			}
+			o.trackRam[0xFF22] = data
+			return
+		}
+	}
+
+	o.trackRam[addr] = data
 }
 
 func (o *Coco1Ram) Who() string {

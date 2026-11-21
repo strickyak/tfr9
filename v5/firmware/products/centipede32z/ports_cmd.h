@@ -195,5 +195,6 @@ static void centipede_prepare_launch_on_core0() {
     setup_centipede_rsbasic_coco2();
   }
   g_gerbil_loop_fn = loop_fn ? loop_fn : gerbil_sam64k_foreground;
+  ResetCycleStreamForNewSession();
   __dmb();
 }

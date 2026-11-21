@@ -211,9 +211,21 @@ static bool centipede_load_decb_flat(const char* path, uint16_t* out_exec, Coro*
   return got_exec || total_loaded > 0;
 }
 
+// Enable compressed write-cycle streaming for BASIC modes (so Tether's localhost:8080 screen
+// updates live through SAM/VDG and CoCo 3 GIME/MMU) unless Tcl `Config(trace_writes)` was explicitly set.
+static void enable_trace_writes_unless_overridden() {
+  const char* v = global_tcl_interp
+      ? Tcl_GetVar2(global_tcl_interp, (char*)"Config", (char*)"trace_writes", TCL_GLOBAL_ONLY)
+      : nullptr;
+  if (!v) {
+    g_config.trace_writes = true;
+  }
+}
+
 // ── 1. coco2 / rsbasic / coco2 (`gerbil_sam64k`) ──
 static void setup_centipede_rsbasic_coco2() {
   is_an_os9 = false;
+  enable_trace_writes_unless_overridden();
   IoReset();
   SamP1Bit = false;
   SamTyBit = false;
@@ -250,6 +262,7 @@ static void setup_centipede_rsbasic_coco2() {
 // ── 2. coco2 / rsbasic / coco3 (`gerbil_gime`, "Become CoCo 3") ──
 static void setup_centipede_rsbasic_coco3() {
   is_an_os9 = false;
+  enable_trace_writes_unless_overridden();
   IoReset();
   SamP1Bit = false;
   SamTyBit = false;
@@ -319,6 +332,7 @@ static void setup_centipede_rsbasic_coco3() {
 // ── 3. coco3 / rsbasic / coco3 (`gerbil_io`, real CoCo 3 motherboard) ──
 static void setup_centipede_host_coco3_rsbasic() {
   is_an_os9 = false;
+  enable_trace_writes_unless_overridden();
   IoReset();
   g_floppy_enabled = g_config.floppy_fd || g_config.floppy_pc;
   set_floppy_names();

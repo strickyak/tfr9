@@ -570,7 +570,16 @@ func main() {
 	switch *LEVEL {
 	case 0:
 		if *COCO3 {
-			the_ram = new(Coco3Ram)
+			c3 := new(Coco3Ram)
+			c3.gimeRomMode = (*BOOTMODE & 1024) == 0
+			io := c3.IoPhys()
+			task0 := [8]byte{0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F}
+			task1 := [8]byte{0x38, 0x30, 0x31, 0x32, 0x33, 0x3D, 0x35, 0x3F}
+			for s := uint(0); s < 8; s++ {
+				c3.trackRam[io+0xA0+s] = task0[s]
+				c3.trackRam[io+0xA8+s] = task1[s]
+			}
+			the_ram = c3
 		} else {
 			the_ram = new(Coco1Ram)
 		}
@@ -1277,14 +1286,49 @@ func CheckUpgradeToCoco3Ram(_addr uint, _data byte) {
 		if (_addr == 0xFF90 && (_data&0x40) != 0) || (0xFFA0 <= _addr && _addr <= 0xFFAF) {
 			log.Printf("Detected CoCo 3 MMU active (write to $%04X = $%02X): switching RAM to Coco3Ram (128K)", _addr, _data)
 			newRam := new(Coco3Ram)
+			newRam.gimeRomMode = (*LEVEL == 0 && (*BOOTMODE&1024) == 0)
 			oldRam := the_ram.GetTrackRam()
 			if len(oldRam) >= 0x10000 {
 				copy(newRam.trackRam[0x10000:0x20000], oldRam[:0x10000])
 				copy(newRam.trackRam[0x00000:0x10000], oldRam[:0x10000])
 			}
+			io := newRam.IoPhys()
+			task0 := [8]byte{0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F}
+			task1 := [8]byte{0x38, 0x30, 0x31, 0x32, 0x33, 0x3D, 0x35, 0x3F}
+			for s := uint(0); s < 8; s++ {
+				if newRam.trackRam[io+0xA0+s] == 0 {
+					newRam.trackRam[io+0xA0+s] = task0[s]
+				}
+				if newRam.trackRam[io+0xA8+s] == 0 {
+					newRam.trackRam[io+0xA8+s] = task1[s]
+				}
+			}
 			the_ram = newRam
 		}
 	}
+}
+
+func syncRamChunks(ch chan []byte, physStart int, totalBytes int) int {
+	const chunkSize = 1024
+	synced := 0
+	for off := 0; off < totalBytes; off += chunkSize {
+		reqLen := chunkSize
+		if off+reqLen > totalBytes {
+			reqLen = totalBytes - off
+		}
+		data, err := fetchRamRange(ch, physStart+off, reqLen)
+		if err != nil || len(data) == 0 {
+			break
+		}
+		if the_ram != nil {
+			raw := the_ram.GetTrackRam()
+			if raw != nil && physStart+off+len(data) <= len(raw) {
+				copy(raw[physStart+off:], data)
+			}
+		}
+		synced += len(data)
+	}
+	return synced
 }
 
 func SyncInitialRamFromPico(ch chan []byte) {
@@ -1297,33 +1341,72 @@ func SyncInitialRamFromPico(ch chan []byte) {
 		return
 	}
 
-	basePhys := int(the_ram.Physical(0))
-	raw := the_ram.GetTrackRam()
-	if raw == nil || basePhys >= len(raw) {
+	// Query live GIME/MMU/Palette/SAM/PIA1 state first so CoCo 3 MMU mappings and video registers
+	// are known even when tether attaches after CoCo 3 BASIC has already cold-booted.
+	vsResp, vsErr := PicoRpcCall(ch, "get-video-state", nil, 1500*time.Millisecond)
+	if vsErr == nil && vsResp.Status == 0 && len(vsResp.Data) >= 54 {
+		flags := vsResp.Data[0]
+		p1b := vsResp.Data[1]
+		crb := vsResp.Data[2]
+		sam := uint(vsResp.Data[3]) | (uint(vsResp.Data[4]) << 8)
+		SamBits = sam
+
+		if (flags&0x09) != 0 {
+			if _, isCoco3 := the_ram.(*Coco3Ram); !isCoco3 {
+				the_ram = new(Coco3Ram)
+			}
+		}
+
+		if c3, ok := the_ram.(*Coco3Ram); ok {
+			c3.gimeRomMode = (flags & 0x01) != 0
+			c3.mmu256K = (flags&0x10) != 0 && (flags&0x01) == 0
+			c3.pia1Crb = crb
+			c3.pia1CrbValid = true
+			io := c3.IoPhys()
+			c3.trackRam[io+0x22] = p1b
+			c3.trackRam[io+0x23] = crb
+			if (flags & 0x09) != 0 {
+				copy(c3.trackRam[io+0x90:io+0xA0], vsResp.Data[6:22])
+				copy(c3.trackRam[io+0xA0:io+0xB0], vsResp.Data[22:38])
+				copy(c3.trackRam[io+0xB0:io+0xC0], vsResp.Data[38:54])
+			}
+			log.Printf("SyncInitialRamFromPico: video-state flags=$%02x SAM=$%04x P1B=$%02x INIT0=$%02x VMODE=$%02x VRES=$%02x VOFF=$%02x%02x",
+				flags, sam, p1b, c3.trackRam[io+0x90], c3.trackRam[io+0x98], c3.trackRam[io+0x99], c3.trackRam[io+0x9D], c3.trackRam[io+0x9E])
+		} else if c1, ok := the_ram.(*Coco1Ram); ok {
+			c1.pia1Crb = crb
+			c1.pia1CrbValid = true
+			c1.trackRam[0xFF22] = p1b
+			c1.trackRam[0xFF23] = crb
+			log.Printf("SyncInitialRamFromPico: video-state flags=$%02x SAM=$%04x P1B=$%02x", flags, sam, p1b)
+		}
+	}
+
+	if c3, ok := the_ram.(*Coco3Ram); ok && !c3.mmu256K && (*BOOTMODE&1024) == 0 && *LEVEL == 0 {
+		// Sync all 128 KB of CoCo 3 physical RAM ($00000..$1FEFF: Blocks 0..15 incl. HSCREEN at $00000,
+		// WIDTH 40/80 at $0C000, WIDTH 32 / PMODE / BASIC vars at $10000..$17FFF, RAM-copied BASIC at
+		// $18000..$1FDFF, and constant $FE00..$FEFF page at $1FE00..$1FEFF; leaves $1FF00..$1FFFF I/O intact).
+		n := syncRamChunks(ch, 0x00000, 128*1024-256)
+		log.Printf("SyncInitialRamFromPico: synced %d bytes of CoCo 3 128K physical RAM", n)
 		return
 	}
 
-	// Fetch initial 8KB (covers zero-page, text screen at $0400, buffers)
-	firstChunk := 8192
-	if basePhys+firstChunk > len(raw) {
-		firstChunk = len(raw) - basePhys
+	raw := the_ram.GetTrackRam()
+	if raw == nil {
+		return
 	}
-	data, err := fetchRamRange(ch, basePhys, firstChunk)
-	if err == nil && len(data) > 0 {
-		copy(raw[basePhys:], data)
-		log.Printf("SyncInitialRamFromPico: successfully synced %d bytes from live Pico RAM", len(data))
+	basePhys := int(the_ram.Physical(0))
+	if basePhys >= len(raw) {
+		return
 	}
-
-	// Fetch remaining up to 32KB RAM (do not overwrite ROM >= 0x8000)
 	maxRam := 32 * 1024
-	if basePhys+firstChunk < maxRam && basePhys+maxRam <= len(raw) {
-		remaining := maxRam - (basePhys + firstChunk)
-		dataRest, err := fetchRamRange(ch, basePhys+firstChunk, remaining)
-		if err == nil && len(dataRest) > 0 {
-			copy(raw[basePhys+firstChunk:], dataRest)
-			log.Printf("SyncInitialRamFromPico: 32KB live RAM synced")
-		}
+	if SamModeTY() != 0 && len(raw) >= 0xFE00 && basePhys == 0 {
+		maxRam = 0xFE00
 	}
+	if basePhys+maxRam > len(raw) {
+		maxRam = len(raw) - basePhys
+	}
+	n := syncRamChunks(ch, basePhys, maxRam)
+	log.Printf("SyncInitialRamFromPico: synced %d bytes from live Pico RAM", n)
 }
 
 func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, channelFromPico chan byte, person Personality) {
@@ -1425,6 +1508,13 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 		}
 	}()
 
+	ResetDecompressCycles()
+	var prevWriteCounterLSB byte
+	var prevPushFailLSB byte
+	var numWritesInPrevPacket int
+	prevWriteCounterValid := false
+	compressStreamSynced := false
+
 	// gap := 1 // was for C_KEY, C_NOKEY
 	for {
 		select {
@@ -1460,12 +1550,6 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 			}
 
 			bogus := 0
-
-			// Write cycle diagnostic tracking
-			var prevWriteCounterLSB byte
-			var prevPushFailLSB byte
-			var numWritesInPrevPacket int
-			prevWriteCounterValid := false
 
 			var ch byte // Used by default and C_PUTCHAR
 
@@ -1605,6 +1689,9 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 
 				CheckUpgradeToCoco3Ram(_addr, _data)
 				the_ram.Poke1(_addr, _data)
+				if !*RAM_VERBOSE && (LinkSrc == nil || len(LinkSrc.Src) == 0) && len(LinkLists) == 0 && len(AbsLists) == 0 && Swi2WriteFuse == 0 {
+					return
+				}
 				gloss := "   "
 				switch _data >> 5 {
 				case 0:
@@ -1692,9 +1779,25 @@ func RunSelect(inkey chan byte, fromUSB <-chan byte, channelToPico chan []byte, 
 				HandleCCycle(pack, person, channelToPico)
 
 			case C_COMPRESSED_CYCLES: // 175
-				numCycles := int(pkt[1])
+				if len(pkt) < 4 {
+					continue
+				}
+				resetStream := (pkt[1] & 0x80) != 0
+				numCycles := int(pkt[1] & 0x7F)
 				writeCounterLSB := pkt[2]
 				pushFailLSB := pkt[3]
+				if resetStream {
+					ResetDecompressCycles()
+					prevWriteCounterValid = false
+					compressStreamSynced = true
+				} else if !compressStreamSynced && writeCounterLSB == 0 && !prevWriteCounterValid {
+					ResetDecompressCycles()
+					compressStreamSynced = true
+				}
+				if !compressStreamSynced {
+					// Discard stale pre-sync packets buffered before T_HELLO reset the compressor.
+					continue
+				}
 				if prevWriteCounterValid {
 					expected := byte(prevWriteCounterLSB + byte(numWritesInPrevPacket))
 					if writeCounterLSB != expected {

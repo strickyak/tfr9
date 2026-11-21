@@ -185,6 +185,8 @@ void IN_RAM GPoke1(uint a, byte x) {
   // Mirror low-64K writes into RP2350 `ram[]` so `tether --just-get-pmode` can capture the PMODE4 Tcl console too!
   if (a < 0x8000u) {
     ram[a] = x;
+  } else if (a >= 0xFF00u) {
+    ShadowSamAndPiaWrite(a, x);
   }
 }
 

@@ -57,21 +57,66 @@ func SamPoke1(addr uint) {
 	}
 }
 
+// coco2VideoPhysAddr returns the physical RAM address scanned by SAM/VDG or GIME in CoCo-compatible
+// mode (COCO=1). On 128K CoCo 3 BASIC, GIME always scans compatibility modes from physical Bank $38..$3B
+// ($10000..$17FFF), independent of the CPU's active MMU task registers ($FFA0..$FFAF).
+func coco2VideoPhysAddr(addr uint) uint {
+	if the_ram == nil {
+		return addr & 0xFFFF
+	}
+	if c3, ok := the_ram.(*Coco3Ram); ok && !c3.mmu256K && (*BOOTMODE&1024) == 0 && *LEVEL == 0 {
+		return (0x10000 + (addr & 0x7FFF)) & c3.RamMask()
+	}
+	if (*BOOTMODE & 1024) != 0 {
+		return addr & the_ram.RamMask()
+	}
+	return the_ram.Physical(addr & 0xFFFF)
+}
+
+func coco2VideoPeek1(addr uint) byte {
+	if the_ram == nil {
+		return 0
+	}
+	if c3, ok := the_ram.(*Coco3Ram); ok && !c3.mmu256K && (*BOOTMODE&1024) == 0 && *LEVEL == 0 {
+		return c3.PPeek1(0x10000 + (addr & 0x7FFF))
+	}
+	if (*BOOTMODE & 1024) != 0 {
+		return the_ram.PPeek1(addr)
+	}
+	return the_ram.Peek1(addr & 0xFFFF)
+}
+
+// coco3CompatPalette returns the 16 GIME palette RGB slices ($FFB0..$FFBF) when running on Coco3Ram
+// and the palette registers have been initialized by ROM/software (at least two distinct entries).
+func coco3CompatPalette() ([16][]byte, bool) {
+	var pal [16][]byte
+	c3, ok := the_ram.(*Coco3Ram)
+	if !ok {
+		return pal, false
+	}
+	io := c3.IoPhys()
+	first := c3.PPeek1(io+0xB0) & 0x3F
+	distinct := false
+	for i := uint(0); i < 16; i++ {
+		code := c3.PPeek1(io+0xB0+i) & 0x3F
+		if code != first {
+			distinct = true
+		}
+		rgba := coco3ColorToRGBA(code)
+		pal[i] = []byte{rgba.R, rgba.G, rgba.B}
+	}
+	return pal, distinct
+}
+
 func ScanTextContents() []byte {
 	if SamModeV() != 0 {
 		return nil
 	}
 
-	// base := SamScreenAddress()
 	const base = 0x0400
 	z := make([]byte, 512)
 	for i := uint(0); i < 512; i++ {
-		var ch byte
-		if (*BOOTMODE & 1024) != 0 {
-			ch = the_ram.PPeek1(base + i)
-		} else {
-			ch = the_ram.Peek1(base + i)
-		}
+		ch := coco2VideoPeek1(base + i)
 		if 0 == (ch & 0x80) {
 			a := ch & 63
 			if a < 32 {
@@ -255,7 +300,13 @@ func GetHscreenScreen() []byte {
 
 	offset1 := uint(the_ram.Peek1(0xFF9D))
 	offset0 := uint(the_ram.Peek1(0xFF9E))
-	base := ((offset1<<8 | offset0) * 8) & COCO3_RAM_MASK
+	base := ((offset1<<8 | offset0) * 8) & the_ram.RamMask()
+
+	renderHeight := height
+	if renderHeight > 200 {
+		renderHeight = 200
+	}
+	SyncLiveScreenRam(base, renderHeight*bytesPerRow)
 
 	var buf bytes.Buffer
 	buf.WriteByte(OpBitmap)
@@ -263,11 +314,11 @@ func GetHscreenScreen() []byte {
 	binary.Write(&buf, binary.LittleEndian, uint16(0)) // Y
 
 	if width == 640 {
-		// Downsample 2:1 horizontally to 320x192
+		// Downsample 2:1 horizontally to 320xrenderHeight
 		binary.Write(&buf, binary.LittleEndian, uint16(320))
-		binary.Write(&buf, binary.LittleEndian, uint16(uint16(height)))
+		binary.Write(&buf, binary.LittleEndian, uint16(uint16(renderHeight)))
 
-		for y := 0; y < height; y++ {
+		for y := 0; y < renderHeight; y++ {
 			rowOffset := base + uint(y*bytesPerRow)
 			for byteCol := 0; byteCol < bytesPerRow; byteCol += 2 {
 				if bpp == 1 {
@@ -301,11 +352,11 @@ func GetHscreenScreen() []byte {
 			}
 		}
 	} else {
-		// width == 320
+		// width <= 320
 		binary.Write(&buf, binary.LittleEndian, uint16(320))
-		binary.Write(&buf, binary.LittleEndian, uint16(uint16(height)))
+		binary.Write(&buf, binary.LittleEndian, uint16(uint16(renderHeight)))
 
-		for y := 0; y < height; y++ {
+		for y := 0; y < renderHeight; y++ {
 			rowOffset := base + uint(y*bytesPerRow)
 			pixelsWritten := 0
 			for byteCol := 0; byteCol < bytesPerRow; byteCol++ {
@@ -394,27 +445,43 @@ func GetGimeTextScreen() []byte {
 
 	offset1 := uint(the_ram.Peek1(0xFF9D))
 	offset0 := uint(the_ram.Peek1(0xFF9E))
-	base := ((offset1<<8 | offset0) * 8) & COCO3_RAM_MASK
-
-	var buf bytes.Buffer
-	buf.WriteByte(OpBitmap)
-	binary.Write(&buf, binary.LittleEndian, uint16(0))   // X
-	binary.Write(&buf, binary.LittleEndian, uint16(0))   // Y
-	binary.Write(&buf, binary.LittleEndian, uint16(320)) // W (canvas width)
-	binary.Write(&buf, binary.LittleEndian, uint16(uint16(height))) // H
+	base := ((offset1<<8 | offset0) * 8) & the_ram.RamMask()
+	hoff := the_ram.Peek1(0xFF9F)
 
 	stride := uint(1)
 	if hasAttrs {
 		stride = 2
 	}
+	rowStride := uint(cols) * stride
+	if (hoff & 0x80) != 0 {
+		rowStride = 256
+	}
+	horizOff := uint(hoff&0x7F) * 2
+
+	SyncLiveScreenRam(base, int(rowStride)*rows)
+
+	var buf bytes.Buffer
+	buf.WriteByte(OpBitmap)
+	binary.Write(&buf, binary.LittleEndian, uint16(0))              // X
+	binary.Write(&buf, binary.LittleEndian, uint16(0))              // Y
+	binary.Write(&buf, binary.LittleEndian, uint16(320))            // W (canvas width)
+	binary.Write(&buf, binary.LittleEndian, uint16(uint16(height))) // H
 
 	sampleCols := [4]int{1, 3, 5, 0}
 
 	for row := 0; row < rows; row++ {
+		rowBase := base + uint(row)*rowStride + horizOff
 		for py := 0; py < 8; py++ {
 			for col := 0; col < cols; col++ {
-				charOffset := base + uint(row*cols+col)*stride
-				ch := the_ram.PPeek1(charOffset)
+				charOffset := rowBase + uint(col)*stride
+				rawCh := the_ram.PPeek1(charOffset)
+				glyphCh := rawCh & 0x7F
+				if glyphCh == 0 {
+					glyphCh = ' '
+				} else if glyphCh < 32 {
+					// GIME character ROM maps 0x01..0x1F to lowercase/punctuation 0x61..0x7F
+					glyphCh += 0x60
+				}
 				var fg, bg []byte
 				underline := false
 				if hasAttrs {
@@ -430,7 +497,7 @@ func GetGimeTextScreen() []byte {
 				if cols == 80 {
 					// 80 columns: 4 pixels per character cell, downsampling 2:1 horizontally
 					for px := 0; px < 4; px++ {
-						if underline || getGlyphPixel(ch, sampleCols[px], py) {
+						if underline || getGlyphPixel(glyphCh, sampleCols[px], py) {
 							buf.Write(fg)
 						} else {
 							buf.Write(bg)
@@ -439,7 +506,7 @@ func GetGimeTextScreen() []byte {
 				} else {
 					// 40 columns (or <= 40): 8 pixels per character cell
 					for px := 0; px < 8; px++ {
-						if underline || getGlyphPixel(ch, px, py) {
+						if underline || getGlyphPixel(glyphCh, px, py) {
 							buf.Write(fg)
 						} else {
 							buf.Write(bg)
@@ -491,11 +558,12 @@ func SyncLiveScreenRam(addr uint, size int) {
 			liveScreenSyncMu.Unlock()
 		}()
 
+		_, isCoco3 := the_ram.(*Coco3Ram)
 		liveCoco2Mu.Lock()
 		unsupported := liveCoco2Unsupported
 		liveCoco2Mu.Unlock()
 
-		if !unsupported {
+		if !unsupported && !isCoco3 {
 			resp, err := PicoRpcCallReq(ch, RpcRequest{
 				Method: "get-coco2-video",
 				Offset: 0,
@@ -598,10 +666,29 @@ func Coco2ActiveVideoMode() (gm int, fbBytes int) {
 
 func Coco2StatusLine() string {
 	if IsGimeGraphics() {
-		return "CoCo 3 GIME Graphics"
+		vres := the_ram.Peek1(0xFF99)
+		cres := vres & 0x03
+		hres := (vres >> 2) & 0x07
+		bpp := [4]int{1, 2, 4, 4}[cres]
+		bpr := [8]int{16, 20, 32, 40, 64, 80, 128, 160}[hres]
+		w := bpr * (8 / bpp)
+		ncolors := 1 << bpp
+		base := ((uint(the_ram.Peek1(0xFF9D))<<8 | uint(the_ram.Peek1(0xFF9E))) * 8) & the_ram.RamMask()
+		return fmt.Sprintf("GIME GFX %dx192x%d @$%05X", w, ncolors, base)
 	}
 	if IsGimeText() {
-		return "CoCo 3 GIME Text"
+		vres := the_ram.Peek1(0xFF99)
+		hres := (vres >> 2) & 0x07
+		cols := 40
+		if hres == 5 || hres == 7 {
+			cols = 80
+		} else if hres == 0 || hres == 2 {
+			cols = 32
+		} else if hres == 4 || hres == 6 {
+			cols = 64
+		}
+		base := ((uint(the_ram.Peek1(0xFF9D))<<8 | uint(the_ram.Peek1(0xFF9E))) * 8) & the_ram.RamMask()
+		return fmt.Sprintf("GIME TEXT %dx24 @$%05X", cols, base)
 	}
 	fb := SamScreenAddress()
 	if fb == 0 {
@@ -610,10 +697,17 @@ func Coco2StatusLine() string {
 	p1b := Pia1OutB()
 	css := (p1b >> 3) & 1
 	gm, _ := Coco2ActiveVideoMode()
+	_, isCoco3 := the_ram.(*Coco3Ram)
 	if gm < 0 {
+		if isCoco3 {
+			return fmt.Sprintf("GIME VDG TEXT/SG4 @$%05X CSS%d", coco2VideoPhysAddr(fb), css)
+		}
 		return fmt.Sprintf("VDG TEXT/SG4  @$%04X  CSS%d", fb, css)
 	}
 	names := [8]string{"CG1 64x64x4", "RG1 128x64x2", "CG2 128x64x4", "PMODE0 128x96x2", "PMODE1 128x96x4", "PMODE2 128x192x2", "PMODE3 128x192x4", "PMODE4 256x192x2"}
+	if isCoco3 {
+		return fmt.Sprintf("GIME %s @$%05X", names[gm&7], coco2VideoPhysAddr(fb))
+	}
 	return fmt.Sprintf("VDG %s @$%04X CSS%d", names[gm&7], fb, css)
 }
 
@@ -634,9 +728,11 @@ func GetScreenForWebsocket() []byte {
 	}
 	gm, fbBytes := Coco2ActiveVideoMode()
 	p1b := Pia1OutB()
-	Logf("SAM V=%d gm=%d addr=$%04x P1B=$%02x", SamModeV(), gm, fb, p1b)
+	if *RAM_VERBOSE {
+		Logf("SAM V=%d gm=%d addr=$%04x P1B=$%02x", SamModeV(), gm, fb, p1b)
+	}
 
-	SyncLiveScreenRam(fb, fbBytes)
+	SyncLiveScreenRam(coco2VideoPhysAddr(fb), fbBytes)
 	if gm < 0 {
 		return GetCoco2TextScreen(fb, p1b)
 	}
@@ -655,23 +751,29 @@ func GetCoco2TextScreen(base uint, p1b byte) []byte {
 	binary.Write(&buf, binary.LittleEndian, uint16(outH))
 	buf.Grow(outW * outH * 3)
 
-	textBg := VdgSemiGraphicsColors[0] // green (#32C832)
+	gimePal, useGimePal := coco3CompatPalette()
+	textDark := BlackRGB
+	textBright := VdgSemiGraphicsColors[0] // green (#32C832)
 	if (p1b & 0x08) != 0 {
-		textBg = VdgSemiGraphicsColors[7] // orange CSS=1
+		textBright = VdgSemiGraphicsColors[7] // orange CSS=1
+	}
+	if useGimePal {
+		if (p1b & 0x08) != 0 {
+			textDark = gimePal[14]
+			textBright = gimePal[15]
+		} else {
+			textDark = gimePal[12]
+			textBright = gimePal[13]
+		}
 	}
 
 	for row := uint(0); row < 16; row++ {
 		for cy := uint(0); cy < 12; cy++ {
 			for col := uint(0); col < 32; col++ {
 				addr := (base + row*32 + col) & 0xFFFF
-				var ch byte
-				if (*BOOTMODE & 1024) != 0 {
-					ch = the_ram.PPeek1(addr)
-				} else {
-					ch = the_ram.Peek1(addr)
-				}
+				ch := coco2VideoPeek1(addr)
 				if (ch & 0x80) == 0 {
-					// Alphanumeric: bit 6 = 1 ($40..$7F) is normal black-on-green; bit 6 = 0 ($00..$3F) is inverted green-on-black.
+					// Alphanumeric: bit 6 = 1 ($40..$7F) is normal dark-on-bright; bit 6 = 0 ($00..$3F) is inverted bright-on-dark.
 					normalBg := (ch & 0x40) != 0
 					var glyphRow byte
 					if cy >= 3 && cy < 10 {
@@ -681,21 +783,25 @@ func GetCoco2TextScreen(base uint, p1b byte) []byte {
 						stroke := cy >= 3 && cy < 10 && ((glyphRow>>(7-cx))&1) != 0
 						if normalBg {
 							if stroke {
-								buf.Write(BlackRGB)
+								buf.Write(textDark)
 							} else {
-								buf.Write(textBg)
+								buf.Write(textBright)
 							}
 						} else {
 							if stroke {
-								buf.Write(textBg)
+								buf.Write(textBright)
 							} else {
-								buf.Write(BlackRGB)
+								buf.Write(textDark)
 							}
 						}
 					}
 				} else {
 					// Semigraphics-4: bits 6..4 select color (0..7), bits 3..0 select TL, TR, BL, BR quadrants.
 					rgb := VdgSemiGraphicsColors[(ch>>4)&7]
+					sgOff := BlackRGB
+					if useGimePal {
+						rgb = gimePal[(ch>>4)&7]
+					}
 					leftOn := (ch & 0x08) != 0
 					rightOn := (ch & 0x04) != 0
 					if cy >= 6 {
@@ -706,14 +812,14 @@ func GetCoco2TextScreen(base uint, p1b byte) []byte {
 						if leftOn {
 							buf.Write(rgb)
 						} else {
-							buf.Write(BlackRGB)
+							buf.Write(sgOff)
 						}
 					}
 					for cx := uint(0); cx < 4; cx++ {
 						if rightOn {
 							buf.Write(rgb)
 						} else {
-							buf.Write(BlackRGB)
+							buf.Write(sgOff)
 						}
 					}
 				}
@@ -760,15 +866,26 @@ func GetCoco2GraphicsScreen(base uint, gm int, p1b byte) []byte {
 	binary.Write(&buf, binary.LittleEndian, uint16(outH))
 	buf.Grow(outW * outH * 3)
 
+	gimePal, useGimePal := coco3CompatPalette()
+	bg1 := BlackRGB
 	fg1 := VdgSemiGraphicsColors[colorBias] // Green (CSS=0) or Buff (CSS=1)
+	if useGimePal {
+		if (p1b & 0x08) != 0 {
+			bg1 = gimePal[10]
+			fg1 = gimePal[11]
+		} else {
+			bg1 = gimePal[8]
+			fg1 = gimePal[9]
+		}
+	}
 	for sy := uint(0); sy < srcH; sy++ {
 		rowAddr := base + sy*bytesPerRow
 		for ry := uint(0); ry < scaleY; ry++ {
 			for bx := uint(0); bx < bytesPerRow; bx++ {
-				b := the_ram.Peek1((rowAddr + bx) & 0xFFFF)
+				b := coco2VideoPeek1((rowAddr + bx) & 0xFFFF)
 				if bpp == 1 {
 					for bit := uint(0); bit < 8; bit++ {
-						pix := BlackRGB
+						pix := bg1
 						if ((b >> (7 - bit)) & 1) != 0 {
 							pix = fg1
 						}
@@ -780,6 +897,9 @@ func GetCoco2GraphicsScreen(base uint, gm int, p1b byte) []byte {
 					for p := uint(0); p < 4; p++ {
 						cidx := colorBias + uint((b>>(6-2*p))&3)
 						pix := VdgSemiGraphicsColors[cidx]
+						if useGimePal {
+							pix = gimePal[cidx]
+						}
 						for rx := uint(0); rx < scaleX; rx++ {
 							buf.Write(pix)
 						}

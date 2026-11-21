@@ -1032,10 +1032,10 @@ func coco3ColorToRGBA(code byte) color.RGBA {
 	case 45:
 		return color.RGBA{R: 200, G: 50, B: 200, A: 255} // RGB Magenta
 	default:
-		// Fallback to RGB 2-bit per channel
-		r := uint8(((code >> 4) & 3) * 85)
-		g := uint8(((code >> 2) & 3) * 85)
-		b := uint8((code & 3) * 85)
+		// CoCo 3 GIME 6-bit RGB layout: bit5=R1, bit4=G1, bit3=B1, bit2=R0, bit1=G0, bit0=B0
+		r := uint8((((code >> 4) & 2) | ((code >> 2) & 1)) * 85)
+		g := uint8((((code >> 3) & 2) | ((code >> 1) & 1)) * 85)
+		b := uint8((((code >> 2) & 2) | (code & 1)) * 85)
 		return color.RGBA{R: r, G: g, B: b, A: 255}
 	}
 }
