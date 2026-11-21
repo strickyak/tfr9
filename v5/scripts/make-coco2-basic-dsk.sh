@@ -1,5 +1,5 @@
 #!/bin/sh
-# make-coco2-basic-dsk.sh -- build 35-track RS-DOS starter disk (HELLO.BAS, PMODE2.BAS, PMODE4.BAS).
+# make-coco2-basic-dsk.sh -- build 35-track RS-DOS starter disk (HELLO.BAS, PMODE1.BAS, PMODE2.BAS, PMODE4.BAS).
 # Usage: sh scripts/make-coco2-basic-dsk.sh [out.dsk]
 set -eu
 
@@ -15,6 +15,7 @@ SRC_DIR="$V5/os/coco2"
 if command -v decb >/dev/null 2>&1; then
   decb dskini "$OUT"
   decb copy -0 -b -t -l -r "$SRC_DIR/hello.bas"  "$OUT,HELLO.BAS"
+  decb copy -0 -b -t -l -r "$SRC_DIR/pmode1.bas" "$OUT,PMODE1.BAS"
   decb copy -0 -b -t -l -r "$SRC_DIR/pmode2.bas" "$OUT,PMODE2.BAS"
   decb copy -0 -b -t -l -r "$SRC_DIR/pmode4.bas" "$OUT,PMODE4.BAS"
 else
@@ -35,7 +36,7 @@ def gran_offset(g: int) -> int:
     return (track * 18 + (g % 2) * 9) * 256
 
 next_gran = 0
-for idx, (stem, fname) in enumerate([("hello.bas", "HELLO"), ("pmode2.bas", "PMODE2"), ("pmode4.bas", "PMODE4")]):
+for idx, (stem, fname) in enumerate([("hello.bas", "HELLO"), ("pmode1.bas", "PMODE1"), ("pmode2.bas", "PMODE2"), ("pmode4.bas", "PMODE4")]):
     raw = (src_dir / stem).read_text(encoding="ascii").replace("\r\n", "\n").replace("\n", "\r").encode("ascii")
     if not raw.endswith(b"\r"):
         raw += b"\r"
