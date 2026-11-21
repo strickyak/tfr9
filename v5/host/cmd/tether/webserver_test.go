@@ -390,6 +390,16 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 		t.Errorf("GET /session sparse: expected %q, got %q", "8090 . centipede 32z z99 .\n", wSparse.Body.String())
 	}
 
+	// 1c. Invalid `[!-~]+` values (internal spaces, control/non-ASCII bytes, ".") -> "."
+	//     while TrimSpace allows outer spaces around otherwise valid `[!-~]+` tokens.
+	setBoardLabel("p=1,b= bad board ,v=32\x7fz,id= z99 ,name=zGen\xffgar")
+	muxInvalid := newWebMux(&WebConsoleConfig{Bind: ":8080", Port: 8091, Session: "two words"})
+	wInvalid := httptest.NewRecorder()
+	muxInvalid.ServeHTTP(wInvalid, httptest.NewRequest("GET", "/session", nil))
+	if wInvalid.Body.String() != "8091 . . . z99 .\n" {
+		t.Errorf("GET /session invalid sanitization: expected %q, got %q", "8091 . . . z99 .\n", wInvalid.Body.String())
+	}
+
 	// 2. JSON GET /session.json and /session?format=json
 	setBoardLabel("p=1,b=centipede,v=32z,id=z99,name=zGengar")
 	for _, path := range []string{"/session.json", "/session?format=json"} {
@@ -409,7 +419,7 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 		}
 	}
 
-	// 3. Concurrent GET / requests do not race on a shared strings.Reader
+	// 3a. Concurrent GET / requests & `<title>` with valid Session ("BilboSession Console")
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -418,12 +428,35 @@ func TestServeSessionAndAutoPortStep(t *testing.T) {
 			rHome := httptest.NewRequest("GET", "/", nil)
 			wHome := httptest.NewRecorder()
 			mux.ServeHTTP(wHome, rHome)
-			if wHome.Code != http.StatusOK || !strings.Contains(wHome.Body.String(), "TFR9 CONSOLE") {
-				t.Errorf("concurrent GET / failed: code=%d len=%d", wHome.Code, wHome.Body.Len())
+			if wHome.Code != http.StatusOK || !strings.Contains(wHome.Body.String(), "<title>BilboSession Console</title>") {
+				t.Errorf("concurrent GET / failed: code=%d body missing '<title>BilboSession Console</title>'", wHome.Code)
 			}
 		}()
 	}
 	wg.Wait()
+
+	// 3b. Title fallback chain: Session -> name -> id -> "Console"
+	titleCases := []struct {
+		sess  string
+		label string
+		want  string
+	}{
+		{"  Frodo  ", "p=1,b=centipede,v=32z,id=z99,name=zGengar", "<title>Frodo Console</title>"},
+		{"bad sess", "p=1,b=centipede,v=32z,id=z99,name=zGengar", "<title>zGengar Console</title>"},
+		{"", "p=1,b=centipede,v=32z,id=z99,name=bad name", "<title>z99 Console</title>"},
+		{".", "p=1,b=centipede,v=32z,id=.,name=", "<title>Console</title>"},
+		{"", "", "<title>Console</title>"},
+	}
+	for _, tc := range titleCases {
+		setBoardLabel(tc.label)
+		m := newWebMux(&WebConsoleConfig{Bind: ":8080", Port: 8090, Session: tc.sess})
+		wh := httptest.NewRecorder()
+		m.ServeHTTP(wh, httptest.NewRequest("GET", "/", nil))
+		if !strings.Contains(wh.Body.String(), tc.want) {
+			t.Errorf("title for sess=%q label=%q: expected %q in HTML", tc.sess, tc.label, tc.want)
+		}
+	}
+	setBoardLabel("p=1,b=centipede,v=32z,id=z99,name=zGengar")
 
 	// 4. Auto-stepping port listener + ProbeSessions (-just-list-sessions)
 	lnForeign, err := net.Listen("tcp", "127.0.0.1:0")

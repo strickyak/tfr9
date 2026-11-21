@@ -1390,6 +1390,26 @@ func isBoardLabelQueried() bool {
 	return boardLabelQueried
 }
 
+// validLabelOrSessionValue trims outer whitespace and verifies s conforms to
+// regexp `[!-~]+` (1+ printable non-space ASCII bytes 33..126) and is not ".".
+func validLabelOrSessionValue(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) == 0 || s == "." {
+		return ".", false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '!' || s[i] > '~' {
+			return ".", false
+		}
+	}
+	return s, true
+}
+
+func dotOrValidToken(s string) string {
+	tok, _ := validLabelOrSessionValue(s)
+	return tok
+}
+
 type LabelFields struct {
 	Board   string
 	Version string
@@ -1404,14 +1424,22 @@ func parseLabelFields(label string) LabelFields {
 		return f
 	}
 	for _, seg := range strings.Split(label, ",") {
-		if v, ok := strings.CutPrefix(seg, "b="); ok && v != "" {
-			f.Board = v
-		} else if v, ok := strings.CutPrefix(seg, "v="); ok && v != "" {
-			f.Version = v
-		} else if v, ok := strings.CutPrefix(seg, "id="); ok && v != "" {
-			f.ID = v
-		} else if v, ok := strings.CutPrefix(seg, "name="); ok && v != "" {
-			f.Name = v
+		if v, ok := strings.CutPrefix(seg, "b="); ok {
+			if tok, valid := validLabelOrSessionValue(v); valid {
+				f.Board = tok
+			}
+		} else if v, ok := strings.CutPrefix(seg, "v="); ok {
+			if tok, valid := validLabelOrSessionValue(v); valid {
+				f.Version = tok
+			}
+		} else if v, ok := strings.CutPrefix(seg, "id="); ok {
+			if tok, valid := validLabelOrSessionValue(v); valid {
+				f.ID = tok
+			}
+		} else if v, ok := strings.CutPrefix(seg, "name="); ok {
+			if tok, valid := validLabelOrSessionValue(v); valid {
+				f.Name = tok
+			}
 		}
 	}
 	return f

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net"
@@ -137,12 +138,17 @@ func listenWebServer(bind string, explicit bool) (net.Listener, string, int, err
 	return listenWebServerRange(bind, explicit || bind != ":8080", "", autoPortStart, autoPortEnd)
 }
 
-func dotOrToken(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" || s == "." {
-		return "."
+func computeConsoleTitle(sess string, lf LabelFields) string {
+	if tok, ok := validLabelOrSessionValue(sess); ok {
+		return tok + " Console"
 	}
-	return strings.Join(strings.Fields(s), "_")
+	if tok, ok := validLabelOrSessionValue(lf.Name); ok {
+		return tok + " Console"
+	}
+	if tok, ok := validLabelOrSessionValue(lf.ID); ok {
+		return tok + " Console"
+	}
+	return "Console"
 }
 
 func ensureBoardLabelLoaded() {
@@ -178,7 +184,11 @@ func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 
 		ensureBoardLabelLoaded()
 
-		sess := sessionName(wcc)
+		sessTok, sessOK := validLabelOrSessionValue(sessionName(wcc))
+		sess := ""
+		if sessOK {
+			sess = sessTok
+		}
 		label := getBoardLabel()
 		lf := parseLabelFields(label)
 
@@ -235,11 +245,11 @@ func serveSession(wcc *WebConsoleConfig) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "%s %s %s %s %s %s\n",
 			portField,
-			dotOrToken(sess),
-			dotOrToken(lf.Board),
-			dotOrToken(lf.Version),
-			dotOrToken(lf.ID),
-			dotOrToken(lf.Name),
+			dotOrValidToken(sess),
+			dotOrValidToken(lf.Board),
+			dotOrValidToken(lf.Version),
+			dotOrValidToken(lf.ID),
+			dotOrValidToken(lf.Name),
 		)
 	}
 }
@@ -273,9 +283,16 @@ func ProbeSessions(host string, startPort, endPort int, timeout time.Duration) [
 				if err != nil {
 					return
 				}
-				line := strings.TrimSpace(string(body))
-				if len(strings.Fields(line)) >= 6 {
-					results[idx] = line
+				fields := strings.Fields(strings.TrimSpace(string(body)))
+				if len(fields) >= 6 {
+					results[idx] = fmt.Sprintf("%d %s %s %s %s %s",
+						p,
+						dotOrValidToken(fields[1]),
+						dotOrValidToken(fields[2]),
+						dotOrValidToken(fields[3]),
+						dotOrValidToken(fields[4]),
+						dotOrValidToken(fields[5]),
+					)
 					return
 				}
 			}
@@ -297,11 +314,11 @@ func ProbeSessions(host string, startPort, endPort int, timeout time.Duration) [
 					lf := parseLabelFields(info.Label)
 					results[idx] = fmt.Sprintf("%d %s %s %s %s %s",
 						p,
-						dotOrToken(info.Session),
-						dotOrToken(lf.Board),
-						dotOrToken(lf.Version),
-						dotOrToken(lf.ID),
-						dotOrToken(lf.Name),
+						dotOrValidToken(info.Session),
+						dotOrValidToken(lf.Board),
+						dotOrValidToken(lf.Version),
+						dotOrValidToken(lf.ID),
+						dotOrValidToken(lf.Name),
 					)
 				}
 			}
@@ -545,7 +562,10 @@ func serveHome(wcc *WebConsoleConfig) func(w http.ResponseWriter, r *http.Reques
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeContent(w, r, "index.html", StartupTime, strings.NewReader(webHTML))
+		ensureBoardLabelLoaded()
+		title := computeConsoleTitle(sessionName(wcc), parseLabelFields(getBoardLabel()))
+		pageHTML := strings.Replace(webHTML, "<title>Console</title>", "<title>"+html.EscapeString(title)+"</title>", 1)
+		http.ServeContent(w, r, "index.html", StartupTime, strings.NewReader(pageHTML))
 	}
 }
 
@@ -757,7 +777,7 @@ const CONTENT = `
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TFR9 CONSOLE</title>
+    <title>Console</title>
     <style>
         body { background-color: #222; color: #fff; font-family: monospace; display: flex; flex-direction: column; align-items: center; padding-top: 30px; }
         canvas { 
@@ -786,6 +806,15 @@ const CONTENT = `
         const socket = new WebSocket("ws://" + window.location.host + "/ws");
         socket.binaryType = "arraybuffer";
 
+        function isValidToken(s) {
+            return typeof s === "string" && s !== "." && /^[!-~]+$/.test(s);
+        }
+        function chooseTitle(sess, name, id) {
+            if (isValidToken(sess)) return sess + " Console";
+            if (isValidToken(name)) return name + " Console";
+            if (isValidToken(id)) return id + " Console";
+            return "Console";
+        }
         let sessionTag = "";
         function updateOnlineStatus() {
             if (socket.readyState === WebSocket.OPEN) {
@@ -798,11 +827,9 @@ const CONTENT = `
             .then((txt) => {
                 const parts = txt.trim().split(/\s+/);
                 if (parts.length >= 6) {
-                    const tags = parts.slice(1, 6).filter((x) => x && x !== ".");
+                    document.title = chooseTitle(parts[1], parts[5], parts[4]);
+                    const tags = parts.slice(1, 6).filter(isValidToken);
                     sessionTag = tags.join(" ");
-                    if (sessionTag) {
-                        document.title = "TFR9 CONSOLE \u2014 " + sessionTag;
-                    }
                 }
                 updateOnlineStatus();
             })
