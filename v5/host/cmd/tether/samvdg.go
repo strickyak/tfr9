@@ -329,22 +329,40 @@ func GetHscreenScreen() []byte {
 					}
 					for bit := 0; bit < 8; bit += 2 {
 						colIdx := (b0 >> (7 - bit)) & 1
+						if colIdx == 0 {
+							colIdx = (b0 >> (6 - bit)) & 1
+						}
 						buf.Write(palette[colIdx])
 					}
 					for bit := 0; bit < 8; bit += 2 {
 						colIdx := (b1 >> (7 - bit)) & 1
+						if colIdx == 0 {
+							colIdx = (b1 >> (6 - bit)) & 1
+						}
 						buf.Write(palette[colIdx])
 					}
 				} else if bpp == 2 {
 					b0 := the_ram.PPeek1(rowOffset + uint(byteCol))
 					c0 := (b0 >> 6) & 3
+					if c0 == 0 {
+						c0 = (b0 >> 4) & 3
+					}
 					c2 := (b0 >> 2) & 3
+					if c2 == 0 {
+						c2 = b0 & 3
+					}
 					buf.Write(palette[c0])
 					buf.Write(palette[c2])
 					if byteCol+1 < bytesPerRow {
 						b1 := the_ram.PPeek1(rowOffset + uint(byteCol+1))
 						c0_1 := (b1 >> 6) & 3
+						if c0_1 == 0 {
+							c0_1 = (b1 >> 4) & 3
+						}
 						c2_1 := (b1 >> 2) & 3
+						if c2_1 == 0 {
+							c2_1 = b1 & 3
+						}
 						buf.Write(palette[c0_1])
 						buf.Write(palette[c2_1])
 					}

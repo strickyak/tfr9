@@ -223,10 +223,6 @@ struct GerbilSam64kPolicy {
 struct GerbilGimePolicy {
   static constexpr bool kHasGimeTimer = true;
 
-  static FORCE_INLINE bool IsCoco3RomRead(uint abus) {
-    return g_gime_rom_mode && !SamTyBit && (0x8000u <= abus && abus < 0xFE00u);
-  }
-
   static FORCE_INLINE uint32_t TranslateAddr(uint abus) {
     if (unlikely(abus >= 0xFE00u)) {
       // Constant $FE00..$FEFF page when MC3 (g_gime_init0 bit 3) is set or in 256K OS mode.
@@ -239,16 +235,19 @@ struct GerbilGimePolicy {
 
   static FORCE_INLINE bool Read(uint, uint abus, byte& dbus) {
     if (likely(abus < 0xFF00u)) {
-      if (IsCoco3RomRead(abus)) {
-        // CoCo 3 GIME INIT0 ($FF90) bit 1 selects internal 32K ROM (1) vs 16K internal + 16K cart (0).
-        if (g_disk11_rom_enabled && (g_gime_init0 & 0x02u) == 0 && 0xC000u <= abus && abus < 0xE000u) {
-          dbus = sram_disk11_rom[abus - 0xC000u];
+      uint32_t atrans = TranslateAddr(abus);
+      if (g_gime_rom_mode && !SamTyBit && 0x18000u <= atrans && atrans < 0x1FE00u) {
+        // Real TCC1014 GIME maps ROM into physical blocks $3C..$3F ($18000..$1FDFF) when TY=0 ($FFDE),
+        // while blocks $30..$3B (e.g. Task 1 graphics block $33 at $8000 and Task 1 stack block $35 at $DFFF)
+        // read RAM! INIT0 ($FF90) bit 1 selects 32K internal ROM (1) vs 16K internal + 16K cart (0).
+        if (g_disk11_rom_enabled && (g_gime_init0 & 0x02u) == 0 && 0x1C000u <= atrans && atrans < 0x1E000u) {
+          dbus = sram_disk11_rom[atrans - 0x1C000u];
         } else {
-          dbus = sram_coco3_rom[abus - 0x8000u];
+          dbus = sram_coco3_rom[atrans - 0x18000u];
         }
         return true;
       }
-      dbus = ram[TranslateAddr(abus)];
+      dbus = ram[atrans];
       return true;
     }
 

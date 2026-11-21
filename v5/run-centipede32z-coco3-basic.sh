@@ -1,19 +1,19 @@
 #!/bin/sh
 # run-centipede32z-coco3-basic.sh - Launch 128KB CoCo 3 Super Extended Color BASIC 2.1 on Centipede 32z ("Become CoCo 3")
-# Mounts Disk 0 (/pc/f0) with OPIL (LOADER.BAS) + HELLO.BAS, PMODE1.BAS, PMODE2.BAS, PMODE4.BAS.
+# Mounts Disk 0 (/pc/f0) with OPIL (LOADER.BAS), HELLO.BAS, PMODE1/2/4.BAS, and CoCo 3 hi-res HSCREEN2.BAS & HSCREEN4.BAS.
 set -eu
 
 DIR=$(cd "$(dirname "$0")" && pwd)
 
-if [ -n "${V5_IMG_COCO2_DISK:-}" ]; then
-  DISK=$V5_IMG_COCO2_DISK
-elif [ -f "$DIR/images/coco2_basic/f0.dsk" ]; then
-  DISK="$DIR/images/coco2_basic/f0.dsk"
+if [ -n "${V5_IMG_COCO3_BASIC_DISK:-}" ]; then
+  DISK=$V5_IMG_COCO3_BASIC_DISK
+elif [ -f "$DIR/images/coco3_basic/f0.dsk" ]; then
+  DISK="$DIR/images/coco3_basic/f0.dsk"
 else
-  DISK="$DIR/build/coco2_basic.dsk"
-  if [ -f "$DIR/scripts/make-coco2-basic-dsk.sh" ]; then
-    if [ ! -f "$DISK" ] || [ -n "$(find "$DIR/os/coco2" "$DIR/scripts/make-coco2-basic-dsk.sh" -type f -newer "$DISK" 2>/dev/null)" ]; then
-      sh "$DIR/scripts/make-coco2-basic-dsk.sh" "$DISK"
+  DISK="$DIR/build/coco3_basic.dsk"
+  if [ -f "$DIR/scripts/make-coco3-basic-dsk.sh" ]; then
+    if [ ! -f "$DISK" ] || [ -n "$(find "$DIR/os/coco2" "$DIR/os/coco3" "$DIR/scripts/make-coco3-basic-dsk.sh" -type f -newer "$DISK" 2>/dev/null)" ]; then
+      sh "$DIR/scripts/make-coco3-basic-dsk.sh" "$DISK"
     fi
   fi
 fi
